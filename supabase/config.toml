@@ -1,0 +1,7 @@
+project_id = "ziattmsmiirfweiuunfo"
+
+[functions.send-quote-emails]
+verify_jwt = true
+
+[functions.verify-admin]
+verify_jwt = true
