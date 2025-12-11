@@ -22,12 +22,14 @@ import {
     XAxis,
     YAxis
 } from "recharts";
-import { format } from "date-fns";
+import { format, subDays, subMonths, isSameDay, isSameMonth, startOfMonth } from "date-fns";
 import { da } from "date-fns/locale";
 
 export function Dashboard() {
     const navigate = useNavigate();
     const settings = useShopSettings();
+    const [rawOrders, setRawOrders] = useState<any[]>([]);
+    const [timeRange, setTimeRange] = useState<'week' | 'month' | 'year'>('week');
     const [stats, setStats] = useState({
         revenue: 0,
         ordersCount: 0,
@@ -43,6 +45,54 @@ export function Dashboard() {
         if (tenantId) fetchStats(tenantId);
     }, [settings.data?.id]);
 
+    useEffect(() => {
+        if (!rawOrders.length) return;
+
+        const processData = () => {
+            const now = new Date();
+            let dataPoints: { name: string, total: number }[] = [];
+
+            if (timeRange === 'week') {
+                // Last 7 days
+                dataPoints = Array.from({ length: 7 }, (_, i) => {
+                    const d = subDays(now, 6 - i);
+                    return { date: d, name: format(d, 'EEE', { locale: da }) };
+                }).map(point => {
+                    const total = rawOrders
+                        .filter(o => isSameDay(new Date(o.created_at), point.date))
+                        .reduce((sum, o) => sum + (o.total_price || 0), 0);
+                    return { name: point.name.charAt(0).toUpperCase() + point.name.slice(1), total };
+                });
+            } else if (timeRange === 'month') {
+                // Last 30 days
+                dataPoints = Array.from({ length: 30 }, (_, i) => {
+                    const d = subDays(now, 29 - i);
+                    return { date: d, name: format(d, 'd/M', { locale: da }) };
+                }).map(point => {
+                    const total = rawOrders
+                        .filter(o => isSameDay(new Date(o.created_at), point.date))
+                        .reduce((sum, o) => sum + (o.total_price || 0), 0);
+                    return { name: point.name, total };
+                });
+            } else if (timeRange === 'year') {
+                // Last 12 months
+                dataPoints = Array.from({ length: 12 }, (_, i) => {
+                    const d = subMonths(now, 11 - i);
+                    return { date: d, name: format(d, 'MMM', { locale: da }) };
+                }).map(point => {
+                    const total = rawOrders
+                        .filter(o => isSameMonth(new Date(o.created_at), point.date))
+                        .reduce((sum, o) => sum + (o.total_price || 0), 0);
+                    return { name: point.name.charAt(0).toUpperCase() + point.name.slice(1), total };
+                });
+            }
+
+            setChartData(dataPoints);
+        };
+
+        processData();
+    }, [rawOrders, timeRange]);
+
     const fetchStats = async (tenantId: string) => {
         try {
             // 1. Pending Orders
@@ -55,10 +105,12 @@ export function Dashboard() {
             // 2. Fetch all orders for revenue and count
             const { data: orders } = await supabase
                 .from('orders' as any)
-                .select('total_price, customer_email')
+                .select('created_at, total_price, customer_email') // Added created_at
                 .eq('tenant_id', tenantId);
 
             const realOrders = (orders || []) as any[];
+            setRawOrders(realOrders); // Store raw data
+
             const totalRevenue = realOrders.reduce((sum, order) => sum + (order.total_price || 0), 0);
 
             // Distinct Customers
@@ -71,31 +123,7 @@ export function Dashboard() {
                 pendingOrders: pending || 0
             });
 
-            // 3. Prepare Chart Data (Last 7 Days)
-            const days = 7;
-            const today = new Date();
-            const last7Days = Array.from({ length: days }, (_, i) => {
-                const d = new Date();
-                d.setDate(today.getDate() - (days - 1 - i));
-                return d;
-            });
-
-            const dailyRevenue = last7Days.map(date => {
-                const dateString = date.toISOString().split('T')[0];
-                const dayName = format(date, 'EEE', { locale: da }); // e.g. "Man", "Tir"
-
-                // Sum orders for this specific date
-                const dayTotal = realOrders
-                    .filter(o => o.created_at?.startsWith(dateString))
-                    .reduce((sum, o) => sum + (o.total_price || 0), 0);
-
-                return {
-                    name: dayName.charAt(0).toUpperCase() + dayName.slice(1), // Capitalize
-                    total: dayTotal
-                };
-            });
-
-            setChartData(dailyRevenue);
+            // Initial chart data logic moved to useEffect
         } catch (e) {
             console.error("Error fetching stats", e);
         }
@@ -182,11 +210,39 @@ export function Dashboard() {
             {/* Charts & Activity */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 <Card className="col-span-4">
-                    <CardHeader>
-                        <CardTitle>Omsætning</CardTitle>
-                        <CardDescription>
-                            Dine indtjening de sidste 7 dage med sammenligning.
-                        </CardDescription>
+                    <CardHeader className="flex flex-row items-center justify-between">
+                        <div>
+                            <CardTitle>Omsætning</CardTitle>
+                            <CardDescription>
+                                Dine indtjening over tid.
+                            </CardDescription>
+                        </div>
+                        <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg">
+                            <Button
+                                variant={timeRange === 'week' ? 'secondary' : 'ghost'}
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => setTimeRange('week')}
+                            >
+                                Uge
+                            </Button>
+                            <Button
+                                variant={timeRange === 'month' ? 'secondary' : 'ghost'}
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => setTimeRange('month')}
+                            >
+                                Måned
+                            </Button>
+                            <Button
+                                variant={timeRange === 'year' ? 'secondary' : 'ghost'}
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => setTimeRange('year')}
+                            >
+                                År
+                            </Button>
+                        </div>
                     </CardHeader>
                     <CardContent className="pl-2">
                         <div className="h-[300px]">
