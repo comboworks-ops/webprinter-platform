@@ -36,7 +36,7 @@ export function ProductMarquee() {
     const displayProducts = [...products, ...products, ...products];
 
     return (
-        <div className="w-full overflow-hidden py-4 mb-12">
+        <div className="w-full overflow-hidden py-0 mb-12">
             <div className="flex animate-marquee hover:animate-marquee-pause w-max">
                 {displayProducts.map((product, index) => (
                     <div
