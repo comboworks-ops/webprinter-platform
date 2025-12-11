@@ -108,17 +108,40 @@ export function ProductPriceManager() {
 
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      // Get current user's tenant to ensure we pick the right product
+      const { data: { user } } = await supabase.auth.getUser();
+      let tenantId = null;
+
+      if (user) {
+        const { data: tenant } = await supabase
+          .from('tenants' as any)
+          .select('id')
+          .eq('owner_id', user.id)
+          .maybeSingle();
+        if (tenant) tenantId = (tenant as any).id;
+      }
+
+      let query = supabase
         .from('products')
         .select('*')
-        .eq('slug', slug)
-        .single();
+        .eq('slug', slug);
+
+      if (tenantId) {
+        query = query.eq('tenant_id', tenantId);
+      } else {
+        // Fallback for Master Admin or direct access: prefer Master Tenant
+        // checks RLS anyway
+      }
+
+      const { data, error } = await query.maybeSingle(); // Use maybeSingle to avoid 406 error if multiple
 
       if (error) throw error;
+      if (!data) throw new Error('Product not found');
+
       setProduct(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching product:', error);
-      toast.error('Kunne ikke hente produkt');
+      toast.error(`Kunne ikke hente produkt: ${error.message || 'Ukendt fejl'}`);
     }
   };
 

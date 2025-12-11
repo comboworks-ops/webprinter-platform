@@ -28,14 +28,14 @@ export default function Auth() {
     const checkUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        navigate('/');
+        navigate('/admin');
       }
     };
     checkUser();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        navigate('/');
+        navigate('/admin');
       }
     });
 
@@ -44,7 +44,7 @@ export default function Auth() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const validation = authSchema.safeParse({ email, password });
     if (!validation.success) {
       toast.error(validation.error.errors[0].message);
@@ -72,7 +72,7 @@ export default function Auth() {
         toast.success('Successfully logged in!');
       } else {
         const redirectUrl = `${window.location.origin}/`;
-        
+
         const { error } = await supabase.auth.signUp({
           email: email.trim(),
           password,

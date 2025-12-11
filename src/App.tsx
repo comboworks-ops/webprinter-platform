@@ -20,6 +20,7 @@ import MyOrders from "./pages/MyOrders";
 import MyAccount from "./pages/MyAccount";
 import MyAddresses from "./pages/MyAddresses";
 import MySettings from "./pages/MySettings";
+import TenantSignup from "./pages/TenantSignup";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -42,6 +43,7 @@ const App = () => (
             <Route path="/prisberegner" element={<Shop />} />
             <Route path="/produkt/:slug" element={<ProductPrice />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/opret-shop" element={<TenantSignup />} />
             <Route path="/profil" element={<Profile />} />
             <Route path="/mine-ordrer" element={<MyOrders />} />
             <Route path="/min-konto" element={<MyAccount />} />

@@ -28,7 +28,7 @@ const Index = () => {
             Automatiseret prissætning, ordrehåndtering og kundeportaler i ét system.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link to="/produkter">
+            <Link to="/opret-shop">
               <Button size="lg" className="h-12 px-8 text-lg gap-2">
                 Start gratis prøveperiode <ArrowRight className="w-4 h-4" />
               </Button>

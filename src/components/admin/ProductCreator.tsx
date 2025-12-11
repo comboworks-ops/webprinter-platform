@@ -26,6 +26,18 @@ export function ProductCreator() {
 
     setCreating(true);
     try {
+      // Fetch user's tenant id
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { data: tenant } = await supabase
+        .from('tenants' as any)
+        .select('id')
+        .eq('owner_id', user.id)
+        .maybeSingle();
+
+      if (!tenant) throw new Error("No tenant found for user");
+
       const { error } = await supabase
         .from('products')
         .insert({
@@ -34,7 +46,8 @@ export function ProductCreator() {
           description: formData.description,
           category: formData.category,
           pricing_type: formData.pricingType,
-          is_published: false
+          is_published: false,
+          tenant_id: (tenant as any).id
         });
 
       if (error) throw error;

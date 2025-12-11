@@ -28,6 +28,7 @@ type Product = {
   category: string;
   pricing_type: string;
   is_published: boolean;
+  is_available_to_tenants?: boolean; // New field
 };
 
 export function ProductOverview() {
@@ -35,13 +36,29 @@ export function ProductOverview() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [isMasterAdmin, setIsMasterAdmin] = useState(false);
 
   useEffect(() => {
+    checkMasterAdmin();
     fetchProducts();
     fetchUnreadMessages();
     const interval = setInterval(fetchUnreadMessages, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  const checkMasterAdmin = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      // Check if user owns the Master tenant
+      const { data } = await supabase
+        .from('tenants' as any)
+        .select('id')
+        .eq('id', '00000000-0000-0000-0000-000000000000')
+        .eq('owner_id', user.id)
+        .maybeSingle();
+      setIsMasterAdmin(!!data);
+    }
+  };
 
   const fetchUnreadMessages = async () => {
     try {
@@ -59,9 +76,22 @@ export function ProductOverview() {
 
   const fetchProducts = async () => {
     try {
+      // Get user's tenant ID
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { data: tenant } = await supabase
+        .from('tenants' as any)
+        .select('id')
+        .eq('owner_id', user.id)
+        .maybeSingle();
+
+      if (!tenant) throw new Error("No tenant found");
+
       const { data, error } = await supabase
         .from('products')
         .select('*')
+        .eq('tenant_id', (tenant as any).id)
         .order('name');
 
       if (error) throw error;
@@ -71,6 +101,23 @@ export function ProductOverview() {
       toast.error('Kunne ikke hente produkter');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleAvailableToTenants = async (id: string, currentStatus: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({ is_available_to_tenants: !currentStatus })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast.success(!currentStatus ? 'Produkt frigivet til netværk' : 'Produkt fjernet fra netværk');
+      fetchProducts();
+    } catch (error) {
+      console.error('Error toggling availability:', error);
+      toast.error('Kunne ikke opdatere status');
     }
   };
 
@@ -243,59 +290,75 @@ export function ProductOverview() {
                             <span className="font-medium">{product.name}</span> · Pristype: {getPricingTypeLabel(product.pricing_type)}
                           </p>
                         </div>
-                        <div className="flex items-center justify-between pt-2 border-t">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">
-                              {product.is_published ? 'Publiceret' : 'Kladde'}
-                            </span>
-                            <Switch
-                              checked={product.is_published}
-                              onCheckedChange={() => togglePublish(product.id, product.is_published)}
-                            />
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                duplicateProduct(product);
-                              }}
-                              title="Duplikér produkt"
-                            >
-                              <Copy className="h-4 w-4" />
-                            </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Slet produkt</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Er du sikker på at du vil slette "{product.name}"? Denne handling kan ikke fortrydes.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Annuller</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                    onClick={() => deleteProduct(product.id, product.name)}
+                        <div className="pt-2 border-t space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">
+                                {product.is_published ? 'Publiceret' : 'Kladde'}
+                              </span>
+                              <Switch
+                                checked={product.is_published}
+                                onCheckedChange={() => togglePublish(product.id, product.is_published)}
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  duplicateProduct(product);
+                                }}
+                                title="Duplikér produkt"
+                              >
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    onClick={(e) => e.stopPropagation()}
                                   >
-                                    Slet
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Slet produkt</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Er du sikker på at du vil slette "{product.name}"? Denne handling kan ikke fortrydes.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Annuller</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      onClick={() => deleteProduct(product.id, product.name)}
+                                    >
+                                      Slet
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
                           </div>
+
+                          {/* Release to Tenants Toggle */}
+                          {isMasterAdmin && (
+                            <div className="flex items-center justify-between pt-2 border-t border-dashed">
+                              <span className="text-xs font-medium text-blue-600">
+                                {product.is_available_to_tenants ? 'Frigivet til lejere' : 'Privat (Master)'}
+                              </span>
+                              <Switch
+                                className="data-[state=checked]:bg-blue-600"
+                                checked={!!product.is_available_to_tenants}
+                                onCheckedChange={() => toggleAvailableToTenants(product.id, !!product.is_available_to_tenants)}
+                              />
+                            </div>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
@@ -329,59 +392,75 @@ export function ProductOverview() {
                             <span className="font-medium">{product.name}</span> · Pristype: {getPricingTypeLabel(product.pricing_type)}
                           </p>
                         </div>
-                        <div className="flex items-center justify-between pt-2 border-t">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">
-                              {product.is_published ? 'Publiceret' : 'Kladde'}
-                            </span>
-                            <Switch
-                              checked={product.is_published}
-                              onCheckedChange={() => togglePublish(product.id, product.is_published)}
-                            />
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                duplicateProduct(product);
-                              }}
-                              title="Duplikér produkt"
-                            >
-                              <Copy className="h-4 w-4" />
-                            </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Slet produkt</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Er du sikker på at du vil slette "{product.name}"? Denne handling kan ikke fortrydes.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Annuller</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                    onClick={() => deleteProduct(product.id, product.name)}
+                        <div className="pt-2 border-t space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">
+                                {product.is_published ? 'Publiceret' : 'Kladde'}
+                              </span>
+                              <Switch
+                                checked={product.is_published}
+                                onCheckedChange={() => togglePublish(product.id, product.is_published)}
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  duplicateProduct(product);
+                                }}
+                                title="Duplikér produkt"
+                              >
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    onClick={(e) => e.stopPropagation()}
                                   >
-                                    Slet
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Slet produkt</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Er du sikker på at du vil slette "{product.name}"? Denne handling kan ikke fortrydes.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Annuller</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      onClick={() => deleteProduct(product.id, product.name)}
+                                    >
+                                      Slet
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
                           </div>
+
+                          {/* Release to Tenants Toggle */}
+                          {isMasterAdmin && (
+                            <div className="flex items-center justify-between pt-2 border-t border-dashed">
+                              <span className="text-xs font-medium text-blue-600">
+                                {product.is_available_to_tenants ? 'Frigivet til lejere' : 'Privat (Master)'}
+                              </span>
+                              <Switch
+                                className="data-[state=checked]:bg-blue-600"
+                                checked={!!product.is_available_to_tenants}
+                                onCheckedChange={() => toggleAvailableToTenants(product.id, !!product.is_available_to_tenants)}
+                              />
+                            </div>
+                          )}
                         </div>
                       </CardContent>
                     </Card>

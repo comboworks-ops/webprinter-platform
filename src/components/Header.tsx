@@ -27,6 +27,7 @@ const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [allProducts, setAllProducts] = useState<DbProduct[]>([]);
+  const [tenantName, setTenantName] = useState<string>("Webprinter.dk");
   const location = useLocation();
   const { toast } = useToast();
   const { isAdmin } = useUserRole();
@@ -39,21 +40,64 @@ const Header = () => {
     { label: t("about"), path: "/om-os" },
   ];
 
+  // Fetch tenant name for logged-in user
+  useEffect(() => {
+    async function fetchTenantName() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setTenantName("Webprinter.dk");
+        return;
+      }
+
+      // Get tenant owned by this user
+      const { data } = await supabase
+        .from('tenants' as any)
+        .select('name')
+        .eq('owner_id', user.id)
+        .maybeSingle();
+
+      if ((data as any)?.name) {
+        setTenantName((data as any).name);
+      } else {
+        setTenantName("Webprinter.dk");
+      }
+    }
+    fetchTenantName();
+  }, [user]);
+
   useEffect(() => {
     // Fetch published products from database
     async function fetchProducts() {
+      let tenantId = '00000000-0000-0000-0000-000000000000'; // Default to Master
+
+      // If user is logged in, try to get their tenant ID
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: tenant } = await supabase
+          .from('tenants' as any)
+          .select('id')
+          .eq('owner_id', user.id)
+          .maybeSingle();
+
+        if (tenant) {
+          tenantId = (tenant as any).id;
+        }
+      }
+
       const { data } = await supabase
         .from('products')
         .select('id, name, slug, image_url, category')
         .eq('is_published', true)
+        .eq('tenant_id', tenantId) // Filter by determined tenant ID
         .order('category', { ascending: true })
         .order('name');
+
       if (data) {
         setAllProducts(data as DbProduct[]);
       }
     }
     fetchProducts();
-  }, []);
+  }, [user]); // Re-run when user changes
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -91,7 +135,7 @@ const Header = () => {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link to="/" className="text-xl md:text-2xl font-heading font-bold text-primary hover:opacity-90 transition-opacity">
-            Webprinter.dk
+            {tenantName}
           </Link>
 
           {/* Desktop Navigation */}
