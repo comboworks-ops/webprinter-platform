@@ -213,3 +213,5 @@ export function BrandingSettings() {
         </div>
     );
 }
+
+export default BrandingSettings;
