@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 
 import { SEO } from "@/components/SEO";
 import { OrganizationSchema } from "@/components/ProductSchema";
+import { ProductMarquee } from "@/components/ProductMarquee";
 
 const Index = () => {
   return (
@@ -38,6 +39,10 @@ const Index = () => {
                 Se prisberegnere
               </Button>
             </Link>
+          </div>
+
+          <div className="mt-16">
+            <ProductMarquee />
           </div>
         </div>
 
