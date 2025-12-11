@@ -114,9 +114,11 @@ export function Dashboard() {
                         <CreditCard className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">128.500 kr.</div>
+                        <div className="text-2xl font-bold">
+                            {new Intl.NumberFormat('da-DK', { style: 'currency', currency: 'DKK' }).format(stats.revenue)}
+                        </div>
                         <p className="text-xs text-muted-foreground">
-                            +20.1% fra sidste måned
+                            Total omsætning i shoppen
                         </p>
                     </CardContent>
                 </Card>
@@ -126,9 +128,9 @@ export function Dashboard() {
                         <ShoppingBag className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">+{stats.ordersCount}</div>
+                        <div className="text-2xl font-bold">{stats.ordersCount}</div>
                         <p className="text-xs text-muted-foreground">
-                            +12 siden i går
+                            Ordrer totalt
                         </p>
                     </CardContent>
                 </Card>
@@ -138,9 +140,9 @@ export function Dashboard() {
                         <Users className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">+{stats.customersCount}</div>
+                        <div className="text-2xl font-bold">{stats.customersCount}</div>
                         <p className="text-xs text-muted-foreground">
-                            +2 nye kunder i dag
+                            Unikke kunder
                         </p>
                     </CardContent>
                 </Card>
