@@ -16,7 +16,7 @@ const Index = () => {
       <Header />
 
       {/* Hero Section */}
-      <section className="relative flex-1 flex items-center justify-center bg-gradient-to-br from-primary/5 to-secondary/10 pt-16 pb-20 overflow-hidden">
+      <section className="relative flex-1 flex items-center justify-center bg-gradient-to-br from-primary/5 to-secondary/10 pt-16 pb-12 overflow-hidden">
         <div className="container px-4 mx-auto text-center z-10">
           <span className="inline-block py-1 px-3 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4">
             Den komplette løsning til dit trykkeri
@@ -41,7 +41,7 @@ const Index = () => {
             </Link>
           </div>
 
-          <div className="mt-2">
+          <div className="mt-12">
             <ProductMarquee />
           </div>
         </div>
