@@ -268,7 +268,15 @@ export function Dashboard() {
                                         dy={10} // Push text down a bit
                                         interval={timeRange === 'month' ? 3 : 0} // Less crowded month view
                                     />
-                                    <YAxis stroke="#888888" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `${value} kr`} />
+                                    <YAxis
+                                        stroke="#888888"
+                                        fontSize={12}
+                                        tickLine={false}
+                                        axisLine={false}
+                                        tickFormatter={(value) => `${value} kr`}
+                                        domain={[0, (dataMax: number) => (dataMax === 0 || dataMax < 5000) ? 5000 : 'auto']}
+                                        allowDataOverflow={false}
+                                    />
                                     <Tooltip
                                         formatter={(value: number) => [`${value} kr`, 'Omsætning']}
                                         labelStyle={{ color: '#000' }}
