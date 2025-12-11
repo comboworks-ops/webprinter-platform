@@ -220,27 +220,7 @@ export function ProductOverview() {
           <p className="text-muted-foreground">Administrer alle produkter og deres priser</p>
         </div>
         <div className="flex items-center gap-3">
-          {/* iOS-style Message Notification Icon */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                to="/admin/beskeder"
-                className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-green-400 to-green-500 text-white hover:from-green-500 hover:to-green-600 hover:shadow-lg hover:shadow-green-500/30 hover:scale-105 transition-all duration-200"
-              >
-                <MessageCircle className="h-5 w-5" />
-                {unreadMessageCount > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 flex items-center justify-center min-w-[20px] h-[20px] px-1 rounded-full bg-red-500 text-[11px] font-bold text-white shadow-md border-2 border-white">
-                    {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
-                  </span>
-                )}
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent className="bg-gray-900 text-white border-0">
-              <p className="font-medium">
-                {unreadMessageCount > 0 ? `${unreadMessageCount} ulæste beskeder` : 'Beskeder'}
-              </p>
-            </TooltipContent>
-          </Tooltip>
+
 
           <VisitorStatsWidget />
           <Button onClick={() => navigate("/admin/create-product")}>
