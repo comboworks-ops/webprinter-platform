@@ -41,20 +41,20 @@ export function ProductMarquee() {
                 {displayProducts.map((product, index) => (
                     <div
                         key={`${product.id}-${index}`}
-                        className="flex flex-col items-center justify-center mx-8 w-32 group"
+                        className="flex flex-col items-center justify-center mx-12 w-40 group"
                     >
-                        <div className="w-16 h-16 mb-4 rounded-xl bg-white shadow-sm border border-border flex items-center justify-center overflow-hidden transition-transform group-hover:scale-110 duration-300">
+                        <div className="w-24 h-24 mb-6 flex items-center justify-center transition-transform group-hover:scale-110 duration-300">
                             {product.image_url ? (
                                 <img
                                     src={product.image_url}
                                     alt={product.name}
-                                    className="w-full h-full object-cover"
+                                    className="w-full h-full object-contain drop-shadow-sm"
                                 />
                             ) : (
-                                <Package className="w-8 h-8 text-primary/40" />
+                                <Package className="w-16 h-16 text-primary/40" />
                             )}
                         </div>
-                        <span className="text-sm font-medium text-muted-foreground whitespace-nowrap group-hover:text-primary transition-colors">
+                        <span className="text-lg font-medium text-muted-foreground whitespace-nowrap group-hover:text-primary transition-colors">
                             {product.name}
                         </span>
                     </div>
