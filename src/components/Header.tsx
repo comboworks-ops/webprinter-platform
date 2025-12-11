@@ -103,8 +103,16 @@ const Header = () => {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link to="/" className="text-xl md:text-2xl font-heading font-bold text-primary hover:opacity-90 transition-opacity">
-            {tenantName}
+          <Link to="/" className="flex items-center gap-2 text-xl md:text-2xl font-heading font-bold text-primary hover:opacity-90 transition-opacity">
+            {settings.data?.branding?.logo_url ? (
+              <img
+                src={settings.data.branding.logo_url}
+                alt={tenantName}
+                className="h-10 w-auto object-contain"
+              />
+            ) : (
+              tenantName
+            )}
           </Link>
 
           {/* Desktop Navigation */}
