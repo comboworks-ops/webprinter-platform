@@ -41,7 +41,7 @@ const Index = () => {
             </Link>
           </div>
 
-          <div className="mt-8">
+          <div className="mt-4">
             <ProductMarquee />
           </div>
         </div>
