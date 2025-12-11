@@ -47,7 +47,7 @@ export function Dashboard() {
     }, [settings.data?.id]);
 
     useEffect(() => {
-        if (!rawOrders.length) return;
+        // if (!rawOrders.length) return; // Removed this to allow rendering chart even with 0 orders
 
         const processData = () => {
             const now = new Date();
