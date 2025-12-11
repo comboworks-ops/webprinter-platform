@@ -59,13 +59,22 @@ export function Dashboard() {
                 .eq('tenant_id', tenantId)
                 .eq('status', 'pending');
 
-            // 2. Total Orders (Mocked as real orders might be empty for new tenants)
-            // Implementation: select count(*) from orders where tenant_id = ...
+            // 2. Fetch all orders for revenue and count
+            const { data: orders } = await supabase
+                .from('orders' as any)
+                .select('total_price, customer_email')
+                .eq('tenant_id', tenantId);
+
+            const realOrders = (orders || []) as any[];
+            const totalRevenue = realOrders.reduce((sum, order) => sum + (order.total_price || 0), 0);
+
+            // Distinct Customers
+            const uniqueCustomers = new Set(realOrders.map(o => o.customer_email)).size;
 
             setStats({
-                revenue: 12500, // Mocked for design
-                ordersCount: 45, // Mocked
-                customersCount: 12, // Mocked
+                revenue: totalRevenue,
+                ordersCount: realOrders.length,
+                customersCount: uniqueCustomers,
                 pendingOrders: pending || 0
             });
         } catch (e) {
