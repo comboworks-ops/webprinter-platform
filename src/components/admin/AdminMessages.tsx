@@ -107,10 +107,22 @@ export default function AdminMessages() {
     const sendSupportMessage = async () => {
         if (!supportInput.trim()) return;
         setSending(true);
+        console.log("Attempting to send support message...");
         try {
             const { data: { user } } = await supabase.auth.getUser();
             // Determine tenant_id target
             let targetTenantId = myTenantId;
+
+            console.log("User:", user?.id);
+            console.log("Target Tenant ID:", targetTenantId);
+            console.log("Is Master:", isMaster);
+
+            if (!targetTenantId) {
+                console.error("No Tenant ID found for sender!");
+                toast.error("Fejl: Kunne ikke identificere din shop.");
+                setSending(false);
+                return;
+            }
 
             // If master, we need to know WHICH tenant we are replying to. 
             // Ideally we select a conversation first. 
@@ -120,17 +132,24 @@ export default function AdminMessages() {
             // Refined Logic for Master:
             // We need to group platform messages by Tenant ID just like orders.
 
-            await supabase.from('platform_messages' as any).insert({
+            const { error } = await supabase.from('platform_messages' as any).insert({
                 tenant_id: targetTenantId, // TODO: Fix for master reply
                 content: supportInput,
                 sender_role: isMaster ? 'master' : 'tenant',
                 sender_user_id: user?.id
             });
 
+            if (error) {
+                console.error("Supabase Insert Error:", error);
+                throw error;
+            }
+
+            toast.success('Besked sendt til support!');
             setSupportInput('');
             fetchPlatformMessages();
-        } catch (e) {
-            toast.error('Kunne ikke sende besked');
+        } catch (e: any) {
+            console.error("Catch Error:", e);
+            toast.error(`Kunne ikke sende besked: ${e.message || 'Ukendt fejl'}`);
         } finally {
             setSending(false);
         }
