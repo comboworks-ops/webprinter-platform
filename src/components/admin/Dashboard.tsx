@@ -78,7 +78,7 @@ export function Dashboard() {
                 // Last 12 months
                 dataPoints = Array.from({ length: 12 }, (_, i) => {
                     const d = subMonths(now, 11 - i);
-                    return { date: d, name: format(d, 'MMM', { locale: da }) };
+                    return { date: d, name: format(d, 'MMM yy', { locale: da }) };
                 }).map(point => {
                     const total = rawOrders
                         .filter(o => isSameMonth(new Date(o.created_at), point.date))
@@ -255,9 +255,22 @@ export function Dashboard() {
                                             <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                                         </linearGradient>
                                     </defs>
-                                    <XAxis dataKey="name" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
+                                    <XAxis
+                                        dataKey="name"
+                                        stroke="#888888"
+                                        fontSize={12}
+                                        tickLine={false}
+                                        axisLine={false}
+                                        angle={-45}
+                                        textAnchor="end"
+                                        height={60}
+                                        interval={timeRange === 'month' ? 2 : 0}
+                                    />
                                     <YAxis stroke="#888888" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `${value} kr`} />
-                                    <Tooltip />
+                                    <Tooltip
+                                        formatter={(value: number) => [`${value} kr`, 'Omsætning']}
+                                        labelStyle={{ color: '#000' }}
+                                    />
                                     <Area type="monotone" dataKey="total" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorTotal)" />
                                 </AreaChart>
                             </ResponsiveContainer>
