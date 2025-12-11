@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Search, Save, Globe, Loader2 } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 interface PageSeo {
     id: string;
@@ -16,6 +17,40 @@ interface PageSeo {
     meta_description: string;
     og_image_url: string;
 }
+
+const PageListTable = ({ items, editingId, onEdit }: {
+    items: PageSeo[],
+    editingId: string | null,
+    onEdit: (p: PageSeo) => void
+}) => {
+    if (items.length === 0) {
+        return <div className="p-4 text-center text-muted-foreground text-sm">Ingen sider fundet i denne kategori.</div>;
+    }
+    return (
+        <Table>
+            <TableHeader>
+                <TableRow>
+                    <TableHead>URL</TableHead>
+                    <TableHead>Titel</TableHead>
+                    <TableHead className="w-[100px]">Handling</TableHead>
+                </TableRow>
+            </TableHeader>
+            <TableBody>
+                {items.map((page) => (
+                    <TableRow key={page.id} className={editingId === page.id ? "bg-muted/50" : ""}>
+                        <TableCell className="font-mono text-sm">{page.slug}</TableCell>
+                        <TableCell className="max-w-[300px] truncate">{page.title}</TableCell>
+                        <TableCell>
+                            <Button variant="outline" size="sm" onClick={() => onEdit(page)}>
+                                Rediger
+                            </Button>
+                        </TableCell>
+                    </TableRow>
+                ))}
+            </TableBody>
+        </Table>
+    );
+};
 
 export function SeoManager() {
     const [pages, setPages] = useState<PageSeo[]>([]);
@@ -206,6 +241,10 @@ export function SeoManager() {
         }
     };
 
+    // Filter pages logic
+    const standardPages = pages.filter(p => !p.slug.startsWith('/produkt/'));
+    const productPages = pages.filter(p => p.slug.startsWith('/produkt/'));
+
     return (
         <div className="space-y-6">
             {/* Breadcrumb Navigation */}
@@ -232,48 +271,58 @@ export function SeoManager() {
                 <div className="lg:col-span-2">
                     <Card>
                         <CardHeader>
-                            <CardTitle>Sider</CardTitle>
+                            <CardTitle>Sider & Produkter</CardTitle>
+                            <CardDescription>
+                                Vælg en kategori for at se sider.
+                            </CardDescription>
                         </CardHeader>
-                        <CardContent>
+                        <CardContent className="p-0">
                             {loading ? (
-                                <div className="flex justify-center p-4">
+                                <div className="flex justify-center p-8">
                                     <Loader2 className="animate-spin h-6 w-6" />
                                 </div>
                             ) : (
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>URL</TableHead>
-                                            <TableHead>Titel</TableHead>
-                                            <TableHead className="w-[100px]">Handling</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {pages.map((page) => (
-                                            <TableRow key={page.id} className={editingId === page.id ? "bg-muted/50" : ""}>
-                                                <TableCell className="font-mono text-sm">{page.slug}</TableCell>
-                                                <TableCell className="max-w-[300px] truncate">{page.title}</TableCell>
-                                                <TableCell>
-                                                    <Button variant="outline" size="sm" onClick={() => handleEdit(page)}>
-                                                        Rediger
-                                                    </Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                        {pages.length === 0 && (
-                                            <TableRow>
-                                                <TableCell colSpan={3} className="text-center py-4 text-muted-foreground">
-                                                    Ingen sider fundet. Opret en ny for at starte.
-                                                </TableCell>
-                                            </TableRow>
-                                        )}
-                                    </TableBody>
-                                </Table>
+                                <Accordion type="single" collapsible defaultValue="pages" className="w-full">
+                                    <AccordionItem value="pages" className="border-b">
+                                        <AccordionTrigger className="px-6 hover:no-underline hover:bg-muted/50">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-medium">📄 Standard Sider</span>
+                                                <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                                                    {standardPages.length}
+                                                </span>
+                                            </div>
+                                        </AccordionTrigger>
+                                        <AccordionContent>
+                                            <PageListTable
+                                                items={standardPages}
+                                                editingId={editingId}
+                                                onEdit={handleEdit}
+                                            />
+                                        </AccordionContent>
+                                    </AccordionItem>
+                                    <AccordionItem value="products" className="border-b-0">
+                                        <AccordionTrigger className="px-6 hover:no-underline hover:bg-muted/50">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-medium">📦 Produkter</span>
+                                                <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                                                    {productPages.length}
+                                                </span>
+                                            </div>
+                                        </AccordionTrigger>
+                                        <AccordionContent>
+                                            <PageListTable
+                                                items={productPages}
+                                                editingId={editingId}
+                                                onEdit={handleEdit}
+                                            />
+                                        </AccordionContent>
+                                    </AccordionItem>
+                                </Accordion>
                             )}
                         </CardContent>
                     </Card>
                 </div>
-
+                {/* Editor Column ... */}
                 <div>
                     {editingId ? (
                         <Card className="sticky top-6 border-primary/20 shadow-lg">
