@@ -36,14 +36,14 @@ export function ProductMarquee() {
     const displayProducts = [...products, ...products, ...products];
 
     return (
-        <div className="w-full overflow-hidden bg-background/50 border-y border-border/50 py-8 mb-12 backdrop-blur-sm">
+        <div className="w-full overflow-hidden py-4 mb-12">
             <div className="flex animate-marquee hover:animate-marquee-pause w-max">
                 {displayProducts.map((product, index) => (
                     <div
                         key={`${product.id}-${index}`}
                         className="flex flex-col items-center justify-center mx-12 w-40 group"
                     >
-                        <div className="w-24 h-24 mb-6 flex items-center justify-center transition-transform group-hover:scale-110 duration-300">
+                        <div className="w-24 h-24 mb-2 flex items-center justify-center transition-transform group-hover:scale-110 duration-300">
                             {product.image_url ? (
                                 <img
                                     src={product.image_url}

@@ -16,15 +16,15 @@ const Index = () => {
       <Header />
 
       {/* Hero Section */}
-      <section className="relative flex-1 flex items-center justify-center bg-gradient-to-br from-primary/5 to-secondary/10 pt-20 pb-32 overflow-hidden">
+      <section className="relative flex-1 flex items-center justify-center bg-gradient-to-br from-primary/5 to-secondary/10 pt-16 pb-20 overflow-hidden">
         <div className="container px-4 mx-auto text-center z-10">
-          <span className="inline-block py-1 px-3 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6">
+          <span className="inline-block py-1 px-3 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4">
             Den komplette løsning til dit trykkeri
           </span>
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-8 bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600">
+          <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600">
             Webprinter Platform
           </h1>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-8">
             Gør din trykkeri-ekspertise til en skalerbar online forretning.
             Automatiseret prissætning, ordrehåndtering og kundeportaler i ét system.
           </p>
@@ -41,7 +41,7 @@ const Index = () => {
             </Link>
           </div>
 
-          <div className="mt-16">
+          <div className="mt-10">
             <ProductMarquee />
           </div>
         </div>
