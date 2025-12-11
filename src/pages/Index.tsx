@@ -8,43 +8,10 @@ import { SEO } from "@/components/SEO";
 import { OrganizationSchema } from "@/components/ProductSchema";
 import { ProductMarquee } from "@/components/ProductMarquee";
 
-import { useShopSettings } from "@/hooks/useShopSettings";
-
-// Helper to convert hex to HSL numbers (e.g. "0 0% 100%")
-function hexToHsl(hex: string) {
-  let c = hex.substring(1).split('');
-  if (c.length === 3) c = [c[0], c[0], c[1], c[1], c[2], c[2]];
-  const r = parseInt(c.slice(0, 2).join(''), 16) / 255;
-  const g = parseInt(c.slice(2, 4).join(''), 16) / 255;
-  const b = parseInt(c.slice(4, 6).join(''), 16) / 255;
-
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h = 0, s = 0, l = (max + min) / 2;
-
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-      case g: h = (b - r) / d + 2; break;
-      case b: h = (r - g) / d + 4; break;
-    }
-    h /= 6;
-  }
-  return `${h * 360} ${s * 100}% ${l * 100}%`;
-}
 
 const Index = () => {
-  const { data: settings } = useShopSettings();
-  const primaryColor = settings?.branding?.primary_color;
-
-  const cssVars = primaryColor ? {
-    '--primary': hexToHsl(primaryColor),
-    '--ring': hexToHsl(primaryColor),
-  } as React.CSSProperties : {};
-
   return (
-    <div className="min-h-screen flex flex-col font-sans" style={cssVars}>
+    <div className="min-h-screen flex flex-col font-sans">
       <SEO />
       <OrganizationSchema />
       <Header />

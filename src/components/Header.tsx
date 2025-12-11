@@ -15,6 +15,7 @@ import { useUserRole } from "@/hooks/useUserRole";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { WebprinterLogo } from "@/components/WebprinterLogo";
 
 interface DbProduct {
   id: string;
@@ -103,15 +104,19 @@ const Header = () => {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 text-xl md:text-2xl font-heading font-bold text-primary hover:opacity-90 transition-opacity">
-            {settings.data?.branding?.logo_url ? (
+          <Link to="/" className="hover:opacity-90 transition-opacity">
+            {settings.data?.id === '00000000-0000-0000-0000-000000000000' ? (
+              <WebprinterLogo />
+            ) : settings.data?.branding?.logo_url ? (
               <img
                 src={settings.data.branding.logo_url}
                 alt={tenantName}
                 className="h-10 w-auto object-contain"
               />
             ) : (
-              tenantName
+              <span className="text-xl md:text-2xl font-heading font-bold text-primary">
+                {tenantName}
+              </span>
             )}
           </Link>
 
