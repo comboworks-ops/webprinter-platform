@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Search, Save, Globe, Loader2 } from "lucide-react";
+import { Search, Save, Globe, Loader2, FileText, Package } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 interface PageSeo {
@@ -282,14 +282,17 @@ export function SeoManager() {
                                     <Loader2 className="animate-spin h-6 w-6" />
                                 </div>
                             ) : (
-                                <Accordion type="single" collapsible defaultValue="pages" className="w-full">
+                                <Accordion type="single" collapsible className="w-full">
                                     <AccordionItem value="pages" className="border-b">
-                                        <AccordionTrigger className="px-6 hover:no-underline hover:bg-muted/50">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-sm font-medium">📄 Standard Sider</span>
-                                                <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                                                    {standardPages.length}
-                                                </span>
+                                        <AccordionTrigger className="px-6 py-4 hover:no-underline data-[state=open]:bg-blue-50/50 bg-blue-50/30">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-blue-100 text-blue-600 rounded-md">
+                                                    <FileText className="h-4 w-4" />
+                                                </div>
+                                                <div className="flex flex-col text-left">
+                                                    <span className="text-sm font-semibold text-foreground">Standard Sider</span>
+                                                    <span className="text-xs text-muted-foreground">{standardPages.length} sider fundet</span>
+                                                </div>
                                             </div>
                                         </AccordionTrigger>
                                         <AccordionContent>
@@ -301,12 +304,15 @@ export function SeoManager() {
                                         </AccordionContent>
                                     </AccordionItem>
                                     <AccordionItem value="products" className="border-b-0">
-                                        <AccordionTrigger className="px-6 hover:no-underline hover:bg-muted/50">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-sm font-medium">📦 Produkter</span>
-                                                <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                                                    {productPages.length}
-                                                </span>
+                                        <AccordionTrigger className="px-6 py-4 hover:no-underline data-[state=open]:bg-orange-50/50 bg-orange-50/30">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-orange-100 text-orange-600 rounded-md">
+                                                    <Package className="h-4 w-4" />
+                                                </div>
+                                                <div className="flex flex-col text-left">
+                                                    <span className="text-sm font-semibold text-foreground">Produkter</span>
+                                                    <span className="text-xs text-muted-foreground">{productPages.length} produkter fundet</span>
+                                                </div>
                                             </div>
                                         </AccordionTrigger>
                                         <AccordionContent>
