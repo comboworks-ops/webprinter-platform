@@ -22,6 +22,8 @@ import {
     XAxis,
     YAxis
 } from "recharts";
+import { format } from "date-fns";
+import { da } from "date-fns/locale";
 
 export function Dashboard() {
     const navigate = useNavigate();
@@ -33,16 +35,7 @@ export function Dashboard() {
         pendingOrders: 0
     });
 
-    // Mock data for the chart until we have real analytics
-    const chartData = [
-        { name: "Man", total: 1200 },
-        { name: "Tir", total: 2100 },
-        { name: "Ons", total: 1800 },
-        { name: "Tor", total: 2400 },
-        { name: "Fre", total: 3200 },
-        { name: "Lør", total: 1500 },
-        { name: "Søn", total: 1900 },
-    ];
+    const [chartData, setChartData] = useState<{ name: string, total: number }[]>([]);
 
     useEffect(() => {
         // Determine tenant ID to fetch stats for
@@ -77,6 +70,32 @@ export function Dashboard() {
                 customersCount: uniqueCustomers,
                 pendingOrders: pending || 0
             });
+
+            // 3. Prepare Chart Data (Last 7 Days)
+            const days = 7;
+            const today = new Date();
+            const last7Days = Array.from({ length: days }, (_, i) => {
+                const d = new Date();
+                d.setDate(today.getDate() - (days - 1 - i));
+                return d;
+            });
+
+            const dailyRevenue = last7Days.map(date => {
+                const dateString = date.toISOString().split('T')[0];
+                const dayName = format(date, 'EEE', { locale: da }); // e.g. "Man", "Tir"
+
+                // Sum orders for this specific date
+                const dayTotal = realOrders
+                    .filter(o => o.created_at?.startsWith(dateString))
+                    .reduce((sum, o) => sum + (o.total_price || 0), 0);
+
+                return {
+                    name: dayName.charAt(0).toUpperCase() + dayName.slice(1), // Capitalize
+                    total: dayTotal
+                };
+            });
+
+            setChartData(dailyRevenue);
         } catch (e) {
             console.error("Error fetching stats", e);
         }
