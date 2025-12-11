@@ -55,10 +55,42 @@ export default function AdminMessages() {
         let interval: NodeJS.Timeout;
         if (activeTab === 'support') {
             fetchPlatformMessages();
-            interval = setInterval(fetchPlatformMessages, 5000); // Poll every 5s for chat feeling
+            markSupportMessagesAsRead();
+            interval = setInterval(() => {
+                fetchPlatformMessages();
+                // Also mark as read periodically if staying on the tab
+                markSupportMessagesAsRead();
+            }, 5000);
         }
         return () => clearInterval(interval);
     }, [activeTab, isMaster]);
+
+    const markSupportMessagesAsRead = async () => {
+        try {
+            const targetSenderRole = isMaster ? 'tenant' : 'master';
+
+            // Update all unread messages sent BY the other party
+            const query = supabase
+                .from('platform_messages' as any)
+                .update({ is_read: true })
+                .eq('sender_role', targetSenderRole)
+                .eq('is_read', false);
+
+            // If master, we might want to only mark messages read for the selected tenant context? 
+            // But currently Master View is ALL. So we mark ALL tenant messages as read?
+            // Yes, for this MVP flat view, if Master looks at the Support Tab, they "See" all messages.
+
+            if (!isMaster && myTenantId) {
+                // Tenant only marks messages sent to THEM (tenant_id context)
+                // Although RLS prevents updating others anyway.
+                query.eq('tenant_id', myTenantId);
+            }
+
+            await query;
+        } catch (e) {
+            console.error("Failed to mark support messages as read", e);
+        }
+    };
 
     const checkRole = async () => {
         const { data: { user } } = await supabase.auth.getUser();
