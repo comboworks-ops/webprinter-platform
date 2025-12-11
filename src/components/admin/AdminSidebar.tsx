@@ -176,6 +176,18 @@ export function AdminSidebar() {
       className="border-0 bg-sidebar"
     >
       <SidebarContent className="pt-16">
+        {/* Dashboard Link - Top Level */}
+        <SidebarMenu className="px-2 pb-2">
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild isActive={isActive("/admin")}>
+              <NavLink to="/admin" end activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium">
+                <LayoutGrid className="h-4 w-4" />
+                {!collapsed && <span>Dashboard</span>}
+              </NavLink>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+
         {/* Products Section - Collapsible */}
         <SidebarGroup>
           <SidebarGroupLabel
@@ -195,13 +207,13 @@ export function AdminSidebar() {
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
                     <NavLink
-                      to="/admin"
+                      to="/admin/products"
                       end
                       className="hover:bg-muted/50"
                       activeClassName="bg-muted text-primary font-medium"
                     >
                       <FolderOpen className="h-4 w-4" />
-                      {!collapsed && <span>Oversigt</span>}
+                      {!collapsed && <span>Alle Produkter</span>}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

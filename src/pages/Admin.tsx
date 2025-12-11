@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { AdminHeader } from '@/components/admin/AdminHeader';
+import { Dashboard } from '@/components/admin/Dashboard';
 import { ProductOverview } from '@/components/admin/ProductOverview';
 import { ProductPriceManager } from '@/components/admin/ProductPriceManager';
 import { ProductCreator } from '@/components/admin/ProductCreator';
@@ -68,7 +69,8 @@ export default function Admin() {
 
             <div className="flex-1 p-6 overflow-auto">
               <Routes>
-                <Route path="/" element={<ProductOverview />} />
+                <Route path="/" element={<Dashboard />} /> {/* Changed to Dashboard */}
+                <Route path="/products" element={<ProductOverview />} /> {/* Moved ProductOverview to /products */}
                 <Route path="/product/:slug" element={<ProductPriceManager />} />
                 <Route path="/create-product" element={<ProductCreator />} />
                 <Route path="/seo" element={<SeoManager />} />
