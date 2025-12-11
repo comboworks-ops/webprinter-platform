@@ -72,13 +72,25 @@ export default function AdminMessages() {
         setIsMaster(!!masterTenant);
 
         if (!masterTenant) {
-            // Get my tenant id
-            const { data: myTenant } = await supabase
-                .from('tenants' as any)
-                .select('id')
-                .eq('owner_id', user.id)
+            // First check user_roles (works for both owners and staff)
+            const { data: roleData } = await supabase
+                .from('user_roles' as any)
+                .select('tenant_id')
+                .eq('user_id', user.id)
                 .maybeSingle();
-            if (myTenant) setMyTenantId((myTenant as any).id);
+
+            if (roleData && (roleData as any).tenant_id) {
+                setMyTenantId((roleData as any).tenant_id);
+            } else {
+                // Fallback: Check if owner directly (if user_roles missing for some reason)
+                const { data: myTenant } = await supabase
+                    .from('tenants' as any)
+                    .select('id')
+                    .eq('owner_id', user.id)
+                    .maybeSingle();
+
+                if (myTenant) setMyTenantId((myTenant as any).id);
+            }
         }
     };
 
