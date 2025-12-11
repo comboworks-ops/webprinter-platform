@@ -52,9 +52,12 @@ export default function AdminMessages() {
     }, []);
 
     useEffect(() => {
+        let interval: NodeJS.Timeout;
         if (activeTab === 'support') {
             fetchPlatformMessages();
+            interval = setInterval(fetchPlatformMessages, 5000); // Poll every 5s for chat feeling
         }
+        return () => clearInterval(interval);
     }, [activeTab, isMaster]);
 
     const checkRole = async () => {
@@ -96,6 +99,7 @@ export default function AdminMessages() {
 
     const fetchPlatformMessages = async () => {
         try {
+            console.log("Fetching platform messages... Is Master?", isMaster);
             let query = supabase
                 .from('platform_messages' as any)
                 .select(`
@@ -109,7 +113,12 @@ export default function AdminMessages() {
             }
 
             const { data, error } = await query;
-            if (error) throw error;
+            console.log("Platform Messages Data:", data);
+
+            if (error) {
+                console.error("Fetch Error:", error);
+                throw error;
+            }
             setPlatformMessages(data || []);
         } catch (e) {
             console.error(e);
@@ -125,13 +134,26 @@ export default function AdminMessages() {
             // Determine tenant_id target
             let targetTenantId = myTenantId;
 
+            // If Master, we need to know who we are replying to.
+            // For MVP: We reply to the tenant of the last received message.
+            if (isMaster && platformMessages.length > 0) {
+                // Find last message from a tenant (not master)
+                const lastTenantMsg = [...platformMessages].reverse().find(m => m.sender_role === 'tenant');
+                if (lastTenantMsg) {
+                    targetTenantId = lastTenantMsg.tenant_id;
+                }
+            }
+
             console.log("User:", user?.id);
             console.log("Target Tenant ID:", targetTenantId);
             console.log("Is Master:", isMaster);
 
             if (!targetTenantId) {
-                console.error("No Tenant ID found for sender!");
-                toast.error("Fejl: Kunne ikke identificere din shop.");
+                if (isMaster) {
+                    toast.error("Fejl: Ingen aktiv samtale valgt at svare på.");
+                } else {
+                    toast.error("Fejl: Kunne ikke identificere din shop.");
+                }
                 setSending(false);
                 return;
             }

@@ -97,13 +97,21 @@ export function AdminSidebar() {
         if (!user) return;
 
         // 1. Order Messages (Customer Support)
-        const { count: msgCount } = await supabase
+        // 1. Customer Messages (Unread)
+        const { count: customerCount } = await supabase
           .from('order_messages' as any)
           .select('*', { count: 'exact', head: true })
-          .eq('sender_type', 'customer')
-          .eq('is_read', false);
+          .eq('is_read', false)
+          .eq('sender_type', 'customer');
 
-        setUnreadMessageCount(msgCount || 0);
+        // 2. Support Messages (Unread)
+        const { count: supportCount } = await supabase
+          .from('platform_messages' as any)
+          .select('*', { count: 'exact', head: true })
+          .eq('is_read', false)
+          .eq('sender_role', isMasterAdmin ? 'tenant' : 'master');
+
+        setUnreadMessageCount((customerCount || 0) + (supportCount || 0));
 
         // 2. System Notifications (Tenant Updates) - Only if NOT master admin
         if (!isMasterAdmin) {
@@ -323,7 +331,9 @@ export function AdminSidebar() {
                       className="hover:bg-muted/50 relative"
                       activeClassName="bg-muted text-primary font-medium"
                     >
-                      <MessageCircle className="h-4 w-4" />
+                      <div className={`flex items-center justify-center w-6 h-6 rounded-full transition-colors ${unreadMessageCount > 0 ? 'bg-green-500 text-white' : ''}`}>
+                        <MessageCircle className="h-4 w-4" />
+                      </div>
                       {!collapsed && <span>Beskeder</span>}
                       {unreadMessageCount > 0 && (
                         <span className="absolute right-2 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">

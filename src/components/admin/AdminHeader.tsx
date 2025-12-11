@@ -47,22 +47,38 @@ export function AdminHeader() {
 
     const fetchMessages = async () => {
         try {
-            // We need to resolve tenant_id first usually, but we can filter by owner's tenant logic 
-            // faster by just checking order_messages for my orders?
-            // Actually, simplest is to just check all messages linked to orders where tenant owner is me.
-            // But for now, let's assume RLS handles it if we select from 'order_messages'
-
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
 
-            // Simple count for now
-            const { count } = await supabase
+            // 1. Customer Messages (Unread)
+            const { count: customerCount } = await supabase
                 .from('order_messages' as any)
                 .select('*', { count: 'exact', head: true })
                 .eq('is_read', false)
-                .eq('sender_type', 'customer'); // Only count messages FROM customers
+                .eq('sender_type', 'customer');
 
-            setUnreadCount(count || 0);
+            // 2. Support Messages (Unread)
+            // If I am Tenant: Count messages from 'master'
+            // If I am Master: Count messages from 'tenant'
+
+            // Check if master (quick check)
+            const { data: masterTenant } = await supabase
+                .from('tenants' as any)
+                .select('id')
+                .eq('id', '00000000-0000-0000-0000-000000000000')
+                .eq('owner_id', user.id)
+                .maybeSingle();
+
+            const isMaster = !!masterTenant;
+
+            const { count: supportCount } = await supabase
+                .from('platform_messages' as any)
+                .select('*', { count: 'exact', head: true })
+                .eq('is_read', false)
+                .eq('sender_role', isMaster ? 'tenant' : 'master');
+
+            const total = (customerCount || 0) + (supportCount || 0);
+            setUnreadCount(total);
         } catch (e) {
             console.error("Error fetching messages", e);
         }
