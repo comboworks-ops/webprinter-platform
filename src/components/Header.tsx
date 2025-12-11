@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
+import { useShopSettings } from "@/hooks/useShopSettings";
 
 interface DbProduct {
   id: string;
@@ -27,68 +28,36 @@ const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [allProducts, setAllProducts] = useState<DbProduct[]>([]);
-  const [tenantName, setTenantName] = useState<string>("Webprinter.dk");
   const location = useLocation();
   const { toast } = useToast();
   const { isAdmin } = useUserRole();
   const { language, setLanguage, t } = useLanguage();
 
+  // Use centralized settings hook
+  const settings = useShopSettings();
+  const tenantName = settings.data?.tenant_name || "Webprinter.dk";
+  const tenantId = settings.data?.id || '00000000-0000-0000-0000-000000000000'; // Default to Master
+
   const navItems = [
     { label: t("home"), path: "/" },
-    { label: "Shop Demo", path: "/shop" },
+    // Show "Shop Demo" only if fallback/master? Or just hide it for tenants?
+    // For now keep it if not production tenant?
+    // Let's hide it for specific tenants
+    ...(settings.data?.id !== '00000000-0000-0000-0000-000000000000' && settings.data?.id ? [] : [{ label: "Shop Demo", path: "/shop" }]),
     { label: t("contact"), path: "/kontakt" },
     { label: t("about"), path: "/om-os" },
   ];
 
-  // Fetch tenant name for logged-in user
   useEffect(() => {
-    async function fetchTenantName() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setTenantName("Webprinter.dk");
-        return;
-      }
-
-      // Get tenant owned by this user
-      const { data } = await supabase
-        .from('tenants' as any)
-        .select('name')
-        .eq('owner_id', user.id)
-        .maybeSingle();
-
-      if ((data as any)?.name) {
-        setTenantName((data as any).name);
-      } else {
-        setTenantName("Webprinter.dk");
-      }
-    }
-    fetchTenantName();
-  }, [user]);
-
-  useEffect(() => {
-    // Fetch published products from database
+    // Fetch published products from database based on RESOLVED TENANT ID
     async function fetchProducts() {
-      let tenantId = '00000000-0000-0000-0000-000000000000'; // Default to Master
-
-      // If user is logged in, try to get their tenant ID
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: tenant } = await supabase
-          .from('tenants' as any)
-          .select('id')
-          .eq('owner_id', user.id)
-          .maybeSingle();
-
-        if (tenant) {
-          tenantId = (tenant as any).id;
-        }
-      }
+      if (settings.isLoading) return;
 
       const { data } = await supabase
         .from('products')
         .select('id, name, slug, image_url, category')
         .eq('is_published', true)
-        .eq('tenant_id', tenantId) // Filter by determined tenant ID
+        .eq('tenant_id', tenantId) // Filter by resolved tenant ID (Domain or User or Master)
         .order('category', { ascending: true })
         .order('name');
 
@@ -97,7 +66,7 @@ const Header = () => {
       }
     }
     fetchProducts();
-  }, [user]); // Re-run when user changes
+  }, [tenantId, settings.isLoading]); // Re-run when tenantId changes
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {

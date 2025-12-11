@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { PageTracker } from "@/hooks/usePageTracking";
 import Index from "./pages/Index";
+import SubdomainRouter from "./pages/SubdomainRouter"; // Import Router
 import About from "./pages/About";
 import Contact from "./pages/Contact";
 import Terms from "./pages/Terms";
@@ -34,7 +35,9 @@ const App = () => (
         <BrowserRouter>
           <PageTracker />
           <Routes>
-            <Route path="/" element={<Index />} />
+            {/* Dynamic Root: Landing Page on main domain, Shop on subdomains */}
+            <Route path="/" element={<SubdomainRouter />} />
+
             <Route path="/om-os" element={<About />} />
             <Route path="/kontakt" element={<Contact />} />
             <Route path="/betingelser" element={<Terms />} />
