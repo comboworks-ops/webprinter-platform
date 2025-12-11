@@ -27,12 +27,22 @@ interface ProductGridProps {
   category: "tryksager" | "storformat";
 }
 
+import { useShopSettings } from "@/hooks/useShopSettings";
+
+// ... (interfaces)
+
 const ProductGrid = ({ category }: ProductGridProps) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const settings = useShopSettings();
 
   useEffect(() => {
     const fetchAndLoadPrices = async () => {
+      // Wait for settings to load
+      if (settings.isLoading) return;
+
+      const tenantId = settings.data?.id || '00000000-0000-0000-0000-000000000000'; // Fallback to Master if critical failure
+
       try {
         const { data, error } = await supabase
           .from('products')
@@ -50,6 +60,7 @@ const ProductGrid = ({ category }: ProductGridProps) => {
             tooltip_price
           `)
           .eq('is_published', true)
+          .eq('tenant_id', tenantId) // Filter by resolved Tenant
           .order('name');
 
         if (error) throw error;
@@ -73,7 +84,7 @@ const ProductGrid = ({ category }: ProductGridProps) => {
     };
 
     fetchAndLoadPrices();
-  }, []);
+  }, [settings.data?.id, settings.isLoading]);
 
   const filteredProducts = products.filter((p) => p.category === category);
 

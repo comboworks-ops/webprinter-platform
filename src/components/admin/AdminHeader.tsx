@@ -57,8 +57,8 @@ export function AdminHeader() {
             // Production: Go to custom domain
             window.open(`https://${tenantDomain}`, '_blank');
         } else {
-            // Localhost/Dev: Open root on same origin
-            window.open(window.location.origin, '_blank');
+            // Localhost/Dev: Open /shop to simulate tenant view
+            window.open(`${window.location.origin}/shop`, '_blank');
         }
     };
 

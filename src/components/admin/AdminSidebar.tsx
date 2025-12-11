@@ -172,7 +172,8 @@ export function AdminSidebar() {
 
   return (
     <Sidebar
-      className={`${collapsed ? "w-14" : "w-64"} border-0`}
+      collapsible="icon"
+      className="border-0 bg-sidebar"
     >
       <SidebarContent className="pt-16">
         {/* Products Section - Collapsible */}
