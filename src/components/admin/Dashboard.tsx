@@ -211,16 +211,7 @@ export function Dashboard() {
                         Her er overblikket over din forretning i dag.
                     </p>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={() => window.open('/shop', '_blank')}>
-                        <ExternalLink className="mr-2 h-4 w-4" />
-                        Se Shop
-                    </Button>
-                    <Button onClick={() => navigate('/admin/create-product')}>
-                        <Package className="mr-2 h-4 w-4" />
-                        Nyt Produkt
-                    </Button>
-                </div>
+
             </div>
 
             {/* Stats Cards */}
