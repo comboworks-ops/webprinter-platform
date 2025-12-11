@@ -23,25 +23,117 @@ export function SeoManager() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editForm, setEditForm] = useState<Partial<PageSeo>>({});
     const [saving, setSaving] = useState(false);
+    const [tenantId, setTenantId] = useState<string | null>(null);
+    const [isMaster, setIsMaster] = useState(false);
 
     useEffect(() => {
-        fetchPages();
+        init();
     }, []);
 
-    const fetchPages = async () => {
+    const init = async () => {
         setLoading(true);
-        const { data, error } = await supabase
-            .from('page_seo' as any)
-            .select('*')
-            .order('slug');
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
 
-        if (error) {
-            console.error('Error fetching SEO pages:', error);
-            toast.error('Kunne ikke hente SEO sider');
+        // Resolve Tenant
+        let currentTenantId = null;
+
+        // 1. Check if Master
+        const { data: masterTenant } = await supabase
+            .from('tenants' as any)
+            .select('id')
+            .eq('id', '00000000-0000-0000-0000-000000000000')
+            .eq('owner_id', user.id)
+            .maybeSingle();
+
+        if (masterTenant) {
+            currentTenantId = (masterTenant as any).id;
+            setIsMaster(true);
         } else {
-            setPages(data as any[]);
+            // 2. Check Role
+            const { data: roleData } = await supabase
+                .from('user_roles' as any)
+                .select('tenant_id')
+                .eq('user_id', user.id)
+                .maybeSingle();
+
+            if (roleData) {
+                currentTenantId = (roleData as any).tenant_id;
+            } else {
+                // 3. Fallback Owner
+                const { data: myTenant } = await supabase
+                    .from('tenants' as any)
+                    .select('id')
+                    .eq('owner_id', user.id)
+                    .maybeSingle();
+                if (myTenant) currentTenantId = (myTenant as any).id;
+            }
+        }
+
+        setTenantId(currentTenantId);
+        if (currentTenantId) {
+            await fetchPages(currentTenantId);
         }
         setLoading(false);
+    };
+
+    const fetchPages = async (tid: string) => {
+        // 1. Define System Pages (Template)
+        const systemPages = [
+            { slug: '/', title: 'Forside' },
+            { slug: '/shop', title: 'Shop' },
+            { slug: '/om-os', title: 'Om Os' },
+            { slug: '/kontakt', title: 'Kontakt' },
+            { slug: '/handelsbetingelser', title: 'Handelsbetingelser' },
+            { slug: '/gdpr', title: 'Persondatapolitik' },
+            { slug: '/login', title: 'Log ind' },
+        ];
+
+        // 2. Fetch Tenant Products
+        const { data: products } = await supabase
+            .from('products' as any)
+            .select('slug, name')
+            .eq('tenant_id', tid);
+
+        const productPages = (products || []).map((p: any) => ({
+            slug: `/produkt/${p.slug}`,
+            title: p.name || 'Produkt'
+        }));
+
+        const availablePages = [...systemPages, ...productPages];
+
+        // 3. Fetch Existing SEO Overrides
+        const { data: seoOverrides } = await supabase
+            .from('page_seo' as any)
+            .select('*')
+            .eq('tenant_id', tid);
+
+        const overrideMap = new Map((seoOverrides || []).map((o: any) => [o.slug, o]));
+
+        // 4. Merge
+        const mergedPages: PageSeo[] = availablePages.map((page, index) => {
+            const override = overrideMap.get(page.slug);
+            return {
+                id: override?.id || `virtual-${index}`, // Use real ID if exists, or virtual
+                slug: page.slug,
+                title: override?.title || page.title,
+                meta_description: override?.meta_description || '',
+                og_image_url: override?.og_image_url || '',
+                is_virtual: !override // Flag to know if we need to insert or update
+            } as any;
+        });
+
+        // Add any orphan SEO pages (custom pages created manually)
+        (seoOverrides || []).forEach((o: any) => {
+            if (!availablePages.find(ap => ap.slug === o.slug)) {
+                mergedPages.push(o as PageSeo);
+            }
+        });
+
+        // Sort: System first, then Products
+        mergedPages.sort((a, b) => a.slug.localeCompare(b.slug));
+
+        setPages(mergedPages);
     };
 
     const handleEdit = (page: PageSeo) => {
@@ -50,29 +142,49 @@ export function SeoManager() {
     };
 
     const handleSave = async () => {
-        if (!editingId) return;
+        if (!editingId || !tenantId) return;
         setSaving(true);
 
-        const { error } = await supabase
-            .from('page_seo' as any)
-            .update({
-                title: editForm.title,
-                meta_description: editForm.meta_description,
-                og_image_url: editForm.og_image_url
-            })
-            .eq('id', editingId);
+        // Check if it's a virtual page (needs INSERT)
+        const isVirtual = editingId.startsWith('virtual-');
+
+        const payload = {
+            tenant_id: tenantId,
+            slug: editForm.slug, // Ensure slug is preserved
+            title: editForm.title,
+            meta_description: editForm.meta_description,
+            og_image_url: editForm.og_image_url
+        };
+
+        let error;
+        if (isVirtual) {
+            // INSERT
+            const { error: insertError } = await supabase
+                .from('page_seo' as any)
+                .insert([payload]);
+            error = insertError;
+        } else {
+            // UPDATE
+            const { error: updateError } = await supabase
+                .from('page_seo' as any)
+                .update(payload)
+                .eq('id', editingId);
+            error = updateError;
+        }
 
         if (error) {
             toast.error('Kunne ikke gemme ændringer');
+            console.error(error);
         } else {
             toast.success('SEO opdateret');
             setEditingId(null);
-            fetchPages();
+            fetchPages(tenantId);
         }
         setSaving(false);
     };
 
     const handleCreateNew = async () => {
+        if (!tenantId) return;
         const slug = prompt("Indtast URL sti (f.eks. /om-os):");
         if (!slug) return;
 
@@ -80,15 +192,17 @@ export function SeoManager() {
             .from('page_seo' as any)
             .insert([{
                 slug,
+                tenant_id: tenantId,
                 title: 'Ny Side Titel',
                 meta_description: 'Beskrivelse her...'
             }]);
 
         if (error) {
             toast.error('Kunne ikke oprette side');
+            console.error(error);
         } else {
             toast.success('Side oprettet');
-            fetchPages();
+            fetchPages(tenantId!);
         }
     };
 
