@@ -23,14 +23,36 @@ import {
     XAxis,
     YAxis
 } from "recharts";
-import { format, subDays, subMonths, isSameDay, isSameMonth, startOfMonth } from "date-fns";
+import {
+    format,
+    subDays,
+    subMonths,
+    isSameDay,
+    isSameMonth,
+    startOfMonth,
+    endOfMonth,
+    eachDayOfInterval,
+    startOfWeek,
+    endOfWeek,
+    addWeeks,
+    subWeeks,
+    addMonths,
+    addYears,
+    subYears,
+    startOfYear,
+    endOfYear,
+    eachMonthOfInterval,
+    getYear
+} from "date-fns";
 import { da } from "date-fns/locale";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export function Dashboard() {
     const navigate = useNavigate();
     const settings = useShopSettings();
     const [rawOrders, setRawOrders] = useState<any[]>([]);
     const [timeRange, setTimeRange] = useState<'week' | 'month' | 'year'>('week');
+    const [currentDate, setCurrentDate] = useState(new Date()); // Anchor date for view
     const [stats, setStats] = useState({
         revenue: 0,
         ordersCount: 0,
@@ -47,52 +69,99 @@ export function Dashboard() {
     }, [settings.data?.id]);
 
     useEffect(() => {
-        // if (!rawOrders.length) return; // Removed this to allow rendering chart even with 0 orders
+        // if (!rawOrders.length) return; 
 
         const processData = () => {
-            const now = new Date();
-            let dataPoints: { name: string, total: number }[] = [];
+            let dataPoints: { name: string, total: number, date: Date }[] = [];
 
             if (timeRange === 'week') {
-                // Last 7 days
-                dataPoints = Array.from({ length: 7 }, (_, i) => {
-                    const d = subDays(now, 6 - i);
-                    return { date: d, name: format(d, 'EEE', { locale: da }) };
-                }).map(point => {
-                    const total = rawOrders
-                        .filter(o => isSameDay(new Date(o.created_at), point.date))
-                        .reduce((sum, o) => sum + (o.total_price || 0), 0);
-                    return { name: point.name.charAt(0).toUpperCase() + point.name.slice(1), total };
-                });
+                // Calendar Week (Mon-Sun) containing currentDate
+                const start = startOfWeek(currentDate, { weekStartsOn: 1 }); // Monday start
+                const end = endOfWeek(currentDate, { weekStartsOn: 1 });
+
+                const days = eachDayOfInterval({ start, end });
+
+                dataPoints = days.map(d => ({
+                    date: d,
+                    name: format(d, 'EEE', { locale: da }), // Man, Tir...
+                    total: 0
+                }));
             } else if (timeRange === 'month') {
-                // Last 30 days
-                dataPoints = Array.from({ length: 30 }, (_, i) => {
-                    const d = subDays(now, 29 - i);
-                    return { date: d, name: format(d, 'd/M', { locale: da }) };
-                }).map(point => {
-                    const total = rawOrders
-                        .filter(o => isSameDay(new Date(o.created_at), point.date))
-                        .reduce((sum, o) => sum + (o.total_price || 0), 0);
-                    return { name: point.name, total };
-                });
+                // Calendar Month (1st - End)
+                const start = startOfMonth(currentDate);
+                const end = endOfMonth(currentDate);
+                const days = eachDayOfInterval({ start, end });
+
+                dataPoints = days.map(d => ({
+                    date: d,
+                    name: format(d, 'd', { locale: da }), // 1, 2, 3...
+                    total: 0
+                }));
             } else if (timeRange === 'year') {
-                // Last 12 months
-                dataPoints = Array.from({ length: 12 }, (_, i) => {
-                    const d = subMonths(now, 11 - i);
-                    return { date: d, name: format(d, 'MMM yy', { locale: da }) };
-                }).map(point => {
-                    const total = rawOrders
-                        .filter(o => isSameMonth(new Date(o.created_at), point.date))
-                        .reduce((sum, o) => sum + (o.total_price || 0), 0);
-                    return { name: point.name.charAt(0).toUpperCase() + point.name.slice(1), total };
-                });
+                // Calendar Year (Jan - Dec)
+                const start = startOfYear(currentDate);
+                const end = endOfYear(currentDate);
+                const months = eachMonthOfInterval({ start, end });
+
+                dataPoints = months.map(d => ({
+                    date: d,
+                    name: format(d, 'MMM', { locale: da }), // Jan, Feb...
+                    total: 0
+                }));
             }
 
-            setChartData(dataPoints);
+            // Fill Data
+            const filledData = dataPoints.map(point => {
+                let total = 0;
+                if (timeRange === 'year') {
+                    // Match Month
+                    total = rawOrders
+                        .filter(o => isSameMonth(new Date(o.created_at), point.date))
+                        .reduce((sum, o) => sum + (o.total_price || 0), 0);
+                } else {
+                    // Match Day
+                    total = rawOrders
+                        .filter(o => isSameDay(new Date(o.created_at), point.date))
+                        .reduce((sum, o) => sum + (o.total_price || 0), 0);
+                }
+
+                // Capitalize name
+                const capName = point.name.charAt(0).toUpperCase() + point.name.slice(1);
+                return { name: capName, total };
+            });
+
+            setChartData(filledData);
         };
 
         processData();
-    }, [rawOrders, timeRange]);
+    }, [rawOrders, timeRange, currentDate]);
+
+    const handleNavigate = (direction: 'prev' | 'next') => {
+        const modifier = direction === 'next' ? 1 : -1;
+
+        let newDate = new Date(currentDate);
+        if (timeRange === 'week') newDate = addWeeks(newDate, modifier);
+        if (timeRange === 'month') newDate = addMonths(newDate, modifier);
+        if (timeRange === 'year') newDate = addYears(newDate, modifier);
+
+        // Prevent going before 2025
+        if (getYear(newDate) < 2025) return;
+
+        setCurrentDate(newDate);
+    };
+
+    const periodLabel = () => {
+        if (timeRange === 'week') {
+            const start = startOfWeek(currentDate, { weekStartsOn: 1 });
+            const end = endOfWeek(currentDate, { weekStartsOn: 1 });
+            if (isSameMonth(start, end)) {
+                return `${format(start, 'MMMM yyyy', { locale: da })}`; // December 2025
+            }
+            return `${format(start, 'MMM', { locale: da })} - ${format(end, 'MMM yyyy', { locale: da })}`;
+        }
+        if (timeRange === 'month') return format(currentDate, 'MMMM yyyy', { locale: da });
+        if (timeRange === 'year') return format(currentDate, 'yyyy', { locale: da });
+    };
 
     const fetchStats = async (tenantId: string) => {
         try {
@@ -211,38 +280,55 @@ export function Dashboard() {
             {/* Charts & Activity */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 <Card className="col-span-4">
-                    <CardHeader className="flex flex-row items-center justify-between">
-                        <div>
-                            <CardTitle>Omsætning</CardTitle>
-                            <CardDescription>
-                                Dine indtjening over tid.
-                            </CardDescription>
-                        </div>
-                        <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg">
-                            <Button
-                                variant={timeRange === 'week' ? 'secondary' : 'ghost'}
-                                size="sm"
-                                className="h-7 text-xs"
-                                onClick={() => setTimeRange('week')}
-                            >
-                                Uge
-                            </Button>
-                            <Button
-                                variant={timeRange === 'month' ? 'secondary' : 'ghost'}
-                                size="sm"
-                                className="h-7 text-xs"
-                                onClick={() => setTimeRange('month')}
-                            >
-                                Måned
-                            </Button>
-                            <Button
-                                variant={timeRange === 'year' ? 'secondary' : 'ghost'}
-                                size="sm"
-                                className="h-7 text-xs"
-                                onClick={() => setTimeRange('year')}
-                            >
-                                År
-                            </Button>
+                    <CardHeader>
+                        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                            <div>
+                                <CardTitle>Omsætning</CardTitle>
+                                <CardDescription className="capitalize">
+                                    {periodLabel()}
+                                </CardDescription>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <div className="flex items-center bg-muted/50 rounded-lg p-0.5">
+                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleNavigate('prev')}>
+                                        <ChevronLeft className="h-4 w-4" />
+                                    </Button>
+                                    <div className="mx-2 text-xs font-medium min-w-[80px] text-center capitalize">
+                                        {timeRange === 'week' ? `Uge ${format(currentDate, 'w', { weekStartsOn: 1 })}` : periodLabel()}
+                                    </div>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleNavigate('next')}>
+                                        <ChevronRight className="h-4 w-4" />
+                                    </Button>
+                                </div>
+
+                                <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg">
+                                    <Button
+                                        variant={timeRange === 'week' ? 'secondary' : 'ghost'}
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={() => { setTimeRange('week'); setCurrentDate(new Date()); }}
+                                    >
+                                        Uge
+                                    </Button>
+                                    <Button
+                                        variant={timeRange === 'month' ? 'secondary' : 'ghost'}
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={() => { setTimeRange('month'); setCurrentDate(new Date()); }}
+                                    >
+                                        Måned
+                                    </Button>
+                                    <Button
+                                        variant={timeRange === 'year' ? 'secondary' : 'ghost'}
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={() => { setTimeRange('year'); setCurrentDate(new Date()); }}
+                                    >
+                                        År
+                                    </Button>
+                                </div>
+                            </div>
                         </div>
                     </CardHeader>
                     <CardContent className="pl-2">
@@ -263,10 +349,9 @@ export function Dashboard() {
                                         fontSize={12}
                                         tickLine={false}
                                         axisLine={false}
-                                        angle={-45}
-                                        textAnchor="end"
-                                        dy={10} // Push text down a bit
-                                        interval={timeRange === 'month' ? 3 : 0} // Less crowded month view
+                                        interval={timeRange === 'month' ? 4 : 0} // Show every 5th day for flat alignment
+                                        height={30}
+                                        tickMargin={10}
                                     />
                                     <YAxis
                                         stroke="#888888"
