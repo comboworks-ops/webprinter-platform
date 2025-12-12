@@ -4,7 +4,7 @@ import { toast } from "sonner";
 
 // Default branding configuration
 const DEFAULT_BRANDING = {
-    logo_url: null,
+    logo_url: null as string | null,
     fonts: {
         heading: "Poppins",
         body: "Inter",
@@ -18,9 +18,9 @@ const DEFAULT_BRANDING = {
         dropdown: "#FFFFFF",
     },
     hero: {
-        type: "image" as const,
+        type: "image" as "image" | "slideshow" | "video",
         media: [] as string[],
-        transition: "fade" as const,
+        transition: "fade" as "fade" | "slide",
         parallax: false,
         overlay_color: "#000000",
         overlay_opacity: 0.3,

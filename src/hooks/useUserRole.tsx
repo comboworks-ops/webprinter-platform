@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
-export type UserRole = 'admin' | 'moderator' | 'user' | null;
+export type UserRole = 'admin' | 'master_admin' | 'moderator' | 'user' | null;
 
 export const useUserRole = () => {
   const [role, setRole] = useState<UserRole>(null);
@@ -35,8 +35,8 @@ export const useUserRole = () => {
           const userRole = data?.role || null;
           setRole(userRole);
 
-          // Trust the user_roles table directly for now (Bypass missing verify-admin function)
-          if (userRole === 'admin') {
+          // Trust the user_roles table directly for now
+          if (userRole === 'admin' || userRole === 'master_admin') {
             setServerVerified(true);
           } else {
             setServerVerified(false);
@@ -60,5 +60,10 @@ export const useUserRole = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  return { role, loading, isAdmin: role === 'admin' && serverVerified };
+  return {
+    role,
+    loading,
+    isAdmin: (role === 'admin' || role === 'master_admin') && serverVerified,
+    isMasterAdmin: role === 'master_admin' && serverVerified,
+  };
 };

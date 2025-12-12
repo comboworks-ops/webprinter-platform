@@ -20,6 +20,7 @@ import ShopSettings from '@/components/admin/ShopSettings';
 import { TenantOverview } from '@/components/admin/TenantOverview';
 import { AdminUpdates } from '@/components/admin/AdminUpdates';
 import { TenantUpdates } from '@/components/admin/TenantUpdates';
+import AssetsLibrary from '@/components/admin/AssetsLibrary';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { supabase } from '@/integrations/supabase/client';
@@ -85,6 +86,7 @@ export default function Admin() {
                 <Route path="/tenants" element={<TenantOverview />} />
                 <Route path="/updates" element={<AdminUpdates />} />
                 <Route path="/tenant-updates" element={<TenantUpdates />} />
+                <Route path="/assets" element={<AssetsLibrary />} />
               </Routes>
             </div>
           </main>

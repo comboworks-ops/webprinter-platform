@@ -1,14 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
-import { Loader2 } from "lucide-react";
-
-// Import the actual storefront components
-import Header from "@/components/Header";
+import { Loader2, ArrowRight, Check, BarChart, Globe } from "lucide-react";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, BarChart, Globe } from "lucide-react";
 import { Link } from "react-router-dom";
 import { getGoogleFontsUrl } from "@/components/admin/FontSelector";
 
@@ -60,23 +56,76 @@ function hexToHsl(hex: string): string {
     return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
 }
 
+// Dynamic font loader
+function loadGoogleFonts(fonts: string[]) {
+    const url = getGoogleFontsUrl(fonts);
+    if (!url) return;
+
+    // Remove old font link if exists
+    const existingLink = document.getElementById('preview-fonts');
+    if (existingLink) existingLink.remove();
+
+    const link = document.createElement('link');
+    link.id = 'preview-fonts';
+    link.rel = 'stylesheet';
+    link.href = url;
+    document.head.appendChild(link);
+}
+
 export default function PreviewStorefront() {
     const [searchParams] = useSearchParams();
     const { isAdmin, loading: roleLoading } = useUserRole();
     const [branding, setBranding] = useState<BrandingData | null>(null);
     const [tenantName, setTenantName] = useState("Din Shop");
     const [isLoading, setIsLoading] = useState(true);
+    const [isEmbedded, setIsEmbedded] = useState(false);
 
     const versionId = searchParams.get("versionId");
     const isDraft = searchParams.get("draft") === "1";
 
+    // Check if we're in an iframe
+    useEffect(() => {
+        setIsEmbedded(window.self !== window.top);
+    }, []);
+
+    // Listen for branding updates from parent (postMessage bridge)
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            if (event.data?.type === 'BRANDING_UPDATE') {
+                setBranding(event.data.branding);
+                if (event.data.tenantName) {
+                    setTenantName(event.data.tenantName);
+                }
+
+                // Load fonts dynamically
+                const fonts = event.data.branding?.fonts;
+                if (fonts) {
+                    loadGoogleFonts([
+                        fonts.heading || 'Poppins',
+                        fonts.body || 'Inter',
+                        fonts.pricing || 'Roboto Mono'
+                    ]);
+                }
+            }
+        };
+
+        window.addEventListener('message', handleMessage);
+
+        // Signal to parent that we're ready
+        if (window.parent !== window) {
+            window.parent.postMessage({ type: 'PREVIEW_READY' }, '*');
+        }
+
+        return () => window.removeEventListener('message', handleMessage);
+    }, []);
+
+    // Initial load from database
     useEffect(() => {
         async function loadBranding() {
             try {
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) return;
 
-                // If versionId is specified, load that specific version
                 if (versionId) {
                     const { data: version } = await supabase
                         .from('branding_versions' as any)
@@ -88,7 +137,6 @@ export default function PreviewStorefront() {
                         setBranding((version as any).data);
                     }
                 } else {
-                    // Load tenant's draft or published branding
                     const { data: tenant } = await supabase
                         .from('tenants' as any)
                         .select('id, name, settings')
@@ -99,13 +147,11 @@ export default function PreviewStorefront() {
                         setTenantName((tenant as any).name || "Din Shop");
                         const brandingSettings = (tenant as any).settings?.branding || {};
 
-                        // Use draft if preview mode, otherwise published
                         if (isDraft && brandingSettings.draft) {
                             setBranding(brandingSettings.draft);
                         } else if (brandingSettings.published) {
                             setBranding(brandingSettings.published);
                         } else {
-                            // Legacy format - use branding directly
                             setBranding(brandingSettings);
                         }
                     }
@@ -121,6 +167,17 @@ export default function PreviewStorefront() {
             loadBranding();
         }
     }, [versionId, isDraft, roleLoading]);
+
+    // Load fonts on initial branding
+    useEffect(() => {
+        if (branding?.fonts) {
+            loadGoogleFonts([
+                branding.fonts.heading || 'Poppins',
+                branding.fonts.body || 'Inter',
+                branding.fonts.pricing || 'Roboto Mono'
+            ]);
+        }
+    }, [branding?.fonts?.heading, branding?.fonts?.body, branding?.fonts?.pricing]);
 
     // Require admin access
     if (!roleLoading && !isAdmin) {
@@ -142,41 +199,38 @@ export default function PreviewStorefront() {
     const backgroundColor = branding?.colors?.background || "#F8FAFC";
     const cardColor = branding?.colors?.card || "#FFFFFF";
 
-    const fontsUrl = getGoogleFontsUrl([headingFont, bodyFont, branding?.fonts?.pricing || ""]);
-
-    const cssVars = {
-        "--primary": hexToHsl(primaryColor),
-        "--background": hexToHsl(backgroundColor),
-        "--card": hexToHsl(cardColor),
-    } as React.CSSProperties;
-
     const hasHeroMedia = branding?.hero?.media && branding.hero.media.length > 0;
 
     return (
         <>
-            {/* Load Google Fonts */}
-            {fontsUrl && <link rel="stylesheet" href={fontsUrl} />}
-
-            {/* Preview Banner */}
-            <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 text-amber-950 px-4 py-2 text-center text-sm font-medium">
-                🔍 Preview Mode - {isDraft ? "Kladde" : versionId ? "Version" : "Publiceret"} branding
-                <Link to="/admin/branding" className="ml-3 underline">
-                    Tilbage til editor
-                </Link>
-            </div>
+            {/* Preview Banner - only show if not embedded */}
+            {!isEmbedded && (
+                <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 text-amber-950 px-4 py-2 text-center text-sm font-medium">
+                    🔍 Preview Mode - {isDraft ? "Kladde" : versionId ? "Version" : "Publiceret"} branding
+                    <Link to="/admin/branding" className="ml-3 underline">
+                        Tilbage til editor
+                    </Link>
+                </div>
+            )}
 
             {/* Storefront with applied branding */}
             <div
-                className="min-h-screen flex flex-col pt-10"
+                className="min-h-screen flex flex-col"
                 style={{
-                    ...cssVars,
+                    "--primary": hexToHsl(primaryColor),
+                    "--background": hexToHsl(backgroundColor),
+                    "--card": hexToHsl(cardColor),
                     fontFamily: `'${bodyFont}', sans-serif`,
-                }}
+                    paddingTop: isEmbedded ? 0 : 40,
+                } as React.CSSProperties}
             >
-                {/* We can't easily override the global Header, so we render a custom preview header */}
+                {/* Header */}
                 <header
-                    className="sticky top-10 z-40 bg-card shadow-sm border-b border-border"
-                    style={{ background: `hsl(var(--card))` }}
+                    className="sticky z-40 bg-white shadow-sm border-b"
+                    style={{
+                        background: `hsl(${hexToHsl(cardColor)})`,
+                        top: isEmbedded ? 0 : 40,
+                    }}
                 >
                     <div className="container mx-auto px-4">
                         <div className="flex items-center justify-between h-16">
@@ -185,7 +239,7 @@ export default function PreviewStorefront() {
                             ) : (
                                 <span
                                     className="text-xl font-bold"
-                                    style={{ fontFamily: `'${headingFont}', sans-serif`, color: `hsl(var(--primary))` }}
+                                    style={{ fontFamily: `'${headingFont}', sans-serif`, color: `hsl(${hexToHsl(primaryColor)})` }}
                                 >
                                     {tenantName}
                                 </span>
@@ -201,11 +255,11 @@ export default function PreviewStorefront() {
 
                 {/* Hero Section */}
                 <section
-                    className="relative flex-1 flex items-center justify-center pt-16 pb-12 overflow-hidden"
+                    className="relative flex-1 flex items-center justify-center pt-16 pb-12 overflow-hidden min-h-[60vh]"
                     style={{
                         background: hasHeroMedia
                             ? `url(${branding?.hero?.media?.[0]}) center/cover`
-                            : `linear-gradient(135deg, hsl(var(--primary) / 0.1), hsl(var(--background)))`,
+                            : `linear-gradient(135deg, hsl(${hexToHsl(primaryColor)} / 0.1), hsl(${hexToHsl(backgroundColor)}))`,
                         backgroundAttachment: branding?.hero?.parallax ? 'fixed' : 'scroll',
                     }}
                 >
@@ -224,69 +278,68 @@ export default function PreviewStorefront() {
                         <span
                             className="inline-block py-1 px-3 rounded-full text-sm font-medium mb-4"
                             style={{
-                                background: `hsl(var(--primary) / 0.1)`,
-                                color: `hsl(var(--primary))`,
+                                background: `hsl(${hexToHsl(primaryColor)} / 0.1)`,
+                                color: `hsl(${hexToHsl(primaryColor)})`,
                             }}
                         >
-                            Den komplette løsning til dit trykkeri
+                            Den komplette løsning
                         </span>
                         <h1
-                            className="text-5xl md:text-7xl font-bold tracking-tight mb-6"
+                            className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight mb-6"
                             style={{ fontFamily: `'${headingFont}', sans-serif` }}
                         >
                             {tenantName}
                         </h1>
                         <p
-                            className="text-xl max-w-2xl mx-auto mb-8 opacity-80"
+                            className="text-lg sm:text-xl max-w-2xl mx-auto mb-8 opacity-80"
                             style={{ fontFamily: `'${bodyFont}', sans-serif` }}
                         >
-                            Gør din trykkeri-ekspertise til en skalerbar online forretning.
-                            Automatiseret prissætning, ordrehåndtering og kundeportaler i ét system.
+                            Gør din ekspertise til en skalerbar online forretning.
                         </p>
                         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                             <Button
                                 size="lg"
                                 className="h-12 px-8 text-lg gap-2"
-                                style={{ background: `hsl(var(--primary))` }}
+                                style={{ background: `hsl(${hexToHsl(primaryColor)})` }}
                             >
-                                Start gratis prøveperiode <ArrowRight className="w-4 h-4" />
+                                Kom i gang <ArrowRight className="w-4 h-4" />
                             </Button>
                             <Button size="lg" variant="outline" className="h-12 px-8 text-lg">
-                                Se prisberegnere
+                                Se produkter
                             </Button>
                         </div>
                     </div>
                 </section>
 
                 {/* Features Grid */}
-                <section className="py-24" style={{ background: `hsl(var(--card))` }}>
+                <section className="py-16 sm:py-24" style={{ background: `hsl(${hexToHsl(cardColor)})` }}>
                     <div className="container px-4 mx-auto">
-                        <div className="text-center mb-16">
+                        <div className="text-center mb-12 sm:mb-16">
                             <h2
-                                className="text-3xl font-bold mb-4"
+                                className="text-2xl sm:text-3xl font-bold mb-4"
                                 style={{ fontFamily: `'${headingFont}', sans-serif` }}
                             >
-                                Alt hvad du behøver for at drive dit trykkeri
+                                Alt hvad du behøver
                             </h2>
-                            <p className="text-muted-foreground">Professionelle værktøjer bygget til trykkeribranchen.</p>
+                            <p className="text-muted-foreground">Professionelle værktøjer til din forretning.</p>
                         </div>
 
-                        <div className="grid md:grid-cols-3 gap-8">
+                        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6 sm:gap-8">
                             {[
-                                { icon: <Globe className="w-6 h-6" />, title: "Whitelabel Webshop", desc: "Dit brand, dit domæne." },
-                                { icon: <BarChart className="w-6 h-6" />, title: "Smart Prisberegning", desc: "Komplekse matrix-beregninger." },
-                                { icon: <Check className="w-6 h-6" />, title: "Ordre Workflow", desc: "Strømlinet dashboard." },
+                                { icon: <Globe className="w-6 h-6" />, title: "Webshop", desc: "Dit brand, dit domæne." },
+                                { icon: <BarChart className="w-6 h-6" />, title: "Prisberegning", desc: "Komplekse beregninger." },
+                                { icon: <Check className="w-6 h-6" />, title: "Workflow", desc: "Strømlinet proces." },
                             ].map((feature, i) => (
                                 <div
                                     key={i}
-                                    className="p-6 rounded-2xl border bg-card hover:shadow-lg transition-shadow"
-                                    style={{ background: `hsl(var(--background))` }}
+                                    className="p-6 rounded-2xl border hover:shadow-lg transition-shadow"
+                                    style={{ background: `hsl(${hexToHsl(backgroundColor)})` }}
                                 >
                                     <div
                                         className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
                                         style={{
-                                            background: `hsl(var(--primary) / 0.1)`,
-                                            color: `hsl(var(--primary))`,
+                                            background: `hsl(${hexToHsl(primaryColor)} / 0.1)`,
+                                            color: `hsl(${hexToHsl(primaryColor)})`,
                                         }}
                                     >
                                         {feature.icon}

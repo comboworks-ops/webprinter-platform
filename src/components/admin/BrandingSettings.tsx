@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,16 +47,7 @@ export function BrandingSettings() {
     const [uploading, setUploading] = useState(false);
     const [publishLabel, setPublishLabel] = useState("");
     const [showPublishDialog, setShowPublishDialog] = useState(false);
-    const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
     const [activeTab, setActiveTab] = useState("typography");
-
-    // Refresh preview when draft changes
-    useEffect(() => {
-        const timeout = setTimeout(() => {
-            setPreviewRefreshKey(prev => prev + 1);
-        }, 500); // Debounce
-        return () => clearTimeout(timeout);
-    }, [draft]);
 
     const handleFileUpload = async (
         event: React.ChangeEvent<HTMLInputElement>,
@@ -239,8 +230,8 @@ export function BrandingSettings() {
                 </div>
             </div>
 
-            {/* Main Layout: Settings + Preview */}
-            <div className="grid lg:grid-cols-2 gap-6">
+            {/* Main Layout: Settings then Preview */}
+            <div className="space-y-8">
                 {/* Settings Panel */}
                 <div>
                     <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -535,20 +526,27 @@ export function BrandingSettings() {
                             </Card>
                         </TabsContent>
                     </Tabs>
-                </div>
 
-                {/* Preview Panel */}
-                <div className="lg:sticky lg:top-4 h-[calc(100vh-8rem)]">
-                    <Card className="h-full flex flex-col">
-                        <CardHeader className="pb-2">
-                            <CardTitle className="text-base">Live Preview</CardTitle>
-                            <CardDescription className="text-xs">Kunderne ser dette efter publicering</CardDescription>
+                    {/* Live Preview Panel - Below Settings */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <span className="relative flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                                </span>
+                                Live Preview
+                            </CardTitle>
+                            <CardDescription>Ændringer vises i realtid. Kunderne ser dette efter du publicerer.</CardDescription>
                         </CardHeader>
-                        <CardContent className="flex-1 p-0 overflow-hidden">
-                            <BrandingPreviewFrame
-                                previewUrl={`/preview?draft=1`}
-                                refreshKey={previewRefreshKey}
-                            />
+                        <CardContent className="p-0">
+                            <div className="h-[600px]">
+                                <BrandingPreviewFrame
+                                    previewUrl={`/preview?draft=1`}
+                                    branding={draft}
+                                    tenantName={tenantName}
+                                />
+                            </div>
                         </CardContent>
                     </Card>
                 </div>
