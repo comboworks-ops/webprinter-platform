@@ -75,18 +75,18 @@ export function BrandingPreview({ branding, tenantName = "Din Shop" }: BrandingP
     const hasHeroMedia = hero?.media && hero.media.length > 0 && hero.media[0];
 
     return (
-        <div className="relative border rounded-xl overflow-hidden shadow-lg bg-muted/50">
+        <div className="relative rounded-xl overflow-hidden shadow-lg bg-muted/50 h-full">
             {/* Load Fonts */}
             {fontsUrl && <link rel="stylesheet" href={fontsUrl} />}
 
             {/* Preview Label */}
-            <div className="absolute top-2 left-2 z-20 bg-black/70 text-white text-xs px-2 py-1 rounded-md">
+            <div className="absolute top-3 left-3 z-20 bg-black/70 text-white text-xs px-3 py-1.5 rounded-md font-medium">
                 Live Preview
             </div>
 
             {/* Scaled Preview Container */}
             <div
-                className="w-full aspect-video overflow-hidden"
+                className="w-full h-full min-h-[400px] overflow-hidden"
                 style={{
                     ...cssVars,
                     background: `hsl(var(--preview-background))`,
