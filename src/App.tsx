@@ -22,6 +22,7 @@ import MyAccount from "./pages/MyAccount";
 import MyAddresses from "./pages/MyAddresses";
 import MySettings from "./pages/MySettings";
 import TenantSignup from "./pages/TenantSignup";
+import PreviewStorefront from "./pages/PreviewStorefront";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -57,6 +58,7 @@ const App = () => (
             <Route path="/admin/*" element={<Admin />} />
             <Route path="/admin/*" element={<Admin />} />
             <Route path="/sitemap.xml" element={<Sitemap />} />
+            <Route path="/preview" element={<PreviewStorefront />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
