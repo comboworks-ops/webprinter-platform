@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Plus, Loader2 } from "lucide-react";
+import { resolveAdminTenant } from "@/lib/adminTenant";
 
 export function ProductCreator() {
   const navigate = useNavigate();
@@ -26,17 +27,8 @@ export function ProductCreator() {
 
     setCreating(true);
     try {
-      // Fetch user's tenant id
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      const { data: tenant } = await supabase
-        .from('tenants' as any)
-        .select('id')
-        .eq('owner_id', user.id)
-        .maybeSingle();
-
-      if (!tenant) throw new Error("No tenant found for user");
+      const { tenantId } = await resolveAdminTenant();
+      if (!tenantId) throw new Error("No tenant found for user");
 
       const { error } = await supabase
         .from('products')
@@ -47,7 +39,7 @@ export function ProductCreator() {
           category: formData.category,
           pricing_type: formData.pricingType,
           is_published: false,
-          tenant_id: (tenant as any).id
+          tenant_id: tenantId
         });
 
       if (error) throw error;

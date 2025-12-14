@@ -6,13 +6,13 @@ import { useShopSettings } from "@/hooks/useShopSettings";
 import { Loader2 } from "lucide-react";
 
 // Domains that should ALWAYS show the Landing Page (Marketing)
+// Note: localhost is NOT included - developers see the Shop by default
 const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
 const MARKETING_DOMAINS = [
     ROOT_DOMAIN,
     `www.${ROOT_DOMAIN}`,
     "webprinter-platform.vercel.app",
-    "localhost",
-    "127.0.0.1"
+    // localhost now shows Shop for development convenience
 ];
 
 export default function SubdomainRouter() {
@@ -33,7 +33,7 @@ export default function SubdomainRouter() {
         return <Index />;
     }
 
-    // --- TENANT MODE ---
+    // --- TENANT MODE (also default for localhost development) ---
     // We are on a subdomain (e.g. shop1.webprinter.dk) or custom domain.
     // We should render the Shop view for the root path `/`.
 

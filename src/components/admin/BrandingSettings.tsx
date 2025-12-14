@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { CollapsibleCard } from "@/components/ui/CollapsibleCard";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -19,12 +20,16 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Loader2, Upload, Image as ImageIcon, Type, Palette, Layout, Trash2, Sparkles, Send, RotateCcw, AlertCircle } from "lucide-react";
+import { Loader2, Upload, Image as ImageIcon, Type, Palette, Layout, Trash2, Sparkles, Send, RotateCcw, AlertCircle, Menu, Footprints } from "lucide-react";
 import { FontSelector } from "./FontSelector";
 import { BrandingPreview } from "./BrandingPreview";
 import { IconPackSelector } from "./IconPackSelector";
 import { BrandingHistory } from "./BrandingHistory";
 import { BrandingPreviewFrame } from "./BrandingPreviewFrame";
+import { HeroEditor } from "./HeroEditor";
+import { HeaderSection } from "./HeaderSection";
+import { FooterSection } from "./FooterSection";
+import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches";
 import { useBrandingDraft, type BrandingData } from "@/hooks/useBrandingDraft";
 
 export function BrandingSettings() {
@@ -47,7 +52,20 @@ export function BrandingSettings() {
     const [uploading, setUploading] = useState(false);
     const [publishLabel, setPublishLabel] = useState("");
     const [showPublishDialog, setShowPublishDialog] = useState(false);
+    const [saveLabel, setSaveLabel] = useState("");
+    const [showSaveDialog, setShowSaveDialog] = useState(false);
     const [activeTab, setActiveTab] = useState("typography");
+
+    const handleSaveSwatch = (color: string) => {
+        const current = draft.savedSwatches || [];
+        if (!current.includes(color) && current.length < 20) {
+            updateDraft({ savedSwatches: [...current, color] });
+        }
+    };
+
+    const handleRemoveSwatch = (color: string) => {
+        updateDraft({ savedSwatches: (draft.savedSwatches || []).filter(c => c !== color) });
+    };
 
     const handleFileUpload = async (
         event: React.ChangeEvent<HTMLInputElement>,
@@ -183,15 +201,46 @@ export function BrandingSettings() {
                         </Button>
                     )}
 
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={saveDraft}
-                        disabled={isSaving || !hasUnsavedChanges}
-                    >
-                        {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                        Gem kladde
-                    </Button>
+                    <AlertDialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+                        <AlertDialogTrigger asChild>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={isSaving || !hasUnsavedChanges}
+                            >
+                                {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                                Gem kladde
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Gem kladde</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Gem en version af dit design for at kunne vende tilbage til det senere.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <div className="py-4">
+                                <Label htmlFor="saveLabel">Navn på design (valgfrit)</Label>
+                                <Input
+                                    id="saveLabel"
+                                    value={saveLabel}
+                                    onChange={(e) => setSaveLabel(e.target.value)}
+                                    placeholder="F.eks. 'Udkast 1'"
+                                    className="mt-2"
+                                />
+                            </div>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Annuller</AlertDialogCancel>
+                                <AlertDialogAction onClick={async () => {
+                                    await saveDraft({ label: saveLabel });
+                                    setShowSaveDialog(false);
+                                    setSaveLabel("");
+                                }}>
+                                    Gem
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
 
                     <AlertDialog open={showPublishDialog} onOpenChange={setShowPublishDialog}>
                         <AlertDialogTrigger asChild>
@@ -235,7 +284,7 @@ export function BrandingSettings() {
                 {/* Settings Panel */}
                 <div>
                     <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-                        <TabsList className="grid grid-cols-5 w-full">
+                        <TabsList className="grid grid-cols-7 w-full">
                             <TabsTrigger value="typography" className="gap-2">
                                 <Type className="w-4 h-4" />
                                 <span className="hidden sm:inline">Typografi</span>
@@ -246,7 +295,15 @@ export function BrandingSettings() {
                             </TabsTrigger>
                             <TabsTrigger value="hero" className="gap-2">
                                 <Layout className="w-4 h-4" />
-                                <span className="hidden sm:inline">Hero</span>
+                                <span className="hidden sm:inline">Banner</span>
+                            </TabsTrigger>
+                            <TabsTrigger value="navigation" className="gap-2">
+                                <Menu className="w-4 h-4" />
+                                <span className="hidden sm:inline">Navigation</span>
+                            </TabsTrigger>
+                            <TabsTrigger value="footer" className="gap-2">
+                                <Footprints className="w-4 h-4" />
+                                <span className="hidden sm:inline">Footer</span>
                             </TabsTrigger>
                             <TabsTrigger value="icons" className="gap-2">
                                 <Sparkles className="w-4 h-4" />
@@ -259,13 +316,14 @@ export function BrandingSettings() {
                         </TabsList>
 
                         {/* Typography Tab */}
-                        <TabsContent value="typography" className="space-y-6">
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Skrifttyper</CardTitle>
-                                    <CardDescription>Vælg skrifttyper til forskellige elementer</CardDescription>
-                                </CardHeader>
-                                <CardContent className="space-y-6">
+                        <TabsContent value="typography" className="space-y-4">
+                            <CollapsibleCard
+                                title="Skrifttyper"
+                                description="Vælg skrifttyper til forskellige elementer"
+                                icon={<Type className="h-4 w-4" />}
+                                defaultOpen={true}
+                            >
+                                <div className="space-y-6">
                                     <FontSelector
                                         label="Overskrifter"
                                         value={draft.fonts.heading}
@@ -284,179 +342,117 @@ export function BrandingSettings() {
                                         onChange={(v) => updateDraft({ fonts: { ...draft.fonts, pricing: v } })}
                                         description="Bruges til priser og tal"
                                     />
-                                </CardContent>
-                            </Card>
+                                </div>
+                            </CollapsibleCard>
+
+                            {/* Typography Colors */}
+                            <CollapsibleCard
+                                title="Tekstfarver"
+                                description="Tilpas farver på tekst"
+                                icon={<Palette className="h-4 w-4" />}
+                            >
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <ColorPickerWithSwatches
+                                            label="Overskrifter"
+                                            value={draft.colors.headingText || '#1F2937'}
+                                            onChange={(color) => updateDraft({ colors: { ...draft.colors, headingText: color } })}
+                                            savedSwatches={draft.savedSwatches}
+                                            onSaveSwatch={handleSaveSwatch}
+                                            onRemoveSwatch={handleRemoveSwatch}
+                                        />
+                                        <p className="text-xs text-muted-foreground">Farve på H1, H2, H3 overskrifter</p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <ColorPickerWithSwatches
+                                            label="Brødtekst"
+                                            value={draft.colors.bodyText || '#4B5563'}
+                                            onChange={(color) => updateDraft({ colors: { ...draft.colors, bodyText: color } })}
+                                            savedSwatches={draft.savedSwatches}
+                                            onSaveSwatch={handleSaveSwatch}
+                                            onRemoveSwatch={handleRemoveSwatch}
+                                        />
+                                        <p className="text-xs text-muted-foreground">Farve på almindelig tekst og beskrivelser</p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <ColorPickerWithSwatches
+                                            label="Links"
+                                            value={draft.colors.linkText || '#0EA5E9'}
+                                            onChange={(color) => updateDraft({ colors: { ...draft.colors, linkText: color } })}
+                                            savedSwatches={draft.savedSwatches}
+                                            onSaveSwatch={handleSaveSwatch}
+                                            onRemoveSwatch={handleRemoveSwatch}
+                                        />
+                                        <p className="text-xs text-muted-foreground">Farve på links i tekst</p>
+                                    </div>
+                                </div>
+                            </CollapsibleCard>
                         </TabsContent>
 
                         {/* Colors Tab */}
-                        <TabsContent value="colors" className="space-y-6">
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Farveskema</CardTitle>
-                                    <CardDescription>Tilpas farverne på din shop</CardDescription>
-                                </CardHeader>
-                                <CardContent className="grid sm:grid-cols-2 gap-6">
+                        <TabsContent value="colors" className="space-y-4">
+                            <CollapsibleCard
+                                title="Farveskema"
+                                description="Tilpas farverne på din shop"
+                                icon={<Palette className="h-4 w-4" />}
+                                defaultOpen={true}
+                            >
+                                <div className="grid sm:grid-cols-2 gap-6">
                                     {[
                                         { key: "primary" as const, label: "Primær", desc: "Knapper, links, aktive elementer" },
                                         { key: "secondary" as const, label: "Sekundær", desc: "Baggrunde, accenter" },
                                         { key: "background" as const, label: "Baggrund", desc: "Sidens baggrund" },
                                         { key: "card" as const, label: "Kort/Bokse", desc: "Produktkort, paneler" },
                                         { key: "dropdown" as const, label: "Dropdown", desc: "Menuer, valgmuligheder" },
+                                        { key: "hover" as const, label: "Hover (mus over)", desc: "Når musen holdes over elementer" },
                                     ].map((color) => (
                                         <div key={color.key} className="space-y-2">
-                                            <Label>{color.label}</Label>
-                                            <div className="flex items-center gap-3">
-                                                <div className="h-10 w-10 rounded-lg border shadow-sm overflow-hidden flex-shrink-0">
-                                                    <input
-                                                        type="color"
-                                                        value={draft.colors[color.key]}
-                                                        onChange={(e) => updateDraft({ colors: { ...draft.colors, [color.key]: e.target.value } })}
-                                                        className="h-full w-full cursor-pointer p-0 border-none"
-                                                    />
-                                                </div>
-                                                <Input
-                                                    value={draft.colors[color.key]}
-                                                    onChange={(e) => updateDraft({ colors: { ...draft.colors, [color.key]: e.target.value } })}
-                                                    className="font-mono"
-                                                />
-                                            </div>
+                                            <ColorPickerWithSwatches
+                                                label={color.label}
+                                                value={draft.colors[color.key] || '#000000'}
+                                                onChange={(value) => updateDraft({ colors: { ...draft.colors, [color.key]: value } })}
+                                                compact={false}
+                                                showFullSwatches={false}
+                                                savedSwatches={draft.savedSwatches}
+                                                onSaveSwatch={handleSaveSwatch}
+                                                onRemoveSwatch={handleRemoveSwatch}
+                                            />
                                             <p className="text-xs text-muted-foreground">{color.desc}</p>
                                         </div>
                                     ))}
-                                </CardContent>
-                            </Card>
+                                </div>
+                            </CollapsibleCard>
                         </TabsContent>
 
                         {/* Hero Tab */}
                         <TabsContent value="hero" className="space-y-6">
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Hero Banner</CardTitle>
-                                    <CardDescription>Konfigurér forsiden banner</CardDescription>
-                                </CardHeader>
-                                <CardContent className="space-y-6">
-                                    {/* Type Selector */}
-                                    <div className="space-y-2">
-                                        <Label>Banner Type</Label>
-                                        <Select
-                                            value={draft.hero.type}
-                                            onValueChange={(v) => updateDraft({ hero: { ...draft.hero, type: v as "image" | "slideshow" | "video" } })}
-                                        >
-                                            <SelectTrigger>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="image">Enkelt Billede</SelectItem>
-                                                <SelectItem value="slideshow">Slideshow</SelectItem>
-                                                <SelectItem value="video">Video</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
+                            <HeroEditor
+                                draft={draft}
+                                updateDraft={updateDraft}
+                                tenantId={tenantId}
+                            />
+                        </TabsContent>
 
-                                    {/* Media Upload */}
-                                    <div className="space-y-2">
-                                        <Label>{draft.hero.type === "video" ? "Upload Video" : "Upload Billede(r)"}</Label>
-                                        <div className="grid grid-cols-3 gap-3">
-                                            {draft.hero.media.map((url, index) => (
-                                                <div key={index} className="relative aspect-video rounded-lg border overflow-hidden group">
-                                                    {draft.hero.type === "video" ? (
-                                                        <video src={url} className="w-full h-full object-cover" muted />
-                                                    ) : (
-                                                        <img src={url} alt={`Hero ${index + 1}`} className="w-full h-full object-cover" />
-                                                    )}
-                                                    <Button
-                                                        variant="destructive"
-                                                        size="icon"
-                                                        className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                        onClick={() => removeHeroMedia(index)}
-                                                    >
-                                                        <Trash2 className="h-3 w-3" />
-                                                    </Button>
-                                                </div>
-                                            ))}
+                        {/* Navigation Tab */}
+                        <TabsContent value="navigation" className="space-y-6">
+                            <HeaderSection
+                                header={draft.header}
+                                onChange={(header) => updateDraft({ header })}
+                                savedSwatches={draft.savedSwatches}
+                                onSaveSwatch={handleSaveSwatch}
+                                onRemoveSwatch={handleRemoveSwatch}
+                            />
+                        </TabsContent>
 
-                                            {(draft.hero.type !== "video" || draft.hero.media.length === 0) && (
-                                                <label className="aspect-video rounded-lg border-2 border-dashed flex flex-col items-center justify-center cursor-pointer hover:bg-muted/50 transition-colors">
-                                                    <Upload className="h-6 w-6 text-muted-foreground mb-1" />
-                                                    <span className="text-xs text-muted-foreground">Upload</span>
-                                                    <input
-                                                        type="file"
-                                                        className="hidden"
-                                                        accept={draft.hero.type === "video" ? "video/*" : "image/*"}
-                                                        onChange={(e) => handleFileUpload(e, "hero")}
-                                                        disabled={uploading}
-                                                    />
-                                                </label>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Slideshow Options */}
-                                    {draft.hero.type === "slideshow" && (
-                                        <div className="space-y-2">
-                                            <Label>Overgangseffekt</Label>
-                                            <Select
-                                                value={draft.hero.transition}
-                                                onValueChange={(v) => updateDraft({ hero: { ...draft.hero, transition: v as "slide" | "fade" } })}
-                                            >
-                                                <SelectTrigger>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="fade">Fade</SelectItem>
-                                                    <SelectItem value="slide">Slide</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                    )}
-
-                                    {/* Parallax Toggle */}
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <Label>Parallax Effekt</Label>
-                                            <p className="text-xs text-muted-foreground">Billede bevæger sig ved scroll</p>
-                                        </div>
-                                        <Switch
-                                            checked={draft.hero.parallax}
-                                            onCheckedChange={(v) => updateDraft({ hero: { ...draft.hero, parallax: v } })}
-                                        />
-                                    </div>
-
-                                    {/* Overlay */}
-                                    <div className="grid sm:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label>Overlay Farve</Label>
-                                            <div className="flex items-center gap-2">
-                                                <div className="h-8 w-8 rounded border overflow-hidden">
-                                                    <input
-                                                        type="color"
-                                                        value={draft.hero.overlay_color}
-                                                        onChange={(e) => updateDraft({ hero: { ...draft.hero, overlay_color: e.target.value } })}
-                                                        className="h-full w-full cursor-pointer p-0 border-none"
-                                                    />
-                                                </div>
-                                                <Input
-                                                    value={draft.hero.overlay_color}
-                                                    onChange={(e) => updateDraft({ hero: { ...draft.hero, overlay_color: e.target.value } })}
-                                                    className="font-mono"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>Overlay: {Math.round(draft.hero.overlay_opacity * 100)}%</Label>
-                                            <input
-                                                type="range"
-                                                min="0"
-                                                max="1"
-                                                step="0.05"
-                                                value={draft.hero.overlay_opacity}
-                                                onChange={(e) => updateDraft({ hero: { ...draft.hero, overlay_opacity: parseFloat(e.target.value) } })}
-                                                className="w-full"
-                                            />
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
+                        {/* Footer Tab */}
+                        <TabsContent value="footer" className="space-y-6">
+                            <FooterSection
+                                footer={draft.footer}
+                                onChange={(footer) => updateDraft({ footer })}
+                                savedSwatches={draft.savedSwatches}
+                                onSaveSwatch={handleSaveSwatch}
+                                onRemoveSwatch={handleRemoveSwatch}
+                            />
                         </TabsContent>
 
                         {/* Icon Packs Tab */}
@@ -468,13 +464,14 @@ export function BrandingSettings() {
                         </TabsContent>
 
                         {/* Logo Tab */}
-                        <TabsContent value="logo" className="space-y-6">
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Logo</CardTitle>
-                                    <CardDescription>Upload dit virksomhedslogo</CardDescription>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
+                        <TabsContent value="logo" className="space-y-4">
+                            <CollapsibleCard
+                                title="Logo"
+                                description="Upload dit virksomhedslogo"
+                                icon={<ImageIcon className="h-4 w-4" />}
+                                defaultOpen={true}
+                            >
+                                <div className="space-y-4">
                                     <div className="border-2 border-dashed border-muted rounded-lg p-6 flex flex-col items-center justify-center min-h-[200px] bg-muted/5 relative">
                                         {draft.logo_url ? (
                                             <div className="relative w-full h-full flex items-center justify-center">
@@ -503,27 +500,26 @@ export function BrandingSettings() {
                                             <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, "logo")} />
                                         </label>
                                     </Button>
-                                </CardContent>
-                            </Card>
+                                </div>
+                            </CollapsibleCard>
 
                             {/* Navigation Options */}
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Navigation</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <Label>Vis produktbilleder i dropdown</Label>
-                                            <p className="text-xs text-muted-foreground">Vis ikoner ved siden af produktnavne</p>
-                                        </div>
-                                        <Switch
-                                            checked={draft.navigation.dropdown_images}
-                                            onCheckedChange={(v) => updateDraft({ navigation: { ...draft.navigation, dropdown_images: v } })}
-                                        />
+                            <CollapsibleCard
+                                title="Navigation"
+                                description="Indstillinger for dropdown-menuen"
+                                icon={<Menu className="h-4 w-4" />}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <Label>Vis produktbilleder i dropdown</Label>
+                                        <p className="text-xs text-muted-foreground">Vis ikoner ved siden af produktnavne</p>
                                     </div>
-                                </CardContent>
-                            </Card>
+                                    <Switch
+                                        checked={draft.navigation.dropdown_images}
+                                        onCheckedChange={(v) => updateDraft({ navigation: { ...draft.navigation, dropdown_images: v } })}
+                                    />
+                                </div>
+                            </CollapsibleCard>
                         </TabsContent>
                     </Tabs>
 
@@ -542,9 +538,10 @@ export function BrandingSettings() {
                         <CardContent className="p-0">
                             <div className="h-[600px]">
                                 <BrandingPreviewFrame
-                                    previewUrl={`/preview?draft=1`}
+                                    previewUrl={`/preview-shop?draft=1&tenantId=${tenantId || ''}`}
                                     branding={draft}
                                     tenantName={tenantName}
+                                    onSaveDraft={saveDraft}
                                 />
                             </div>
                         </CardContent>

@@ -35,14 +35,14 @@ export function BrandingHistory({ tenantId, onRestore }: BrandingHistoryProps) {
             <DialogTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-2">
                     <History className="w-4 h-4" />
-                    Historik
+                    Gemt Design
                 </Button>
             </DialogTrigger>
             <DialogContent className="max-w-lg">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <History className="w-5 h-5" />
-                        Branding Historik
+                        Gemt Branding Designs
                     </DialogTitle>
                 </DialogHeader>
 
@@ -53,8 +53,8 @@ export function BrandingHistory({ tenantId, onRestore }: BrandingHistoryProps) {
                 ) : versions.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
                         <History className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                        <p>Ingen tidligere versioner</p>
-                        <p className="text-sm">Versioner oprettes når du publicerer ændringer</p>
+                        <p>Ingen gemte designs</p>
+                        <p className="text-sm">Gemte kladder og publicerede versioner vises her</p>
                     </div>
                 ) : (
                     <ScrollArea className="max-h-[400px] pr-4">

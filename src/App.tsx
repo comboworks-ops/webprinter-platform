@@ -23,6 +23,8 @@ import MyAddresses from "./pages/MyAddresses";
 import MySettings from "./pages/MySettings";
 import TenantSignup from "./pages/TenantSignup";
 import PreviewStorefront from "./pages/PreviewStorefront";
+import PreviewShop from "./pages/PreviewShop";
+import GrafiskVejledning from "./pages/GrafiskVejledning";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -36,7 +38,13 @@ const App = () => (
         <BrowserRouter>
           <PageTracker />
           <Routes>
-            {/* Dynamic Root: Landing Page on main domain, Shop on subdomains */}
+            {/* Local Dev Route for Tenant View */}
+            <Route path="/local-tenant" element={<Shop />} />
+
+            {/* Platform Marketing Page - accessible via /platform during development */}
+            <Route path="/platform" element={<Index />} />
+
+            {/* Dynamic Root: Shop on localhost (dev), Landing Page on main domain, Shop on subdomains */}
             <Route path="/" element={<SubdomainRouter />} />
 
             <Route path="/om-os" element={<About />} />
@@ -59,6 +67,8 @@ const App = () => (
             <Route path="/admin/*" element={<Admin />} />
             <Route path="/sitemap.xml" element={<Sitemap />} />
             <Route path="/preview" element={<PreviewStorefront />} />
+            <Route path="/preview-shop" element={<PreviewShop />} />
+            <Route path="/grafisk-vejledning" element={<GrafiskVejledning />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

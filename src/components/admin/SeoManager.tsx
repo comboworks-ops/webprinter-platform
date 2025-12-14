@@ -1,5 +1,5 @@
-
 import { useState, useEffect } from "react";
+import { useUserRole } from "@/hooks/useUserRole";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { Search, Save, Globe, Loader2, FileText, Package } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { resolveAdminTenant } from "@/lib/adminTenant";
 
 interface PageSeo {
     id: string;
@@ -52,6 +53,8 @@ const PageListTable = ({ items, editingId, onEdit }: {
     );
 };
 
+// ... existing code ...
+
 export function SeoManager() {
     const [pages, setPages] = useState<PageSeo[]>([]);
     const [loading, setLoading] = useState(true);
@@ -60,50 +63,19 @@ export function SeoManager() {
     const [saving, setSaving] = useState(false);
     const [tenantId, setTenantId] = useState<string | null>(null);
     const [isMaster, setIsMaster] = useState(false);
+    const { isMasterAdmin: roleIsMasterAdmin } = useUserRole();
 
     useEffect(() => {
         init();
-    }, []);
+    }, [roleIsMasterAdmin]); // Dependency on role
 
     const init = async () => {
         setLoading(true);
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // Resolve Tenant
-        let currentTenantId = null;
-
-        // 1. Check if Master
-        const { data: masterTenant } = await supabase
-            .from('tenants' as any)
-            .select('id')
-            .eq('id', '00000000-0000-0000-0000-000000000000')
-            .eq('owner_id', user.id)
-            .maybeSingle();
-
-        if (masterTenant) {
-            currentTenantId = (masterTenant as any).id;
-            setIsMaster(true);
-        } else {
-            // 2. Check Role
-            const { data: roleData } = await supabase
-                .from('user_roles' as any)
-                .select('tenant_id')
-                .eq('user_id', user.id)
-                .maybeSingle();
-
-            if (roleData) {
-                currentTenantId = (roleData as any).tenant_id;
-            } else {
-                // 3. Fallback Owner
-                const { data: myTenant } = await supabase
-                    .from('tenants' as any)
-                    .select('id')
-                    .eq('owner_id', user.id)
-                    .maybeSingle();
-                if (myTenant) currentTenantId = (myTenant as any).id;
-            }
-        }
+        const { tenantId: currentTenantId, isMasterAdmin } = await resolveAdminTenant();
+        setIsMaster(isMasterAdmin || roleIsMasterAdmin);
 
         setTenantId(currentTenantId);
         if (currentTenantId) {

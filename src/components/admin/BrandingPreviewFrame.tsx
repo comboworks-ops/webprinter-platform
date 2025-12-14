@@ -1,13 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, ExternalLink, Monitor, Smartphone, Tablet, Loader2 } from "lucide-react";
+import { RefreshCw, ExternalLink, Monitor, Smartphone, Tablet, Loader2, Home, Send, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import type { BrandingData } from "@/hooks/useBrandingDraft";
 
 interface BrandingPreviewFrameProps {
     previewUrl: string;
     branding: BrandingData; // Real-time branding data from parent
     tenantName?: string;
+    /** Optional callback to publish directly from preview */
+    onPublish?: () => void;
+    /** Whether publishing is in progress */
+    isPublishing?: boolean;
+    /** Optional callback to save draft before opening in new tab */
+    onSaveDraft?: () => Promise<void>;
 }
 
 type ViewportSize = "desktop" | "tablet" | "mobile";
@@ -18,10 +25,32 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: number; height: number; labe
     mobile: { width: 390, height: 844, label: "Mobil" },
 };
 
-export function BrandingPreviewFrame({ previewUrl, branding, tenantName = "Din Shop" }: BrandingPreviewFrameProps) {
+// Allowed preview routes - only customer-visible pages
+const ALLOWED_PREVIEW_PATHS = [
+    '/',
+    '/shop',
+    '/produkter',
+    '/produkt/',
+    '/kontakt',
+    '/om-os',
+    '/betingelser',
+];
+
+export function BrandingPreviewFrame({
+    previewUrl,
+    branding,
+    tenantName = "Din Shop",
+    onPublish,
+    isPublishing = false,
+    onSaveDraft,
+}: BrandingPreviewFrameProps) {
+    // Broadcast channel so detached preview windows get live updates
+    const broadcastRef = useRef<BroadcastChannel | null>(null);
     const [viewport, setViewport] = useState<ViewportSize>("desktop");
     const [isLoading, setIsLoading] = useState(true);
     const [iframeReady, setIframeReady] = useState(false);
+    const [currentPath, setCurrentPath] = useState("/");
+    const [isSavingForPreview, setIsSavingForPreview] = useState(false);
     const iframeRef = useRef<HTMLIFrameElement>(null);
 
     // Send branding to iframe via postMessage
@@ -32,6 +61,10 @@ export function BrandingPreviewFrame({ previewUrl, branding, tenantName = "Din S
                 '*'
             );
         }
+        // Also broadcast to any open preview windows
+        if (broadcastRef.current) {
+            broadcastRef.current.postMessage({ type: 'BRANDING_UPDATE', branding, tenantName });
+        }
     }, [branding, tenantName, iframeReady]);
 
     // Send branding whenever it changes
@@ -39,7 +72,7 @@ export function BrandingPreviewFrame({ previewUrl, branding, tenantName = "Din S
         sendBrandingToIframe();
     }, [sendBrandingToIframe]);
 
-    // Listen for iframe ready signal
+    // Listen for iframe ready signal and navigation events
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             if (event.data?.type === 'PREVIEW_READY') {
@@ -48,11 +81,49 @@ export function BrandingPreviewFrame({ previewUrl, branding, tenantName = "Din S
                 // Send initial branding
                 setTimeout(sendBrandingToIframe, 100);
             }
+
+            // Handle navigation events from iframe
+            if (event.data?.type === 'PREVIEW_NAVIGATION') {
+                const path = event.data.path;
+
+                // Check if navigation is allowed
+                const isAllowed = ALLOWED_PREVIEW_PATHS.some(allowed =>
+                    path === allowed || path.startsWith(allowed)
+                );
+
+                if (isAllowed) {
+                    setCurrentPath(path);
+                } else {
+                    // Block navigation to non-customer pages
+                    navigateToFrontpage();
+                }
+            }
         };
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
     }, [sendBrandingToIframe]);
+
+    // Setup broadcast channel for cross-window preview updates
+    useEffect(() => {
+        const channel = new BroadcastChannel('branding-preview');
+        broadcastRef.current = channel;
+
+        const handleBroadcast = (event: MessageEvent) => {
+            // Preview windows can request the latest branding snapshot when they boot
+            if (event.data?.type === 'REQUEST_BRANDING' || event.data?.type === 'PREVIEW_READY_BROADCAST') {
+                channel.postMessage({ type: 'BRANDING_UPDATE', branding, tenantName });
+            }
+        };
+
+        channel.addEventListener('message', handleBroadcast);
+
+        return () => {
+            channel.removeEventListener('message', handleBroadcast);
+            channel.close();
+            broadcastRef.current = null;
+        };
+    }, [branding, tenantName]);
 
     const handleLoad = () => {
         // Iframe loaded, wait for PREVIEW_READY message
@@ -72,8 +143,38 @@ export function BrandingPreviewFrame({ previewUrl, branding, tenantName = "Din S
         }
     };
 
-    const openInNewTab = () => {
-        window.open(previewUrl, '_blank');
+    const navigateToFrontpage = () => {
+        if (iframeRef.current?.contentWindow) {
+            // Send navigation command to iframe
+            iframeRef.current.contentWindow.postMessage(
+                { type: 'NAVIGATE_TO', path: '/' },
+                '*'
+            );
+        }
+        setCurrentPath("/");
+        // Also refresh to ensure we're on frontpage
+        handleRefresh();
+    };
+
+    const openInNewTab = async () => {
+        // If we have a save callback, save draft first so new tab has current changes
+        if (onSaveDraft) {
+            setIsSavingForPreview(true);
+            try {
+                await onSaveDraft();
+                toast.info("Kladde gemt - åbner preview...");
+            } catch (err) {
+                toast.error("Kunne ikke gemme kladde før preview");
+                setIsSavingForPreview(false);
+                return;
+            }
+            setIsSavingForPreview(false);
+        }
+        // Open with draft=1 to load from saved draft
+        const urlWithDraft = previewUrl.includes('?')
+            ? `${previewUrl}&draft=1&t=${Date.now()}`
+            : `${previewUrl}?draft=1&t=${Date.now()}`;
+        window.open(urlWithDraft, '_blank');
     };
 
     const currentSize = VIEWPORT_SIZES[viewport];
@@ -104,13 +205,43 @@ export function BrandingPreviewFrame({ previewUrl, branding, tenantName = "Din S
                     {iframeReady && (
                         <span className="text-xs text-green-600 mr-2 hidden sm:inline">● Live</span>
                     )}
+
+                    {/* Back to Frontpage */}
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1"
+                        onClick={navigateToFrontpage}
+                        title="Tilbage til forside"
+                    >
+                        <Home className="w-4 h-4" />
+                        <span className="hidden sm:inline text-xs">Forside</span>
+                    </Button>
+
                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={handleRefresh} disabled={isLoading}>
                         <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={openInNewTab}>
-                        <ExternalLink className="w-4 h-4" />
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={openInNewTab}
+                        disabled={isSavingForPreview}
+                        title="Åbn preview i nyt vindue"
+                    >
+                        {isSavingForPreview ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <ExternalLink className="w-4 h-4" />
+                        )}
                     </Button>
                 </div>
+            </div>
+
+            {/* Preview Security Notice */}
+            <div className="px-2 py-1 bg-amber-50 border-b border-amber-200 text-xs text-amber-700 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                Preview viser kun kundesynlige sider. Backend er ikke tilgængelig.
             </div>
 
             {/* Device Preview Area */}
@@ -170,9 +301,27 @@ export function BrandingPreviewFrame({ previewUrl, branding, tenantName = "Din S
                 </div>
             </div>
 
-            {/* Status Bar */}
-            <div className="p-2 border-t bg-white/80 backdrop-blur text-xs text-muted-foreground text-center">
-                {currentSize.width} × {currentSize.height}px · {iframeReady ? "Live synkronisering" : "Venter på preview..."}
+            {/* Status Bar with Publish Option */}
+            <div className="p-2 border-t bg-white/80 backdrop-blur flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">
+                    {currentSize.width} × {currentSize.height}px · {iframeReady ? "Live synkronisering" : "Venter på preview..."}
+                </span>
+
+                {onPublish && (
+                    <Button
+                        size="sm"
+                        onClick={onPublish}
+                        disabled={isPublishing}
+                        className="h-7 text-xs gap-1"
+                    >
+                        {isPublishing ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                            <Send className="w-3 h-3" />
+                        )}
+                        Publicér nu
+                    </Button>
+                )}
             </div>
         </div>
     );

@@ -10,7 +10,8 @@ const Shop = () => {
     return <div className="min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1">
+        {/* Main content - HeroSlider uses negative margin to slide under the Header */}
+        <main className="flex-1" style={{ marginTop: '-80px' }}>
             <HeroSlider />
 
             {/* Tagline */}

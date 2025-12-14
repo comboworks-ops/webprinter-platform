@@ -16,8 +16,8 @@ const Index = () => {
       <OrganizationSchema />
       <Header />
 
-      {/* Hero Section */}
-      <section className="relative flex-1 flex items-center justify-center bg-gradient-to-br from-primary/5 to-secondary/10 pt-16 pb-12 overflow-hidden">
+      {/* Hero Section - negative margin to slide under transparent header */}
+      <section className="relative flex-1 flex items-center justify-center bg-gradient-to-br from-primary/5 to-secondary/10 pt-16 pb-12 overflow-hidden" style={{ marginTop: '-80px', paddingTop: '120px' }}>
         <div className="container px-4 mx-auto text-center z-10">
           <span className="inline-block py-1 px-3 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4">
             Den komplette løsning til dit trykkeri

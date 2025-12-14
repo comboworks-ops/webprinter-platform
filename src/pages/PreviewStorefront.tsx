@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams, Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -6,6 +6,7 @@ import { Loader2, ArrowRight, Check, BarChart, Globe } from "lucide-react";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
+import Header from "@/components/Header";
 import { getGoogleFontsUrl } from "@/components/admin/FontSelector";
 
 interface BrandingData {
@@ -79,7 +80,9 @@ export default function PreviewStorefront() {
     const [tenantName, setTenantName] = useState("Din Shop");
     const [isLoading, setIsLoading] = useState(true);
     const [isEmbedded, setIsEmbedded] = useState(false);
+    const hasLiveUpdateRef = useRef(false);
 
+    const tenantId = searchParams.get("tenantId");
     const versionId = searchParams.get("versionId");
     const isDraft = searchParams.get("draft") === "1";
 
@@ -93,6 +96,7 @@ export default function PreviewStorefront() {
         const handleMessage = (event: MessageEvent) => {
             if (event.data?.type === 'BRANDING_UPDATE') {
                 setBranding(event.data.branding);
+                hasLiveUpdateRef.current = true;
                 if (event.data.tenantName) {
                     setTenantName(event.data.tenantName);
                 }
@@ -123,8 +127,33 @@ export default function PreviewStorefront() {
     useEffect(() => {
         async function loadBranding() {
             try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user) return;
+                // If tenantId is provided (e.g. from Platform Admin viewing a tenant), load that tenant directly
+                // This does not require auth if we rely on RLS allowing read of tenants (or if user is master admin)
+                // However, normal flow requires user to be logged in.
+
+                let tenantData = null;
+
+                if (tenantId) {
+                    const { data } = await supabase
+                        .from('tenants' as any)
+                        .select('id, name, settings')
+                        .eq('id', tenantId)
+                        .maybeSingle();
+                    tenantData = data;
+                } else if (versionId) {
+                    // Load version history
+                } else {
+                    // Fallback to user's own tenant
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (user) {
+                        const { data } = await supabase
+                            .from('tenants' as any)
+                            .select('id, name, settings')
+                            .eq('owner_id', user.id)
+                            .maybeSingle();
+                        tenantData = data;
+                    }
+                }
 
                 if (versionId) {
                     const { data: version } = await supabase
@@ -134,24 +163,24 @@ export default function PreviewStorefront() {
                         .single();
 
                     if (version) {
-                        setBranding((version as any).data);
+                        if (!hasLiveUpdateRef.current) {
+                            setBranding((version as any).data);
+                        }
                     }
-                } else {
-                    const { data: tenant } = await supabase
-                        .from('tenants' as any)
-                        .select('id, name, settings')
-                        .eq('owner_id', user.id)
-                        .maybeSingle();
+                } else if (tenantData) {
+                    setTenantName((tenantData as any).name || "Din Shop");
+                    const brandingSettings = (tenantData as any).settings?.branding || {};
 
-                    if (tenant) {
-                        setTenantName((tenant as any).name || "Din Shop");
-                        const brandingSettings = (tenant as any).settings?.branding || {};
-
-                        if (isDraft && brandingSettings.draft) {
+                    if (isDraft && brandingSettings.draft) {
+                        if (!hasLiveUpdateRef.current) {
                             setBranding(brandingSettings.draft);
-                        } else if (brandingSettings.published) {
+                        }
+                    } else if (brandingSettings.published) {
+                        if (!hasLiveUpdateRef.current) {
                             setBranding(brandingSettings.published);
-                        } else {
+                        }
+                    } else {
+                        if (!hasLiveUpdateRef.current) {
                             setBranding(brandingSettings);
                         }
                     }
@@ -166,7 +195,41 @@ export default function PreviewStorefront() {
         if (!roleLoading) {
             loadBranding();
         }
-    }, [versionId, isDraft, roleLoading]);
+    }, [versionId, isDraft, roleLoading, tenantId]);
+
+    // BroadcastChannel for detached preview windows (not embedded)
+    useEffect(() => {
+        const isInPreviewMode = searchParams.get("draft") === "1" || searchParams.get("preview_mode") === "1";
+        if (!isInPreviewMode) return;
+
+        const channel = new BroadcastChannel('branding-preview');
+
+        const handleBroadcast = (event: MessageEvent) => {
+            if (event.data?.type === "BRANDING_UPDATE") {
+                hasLiveUpdateRef.current = true;
+                setBranding(event.data.branding);
+                if (event.data.tenantName) {
+                    setTenantName(event.data.tenantName);
+                }
+                if (event.data.branding?.fonts) {
+                    loadGoogleFonts([
+                        event.data.branding.fonts.heading || 'Poppins',
+                        event.data.branding.fonts.body || 'Inter',
+                        event.data.branding.fonts.pricing || 'Roboto Mono'
+                    ]);
+                }
+            }
+        };
+
+        channel.postMessage({ type: "REQUEST_BRANDING" });
+        channel.postMessage({ type: "PREVIEW_READY_BROADCAST" });
+        channel.addEventListener("message", handleBroadcast);
+
+        return () => {
+            channel.removeEventListener("message", handleBroadcast);
+            channel.close();
+        };
+    }, [searchParams]);
 
     // Load fonts on initial branding
     useEffect(() => {
@@ -203,16 +266,6 @@ export default function PreviewStorefront() {
 
     return (
         <>
-            {/* Preview Banner - only show if not embedded */}
-            {!isEmbedded && (
-                <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 text-amber-950 px-4 py-2 text-center text-sm font-medium">
-                    🔍 Preview Mode - {isDraft ? "Kladde" : versionId ? "Version" : "Publiceret"} branding
-                    <Link to="/admin/branding" className="ml-3 underline">
-                        Tilbage til editor
-                    </Link>
-                </div>
-            )}
-
             {/* Storefront with applied branding */}
             <div
                 className="min-h-screen flex flex-col"
@@ -224,34 +277,8 @@ export default function PreviewStorefront() {
                     paddingTop: isEmbedded ? 0 : 40,
                 } as React.CSSProperties}
             >
-                {/* Header */}
-                <header
-                    className="sticky z-40 bg-white shadow-sm border-b"
-                    style={{
-                        background: `hsl(${hexToHsl(cardColor)})`,
-                        top: isEmbedded ? 0 : 40,
-                    }}
-                >
-                    <div className="container mx-auto px-4">
-                        <div className="flex items-center justify-between h-16">
-                            {branding?.logo_url ? (
-                                <img src={branding.logo_url} alt="Logo" className="h-10 w-auto object-contain" />
-                            ) : (
-                                <span
-                                    className="text-xl font-bold"
-                                    style={{ fontFamily: `'${headingFont}', sans-serif`, color: `hsl(${hexToHsl(primaryColor)})` }}
-                                >
-                                    {tenantName}
-                                </span>
-                            )}
-                            <nav className="hidden md:flex items-center gap-6 text-sm">
-                                <span>Produkter</span>
-                                <span>Kontakt</span>
-                                <span>Om os</span>
-                            </nav>
-                        </div>
-                    </div>
-                </header>
+                {/* Header - Use the real component for consistent behavior */}
+                <Header />
 
                 {/* Hero Section */}
                 <section

@@ -9,20 +9,48 @@ export function useShopSettings() {
         queryKey: ["shop-settings"],
         queryFn: async () => {
             const hostname = window.location.hostname;
-            const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
             const isVercel = hostname.endsWith('.vercel.app');
-
-            // Known marketing/landing domains where we should NOT look for a tenant
             const marketingDomains = [ROOT_DOMAIN, `www.${ROOT_DOMAIN}`];
 
+            // Allow overriding hostname for local testing
+            const searchParams = new URLSearchParams(window.location.search);
+            const forceDomain = searchParams.get('force_domain');
+            const forceSubdomain = searchParams.get('tenant_subdomain');
+
+            // Check if we're on /local-tenant route - if so, skip localhost check
+            const isLocalTenantRoute = window.location.pathname.startsWith('/local-tenant');
+
+            // 0. Direct Tenant Lookup by Subdomain (for local dev)
+            // Usage: /local-tenant?tenant_subdomain=demo
+            if (forceSubdomain) {
+                const { data: tenantBySub } = await supabase
+                    .from('tenants' as any)
+                    .select('*')
+                    .eq('subdomain', forceSubdomain)
+                    .maybeSingle();
+
+                if (tenantBySub) {
+                    return {
+                        ...(tenantBySub as any).settings,
+                        tenant_name: (tenantBySub as any).name,
+                        id: (tenantBySub as any).id,
+                        subdomain: (tenantBySub as any).subdomain
+                    };
+                }
+            }
+
+            // If forcing a domain OR on /local-tenant, treat as a production tenant lookup
+            const effectiveHostname = forceDomain || hostname;
+            const isEffectiveLocalhost = !forceDomain && !isLocalTenantRoute && (effectiveHostname === 'localhost' || effectiveHostname === '127.0.0.1');
+
             // 1. Production: Try to find tenant by Domain or Subdomain
-            if (!isLocalhost && !isVercel && !marketingDomains.includes(hostname)) {
+            if (!isEffectiveLocalhost && !isVercel && !marketingDomains.includes(effectiveHostname)) {
 
                 // A. Custom Domain Match (e.g. tryk.dk)
                 const { data: tenantByDomain } = await supabase
                     .from('tenants' as any)
                     .select('*')
-                    .eq('domain', hostname)
+                    .eq('domain', effectiveHostname)
                     .maybeSingle();
 
                 if (tenantByDomain) {
@@ -35,8 +63,8 @@ export function useShopSettings() {
                 }
 
                 // B. Subdomain Match (e.g. shop1.webprinter.dk)
-                if (hostname.endsWith(ROOT_DOMAIN)) {
-                    const subdomain = hostname.replace(`.${ROOT_DOMAIN}`, '');
+                if (effectiveHostname.endsWith(ROOT_DOMAIN)) {
+                    const subdomain = effectiveHostname.replace(`.${ROOT_DOMAIN}`, '');
                     if (subdomain !== 'www' && subdomain !== '') {
                         const { data: tenantBySub } = await supabase
                             .from('tenants' as any)

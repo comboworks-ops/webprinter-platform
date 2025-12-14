@@ -15,15 +15,21 @@ import { OrderManager } from '@/components/admin/OrderManager';
 import AdminMessages from '@/components/admin/AdminMessages';
 import DomainSettings from '@/components/admin/DomainSettings';
 import BrandingSettings from '@/components/admin/BrandingSettings';
+import TenantBrandingSettings from '@/components/admin/TenantBrandingSettings';
+import MasterBrandingTemplate from '@/components/admin/MasterBrandingTemplate';
 import SubscriptionSettings from '@/components/admin/SubscriptionSettings';
 import ShopSettings from '@/components/admin/ShopSettings';
 import { TenantOverview } from '@/components/admin/TenantOverview';
 import { AdminUpdates } from '@/components/admin/AdminUpdates';
 import { TenantUpdates } from '@/components/admin/TenantUpdates';
 import AssetsLibrary from '@/components/admin/AssetsLibrary';
+import MasterResources from '@/components/admin/MasterResources';
+import MasterTemplatesPage from '@/pages/admin/MasterTemplatesPage';
+import TenantTemplatesPage from '@/pages/admin/TenantTemplatesPage';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { supabase } from '@/integrations/supabase/client';
+
 
 export default function Admin() {
   const navigate = useNavigate();
@@ -87,6 +93,10 @@ export default function Admin() {
                 <Route path="/updates" element={<AdminUpdates />} />
                 <Route path="/tenant-updates" element={<TenantUpdates />} />
                 <Route path="/assets" element={<AssetsLibrary />} />
+                <Route path="/resources" element={<MasterResources />} />
+                <Route path="/branding-template" element={<MasterBrandingTemplate />} />
+                <Route path="/master-skabeloner" element={<MasterTemplatesPage />} />
+                <Route path="/skabeloner" element={<TenantTemplatesPage />} />
               </Routes>
             </div>
           </main>

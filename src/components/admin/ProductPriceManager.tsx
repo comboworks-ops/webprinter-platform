@@ -21,6 +21,7 @@ import { BulkCSVExport } from "./BulkCSVExport";
 import { ProductTooltipEditor } from "./ProductTooltipEditor";
 import { PriceHierarchyFilter } from "./PriceHierarchyFilter";
 import { OptionGroupManager } from "./OptionGroupManager";
+import { resolveAdminTenant } from "@/lib/adminTenant";
 
 interface BasePrice {
   id: string;
@@ -109,17 +110,7 @@ export function ProductPriceManager() {
     try {
       setLoading(true);
       // Get current user's tenant to ensure we pick the right product
-      const { data: { user } } = await supabase.auth.getUser();
-      let tenantId = null;
-
-      if (user) {
-        const { data: tenant } = await supabase
-          .from('tenants' as any)
-          .select('id')
-          .eq('owner_id', user.id)
-          .maybeSingle();
-        if (tenant) tenantId = (tenant as any).id;
-      }
+      const { tenantId } = await resolveAdminTenant();
 
       let query = supabase
         .from('products')

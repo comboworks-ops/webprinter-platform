@@ -2,6 +2,422 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+// Default hero slideshow images
+import heroPrinting from "@/assets/hero-printing.jpg";
+import heroBanners from "@/assets/hero-banners.jpg";
+import heroFlyers from "@/assets/hero-flyers.jpg";
+
+// Hero banner dimension constants (can be changed platform-wide here)
+export const HERO_RECOMMENDED_WIDTH = 1920;
+export const HERO_RECOMMENDED_HEIGHT = 600;
+export const HERO_MAX_IMAGES = 10;
+export const HERO_MAX_VIDEOS = 3;
+
+// Hero button link types
+export type HeroButtonLinkType = 'ALL_PRODUCTS' | 'PRODUCT' | 'INTERNAL_PAGE' | 'EXTERNAL_URL';
+
+// Hero media type
+export type HeroMediaType = 'images' | 'video';
+
+// Hero button interface (with color customization)
+export interface HeroButton {
+    id: string;
+    label: string;
+    variant: 'primary' | 'secondary';
+    linkType: HeroButtonLinkType;
+    target: {
+        productId?: string;
+        productSlug?: string;
+        path?: string;
+        url?: string;
+    };
+    /** Custom text color for the button */
+    textColor?: string;
+    /** Custom background color for the button */
+    bgColor?: string;
+    /** Background opacity (0-1) */
+    bgOpacity?: number;
+}
+
+// Hero image interface
+export interface HeroImage {
+    id: string;
+    url: string;
+    alt?: string;
+    sortOrder: number;
+    /** Optional: reference to master asset ID */
+    masterAssetId?: string;
+    /** Per-slide headline text */
+    headline?: string;
+    /** Per-slide subtitle/subline text */
+    subline?: string;
+    /** Per-slide CTA button text */
+    ctaText?: string;
+    /** Per-slide CTA button link */
+    ctaLink?: string;
+}
+
+// Hero video interface
+export interface HeroVideo {
+    id: string;
+    url: string;
+    posterUrl?: string;
+    sortOrder: number;
+    /** Optional: reference to master asset ID */
+    masterAssetId?: string;
+}
+
+// Slideshow settings interface
+export interface HeroSlideshowSettings {
+    enabled: boolean;
+    transition: 'fade' | 'slide';
+    autoplay: boolean;
+    intervalMs: number;
+}
+
+// Video settings interface
+export interface HeroVideoSettings {
+    fitMode: 'cover' | 'contain';
+    parallaxEnabled: boolean;
+    muted: boolean;
+    loop: boolean;
+}
+
+// Overlay settings interface (with text color customization)
+export interface HeroOverlaySettings {
+    title: string;
+    subtitle: string;
+    /** Custom title text color */
+    titleColor?: string;
+    /** Custom subtitle text color */
+    subtitleColor?: string;
+    showButtons: boolean;
+    buttons: HeroButton[];
+}
+
+// Complete hero settings interface
+export interface HeroSettings {
+    recommendedWidthPx: number;
+    recommendedHeightPx: number;
+    mediaType: HeroMediaType;
+    fitMode: 'cover' | 'contain';
+    images: HeroImage[];
+    videos: HeroVideo[];
+    /** @deprecated Legacy field for backwards compatibility */
+    media: string[];
+    /** @deprecated Legacy field */
+    type: 'image' | 'slideshow' | 'video';
+    slideshow: HeroSlideshowSettings;
+    /** @deprecated Legacy field */
+    transition: 'fade' | 'slide';
+    parallax: boolean;
+    videoSettings: HeroVideoSettings;
+    overlay_color: string;
+    overlay_opacity: number;
+    overlay: HeroOverlaySettings;
+}
+
+// Default slideshow settings
+const DEFAULT_SLIDESHOW: HeroSlideshowSettings = {
+    enabled: true,
+    transition: 'fade',
+    autoplay: true,
+    intervalMs: 5000,
+};
+
+// Default video settings
+const DEFAULT_VIDEO_SETTINGS: HeroVideoSettings = {
+    fitMode: 'cover',
+    parallaxEnabled: false,
+    muted: true,
+    loop: true,
+};
+
+// Default overlay settings - includes demo banner content and default button
+const DEFAULT_OVERLAY: HeroOverlaySettings = {
+    title: 'Billige tryksager online',
+    subtitle: 'Professionelt tryk med hurtig levering til hele Danmark',
+    titleColor: '#FFFFFF',
+    subtitleColor: 'rgba(255, 255, 255, 0.9)',
+    showButtons: true,
+    buttons: [
+        {
+            id: 'default-cta-1',
+            label: 'Se produkter',
+            variant: 'primary',
+            linkType: 'ALL_PRODUCTS',
+            target: {},
+            textColor: '#FFFFFF',
+            bgColor: '#0EA5E9',
+            bgOpacity: 1,
+        },
+        {
+            id: 'default-cta-2',
+            label: 'Kontakt os',
+            variant: 'secondary',
+            linkType: 'INTERNAL_PAGE',
+            target: { path: '/kontakt' },
+            textColor: '#FFFFFF',
+        },
+    ],
+};
+
+// Default hero images (these are the template slideshow images with per-slide text)
+
+const DEFAULT_HERO_IMAGES: HeroImage[] = [
+    {
+        id: 'default-1',
+        url: heroPrinting,
+        alt: 'Professionelt tryk',
+        sortOrder: 0,
+        headline: 'Professionelt tryk – hurtig levering i hele Danmark',
+        subline: 'Flyers, foldere, plakater, bannere m.m. — beregn prisen direkte.',
+        ctaText: 'Se tryksager',
+        ctaLink: '#tryksager',
+    },
+    {
+        id: 'default-2',
+        url: heroBanners,
+        alt: 'Storformat print',
+        sortOrder: 1,
+        headline: 'Storformat print i topkvalitet',
+        subline: 'Bannere, beachflag, skilte og messeudstyr – til konkurrencedygtige priser.',
+        ctaText: 'Se storformat',
+        ctaLink: '#storformat',
+    },
+    {
+        id: 'default-3',
+        url: heroFlyers,
+        alt: 'Billige tryksager',
+        sortOrder: 2,
+        headline: 'Billige tryksager online',
+        subline: 'Bestil nemt og hurtigt – personlig service og dansk produktion.',
+        ctaText: 'Beregn pris',
+        ctaLink: '/prisberegner',
+    },
+];
+
+// Default hero settings
+const DEFAULT_HERO: HeroSettings = {
+    recommendedWidthPx: HERO_RECOMMENDED_WIDTH,
+    recommendedHeightPx: HERO_RECOMMENDED_HEIGHT,
+    mediaType: 'images',
+    fitMode: 'cover',
+    images: DEFAULT_HERO_IMAGES,
+    videos: [],
+    media: DEFAULT_HERO_IMAGES.map(img => img.url),
+    type: 'slideshow',
+    slideshow: DEFAULT_SLIDESHOW,
+    transition: 'fade',
+    parallax: false,
+    videoSettings: DEFAULT_VIDEO_SETTINGS,
+    overlay_color: '#000000',
+    overlay_opacity: 0.3,
+    overlay: DEFAULT_OVERLAY,
+};
+
+// ============================================================================
+// HEADER SETTINGS (Extended)
+// ============================================================================
+
+// Dropdown content mode
+export type HeaderDropdownMode = 'TEXT_ONLY' | 'IMAGE_ONLY' | 'IMAGE_AND_TEXT';
+
+// Header scroll settings
+export interface HeaderScrollSettings {
+    sticky: boolean;           // Fixed to top when scrolling
+    hideOnScroll: boolean;     // Hide when scrolling down, show on scroll up
+    fadeOnScroll: boolean;     // Fade opacity as user scrolls
+    shrinkOnScroll: boolean;   // Shrink height on scroll
+    heightPx: number;          // Normal header height
+    collapsedHeightPx: number; // Collapsed header height (when shrink is on)
+}
+
+// Header navigation item
+export interface HeaderNavItem {
+    id: string;
+    label: string;
+    href: string;
+    isVisible: boolean;
+    order: number;
+}
+
+// Header CTA button settings
+export interface HeaderCtaSettings {
+    enabled: boolean;
+    label: string;
+    href: string;
+    variant: 'filled' | 'outline';
+}
+
+// Header style settings
+export type HeaderStyleType = 'auto' | 'solid' | 'glass';
+export type HeaderHeightType = 'sm' | 'md' | 'lg';
+export type HeaderAlignmentType = 'left' | 'center' | 'right';
+
+// Complete header settings
+export interface HeaderSettings {
+    // Logo
+    logoType: 'image' | 'text';
+    logoText: string;
+    logoImageUrl: string | null;
+    logoLink: string;
+
+    // Navigation
+    navItems: HeaderNavItem[];
+    dropdownMode: HeaderDropdownMode;
+
+    // Styling
+    fontId: string;
+    bgColor: string;
+    bgOpacity: number;
+    textColor: string;              // Navigation text color
+    autoContrastText: boolean;      // Auto-adjust text color for contrast
+    transparentOverHero: boolean;
+    style: HeaderStyleType;
+    height: HeaderHeightType;
+    alignment: HeaderAlignmentType;
+
+    // Dropdown styling
+    dropdownBgColor: string;        // Dropdown background color
+    dropdownBgOpacity: number;      // Dropdown background opacity (0-1)
+
+    // Scroll behavior
+    scroll: HeaderScrollSettings;
+
+    // CTA Button
+    cta: HeaderCtaSettings;
+}
+
+// Default header scroll settings
+const DEFAULT_HEADER_SCROLL: HeaderScrollSettings = {
+    sticky: true,
+    hideOnScroll: false,
+    fadeOnScroll: false,
+    shrinkOnScroll: false,
+    heightPx: 72,
+    collapsedHeightPx: 56,
+};
+
+// Default header CTA
+const DEFAULT_HEADER_CTA: HeaderCtaSettings = {
+    enabled: false,
+    label: 'Kontakt os',
+    href: '/kontakt',
+    variant: 'filled',
+};
+
+// Default nav items
+const DEFAULT_NAV_ITEMS: HeaderNavItem[] = [
+    { id: 'home', label: 'Hjem', href: '/', isVisible: true, order: 0 },
+    { id: 'products', label: 'Produkter', href: '/produkter', isVisible: true, order: 1 },
+    { id: 'grafisk', label: 'Grafisk vejledning', href: '/grafisk-vejledning', isVisible: true, order: 2 },
+    { id: 'contact', label: 'Kontakt', href: '/kontakt', isVisible: true, order: 3 },
+    { id: 'about', label: 'Om os', href: '/om-os', isVisible: true, order: 4 },
+];
+
+// Default header settings
+const DEFAULT_HEADER: HeaderSettings = {
+    logoType: 'text',
+    logoText: 'Min Shop',
+    logoImageUrl: null,
+    logoLink: '/',
+    navItems: DEFAULT_NAV_ITEMS,
+    dropdownMode: 'IMAGE_AND_TEXT',
+    fontId: 'Inter',
+    bgColor: '#FFFFFF',
+    bgOpacity: 0.8,
+    textColor: '#1F2937',
+    autoContrastText: true,
+    transparentOverHero: true,
+    style: 'solid',
+    height: 'md',
+    alignment: 'left',
+    dropdownBgColor: '#FFFFFF',
+    dropdownBgOpacity: 0.95,
+    scroll: DEFAULT_HEADER_SCROLL,
+    cta: DEFAULT_HEADER_CTA,
+};
+
+// ============================================================================
+// FOOTER SETTINGS
+// ============================================================================
+
+// Footer link item
+export interface FooterLinkItem {
+    id: string;
+    label: string;
+    href: string;
+    isVisible: boolean;
+    order: number;
+}
+
+// Social media platform settings
+export interface SocialPlatformSettings {
+    enabled: boolean;
+    url: string;
+}
+
+// Footer social settings
+export interface FooterSocialSettings {
+    facebook: SocialPlatformSettings;
+    instagram: SocialPlatformSettings;
+    linkedin: SocialPlatformSettings;
+    twitter: SocialPlatformSettings;
+    youtube: SocialPlatformSettings;
+}
+
+// Footer layout style
+export type FooterStyleType = 'minimal' | 'columns' | 'centered';
+export type FooterBackgroundType = 'themeDark' | 'themeLight' | 'solid';
+
+// Complete footer settings
+export interface FooterSettings {
+    style: FooterStyleType;
+    background: FooterBackgroundType;
+    bgColor: string;
+    text: string;
+    copyrightText: string;
+    showCopyright: boolean;
+    links: FooterLinkItem[];
+    social: FooterSocialSettings;
+    showSocialIcons: boolean;
+}
+
+// Default footer social settings (enabled with placeholder URLs)
+const DEFAULT_FOOTER_SOCIAL: FooterSocialSettings = {
+    facebook: { enabled: true, url: 'https://facebook.com/' },
+    instagram: { enabled: true, url: 'https://instagram.com/' },
+    linkedin: { enabled: true, url: 'https://linkedin.com/' },
+    twitter: { enabled: false, url: '' },
+    youtube: { enabled: true, url: 'https://youtube.com/' },
+};
+
+// Default footer links
+const DEFAULT_FOOTER_LINKS: FooterLinkItem[] = [
+    { id: 'privacy', label: 'Privatlivspolitik', href: '/privatliv', isVisible: true, order: 0 },
+    { id: 'terms', label: 'Handelsbetingelser', href: '/vilkaar', isVisible: true, order: 1 },
+    { id: 'contact', label: 'Kontakt', href: '/kontakt', isVisible: true, order: 2 },
+    { id: 'grafisk', label: 'Grafisk vejledning', href: '/grafisk-vejledning', isVisible: true, order: 3 },
+];
+
+// Default footer settings
+const DEFAULT_FOOTER: FooterSettings = {
+    style: 'minimal',
+    background: 'themeDark',
+    bgColor: '#1F2937',
+    text: 'Din professionelle tryksagspartner.',
+    copyrightText: '© {year} {shopName}. Alle rettigheder forbeholdes.',
+    showCopyright: true,
+    links: DEFAULT_FOOTER_LINKS,
+    social: DEFAULT_FOOTER_SOCIAL,
+    showSocialIcons: true,
+};
+
+// ============================================================================
+// COMPLETE BRANDING CONFIGURATION
+// ============================================================================
+
 // Default branding configuration
 const DEFAULT_BRANDING = {
     logo_url: null as string | null,
@@ -16,15 +432,17 @@ const DEFAULT_BRANDING = {
         background: "#F8FAFC",
         card: "#FFFFFF",
         dropdown: "#FFFFFF",
+        hover: "#0284C7",
+        // Typography colors
+        headingText: "#1F2937",
+        bodyText: "#4B5563",
+        linkText: "#0EA5E9",
     },
-    hero: {
-        type: "image" as "image" | "slideshow" | "video",
-        media: [] as string[],
-        transition: "fade" as "fade" | "slide",
-        parallax: false,
-        overlay_color: "#000000",
-        overlay_opacity: 0.3,
-    },
+    // Saved color swatches (max 20)
+    savedSwatches: [] as string[],
+    hero: DEFAULT_HERO,
+    header: DEFAULT_HEADER,
+    footer: DEFAULT_FOOTER,
     navigation: {
         dropdown_images: true,
     },
@@ -32,6 +450,72 @@ const DEFAULT_BRANDING = {
 };
 
 export type BrandingData = typeof DEFAULT_BRANDING;
+
+// Export defaults for use in components
+export {
+    DEFAULT_BRANDING,
+    DEFAULT_HERO,
+    DEFAULT_SLIDESHOW,
+    DEFAULT_VIDEO_SETTINGS,
+    DEFAULT_OVERLAY,
+    DEFAULT_HEADER,
+    DEFAULT_HEADER_SCROLL,
+    DEFAULT_HEADER_CTA,
+    DEFAULT_NAV_ITEMS,
+    DEFAULT_FOOTER,
+    DEFAULT_FOOTER_SOCIAL,
+    DEFAULT_FOOTER_LINKS,
+};
+
+
+
+// Helper to deep merge branding with defaults
+export function mergeBrandingWithDefaults(data?: any): BrandingData {
+    if (!data) return DEFAULT_BRANDING;
+
+    // Start with defaults
+    const merged = { ...DEFAULT_BRANDING, ...data };
+
+    // Deep merge Header
+    if (data.header) {
+        merged.header = {
+            ...DEFAULT_BRANDING.header,
+            ...data.header,
+            scroll: { ...DEFAULT_BRANDING.header.scroll, ...(data.header.scroll || {}) },
+            cta: { ...DEFAULT_BRANDING.header.cta, ...(data.header.cta || {}) },
+            // Keep arrays from data if present, otherwise use default
+            navItems: data.header.navItems || DEFAULT_BRANDING.header.navItems,
+        };
+    }
+
+    // Deep merge Footer
+    if (data.footer) {
+        merged.footer = {
+            ...DEFAULT_BRANDING.footer,
+            ...data.footer,
+            social: { ...DEFAULT_BRANDING.footer.social, ...(data.footer.social || {}) },
+            links: data.footer.links || DEFAULT_BRANDING.footer.links,
+        };
+    }
+
+    // Deep merge Hero
+    if (data.hero) {
+        merged.hero = {
+            ...DEFAULT_BRANDING.hero,
+            ...data.hero,
+            slideshow: { ...DEFAULT_BRANDING.hero.slideshow, ...(data.hero.slideshow || {}) },
+            overlay: { ...DEFAULT_BRANDING.hero.overlay, ...(data.hero.overlay || {}) },
+            videoSettings: { ...DEFAULT_BRANDING.hero.videoSettings, ...(data.hero.videoSettings || {}) },
+        };
+    }
+
+    // Deep merge nested objects
+    if (data.fonts) merged.fonts = { ...DEFAULT_BRANDING.fonts, ...data.fonts };
+    if (data.colors) merged.colors = { ...DEFAULT_BRANDING.colors, ...data.colors };
+    if (data.navigation) merged.navigation = { ...DEFAULT_BRANDING.navigation, ...data.navigation };
+
+    return merged;
+}
 
 interface UseBrandingDraftReturn {
     // State
@@ -47,7 +531,7 @@ interface UseBrandingDraftReturn {
 
     // Actions
     updateDraft: (partial: Partial<BrandingData>) => void;
-    saveDraft: () => Promise<void>;
+    saveDraft: (options?: { label?: string }) => Promise<void>;
     publishDraft: (label?: string) => Promise<void>;
     discardDraft: () => void;
     resetToDefault: () => Promise<void>;
@@ -88,16 +572,14 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
                 // Migration: If old format (no draft/published split), migrate it
                 if (brandingSettings && !brandingSettings.draft && !brandingSettings.published) {
                     // Old format: branding is the actual data
-                    const migratedDraft = { ...DEFAULT_BRANDING, ...brandingSettings };
-                    const migratedPublished = { ...DEFAULT_BRANDING, ...brandingSettings };
-
-                    setDraft(migratedDraft);
-                    setPublished(migratedPublished);
-                    setOriginalDraft(migratedDraft);
+                    const migrated = mergeBrandingWithDefaults(brandingSettings);
+                    setDraft(migrated);
+                    setPublished(migrated);
+                    setOriginalDraft(migrated);
                 } else {
                     // New format: branding.draft and branding.published
-                    const draftData = { ...DEFAULT_BRANDING, ...brandingSettings.draft };
-                    const publishedData = { ...DEFAULT_BRANDING, ...brandingSettings.published };
+                    const draftData = mergeBrandingWithDefaults(brandingSettings.draft);
+                    const publishedData = mergeBrandingWithDefaults(brandingSettings.published);
 
                     setDraft(draftData);
                     setPublished(publishedData);
@@ -118,22 +600,83 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
 
     // Update draft locally (no DB call)
     const updateDraft = useCallback((partial: Partial<BrandingData>) => {
-        setDraft(prev => ({
-            ...prev,
-            ...partial,
-            fonts: { ...prev.fonts, ...(partial.fonts || {}) },
-            colors: { ...prev.colors, ...(partial.colors || {}) },
-            hero: { ...prev.hero, ...(partial.hero || {}) },
-            navigation: { ...prev.navigation, ...(partial.navigation || {}) },
-        }));
+        setDraft(prev => {
+            // Deep merge hero
+            const newHero = partial.hero ? {
+                ...prev.hero,
+                ...partial.hero,
+                // Deep merge slideshow if provided
+                slideshow: partial.hero.slideshow
+                    ? { ...prev.hero.slideshow, ...partial.hero.slideshow }
+                    : prev.hero.slideshow,
+                // Deep merge overlay if provided
+                overlay: partial.hero.overlay
+                    ? { ...prev.hero.overlay, ...partial.hero.overlay }
+                    : prev.hero.overlay,
+            } : prev.hero;
+
+            // Deep merge header
+            const newHeader = partial.header ? {
+                ...prev.header,
+                ...partial.header,
+                scroll: partial.header.scroll
+                    ? { ...prev.header.scroll, ...partial.header.scroll }
+                    : prev.header.scroll,
+                cta: partial.header.cta
+                    ? { ...prev.header.cta, ...partial.header.cta }
+                    : prev.header.cta,
+                navItems: partial.header.navItems ?? prev.header.navItems,
+            } : prev.header;
+
+            // Deep merge footer
+            const newFooter = partial.footer ? {
+                ...prev.footer,
+                ...partial.footer,
+                social: partial.footer.social
+                    ? { ...prev.footer.social, ...partial.footer.social }
+                    : prev.footer.social,
+                links: partial.footer.links ?? prev.footer.links,
+            } : prev.footer;
+
+            return {
+                ...prev,
+                ...partial,
+                fonts: { ...prev.fonts, ...(partial.fonts || {}) },
+                colors: { ...prev.colors, ...(partial.colors || {}) },
+                hero: newHero,
+                header: newHeader,
+                footer: newFooter,
+                navigation: { ...prev.navigation, ...(partial.navigation || {}) },
+            };
+        });
     }, []);
 
     // Save draft to database (without publishing)
-    const saveDraft = useCallback(async () => {
+    const saveDraft = useCallback(async (options?: { label?: string }) => {
         if (!tenantId) return;
         setIsSaving(true);
+        // Handle case where Event is passed by mistake
+        const label = options && typeof options === 'object' && 'label' in options ? options.label : undefined;
 
         try {
+            const { data: { user } } = await supabase.auth.getUser();
+
+            // 1. If label provided, create version snapshot
+            if (label) {
+                const { error: versionError } = await supabase
+                    .from('branding_versions' as any)
+                    .insert({
+                        tenant_id: tenantId,
+                        data: draft,
+                        label: label,
+                        created_by: user?.id,
+                        type: 'snapshot',
+                    });
+
+                if (versionError) console.error("Error creating draft version:", versionError);
+            }
+
+            // 2. Update tenant settings (current draft state)
             const { data: tenant } = await supabase
                 .from('tenants' as any)
                 .select('settings')
@@ -162,7 +705,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
             if (error) throw error;
 
             setOriginalDraft(draft);
-            toast.success("Kladde gemt");
+            toast.success(label ? `Kladde "${label}" gemt` : "Kladde gemt");
         } catch (error) {
             console.error("Error saving draft:", error);
             toast.error("Kunne ikke gemme kladde");
@@ -184,7 +727,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
                 .from('branding_versions' as any)
                 .insert({
                     tenant_id: tenantId,
-                    data: published, // Save the CURRENT published as snapshot before overwriting
+                    data: draft, // Save the NEW state as a snapshot history entry
                     label: label || `Version ${new Date().toLocaleString('da-DK')}`,
                     created_by: user?.id,
                     type: 'snapshot',
@@ -312,5 +855,3 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
         refetch: fetchBranding,
     };
 }
-
-export { DEFAULT_BRANDING };

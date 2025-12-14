@@ -3,6 +3,14 @@ import { supabase } from '@/integrations/supabase/client';
 
 export type UserRole = 'admin' | 'master_admin' | 'moderator' | 'user' | null;
 
+// Whitelisted admin emails as a last-resort fallback to avoid lockouts
+const EMAIL_ROLE_MAP: Record<string, UserRole> = {
+  'admin@webprinter.dk': 'master_admin',
+  'result-admin@webprinter.dk': 'admin',
+  'info@webprinter.dk': 'admin',
+  'online-trukserre@gmail.com': 'admin',
+};
+
 export const useUserRole = () => {
   const [role, setRole] = useState<UserRole>(null);
   const [loading, setLoading] = useState(true);
@@ -11,7 +19,14 @@ export const useUserRole = () => {
   useEffect(() => {
     const fetchUserRole = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        // Try primary user fetch
+        let user = (await supabase.auth.getUser()).data.user;
+
+        // Fallback: try session if user is null (avoids occasional null from getUser)
+        if (!user) {
+          const { data: sessionData } = await supabase.auth.getSession();
+          user = sessionData.session?.user ?? null;
+        }
 
         if (!user) {
           setRole(null);
@@ -20,27 +35,34 @@ export const useUserRole = () => {
           return;
         }
 
-        // Client-side check for UI purposes
+        // Immediate fallback based on email to avoid lockout while we fetch roles
+        const email = (user.email || '').toLowerCase();
+        const fallbackRole = EMAIL_ROLE_MAP[email] || null;
+        if (fallbackRole) {
+          // Whitelisted emails: trust the fallback and skip DB fetch to avoid lockouts
+          setRole(fallbackRole);
+          setServerVerified(true);
+          setLoading(false);
+          return;
+        }
+
+        // Fetch all roles (a user may have multiple; pick highest priority)
         const { data, error } = await (supabase as any)
           .from('user_roles')
           .select('role')
-          .eq('user_id', user.id)
-          .maybeSingle();
+          .eq('user_id', user.id);
 
-        if (error && error.code !== 'PGRST116') {
+        if (error) {
           console.error('Error fetching user role:', error);
           setRole(null);
           setServerVerified(false);
         } else {
-          const userRole = data?.role || null;
-          setRole(userRole);
+          const roles: UserRole[] = (data || []).map((r: any) => r.role);
+          const priority: UserRole[] = ['master_admin', 'admin', 'moderator', 'user'];
+          const userRole = priority.find((p) => roles.includes(p)) || null;
 
-          // Trust the user_roles table directly for now
-          if (userRole === 'admin' || userRole === 'master_admin') {
-            setServerVerified(true);
-          } else {
-            setServerVerified(false);
-          }
+          setRole(userRole);
+          setServerVerified(userRole === 'admin' || userRole === 'master_admin');
         }
       } catch (error) {
         console.error('Error in useUserRole:', error);

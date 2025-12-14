@@ -1,9 +1,11 @@
 
 import { useState, useEffect } from "react";
-import { Package, Plus, FolderOpen, Globe, Search, ChevronDown, ChevronRight, Users, MessageCircle, ShoppingCart, Building2, Palette, CreditCard, Settings, LayoutGrid, UploadCloud } from "lucide-react";
+import { Package, Plus, FolderOpen, Globe, Search, ChevronDown, ChevronRight, Users, MessageCircle, ShoppingCart, Building2, Palette, CreditCard, Settings, LayoutGrid, UploadCloud, FileText } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
+import { useUserRole } from "@/hooks/useUserRole";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAdminTenant } from "@/lib/adminTenant";
 
 import {
   Sidebar,
@@ -24,10 +26,13 @@ interface DbProduct {
   slug: string;
 }
 
+// ... existing imports ...
+
 export function AdminSidebar() {
   const { state } = useSidebar();
   const location = useLocation();
   const currentPath = location.pathname;
+  const { isMasterAdmin: roleIsMasterAdmin, isAdmin } = useUserRole();
   const [products, setProducts] = useState<DbProduct[]>([]);
   const [productsOpen, setProductsOpen] = useState(false);
   const [marketingOpen, setMarketingOpen] = useState(false);
@@ -38,14 +43,19 @@ export function AdminSidebar() {
   const [unreadSystemCount, setUnreadSystemCount] = useState(0);
   const [isMasterAdmin, setIsMasterAdmin] = useState(false);
 
-  // Check if user is Master tenant admin
   useEffect(() => {
-    async function checkMasterAdmin() {
+    async function checkMasterStatus() {
+      // If hook says yes, we are good
+      if (roleIsMasterAdmin) {
+        setIsMasterAdmin(true);
+        return;
+      }
+
+      // Fallback: Check ownership of master tenant
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // Check if user owns the Master tenant (00000000-0000-0000-0000-000000000000)
         const { data } = await supabase
           .from('tenants' as any)
           .select('id')
@@ -53,37 +63,30 @@ export function AdminSidebar() {
           .eq('owner_id', user.id)
           .maybeSingle();
 
-        setIsMasterAdmin(!!data);
+        if (data) {
+          setIsMasterAdmin(true);
+          setPlatformOpen(true); // Open platform menu by default for master admin
+        }
       } catch (e) {
-        console.debug('Could not check master admin status');
+        console.error('Could not check master admin status', e);
       }
     }
-    checkMasterAdmin();
-  }, []);
-
+    checkMasterStatus();
+  }, [roleIsMasterAdmin]);
   useEffect(() => {
     async function fetchProducts() {
-      // Get user's tenant ID
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: tenant } = await supabase
-        .from('tenants' as any)
-        .select('id')
-        .eq('owner_id', user.id)
-        .maybeSingle();
-
-      if (!tenant) return;
+      const { tenantId } = await resolveAdminTenant();
+      if (!tenantId || !isAdmin) return;
 
       // Fetch products for THIS tenant
-      const { data } = await supabase
-        .from('products')
+      const { data } = await (supabase
+        .from('products') as any)
         .select('id, name, slug')
-        .eq('tenant_id', (tenant as any).id)
+        .eq('tenant_id', tenantId)
         .order('name');
 
       if (data) {
-        setProducts(data);
+        setProducts(data as DbProduct[]);
       }
     }
     fetchProducts();
@@ -391,15 +394,29 @@ export function AdminSidebar() {
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
                     <NavLink
-                      to="/admin/abonnement"
+                      to="/admin/skabeloner"
                       className="hover:bg-muted/50"
                       activeClassName="bg-muted text-primary font-medium"
                     >
-                      <CreditCard className="h-4 w-4" />
-                      {!collapsed && <span>Abonnement</span>}
+                      <FileText className="h-4 w-4" />
+                      {!collapsed && <span>Skabeloner</span>}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+                {!isMasterAdmin && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild>
+                      <NavLink
+                        to="/admin/abonnement"
+                        className="hover:bg-muted/50"
+                        activeClassName="bg-muted text-primary font-medium"
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        {!collapsed && <span>Abonnement</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
                     <NavLink
@@ -449,12 +466,48 @@ export function AdminSidebar() {
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild>
                       <NavLink
+                        to="/admin/resources"
+                        className="hover:bg-muted/50"
+                        activeClassName="bg-muted text-primary font-medium"
+                      >
+                        <FolderOpen className="h-4 w-4" />
+                        {!collapsed && <span>Ressourcer</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild>
+                      <NavLink
+                        to="/admin/branding-template"
+                        className="hover:bg-muted/50"
+                        activeClassName="bg-muted text-primary font-medium"
+                      >
+                        <Palette className="h-4 w-4" />
+                        {!collapsed && <span>Branding Skabelon</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild>
+                      <NavLink
                         to="/admin/updates"
                         className="hover:bg-muted/50"
                         activeClassName="bg-muted text-primary font-medium"
                       >
                         <UploadCloud className="h-4 w-4" />
                         {!collapsed && <span>System Updates</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild>
+                      <NavLink
+                        to="/admin/master-skabeloner"
+                        className="hover:bg-muted/50"
+                        activeClassName="bg-muted text-primary font-medium"
+                      >
+                        <FileText className="h-4 w-4" />
+                        {!collapsed && <span>Skabeloner</span>}
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
