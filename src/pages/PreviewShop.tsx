@@ -239,11 +239,40 @@ export default function PreviewShop() {
     const [isLoading, setIsLoading] = useState(true);
 
     const isDraft = searchParams.get("draft") === "1";
+    const versionId = searchParams.get("versionId");
 
-    // Load initial branding from database
+    // Load initial branding - prioritize version ID for exact preview
     useEffect(() => {
         async function loadInitialBranding() {
             try {
+                // If we have a version ID, load directly from branding_versions table
+                // This guarantees we show the exact saved version
+                if (versionId) {
+                    const { data: version, error } = await supabase
+                        .from('branding_versions' as any)
+                        .select('data, tenant_id')
+                        .eq('id', versionId)
+                        .single();
+
+                    if (!error && version) {
+                        setInitialBranding(mergeBrandingWithDefaults((version as any).data));
+
+                        // Also fetch tenant name
+                        const { data: tenant } = await supabase
+                            .from('tenants' as any)
+                            .select('name')
+                            .eq('id', (version as any).tenant_id)
+                            .single();
+
+                        if (tenant) {
+                            setTenantName((tenant as any).name || "Dit Trykkeri");
+                        }
+                        setIsLoading(false);
+                        return;
+                    }
+                }
+
+                // Fallback: Load from tenant settings
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) return;
 
@@ -283,7 +312,7 @@ export default function PreviewShop() {
         if (!roleLoading) {
             loadInitialBranding();
         }
-    }, [isDraft, roleLoading]);
+    }, [isDraft, versionId, roleLoading, searchParams]);
 
     // Require admin access
     if (!roleLoading && !isAdmin) {

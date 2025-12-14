@@ -387,7 +387,7 @@ export function AdminSidebar() {
                       activeClassName="bg-muted text-primary font-medium"
                     >
                       <Palette className="h-4 w-4" />
-                      {!collapsed && <span>Branding</span>}
+                      {!collapsed && <span>Site Design</span>}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -483,7 +483,7 @@ export function AdminSidebar() {
                         activeClassName="bg-muted text-primary font-medium"
                       >
                         <Palette className="h-4 w-4" />
-                        {!collapsed && <span>Branding Skabelon</span>}
+                        {!collapsed && <span>Site Design Skabelon</span>}
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

@@ -531,7 +531,7 @@ interface UseBrandingDraftReturn {
 
     // Actions
     updateDraft: (partial: Partial<BrandingData>) => void;
-    saveDraft: (options?: { label?: string }) => Promise<void>;
+    saveDraft: (options?: { label?: string }) => Promise<string | null>;
     publishDraft: (label?: string) => Promise<void>;
     discardDraft: () => void;
     resetToDefault: () => Promise<void>;
@@ -652,28 +652,33 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
     }, []);
 
     // Save draft to database (without publishing)
-    const saveDraft = useCallback(async (options?: { label?: string }) => {
-        if (!tenantId) return;
+    const saveDraft = useCallback(async (options?: { label?: string }): Promise<string | null> => {
+        if (!tenantId) return null;
         setIsSaving(true);
         // Handle case where Event is passed by mistake
         const label = options && typeof options === 'object' && 'label' in options ? options.label : undefined;
+        let versionId: string | null = null;
 
         try {
             const { data: { user } } = await supabase.auth.getUser();
 
-            // 1. If label provided, create version snapshot
-            if (label) {
-                const { error: versionError } = await supabase
-                    .from('branding_versions' as any)
-                    .insert({
-                        tenant_id: tenantId,
-                        data: draft,
-                        label: label,
-                        created_by: user?.id,
-                        type: 'snapshot',
-                    });
+            // 1. Always create a version snapshot for preview (with or without label)
+            const { data: versionData, error: versionError } = await supabase
+                .from('branding_versions' as any)
+                .insert({
+                    tenant_id: tenantId,
+                    data: draft,
+                    label: label || `Preview ${new Date().toLocaleString('da-DK')}`,
+                    created_by: user?.id,
+                    type: label ? 'snapshot' : 'auto_save',
+                })
+                .select('id')
+                .single();
 
-                if (versionError) console.error("Error creating draft version:", versionError);
+            if (versionError) {
+                console.error("Error creating draft version:", versionError);
+            } else {
+                versionId = (versionData as any)?.id || null;
             }
 
             // 2. Update tenant settings (current draft state)
@@ -694,6 +699,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
                     ...currentBranding,
                     draft,
                     published: currentBranding.published || published,
+                    lastVersionId: versionId, // Store the latest version ID for quick access
                 },
             };
 
@@ -706,9 +712,11 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
 
             setOriginalDraft(draft);
             toast.success(label ? `Kladde "${label}" gemt` : "Kladde gemt");
+            return versionId;
         } catch (error) {
             console.error("Error saving draft:", error);
             toast.error("Kunne ikke gemme kladde");
+            return null;
         } finally {
             setIsSaving(false);
         }

@@ -367,31 +367,6 @@ export function ProductOverview() {
             </CardContent>
           </Card>
 
-          {/* SEO & Marketing Section */}
-          <Card className="overflow-hidden">
-            <div className="bg-gradient-to-r from-emerald-500/10 to-blue-500/10 px-6 py-4 border-b">
-              <h2 className="text-xl font-bold flex items-center gap-2">
-                🔍 SEO & Marketing
-              </h2>
-              <p className="text-sm text-muted-foreground">Optimer din synlighed i søgemaskiner</p>
-            </div>
-            <CardContent className="p-6">
-              <Card
-                className="p-4 hover:border-primary transition-colors cursor-pointer max-w-md"
-                onClick={() => navigate('/admin/seo')}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center text-xl">
-                    🌐
-                  </div>
-                  <div>
-                    <p className="font-medium">SEO Manager</p>
-                    <p className="text-sm text-muted-foreground">Rediger meta titler, beskrivelser og billeder</p>
-                  </div>
-                </div>
-              </Card>
-            </CardContent>
-          </Card>
         </div>
       )}
     </div>
