@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Search, Save, Globe, Loader2, FileText, Package } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { resolveAdminTenant } from "@/lib/adminTenant";
+import { getSeoManagerRoutes } from "@/config/routes";
 
 interface PageSeo {
     id: string;
@@ -85,16 +86,9 @@ export function SeoManager() {
     };
 
     const fetchPages = async (tid: string) => {
-        // 1. Define System Pages (Template)
-        const systemPages = [
-            { slug: '/', title: 'Forside' },
-            { slug: '/shop', title: 'Shop' },
-            { slug: '/om-os', title: 'Om Os' },
-            { slug: '/kontakt', title: 'Kontakt' },
-            { slug: '/handelsbetingelser', title: 'Handelsbetingelser' },
-            { slug: '/gdpr', title: 'Persondatapolitik' },
-            { slug: '/login', title: 'Log ind' },
-        ];
+        // 1. Get System Pages from centralized config
+        // Pages are automatically synced from src/config/routes.ts
+        const systemPages = getSeoManagerRoutes();
 
         // 2. Fetch Tenant Products
         const { data: products } = await supabase

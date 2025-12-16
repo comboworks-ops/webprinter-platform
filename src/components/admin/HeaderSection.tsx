@@ -120,7 +120,7 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                 title="Navigation"
                 description="Tilføj og rediger menupunkter i headeren"
                 icon={<LinkIcon className="h-4 w-4" />}
-                defaultOpen={true}
+                defaultOpen={false}
             >
                 <div className="space-y-3">
                     {safeHeader.navItems.map((item) => (
@@ -212,40 +212,6 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                     />
                                 </div>
                             </div>
-
-                            <div className="space-y-3">
-                                <Label>Stil</Label>
-                                <RadioGroup
-                                    value={safeHeader.cta.variant}
-                                    onValueChange={(v) => updateCta({ variant: v as 'filled' | 'outline' })}
-                                    className="grid grid-cols-2 gap-4"
-                                >
-                                    <div className="relative">
-                                        <RadioGroupItem value="filled" id="cta-filled" className="peer sr-only" />
-                                        <label
-                                            htmlFor="cta-filled"
-                                            className="flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 hover:bg-muted/50"
-                                        >
-                                            <div className="px-4 py-1.5 bg-primary text-primary-foreground rounded text-sm font-medium">
-                                                Filled
-                                            </div>
-                                            <span className="text-xs">Udfyldt</span>
-                                        </label>
-                                    </div>
-                                    <div className="relative">
-                                        <RadioGroupItem value="outline" id="cta-outline" className="peer sr-only" />
-                                        <label
-                                            htmlFor="cta-outline"
-                                            className="flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 hover:bg-muted/50"
-                                        >
-                                            <div className="px-4 py-1.5 border-2 border-primary text-primary rounded text-sm font-medium">
-                                                Outline
-                                            </div>
-                                            <span className="text-xs">Ramme</span>
-                                        </label>
-                                    </div>
-                                </RadioGroup>
-                            </div>
                         </>
                     )}
                 </div>
@@ -263,6 +229,16 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                         label="Header skrifttype"
                         value={safeHeader.fontId}
                         onChange={(v) => updateHeader({ fontId: v })}
+                    />
+
+                    {/* Font Color */}
+                    <ColorPickerWithSwatches
+                        label="Skriftfarve (menu tekst)"
+                        value={safeHeader.textColor || '#1F2937'}
+                        onChange={(color) => updateHeader({ textColor: color })}
+                        savedSwatches={savedSwatches}
+                        onSaveSwatch={onSaveSwatch}
+                        onRemoveSwatch={onRemoveSwatch}
                     />
 
                     <Separator />
@@ -497,7 +473,7 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
 
                     <div className="space-y-4">
                         <ColorPickerWithSwatches
-                            label="Dropdown Baggrudsfarve"
+                            label="Dropdown Baggrundsfarve"
                             value={safeHeader.dropdownBgColor || '#FFFFFF'}
                             onChange={(color) => updateHeader({ dropdownBgColor: color })}
                             showOpacity

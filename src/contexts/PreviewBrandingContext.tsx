@@ -109,13 +109,14 @@ export function PreviewBrandingProvider({
                 setIsReady(true);
 
                 // Load fonts dynamically when branding changes
-                if (newBranding?.fonts) {
-                    loadGoogleFonts([
-                        newBranding.fonts.heading || 'Poppins',
-                        newBranding.fonts.body || 'Inter',
-                        newBranding.fonts.pricing || 'Roboto Mono'
-                    ]);
-                }
+                const fontsToLoad = [
+                    newBranding?.fonts?.heading || 'Poppins',
+                    newBranding?.fonts?.body || 'Inter',
+                    newBranding?.fonts?.pricing || 'Roboto Mono',
+                    newBranding?.header?.fontId || 'Inter', // Header menu font
+                    newBranding?.header?.logoFont || 'Inter', // Logo text font
+                ].filter(Boolean);
+                loadGoogleFonts(fontsToLoad);
             }
         };
 
@@ -153,13 +154,14 @@ export function PreviewBrandingProvider({
 
                 setIsReady(true);
 
-                if (newBranding?.fonts) {
-                    loadGoogleFonts([
-                        newBranding.fonts.heading || 'Poppins',
-                        newBranding.fonts.body || 'Inter',
-                        newBranding.fonts.pricing || 'Roboto Mono'
-                    ]);
-                }
+                const fontsToLoad = [
+                    newBranding?.fonts?.heading || 'Poppins',
+                    newBranding?.fonts?.body || 'Inter',
+                    newBranding?.fonts?.pricing || 'Roboto Mono',
+                    newBranding?.header?.fontId || 'Inter', // Header menu font
+                    newBranding?.header?.logoFont || 'Inter', // Logo text font
+                ].filter(Boolean);
+                loadGoogleFonts(fontsToLoad);
             }
 
             if (event.data?.type === "BRANDING_PING") {
@@ -180,16 +182,17 @@ export function PreviewBrandingProvider({
         };
     }, []);
 
-    // Load fonts for initial branding too
+    // Load fonts for initial branding too (including header fonts)
     useEffect(() => {
-        if (branding?.fonts) {
-            loadGoogleFonts([
-                branding.fonts.heading || 'Poppins',
-                branding.fonts.body || 'Inter',
-                branding.fonts.pricing || 'Roboto Mono'
-            ]);
-        }
-    }, [branding?.fonts?.heading, branding?.fonts?.body, branding?.fonts?.pricing]);
+        const fontsToLoad = [
+            branding?.fonts?.heading || 'Poppins',
+            branding?.fonts?.body || 'Inter',
+            branding?.fonts?.pricing || 'Roboto Mono',
+            branding?.header?.fontId || 'Inter', // Header menu font
+            branding?.header?.logoFont || 'Inter', // Logo text font
+        ].filter(Boolean);
+        loadGoogleFonts(fontsToLoad);
+    }, [branding?.fonts?.heading, branding?.fonts?.body, branding?.fonts?.pricing, branding?.header?.fontId, branding?.header?.logoFont]);
 
     return (
         <PreviewBrandingContext.Provider value={{ branding, isPreviewMode, tenantName, isReady }}>

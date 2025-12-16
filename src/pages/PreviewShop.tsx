@@ -94,13 +94,13 @@ function PreviewNavigationGuard({ children }: { children: React.ReactNode }) {
 
     return <>{children}</>;
 }
-
 /**
  * The actual shop content with branding applied.
  * This renders the REAL storefront layout with tenant products and branding.
  * IMPORTANT: This must mirror Shop.tsx exactly, with preview branding applied.
+ * Now supports virtual navigation via currentPage prop.
  */
-function PreviewShopContent() {
+function PreviewShopContent({ currentPage }: { currentPage: string }) {
     const { branding, tenantName } = usePreviewBranding();
 
     // Generate CSS variables from branding
@@ -110,6 +110,20 @@ function PreviewShopContent() {
     const cardColor = branding?.colors?.card || "#FFFFFF";
     const headingFont = branding?.fonts?.heading || "Poppins";
     const bodyFont = branding?.fonts?.body || "Inter";
+    const pricingFont = branding?.fonts?.pricing || "Roboto Mono";
+
+    // Typography colors
+    const headingTextColor = branding?.colors?.headingText || "#1F2937";
+    const bodyTextColor = branding?.colors?.bodyText || "#4B5563";
+    const pricingTextColor = branding?.colors?.pricingText || "#0EA5E9";
+    const linkTextColor = branding?.colors?.linkText || "#0EA5E9";
+
+    // Header settings for conditional layout
+    const headerSettings = (branding?.header || {}) as { transparentOverHero?: boolean; height?: string };
+    const transparentOverHero = headerSettings.transparentOverHero ?? true;
+    const headerHeight = headerSettings.height === 'sm' ? 56 : headerSettings.height === 'lg' ? 96 : 72;
+    // Main content margin: negative when transparent (overlay), zero when not (stacked)
+    const mainMargin = transparentOverHero ? -headerHeight : 0;
 
     const cssVariables = {
         "--primary": hexToHsl(primaryColor),
@@ -118,16 +132,82 @@ function PreviewShopContent() {
         "--card": hexToHsl(cardColor),
         "--font-heading": `'${headingFont}', sans-serif`,
         "--font-body": `'${bodyFont}', sans-serif`,
+        "--font-pricing": `'${pricingFont}', monospace`,
+        // Typography colors as CSS custom properties
+        "--heading-text": headingTextColor,
+        "--body-text": bodyTextColor,
+        "--pricing-text": pricingTextColor,
+        "--link-text": linkTextColor,
+        // Also set foreground based on heading text for compatibility
+        "--foreground": hexToHsl(headingTextColor),
+        "--muted-foreground": hexToHsl(bodyTextColor),
         fontFamily: `'${bodyFont}', sans-serif`,
     } as React.CSSProperties;
 
-    return (
-        <div className="min-h-screen flex flex-col" style={cssVariables}>
-            {/* Real Header Component - shows real products navigation */}
-            <Header />
+    // Render page content based on virtual navigation
+    const renderPageContent = () => {
+        // Products pages
+        if (currentPage === '/produkter' || currentPage === '/shop' || currentPage === '/prisberegner') {
+            return (
+                <section className="py-16 pt-24" id="produkter">
+                    <div className="container mx-auto px-4">
+                        <h1 className="text-3xl font-heading font-bold mb-8 text-center">Produkter</h1>
+                        <Tabs defaultValue="tryksager" className="w-full">
+                            <TabsList className="grid w-full max-w-md mx-auto grid-cols-2 mb-12">
+                                <TabsTrigger value="tryksager">Tryksager</TabsTrigger>
+                                <TabsTrigger value="storformat">Storformat print</TabsTrigger>
+                            </TabsList>
 
-            {/* Main content - HeroSlider uses negative margin to slide under the Header */}
-            <main className="flex-1" style={{ marginTop: '-80px' }}>
+                            <TabsContent value="tryksager" id="tryksager">
+                                <ProductGrid category="tryksager" />
+                            </TabsContent>
+
+                            <TabsContent value="storformat" id="storformat">
+                                <ProductGrid category="storformat" />
+                            </TabsContent>
+                        </Tabs>
+                    </div>
+                </section>
+            );
+        }
+
+        // Contact page
+        if (currentPage === '/kontakt') {
+            return (
+                <section className="py-16 pt-24">
+                    <div className="container mx-auto px-4 max-w-2xl">
+                        <h1 className="text-3xl font-heading font-bold mb-8 text-center">Kontakt os</h1>
+                        <div className="bg-card rounded-lg p-8 shadow-sm">
+                            <div className="space-y-4 text-center">
+                                <Phone className="h-12 w-12 mx-auto text-primary" />
+                                <p className="text-lg">Telefon: 71 99 11 10</p>
+                                <p className="text-muted-foreground">Vi er klar til at hjælpe dig</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            );
+        }
+
+        // About page
+        if (currentPage === '/om-os') {
+            return (
+                <section className="py-16 pt-24">
+                    <div className="container mx-auto px-4 max-w-3xl">
+                        <h1 className="text-3xl font-heading font-bold mb-8 text-center">Om os</h1>
+                        <div className="prose prose-lg mx-auto">
+                            <p className="text-muted-foreground leading-relaxed">
+                                Vi har over 25 års erfaring med professionelt tryk og leverer høj kvalitet til konkurrencedygtige priser.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+            );
+        }
+
+        // Default: Frontpage (Home)
+        return (
+            <main className="flex-1" style={{ marginTop: mainMargin }}>
                 {/* Real Hero Slider - shows tenant hero images (now appears under the transparent header) */}
                 <HeroSlider />
 
@@ -214,6 +294,16 @@ function PreviewShopContent() {
                     </div>
                 </section>
             </main>
+        );
+    };
+
+    return (
+        <div className="min-h-screen flex flex-col" style={cssVariables}>
+            {/* Real Header Component - shows real products navigation */}
+            <Header />
+
+            {/* Render page content based on currentPage */}
+            {renderPageContent()}
 
             <Footer />
         </div>
@@ -230,6 +320,7 @@ function PreviewShopContent() {
  * - Receives real-time branding updates via postMessage from admin panel
  * - Isolated from live customers (admin-only route)
  * - SECURITY: Only allows navigation to customer-visible pages (no backend access)
+ * - VIRTUAL NAVIGATION: Intercepts link clicks to keep branding provider mounted
  */
 export default function PreviewShop() {
     const [searchParams] = useSearchParams();
@@ -237,42 +328,14 @@ export default function PreviewShop() {
     const [initialBranding, setInitialBranding] = useState<BrandingData | null>(null);
     const [tenantName, setTenantName] = useState("Dit Trykkeri");
     const [isLoading, setIsLoading] = useState(true);
+    const [currentPage, setCurrentPage] = useState('/');
 
     const isDraft = searchParams.get("draft") === "1";
-    const versionId = searchParams.get("versionId");
 
-    // Load initial branding - prioritize version ID for exact preview
+    // Load initial branding from database
     useEffect(() => {
         async function loadInitialBranding() {
             try {
-                // If we have a version ID, load directly from branding_versions table
-                // This guarantees we show the exact saved version
-                if (versionId) {
-                    const { data: version, error } = await supabase
-                        .from('branding_versions' as any)
-                        .select('data, tenant_id')
-                        .eq('id', versionId)
-                        .single();
-
-                    if (!error && version) {
-                        setInitialBranding(mergeBrandingWithDefaults((version as any).data));
-
-                        // Also fetch tenant name
-                        const { data: tenant } = await supabase
-                            .from('tenants' as any)
-                            .select('name')
-                            .eq('id', (version as any).tenant_id)
-                            .single();
-
-                        if (tenant) {
-                            setTenantName((tenant as any).name || "Dit Trykkeri");
-                        }
-                        setIsLoading(false);
-                        return;
-                    }
-                }
-
-                // Fallback: Load from tenant settings
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) return;
 
@@ -312,7 +375,48 @@ export default function PreviewShop() {
         if (!roleLoading) {
             loadInitialBranding();
         }
-    }, [isDraft, versionId, roleLoading, searchParams]);
+    }, [isDraft, roleLoading]);
+
+    // Global click interceptor for virtual navigation
+    useEffect(() => {
+        const handleClick = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            const link = target.closest('a');
+
+            if (!link) return;
+
+            const href = link.getAttribute('href');
+            if (!href) return;
+
+            // Only intercept internal links (starting with /)
+            if (href.startsWith('/')) {
+                // Block admin/auth routes
+                const isBlocked = BLOCKED_ROUTE_PREFIXES.some(prefix => href.startsWith(prefix));
+                if (isBlocked) {
+                    e.preventDefault();
+                    return;
+                }
+
+                // Intercept and handle as virtual navigation
+                e.preventDefault();
+                e.stopPropagation();
+
+                // Normalize the path
+                const path = href === '/' ? '/' : href;
+                setCurrentPage(path);
+
+                // Scroll to top on navigation
+                window.scrollTo(0, 0);
+            }
+        };
+
+        // Add listener to capture phase to intercept before React Router
+        document.addEventListener('click', handleClick, true);
+
+        return () => {
+            document.removeEventListener('click', handleClick, true);
+        };
+    }, []);
 
     // Require admin access
     if (!roleLoading && !isAdmin) {
@@ -332,9 +436,8 @@ export default function PreviewShop() {
             initialBranding={initialBranding}
             initialTenantName={tenantName}
         >
-            <PreviewNavigationGuard>
-                <PreviewShopContent />
-            </PreviewNavigationGuard>
+            <PreviewShopContent currentPage={currentPage} />
         </PreviewBrandingProvider>
     );
 }
+

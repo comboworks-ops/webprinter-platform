@@ -13,8 +13,8 @@ interface BrandingPreviewFrameProps {
     onPublish?: () => void;
     /** Whether publishing is in progress */
     isPublishing?: boolean;
-    /** Optional callback to save draft before opening in new tab - returns version ID */
-    onSaveDraft?: () => Promise<string | null>;
+    /** Optional callback to save draft before opening in new tab */
+    onSaveDraft?: () => Promise<void>;
 }
 
 type ViewportSize = "desktop" | "tablet" | "mobile";
@@ -157,13 +157,11 @@ export function BrandingPreviewFrame({
     };
 
     const openInNewTab = async () => {
-        let versionId: string | null = null;
-
         // If we have a save callback, save draft first so new tab has current changes
         if (onSaveDraft) {
             setIsSavingForPreview(true);
             try {
-                versionId = await onSaveDraft();
+                await onSaveDraft();
                 toast.info("Kladde gemt - åbner preview...");
             } catch (err) {
                 toast.error("Kunne ikke gemme kladde før preview");
@@ -172,20 +170,13 @@ export function BrandingPreviewFrame({
             }
             setIsSavingForPreview(false);
         }
+        // Open with draft=1 and preview_mode=1 to enable BroadcastChannel listening
+        const urlWithDraft = previewUrl.includes('?')
+            ? `${previewUrl}&draft=1&preview_mode=1&t=${Date.now()}`
+            : `${previewUrl}?draft=1&preview_mode=1&t=${Date.now()}`;
+        window.open(urlWithDraft, '_blank');
 
-        // Build preview URL with version ID for guaranteed correct data
-        let urlWithVersion = previewUrl.includes('?')
-            ? `${previewUrl}&preview_mode=1&t=${Date.now()}`
-            : `${previewUrl}?preview_mode=1&t=${Date.now()}`;
-
-        // Add version ID if we have one - this ensures preview loads exact saved version
-        if (versionId) {
-            urlWithVersion += `&versionId=${versionId}`;
-        }
-
-        window.open(urlWithVersion, '_blank');
-
-        // Also send branding via broadcast channel as backup
+        // Send branding via broadcast channel immediately so new tab gets it
         setTimeout(() => {
             if (broadcastRef.current) {
                 broadcastRef.current.postMessage({ type: 'BRANDING_UPDATE', branding, tenantName });

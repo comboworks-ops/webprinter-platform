@@ -102,7 +102,7 @@ export function FooterSection({ footer, onChange, savedSwatches, onSaveSwatch, o
                 title="Layout & Stil"
                 description="Vælg layout og baggrund for footeren"
                 icon={<Columns className="h-4 w-4" />}
-                defaultOpen={true}
+                defaultOpen={false}
             >
                 <div className="space-y-4">
                     {/* Style selector */}

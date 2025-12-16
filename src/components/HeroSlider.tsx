@@ -100,6 +100,13 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
   // Get hero settings from props, branding context, or defaults
   const hero: HeroSettings = heroSettings || (branding?.hero as HeroSettings) || DEFAULT_HERO;
 
+  // Get header settings to check transparentOverHero
+  const headerSettings = (branding?.header || {}) as { transparentOverHero?: boolean; height?: string };
+  const transparentOverHero = headerSettings.transparentOverHero ?? true;
+
+  // Calculate top margin when header is NOT transparent over hero
+  const headerHeight = headerSettings.height === 'sm' ? 56 : headerSettings.height === 'lg' ? 96 : 72;
+
   // Get extended overlay settings
   const extendedOverlay = (hero.overlay || {}) as ExtendedOverlay;
 

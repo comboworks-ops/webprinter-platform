@@ -39,6 +39,9 @@ export interface HeroButton {
     bgOpacity?: number;
 }
 
+// Text animation types for banner headlines
+export type HeroTextAnimation = 'none' | 'fade' | 'slide-up' | 'slide-down' | 'scale' | 'blur';
+
 // Hero image interface
 export interface HeroImage {
     id: string;
@@ -51,10 +54,14 @@ export interface HeroImage {
     headline?: string;
     /** Per-slide subtitle/subline text */
     subline?: string;
-    /** Per-slide CTA button text */
+    /** Per-slide CTA button text (legacy - use buttons array instead) */
     ctaText?: string;
-    /** Per-slide CTA button link */
+    /** Per-slide CTA button link (legacy - use buttons array instead) */
     ctaLink?: string;
+    /** Per-slide buttons array (max 2 buttons per slide) */
+    buttons?: HeroButton[];
+    /** Text animation effect for this slide */
+    textAnimation?: HeroTextAnimation;
 }
 
 // Hero video interface
@@ -260,6 +267,8 @@ export interface HeaderSettings {
     // Logo
     logoType: 'image' | 'text';
     logoText: string;
+    logoFont: string;              // Font for text logo
+    logoTextColor: string;         // Color for text logo (separate from nav)
     logoImageUrl: string | null;
     logoLink: string;
 
@@ -320,13 +329,15 @@ const DEFAULT_NAV_ITEMS: HeaderNavItem[] = [
 const DEFAULT_HEADER: HeaderSettings = {
     logoType: 'text',
     logoText: 'Min Shop',
+    logoFont: 'Inter',
+    logoTextColor: '#1F2937',      // Separate color for logo text
     logoImageUrl: null,
     logoLink: '/',
     navItems: DEFAULT_NAV_ITEMS,
     dropdownMode: 'IMAGE_AND_TEXT',
     fontId: 'Inter',
     bgColor: '#FFFFFF',
-    bgOpacity: 0.8,
+    bgOpacity: 0.95,
     textColor: '#1F2937',
     autoContrastText: true,
     transparentOverHero: true,
@@ -415,6 +426,44 @@ const DEFAULT_FOOTER: FooterSettings = {
 };
 
 // ============================================================================
+// FORSIDE (FRONT PAGE) SETTINGS
+// ============================================================================
+
+// Content block for front page sections
+export interface ContentBlock {
+    id: string;
+    enabled: boolean;
+    heading?: string;           // Renders as H2 for SEO
+    text?: string;              // Renders as paragraph
+    imageUrl?: string;
+    imagePosition: 'left' | 'right';
+    textAlign: 'left' | 'center' | 'right';
+}
+
+// Forside (front page) settings
+export interface ForsideSettings {
+    showBanner: boolean;
+    contentBlocks: ContentBlock[];  // max 4
+}
+
+// Default content block
+const DEFAULT_CONTENT_BLOCK: ContentBlock = {
+    id: 'block-1',
+    enabled: true,
+    heading: 'Velkommen til vores butik',
+    text: 'Vi tilbyder professionelt tryk og hurtig levering til hele Danmark.',
+    imageUrl: undefined,
+    imagePosition: 'left',
+    textAlign: 'left',
+};
+
+// Default forside settings
+const DEFAULT_FORSIDE: ForsideSettings = {
+    showBanner: true,
+    contentBlocks: [DEFAULT_CONTENT_BLOCK],
+};
+
+// ============================================================================
 // COMPLETE BRANDING CONFIGURATION
 // ============================================================================
 
@@ -436,6 +485,7 @@ const DEFAULT_BRANDING = {
         // Typography colors
         headingText: "#1F2937",
         bodyText: "#4B5563",
+        pricingText: "#0EA5E9",
         linkText: "#0EA5E9",
     },
     // Saved color swatches (max 20)
@@ -443,6 +493,7 @@ const DEFAULT_BRANDING = {
     hero: DEFAULT_HERO,
     header: DEFAULT_HEADER,
     footer: DEFAULT_FOOTER,
+    forside: DEFAULT_FORSIDE,
     navigation: {
         dropdown_images: true,
     },
@@ -465,6 +516,7 @@ export {
     DEFAULT_FOOTER,
     DEFAULT_FOOTER_SOCIAL,
     DEFAULT_FOOTER_LINKS,
+    DEFAULT_FORSIDE,
 };
 
 
@@ -509,6 +561,15 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
         };
     }
 
+    // Deep merge Forside
+    if (data.forside) {
+        merged.forside = {
+            ...DEFAULT_BRANDING.forside,
+            ...data.forside,
+            contentBlocks: data.forside.contentBlocks || DEFAULT_BRANDING.forside.contentBlocks,
+        };
+    }
+
     // Deep merge nested objects
     if (data.fonts) merged.fonts = { ...DEFAULT_BRANDING.fonts, ...data.fonts };
     if (data.colors) merged.colors = { ...DEFAULT_BRANDING.colors, ...data.colors };
@@ -531,11 +592,45 @@ interface UseBrandingDraftReturn {
 
     // Actions
     updateDraft: (partial: Partial<BrandingData>) => void;
-    saveDraft: (options?: { label?: string }) => Promise<string | null>;
+    saveDraft: (options?: { label?: string }) => Promise<void>;
     publishDraft: (label?: string) => Promise<void>;
     discardDraft: () => void;
     resetToDefault: () => Promise<void>;
     refetch: () => Promise<void>;
+}
+
+// LocalStorage key for persisting draft across refreshes
+const DRAFT_STORAGE_KEY = 'branding-draft-unsaved';
+
+// Helper to save draft to localStorage
+function saveDraftToStorage(draft: BrandingData) {
+    try {
+        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+    } catch (e) {
+        console.warn('Failed to save draft to localStorage:', e);
+    }
+}
+
+// Helper to load draft from localStorage
+function loadDraftFromStorage(): BrandingData | null {
+    try {
+        const stored = localStorage.getItem(DRAFT_STORAGE_KEY);
+        if (stored) {
+            return JSON.parse(stored);
+        }
+    } catch (e) {
+        console.warn('Failed to load draft from localStorage:', e);
+    }
+    return null;
+}
+
+// Helper to clear draft from localStorage
+function clearDraftStorage() {
+    try {
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch (e) {
+        console.warn('Failed to clear draft from localStorage:', e);
+    }
 }
 
 export function useBrandingDraft(): UseBrandingDraftReturn {
@@ -546,9 +641,17 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
     const [originalDraft, setOriginalDraft] = useState<BrandingData>(DEFAULT_BRANDING);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
 
     // Check if there are unsaved changes
     const hasUnsavedChanges = JSON.stringify(draft) !== JSON.stringify(originalDraft);
+
+    // Save draft to localStorage whenever it changes (after initial load)
+    useEffect(() => {
+        if (hasLoadedFromStorage && hasUnsavedChanges) {
+            saveDraftToStorage(draft);
+        }
+    }, [draft, hasLoadedFromStorage, hasUnsavedChanges]);
 
     // Fetch branding from database
     const fetchBranding = useCallback(async () => {
@@ -592,6 +695,16 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
         } finally {
             setIsLoading(false);
         }
+
+        // Check localStorage for unsaved changes from previous session
+        const storedDraft = loadDraftFromStorage();
+        if (storedDraft) {
+            // Merge with defaults to ensure new fields are present
+            const mergedStored = mergeBrandingWithDefaults(storedDraft);
+            setDraft(mergedStored);
+            toast.info('Gendannet ændringer fra forrige session', { duration: 3000 });
+        }
+        setHasLoadedFromStorage(true);
     }, []);
 
     useEffect(() => {
@@ -638,6 +751,13 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
                 links: partial.footer.links ?? prev.footer.links,
             } : prev.footer;
 
+            // Deep merge forside
+            const newForside = partial.forside ? {
+                ...prev.forside,
+                ...partial.forside,
+                contentBlocks: partial.forside.contentBlocks ?? prev.forside.contentBlocks,
+            } : prev.forside;
+
             return {
                 ...prev,
                 ...partial,
@@ -646,39 +766,35 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
                 hero: newHero,
                 header: newHeader,
                 footer: newFooter,
+                forside: newForside,
                 navigation: { ...prev.navigation, ...(partial.navigation || {}) },
             };
         });
     }, []);
 
     // Save draft to database (without publishing)
-    const saveDraft = useCallback(async (options?: { label?: string }): Promise<string | null> => {
-        if (!tenantId) return null;
+    const saveDraft = useCallback(async (options?: { label?: string }) => {
+        if (!tenantId) return;
         setIsSaving(true);
         // Handle case where Event is passed by mistake
         const label = options && typeof options === 'object' && 'label' in options ? options.label : undefined;
-        let versionId: string | null = null;
 
         try {
             const { data: { user } } = await supabase.auth.getUser();
 
-            // 1. Always create a version snapshot for preview (with or without label)
-            const { data: versionData, error: versionError } = await supabase
-                .from('branding_versions' as any)
-                .insert({
-                    tenant_id: tenantId,
-                    data: draft,
-                    label: label || `Preview ${new Date().toLocaleString('da-DK')}`,
-                    created_by: user?.id,
-                    type: label ? 'snapshot' : 'auto_save',
-                })
-                .select('id')
-                .single();
+            // 1. If label provided, create version snapshot
+            if (label) {
+                const { error: versionError } = await supabase
+                    .from('branding_versions' as any)
+                    .insert({
+                        tenant_id: tenantId,
+                        data: draft,
+                        label: label,
+                        created_by: user?.id,
+                        type: 'snapshot',
+                    });
 
-            if (versionError) {
-                console.error("Error creating draft version:", versionError);
-            } else {
-                versionId = (versionData as any)?.id || null;
+                if (versionError) console.error("Error creating draft version:", versionError);
             }
 
             // 2. Update tenant settings (current draft state)
@@ -699,7 +815,6 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
                     ...currentBranding,
                     draft,
                     published: currentBranding.published || published,
-                    lastVersionId: versionId, // Store the latest version ID for quick access
                 },
             };
 
@@ -711,12 +826,11 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
             if (error) throw error;
 
             setOriginalDraft(draft);
+            clearDraftStorage(); // Clear localStorage since changes are now saved
             toast.success(label ? `Kladde "${label}" gemt` : "Kladde gemt");
-            return versionId;
         } catch (error) {
             console.error("Error saving draft:", error);
             toast.error("Kunne ikke gemme kladde");
-            return null;
         } finally {
             setIsSaving(false);
         }
@@ -838,6 +952,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
             setDraft(DEFAULT_BRANDING);
             setPublished(DEFAULT_BRANDING);
             setOriginalDraft(DEFAULT_BRANDING);
+            clearDraftStorage(); // Clear localStorage on reset
             toast.success("Branding nulstillet til standard");
         } catch (error) {
             console.error("Error resetting:", error);

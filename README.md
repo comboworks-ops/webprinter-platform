@@ -44,11 +44,13 @@ src/
 │   ├── admin/           # Admin panel components
 │   │   ├── AdminSidebar.tsx      # Navigation sidebar
 │   │   ├── ProductOverview.tsx   # Product management
-│   │   ├── SeoManager.tsx        # SEO settings
+│   │   ├── SeoManager.tsx        # SEO settings (uses routes.ts)
 │   │   ├── UnifiedBrandingEditor.tsx  # Branding customization
 │   │   └── ...
 │   ├── ui/              # Reusable UI components (shadcn/ui)
 │   └── ...              # Frontend components
+├── config/
+│   └── routes.ts        # ⭐ CENTRALIZED ROUTES - Add new pages here!
 ├── hooks/
 │   ├── useUserRole.tsx  # Role-based access control
 │   ├── useBrandingDraft.ts  # Branding state management
@@ -107,6 +109,32 @@ const { isMasterAdmin, isAdmin } = useUserRole();
 // Tenant resolution
 const { tenantId, isMasterAdmin } = await resolveAdminTenant();
 ```
+
+---
+
+## ➕ Adding New Pages
+
+When adding a new public-facing page, update **one file** and everything syncs automatically:
+
+### Step 1: Add to `src/config/routes.ts`
+```typescript
+// In PUBLIC_ROUTES array:
+{ path: '/ny-side', title: 'Ny Side', showInSeoManager: true, showInSitemap: true, category: 'info' },
+```
+
+### Step 2: Create the page component
+```bash
+# Create src/pages/NySide.tsx
+```
+
+### Step 3: Add the route in `App.tsx`
+```tsx
+import NySide from "./pages/NySide";
+// ...
+<Route path="/ny-side" element={<NySide />} />
+```
+
+**That's it!** The SEO Manager will automatically include the new page.
 
 ---
 

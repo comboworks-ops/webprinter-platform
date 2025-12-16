@@ -118,7 +118,7 @@ const ProductGrid = ({ category }: ProductGridProps) => {
                   <CardContent className="px-4 pb-3">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-primary">
+                        <p className="text-sm font-semibold" style={{ color: 'var(--pricing-text)' }}>
                           {product.displayPrice || "Se priser"}
                         </p>
                         {product.tooltip_price && (

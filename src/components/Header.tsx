@@ -58,11 +58,19 @@ const Header = () => {
     ? previewBranding.header
     : settings.data?.branding?.header;
 
+  // Map height setting (sm/md/lg) to pixel values
+  const heightMap: Record<string, number> = {
+    'sm': 56,
+    'md': 72,
+    'lg': 96,
+  };
+
   // Deep merge with defaults to prevent crashes on partial data
   const headerSettings = {
     fontId: 'Inter',
+    height: 'md' as const, // sm | md | lg
     bgColor: '#FFFFFF',
-    bgOpacity: 0.8, // 80% opacity = 20% transparent, allowing hero to show through
+    bgOpacity: 0.95, // 95% opacity - shows color clearly while allowing slight transparency
     textColor: '#1F2937',
     autoContrastText: true,
     dropdownMode: 'IMAGE_AND_TEXT' as const,
@@ -72,8 +80,9 @@ const Header = () => {
       sticky: true,
       hideOnScroll: false,
       fadeOnScroll: false,
-      heightPx: 80,
       ...rawHeader?.scroll,
+      // Calculate heightPx from height setting (must be after spread to override)
+      heightPx: heightMap[rawHeader?.height || 'md'] || 72,
     },
     // Ensure navItems exists (fallback to defaults if missing)
     navItems: rawHeader?.navItems || [
@@ -123,8 +132,8 @@ const Header = () => {
   const isAtTop = scrollY < 20;
   const isTransparent = (headerSettings.transparentOverHero || headerSettings.bgOpacity < 0.99) && isHome && isAtTop;
 
-  // Use White text if overlay is mostly transparent (assuming dark hero), otherwise standard text
-  const effectiveTextColor = (isTransparent && headerSettings.bgOpacity < 0.6) ? '#FFFFFF' : headerSettings.textColor;
+  // Always use the configured text color
+  const effectiveTextColor = headerSettings.textColor;
 
   const getHeaderStyles = useCallback(() => {
     const styles: React.CSSProperties = {};
@@ -134,9 +143,9 @@ const Header = () => {
     const g = parseInt(bgColor.slice(3, 5), 16) || 255;
     const b = parseInt(bgColor.slice(5, 7), 16) || 255;
 
-    // On hero pages, use fixed positioning to prevent layout shifts
-    // BUT only if sticky is enabled. If not sticky, it should just be at the top (absolute over hero)
-    if (isHome) {
+    // Position logic based on transparentOverHero and sticky settings
+    if (isHome && headerSettings.transparentOverHero) {
+      // Transparent over hero: float on top of hero
       if (headerSettings.scroll.sticky) {
         styles.position = 'fixed';
         styles.top = 0;
@@ -144,15 +153,20 @@ const Header = () => {
         styles.right = 0;
         styles.zIndex = 50;
       } else {
-        // Non-sticky on home: Absolute position to sit on top of hero, but scroll away
+        // Non-sticky but transparent: absolute position over hero, scrolls away
         styles.position = 'absolute';
         styles.top = 0;
         styles.left = 0;
         styles.right = 0;
         styles.zIndex = 50;
-        // Ensure it has background if we scroll past (though unrelated if absolute)
       }
+    } else if (headerSettings.scroll.sticky) {
+      // Not transparent over hero OR not on home - use sticky positioning
+      styles.position = 'sticky';
+      styles.top = 0;
+      styles.zIndex = 50;
     }
+    // Else: normal flow (relative) - header sits above content
 
     // Smooth opacity transition based on scroll
     let opacity = bgOpacity;
@@ -319,10 +333,28 @@ const Header = () => {
       }}
     >
       <div className="container mx-auto px-4 h-full">
-        <div className="flex items-center justify-between h-full">
+        {/* Flex layout based on alignment: left = logo-menu-actions | center = logo-menu(centered)-actions | right = logo-spacer-menu-actions */}
+        <div className={`flex items-center h-full relative ${headerSettings.alignment === 'center'
+          ? 'justify-between'
+          : headerSettings.alignment === 'right'
+            ? 'justify-between'
+            : 'justify-between'
+          }`}>
           {/* Logo - with improved auto-fit/scale */}
           <Link to="/" className="hover:opacity-90 transition-opacity flex items-center">
-            {settings.data?.id === '00000000-0000-0000-0000-000000000000' ? (
+            {/* Text Logo - when logoType is 'text' */}
+            {headerSettings.logoType === 'text' ? (
+              <span
+                className="text-xl md:text-2xl font-bold"
+                style={{
+                  color: headerSettings.logoTextColor || '#1F2937',
+                  fontFamily: `'${headerSettings.logoFont || 'Inter'}', sans-serif`,
+                }}
+              >
+                {headerSettings.logoText || tenantName}
+              </span>
+            ) : settings.data?.id === '00000000-0000-0000-0000-000000000000' && !headerSettings.logoImageUrl ? (
+              // Master tenant with no image - show WebprinterLogo
               <WebprinterLogo />
             ) : (isPreviewMode && previewBranding?.logo_url) ? (
               <img
@@ -351,15 +383,30 @@ const Header = () => {
                   maxHeight: `${headerSettings.scroll.heightPx - 16}px`,
                 }}
               />
+            ) : headerSettings.logoImageUrl ? (
+              <img
+                src={headerSettings.logoImageUrl}
+                alt={tenantName}
+                className="h-10 w-auto max-w-[180px] object-contain"
+                style={{
+                  maxHeight: `${headerSettings.scroll.heightPx - 16}px`,
+                }}
+              />
             ) : (
+              // Fallback to text when no image
               <span className="text-xl md:text-2xl font-heading font-bold" style={{ color: effectiveTextColor }}>
                 {tenantName}
               </span>
             )}
           </Link>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden lg:flex items-center gap-8">
+          {/* Desktop Navigation - alignment based positioning */}
+          <nav className={`hidden lg:flex items-center gap-8 ${headerSettings.alignment === 'center'
+            ? 'absolute left-1/2 -translate-x-1/2'
+            : headerSettings.alignment === 'right'
+              ? 'ml-auto mr-8'
+              : 'ml-8'
+            }`}>
             {headerSettings.navItems
               .filter(item => item.isVisible)
               .sort((a, b) => a.order - b.order)
@@ -689,9 +736,12 @@ const Header = () => {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <Button asChild className="hidden md:flex">
-              <Link to="/kontakt">{t("orderNow")}</Link>
-            </Button>
+            {/* CTA Button - only show when enabled in settings */}
+            {headerSettings.cta?.enabled && (
+              <Button asChild className="hidden md:flex">
+                <Link to={headerSettings.cta.href || '/kontakt'} className="no-link-color">{headerSettings.cta.label || t("orderNow")}</Link>
+              </Button>
+            )}
 
             {/* Auth Buttons - Desktop */}
             {user ? (
@@ -833,11 +883,14 @@ const Header = () => {
               </Button>
             </div>
 
-            <Button asChild className="w-full mt-4">
-              <Link to="/kontakt" onClick={() => setMobileMenuOpen(false)}>
-                {t("orderNow")}
-              </Link>
-            </Button>
+            {/* CTA Button - Mobile - only show when enabled */}
+            {headerSettings.cta?.enabled && (
+              <Button asChild className="w-full mt-4">
+                <Link to={headerSettings.cta.href || '/kontakt'} onClick={() => setMobileMenuOpen(false)} className="no-link-color">
+                  {headerSettings.cta.label || t("orderNow")}
+                </Link>
+              </Button>
+            )}
 
             {/* Auth Buttons - Mobile */}
             {user ? (

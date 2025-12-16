@@ -20,15 +20,13 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Loader2, Upload, Image as ImageIcon, Type, Palette, Layout, Trash2, Sparkles, Send, RotateCcw, AlertCircle, Menu, Footprints } from "lucide-react";
+import { Loader2, Upload, Image as ImageIcon, Type, Palette, Layout, Trash2, Sparkles, Send, RotateCcw, AlertCircle, Home } from "lucide-react";
 import { FontSelector } from "./FontSelector";
 import { BrandingPreview } from "./BrandingPreview";
 import { IconPackSelector } from "./IconPackSelector";
 import { BrandingHistory } from "./BrandingHistory";
 import { BrandingPreviewFrame } from "./BrandingPreviewFrame";
-import { HeroEditor } from "./HeroEditor";
-import { HeaderSection } from "./HeaderSection";
-import { FooterSection } from "./FooterSection";
+import { ForsideSection } from "./ForsideSection";
 import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches";
 import { useBrandingDraft, type BrandingData } from "@/hooks/useBrandingDraft";
 
@@ -54,7 +52,7 @@ export function BrandingSettings() {
     const [showPublishDialog, setShowPublishDialog] = useState(false);
     const [saveLabel, setSaveLabel] = useState("");
     const [showSaveDialog, setShowSaveDialog] = useState(false);
-    const [activeTab, setActiveTab] = useState("typography");
+    const [activeTab, setActiveTab] = useState("forside");
 
     const handleSaveSwatch = (color: string) => {
         const current = draft.savedSwatches || [];
@@ -284,7 +282,11 @@ export function BrandingSettings() {
                 {/* Settings Panel */}
                 <div>
                     <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-                        <TabsList className="grid grid-cols-7 w-full">
+                        <TabsList className="grid grid-cols-4 w-full">
+                            <TabsTrigger value="forside" className="gap-2">
+                                <Home className="w-4 h-4" />
+                                <span className="hidden sm:inline">Forside</span>
+                            </TabsTrigger>
                             <TabsTrigger value="typography" className="gap-2">
                                 <Type className="w-4 h-4" />
                                 <span className="hidden sm:inline">Typografi</span>
@@ -293,97 +295,180 @@ export function BrandingSettings() {
                                 <Palette className="w-4 h-4" />
                                 <span className="hidden sm:inline">Farver</span>
                             </TabsTrigger>
-                            <TabsTrigger value="hero" className="gap-2">
-                                <Layout className="w-4 h-4" />
-                                <span className="hidden sm:inline">Banner</span>
-                            </TabsTrigger>
-                            <TabsTrigger value="navigation" className="gap-2">
-                                <Menu className="w-4 h-4" />
-                                <span className="hidden sm:inline">Navigation</span>
-                            </TabsTrigger>
-                            <TabsTrigger value="footer" className="gap-2">
-                                <Footprints className="w-4 h-4" />
-                                <span className="hidden sm:inline">Footer</span>
-                            </TabsTrigger>
                             <TabsTrigger value="icons" className="gap-2">
                                 <Sparkles className="w-4 h-4" />
                                 <span className="hidden sm:inline">Ikoner</span>
                             </TabsTrigger>
-                            <TabsTrigger value="logo" className="gap-2">
-                                <ImageIcon className="w-4 h-4" />
-                                <span className="hidden sm:inline">Logo</span>
-                            </TabsTrigger>
                         </TabsList>
 
-                        {/* Typography Tab */}
+                        {/* Forside Tab */}
+                        <TabsContent value="forside" className="space-y-4">
+                            <ForsideSection
+                                draft={draft}
+                                updateDraft={updateDraft}
+                                tenantId={tenantId}
+                                savedSwatches={draft.savedSwatches}
+                                onSaveSwatch={handleSaveSwatch}
+                                onRemoveSwatch={handleRemoveSwatch}
+                            />
+                        </TabsContent>
+
                         <TabsContent value="typography" className="space-y-4">
                             <CollapsibleCard
-                                title="Skrifttyper"
-                                description="Vælg skrifttyper til forskellige elementer"
+                                title="Skrifttyper & Tekstfarver"
+                                description="Vælg skrifttyper og farver til forskellige tekstelementer"
                                 icon={<Type className="h-4 w-4" />}
-                                defaultOpen={true}
+                                defaultOpen={false}
                             >
                                 <div className="space-y-6">
-                                    <FontSelector
-                                        label="Overskrifter"
-                                        value={draft.fonts.heading}
-                                        onChange={(v) => updateDraft({ fonts: { ...draft.fonts, heading: v } })}
-                                        description="Bruges til H1, H2, H3 og navigation"
-                                    />
-                                    <FontSelector
-                                        label="Brødtekst"
-                                        value={draft.fonts.body}
-                                        onChange={(v) => updateDraft({ fonts: { ...draft.fonts, body: v } })}
-                                        description="Bruges til almindelig tekst og beskrivelser"
-                                    />
-                                    <FontSelector
-                                        label="Priser"
-                                        value={draft.fonts.pricing}
-                                        onChange={(v) => updateDraft({ fonts: { ...draft.fonts, pricing: v } })}
-                                        description="Bruges til priser og tal"
-                                    />
-                                </div>
-                            </CollapsibleCard>
+                                    {/* Headings */}
+                                    <div className="p-4 border rounded-lg bg-muted/20 space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="font-medium">Overskrifter</h4>
+                                            <p className="text-xs text-muted-foreground">H1, H2, H3 og navigation</p>
+                                        </div>
+                                        <div className="grid sm:grid-cols-2 gap-4">
+                                            <FontSelector
+                                                label="Skrifttype"
+                                                value={draft.fonts.heading}
+                                                onChange={(v) => updateDraft({ fonts: { ...draft.fonts, heading: v } })}
+                                            />
+                                            <div className="space-y-2">
+                                                <ColorPickerWithSwatches
+                                                    label="Tekstfarve"
+                                                    value={draft.colors.headingText || '#1F2937'}
+                                                    onChange={(color) => updateDraft({ colors: { ...draft.colors, headingText: color } })}
+                                                    savedSwatches={draft.savedSwatches}
+                                                    onSaveSwatch={handleSaveSwatch}
+                                                    onRemoveSwatch={handleRemoveSwatch}
+                                                />
+                                            </div>
+                                        </div>
+                                        {/* Preview */}
+                                        <div className="pt-2 border-t">
+                                            <p
+                                                className="text-lg font-semibold"
+                                                style={{
+                                                    fontFamily: `'${draft.fonts.heading}', sans-serif`,
+                                                    color: draft.colors.headingText || '#1F2937'
+                                                }}
+                                            >
+                                                Eksempel på overskrift
+                                            </p>
+                                        </div>
+                                    </div>
 
-                            {/* Typography Colors */}
-                            <CollapsibleCard
-                                title="Tekstfarver"
-                                description="Tilpas farver på tekst"
-                                icon={<Palette className="h-4 w-4" />}
-                            >
-                                <div className="space-y-4">
-                                    <div className="space-y-2">
-                                        <ColorPickerWithSwatches
-                                            label="Overskrifter"
-                                            value={draft.colors.headingText || '#1F2937'}
-                                            onChange={(color) => updateDraft({ colors: { ...draft.colors, headingText: color } })}
-                                            savedSwatches={draft.savedSwatches}
-                                            onSaveSwatch={handleSaveSwatch}
-                                            onRemoveSwatch={handleRemoveSwatch}
-                                        />
-                                        <p className="text-xs text-muted-foreground">Farve på H1, H2, H3 overskrifter</p>
+                                    {/* Body Text */}
+                                    <div className="p-4 border rounded-lg bg-muted/20 space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="font-medium">Brødtekst</h4>
+                                            <p className="text-xs text-muted-foreground">Almindelig tekst og beskrivelser</p>
+                                        </div>
+                                        <div className="grid sm:grid-cols-2 gap-4">
+                                            <FontSelector
+                                                label="Skrifttype"
+                                                value={draft.fonts.body}
+                                                onChange={(v) => updateDraft({ fonts: { ...draft.fonts, body: v } })}
+                                            />
+                                            <div className="space-y-2">
+                                                <ColorPickerWithSwatches
+                                                    label="Tekstfarve"
+                                                    value={draft.colors.bodyText || '#4B5563'}
+                                                    onChange={(color) => updateDraft({ colors: { ...draft.colors, bodyText: color } })}
+                                                    savedSwatches={draft.savedSwatches}
+                                                    onSaveSwatch={handleSaveSwatch}
+                                                    onRemoveSwatch={handleRemoveSwatch}
+                                                />
+                                            </div>
+                                        </div>
+                                        {/* Preview */}
+                                        <div className="pt-2 border-t">
+                                            <p
+                                                className="text-sm"
+                                                style={{
+                                                    fontFamily: `'${draft.fonts.body}', sans-serif`,
+                                                    color: draft.colors.bodyText || '#4B5563'
+                                                }}
+                                            >
+                                                Dette er et eksempel på brødtekst. Den bruges til beskrivelser og almindelig tekst på din side.
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div className="space-y-2">
-                                        <ColorPickerWithSwatches
-                                            label="Brødtekst"
-                                            value={draft.colors.bodyText || '#4B5563'}
-                                            onChange={(color) => updateDraft({ colors: { ...draft.colors, bodyText: color } })}
-                                            savedSwatches={draft.savedSwatches}
-                                            onSaveSwatch={handleSaveSwatch}
-                                            onRemoveSwatch={handleRemoveSwatch}
-                                        />
-                                        <p className="text-xs text-muted-foreground">Farve på almindelig tekst og beskrivelser</p>
+
+                                    {/* Pricing */}
+                                    <div className="p-4 border rounded-lg bg-muted/20 space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="font-medium">Priser</h4>
+                                            <p className="text-xs text-muted-foreground">Priser og tal</p>
+                                        </div>
+                                        <div className="grid sm:grid-cols-2 gap-4">
+                                            <FontSelector
+                                                label="Skrifttype"
+                                                value={draft.fonts.pricing}
+                                                onChange={(v) => updateDraft({ fonts: { ...draft.fonts, pricing: v } })}
+                                            />
+                                            <div className="space-y-2">
+                                                <ColorPickerWithSwatches
+                                                    label="Tekstfarve"
+                                                    value={draft.colors.pricingText || '#0EA5E9'}
+                                                    onChange={(color) => updateDraft({ colors: { ...draft.colors, pricingText: color } })}
+                                                    savedSwatches={draft.savedSwatches}
+                                                    onSaveSwatch={handleSaveSwatch}
+                                                    onRemoveSwatch={handleRemoveSwatch}
+                                                />
+                                            </div>
+                                        </div>
+                                        {/* Preview */}
+                                        <div className="pt-2 border-t">
+                                            <p
+                                                className="text-2xl font-bold"
+                                                style={{
+                                                    fontFamily: `'${draft.fonts.pricing}', sans-serif`,
+                                                    color: draft.colors.pricingText || '#0EA5E9'
+                                                }}
+                                            >
+                                                kr. 299,00
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div className="space-y-2">
-                                        <ColorPickerWithSwatches
-                                            label="Links"
-                                            value={draft.colors.linkText || '#0EA5E9'}
-                                            onChange={(color) => updateDraft({ colors: { ...draft.colors, linkText: color } })}
-                                            savedSwatches={draft.savedSwatches}
-                                            onSaveSwatch={handleSaveSwatch}
-                                            onRemoveSwatch={handleRemoveSwatch}
-                                        />
-                                        <p className="text-xs text-muted-foreground">Farve på links i tekst</p>
+
+                                    {/* Links */}
+                                    <div className="p-4 border rounded-lg bg-muted/20 space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="font-medium">Links</h4>
+                                            <p className="text-xs text-muted-foreground">Links i tekst</p>
+                                        </div>
+                                        <div className="grid sm:grid-cols-2 gap-4">
+                                            <div></div> {/* Empty space - links use body font */}
+                                            <div className="space-y-2">
+                                                <ColorPickerWithSwatches
+                                                    label="Linkfarve"
+                                                    value={draft.colors.linkText || '#0EA5E9'}
+                                                    onChange={(color) => updateDraft({ colors: { ...draft.colors, linkText: color } })}
+                                                    savedSwatches={draft.savedSwatches}
+                                                    onSaveSwatch={handleSaveSwatch}
+                                                    onRemoveSwatch={handleRemoveSwatch}
+                                                />
+                                            </div>
+                                        </div>
+                                        {/* Preview */}
+                                        <div className="pt-2 border-t">
+                                            <p
+                                                className="text-sm"
+                                                style={{
+                                                    fontFamily: `'${draft.fonts.body}', sans-serif`,
+                                                }}
+                                            >
+                                                <span style={{ color: draft.colors.bodyText || '#4B5563' }}>Dette er tekst med et </span>
+                                                <span
+                                                    className="underline cursor-pointer"
+                                                    style={{ color: draft.colors.linkText || '#0EA5E9' }}
+                                                >
+                                                    link
+                                                </span>
+                                                <span style={{ color: draft.colors.bodyText || '#4B5563' }}> i.</span>
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
                             </CollapsibleCard>
@@ -395,7 +480,7 @@ export function BrandingSettings() {
                                 title="Farveskema"
                                 description="Tilpas farverne på din shop"
                                 icon={<Palette className="h-4 w-4" />}
-                                defaultOpen={true}
+                                defaultOpen={false}
                             >
                                 <div className="grid sm:grid-cols-2 gap-6">
                                     {[
@@ -424,102 +509,12 @@ export function BrandingSettings() {
                             </CollapsibleCard>
                         </TabsContent>
 
-                        {/* Hero Tab */}
-                        <TabsContent value="hero" className="space-y-6">
-                            <HeroEditor
-                                draft={draft}
-                                updateDraft={updateDraft}
-                                tenantId={tenantId}
-                            />
-                        </TabsContent>
-
-                        {/* Navigation Tab */}
-                        <TabsContent value="navigation" className="space-y-6">
-                            <HeaderSection
-                                header={draft.header}
-                                onChange={(header) => updateDraft({ header })}
-                                savedSwatches={draft.savedSwatches}
-                                onSaveSwatch={handleSaveSwatch}
-                                onRemoveSwatch={handleRemoveSwatch}
-                            />
-                        </TabsContent>
-
-                        {/* Footer Tab */}
-                        <TabsContent value="footer" className="space-y-6">
-                            <FooterSection
-                                footer={draft.footer}
-                                onChange={(footer) => updateDraft({ footer })}
-                                savedSwatches={draft.savedSwatches}
-                                onSaveSwatch={handleSaveSwatch}
-                                onRemoveSwatch={handleRemoveSwatch}
-                            />
-                        </TabsContent>
-
                         {/* Icon Packs Tab */}
                         <TabsContent value="icons" className="space-y-6">
                             <IconPackSelector
                                 selectedPackId={draft.selectedIconPackId}
                                 onChange={(packId) => updateDraft({ selectedIconPackId: packId })}
                             />
-                        </TabsContent>
-
-                        {/* Logo Tab */}
-                        <TabsContent value="logo" className="space-y-4">
-                            <CollapsibleCard
-                                title="Logo"
-                                description="Upload dit virksomhedslogo"
-                                icon={<ImageIcon className="h-4 w-4" />}
-                                defaultOpen={true}
-                            >
-                                <div className="space-y-4">
-                                    <div className="border-2 border-dashed border-muted rounded-lg p-6 flex flex-col items-center justify-center min-h-[200px] bg-muted/5 relative">
-                                        {draft.logo_url ? (
-                                            <div className="relative w-full h-full flex items-center justify-center">
-                                                <img src={draft.logo_url} alt="Shop Logo" className="max-h-[160px] object-contain" />
-                                                <Button
-                                                    variant="destructive"
-                                                    size="sm"
-                                                    className="absolute top-0 right-0"
-                                                    onClick={() => updateDraft({ logo_url: null })}
-                                                >
-                                                    Fjern
-                                                </Button>
-                                            </div>
-                                        ) : (
-                                            <div className="text-center text-muted-foreground">
-                                                <ImageIcon className="mx-auto h-12 w-12 text-muted-foreground/50 mb-2" />
-                                                <p>Intet logo uploadet</p>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <Button asChild variant="outline" disabled={uploading}>
-                                        <label className="cursor-pointer">
-                                            {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                                            {draft.logo_url ? 'Skift Logo' : 'Upload Logo'}
-                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, "logo")} />
-                                        </label>
-                                    </Button>
-                                </div>
-                            </CollapsibleCard>
-
-                            {/* Navigation Options */}
-                            <CollapsibleCard
-                                title="Navigation"
-                                description="Indstillinger for dropdown-menuen"
-                                icon={<Menu className="h-4 w-4" />}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <Label>Vis produktbilleder i dropdown</Label>
-                                        <p className="text-xs text-muted-foreground">Vis ikoner ved siden af produktnavne</p>
-                                    </div>
-                                    <Switch
-                                        checked={draft.navigation.dropdown_images}
-                                        onCheckedChange={(v) => updateDraft({ navigation: { ...draft.navigation, dropdown_images: v } })}
-                                    />
-                                </div>
-                            </CollapsibleCard>
                         </TabsContent>
                     </Tabs>
 
