@@ -14,6 +14,26 @@ Dev server runs at: `http://localhost:8080`
 
 ---
 
+## 🖼️ Banner & Animation Refinements (2025-12-16)
+
+### 1. Visual Banner Selection
+- **Thumbnails:** Replaced text-based banner selection with a visual grid of thumbnails.
+- **Preview:** Thumbnails show the banner image + applied overlay color/opacity in real-time.
+- **Selection:** Simple click to select active banner for editing.
+
+### 2. Consolidated Button Management
+- **Unified Controls:** Removed scattered "Button Text" inputs; all buttons are now managed in the **Call-to-action knapper** section.
+- **Multi-Button:** Support for up to 2 buttons per banner.
+- **Global Toggle:** Main toggle correctly hides/shows buttons across all banners.
+- **Empty State:** Deleting all buttons leaves a banner truly empty (no legacy fallback).
+
+### 3. Text & Animation
+- **Dynamic Animations:** Restored functionality of "Text Animation" settings (Fade, Slide Up, etc.).
+- **Banner Selector:** Added a dropdown selector directly in the Animation section for easy switching.
+- **Defaults:** New banners default to "Slide Up" animation and include a standard "Se produkter" button.
+
+---
+
 ## 🎨 Branding System Architecture
 
 ### Tab Structure (2025-12-15)

@@ -484,6 +484,68 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                             onRemoveSwatch={onRemoveSwatch}
                         />
                     </div>
+
+                    <Separator />
+
+                    {/* Dropdown Border Toggle */}
+                    <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                            <Label>Vis ramme og skygge</Label>
+                            <p className="text-xs text-muted-foreground">
+                                Tilføj ramme og skygge omkring dropdown-menuen
+                            </p>
+                        </div>
+                        <Switch
+                            checked={safeHeader.dropdownShowBorder ?? true}
+                            onCheckedChange={(v) => updateHeader({ dropdownShowBorder: v })}
+                        />
+                    </div>
+
+                    <Separator />
+
+                    {/* Category Headers */}
+                    <div className="space-y-3 pt-2">
+                        <Label className="text-sm font-medium">Kategori-overskrifter</Label>
+                        <p className="text-xs text-muted-foreground -mt-2">
+                            Styling for "Tryksager", "Storformat", osv.
+                        </p>
+                        <FontSelector
+                            label="Kategori skrifttype"
+                            value={safeHeader.dropdownCategoryFontId || 'Inter'}
+                            onChange={(v) => updateHeader({ dropdownCategoryFontId: v })}
+                        />
+                        <ColorPickerWithSwatches
+                            label="Kategori farve"
+                            value={safeHeader.dropdownCategoryColor || '#6B7280'}
+                            onChange={(color) => updateHeader({ dropdownCategoryColor: color })}
+                            savedSwatches={savedSwatches}
+                            onSaveSwatch={onSaveSwatch}
+                            onRemoveSwatch={onRemoveSwatch}
+                        />
+                    </div>
+
+                    <Separator />
+
+                    {/* Product Names */}
+                    <div className="space-y-3">
+                        <Label className="text-sm font-medium">Produktnavne</Label>
+                        <p className="text-xs text-muted-foreground -mt-2">
+                            Styling for produktnavne i dropdown
+                        </p>
+                        <FontSelector
+                            label="Produkt skrifttype"
+                            value={safeHeader.dropdownProductFontId || 'Inter'}
+                            onChange={(v) => updateHeader({ dropdownProductFontId: v })}
+                        />
+                        <ColorPickerWithSwatches
+                            label="Produkt farve"
+                            value={safeHeader.dropdownProductColor || '#1F2937'}
+                            onChange={(color) => updateHeader({ dropdownProductColor: color })}
+                            savedSwatches={savedSwatches}
+                            onSaveSwatch={onSaveSwatch}
+                            onRemoveSwatch={onRemoveSwatch}
+                        />
+                    </div>
                 </div>
             </CollapsibleCard>
 

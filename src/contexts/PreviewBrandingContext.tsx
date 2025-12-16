@@ -44,6 +44,28 @@ function loadGoogleFonts(fonts: string[]) {
     document.head.appendChild(link);
 }
 
+// Helper to extract all fonts needed from branding data
+function extractFontsFromBranding(branding: BrandingData | null): string[] {
+    if (!branding) return [];
+
+    return [
+        branding?.fonts?.heading || 'Poppins',
+        branding?.fonts?.body || 'Inter',
+        branding?.fonts?.pricing || 'Roboto Mono',
+        branding?.header?.fontId || 'Inter', // Header menu font
+        branding?.header?.logoFont || 'Inter', // Logo text font
+        branding?.header?.dropdownCategoryFontId || 'Inter', // Dropdown category font
+        branding?.header?.dropdownProductFontId || 'Inter', // Dropdown product font
+        (branding?.hero?.overlay as any)?.titleFontId || 'Poppins', // Banner title font
+        (branding?.hero?.overlay as any)?.subtitleFontId || 'Inter', // Banner subtitle font
+        // Extract per-banner fonts from hero images
+        ...(branding?.hero?.images || []).flatMap((img: any) => [
+            img.titleFontId,
+            img.subtitleFontId
+        ]),
+    ].filter(Boolean) as string[];
+}
+
 /**
  * Provider that listens for branding updates via postMessage when in preview mode.
  * In production, it just passes through null so components use their normal data sources.
@@ -65,9 +87,13 @@ export function PreviewBrandingProvider({
     // Update state when initial props change
     useEffect(() => {
         if (initialBranding && !initialAppliedRef.current) {
-            setBranding(mergeBrandingWithDefaults(initialBranding));
+            const newBranding = mergeBrandingWithDefaults(initialBranding);
+            setBranding(newBranding);
             setIsReady(true);
             initialAppliedRef.current = true;
+
+            // Load fonts for initial branding (including per-banner fonts)
+            loadGoogleFonts(extractFontsFromBranding(newBranding));
         }
     }, [initialBranding]);
 
@@ -109,14 +135,7 @@ export function PreviewBrandingProvider({
                 setIsReady(true);
 
                 // Load fonts dynamically when branding changes
-                const fontsToLoad = [
-                    newBranding?.fonts?.heading || 'Poppins',
-                    newBranding?.fonts?.body || 'Inter',
-                    newBranding?.fonts?.pricing || 'Roboto Mono',
-                    newBranding?.header?.fontId || 'Inter', // Header menu font
-                    newBranding?.header?.logoFont || 'Inter', // Logo text font
-                ].filter(Boolean);
-                loadGoogleFonts(fontsToLoad);
+                loadGoogleFonts(extractFontsFromBranding(newBranding));
             }
         };
 
@@ -154,14 +173,7 @@ export function PreviewBrandingProvider({
 
                 setIsReady(true);
 
-                const fontsToLoad = [
-                    newBranding?.fonts?.heading || 'Poppins',
-                    newBranding?.fonts?.body || 'Inter',
-                    newBranding?.fonts?.pricing || 'Roboto Mono',
-                    newBranding?.header?.fontId || 'Inter', // Header menu font
-                    newBranding?.header?.logoFont || 'Inter', // Logo text font
-                ].filter(Boolean);
-                loadGoogleFonts(fontsToLoad);
+                loadGoogleFonts(extractFontsFromBranding(newBranding));
             }
 
             if (event.data?.type === "BRANDING_PING") {
@@ -190,9 +202,11 @@ export function PreviewBrandingProvider({
             branding?.fonts?.pricing || 'Roboto Mono',
             branding?.header?.fontId || 'Inter', // Header menu font
             branding?.header?.logoFont || 'Inter', // Logo text font
+            branding?.header?.dropdownCategoryFontId || 'Inter', // Dropdown category font
+            branding?.header?.dropdownProductFontId || 'Inter', // Dropdown product font
         ].filter(Boolean);
         loadGoogleFonts(fontsToLoad);
-    }, [branding?.fonts?.heading, branding?.fonts?.body, branding?.fonts?.pricing, branding?.header?.fontId, branding?.header?.logoFont]);
+    }, [branding?.fonts?.heading, branding?.fonts?.body, branding?.fonts?.pricing, branding?.header?.fontId, branding?.header?.logoFont, branding?.header?.dropdownCategoryFontId, branding?.header?.dropdownProductFontId]);
 
     return (
         <PreviewBrandingContext.Provider value={{ branding, isPreviewMode, tenantName, isReady }}>

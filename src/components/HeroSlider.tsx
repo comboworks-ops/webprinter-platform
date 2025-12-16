@@ -8,6 +8,7 @@ import {
   type HeroImage,
   type HeroVideo,
   type HeroButton,
+  type HeroTextAnimation,
   DEFAULT_HERO
 } from "@/hooks/useBrandingDraft";
 
@@ -18,12 +19,15 @@ interface BannerButton extends HeroButton {
   bgOpacity?: number;
 }
 
-// Extended overlay settings with text colors
+// Extended overlay settings with text colors and fonts
 interface ExtendedOverlay {
   title?: string;
   subtitle?: string;
   titleColor?: string;
   subtitleColor?: string;
+  titleFontId?: string;       // Font for banner title
+  subtitleFontId?: string;    // Font for banner subtitle
+  usePerBannerStyling?: boolean; // When true, use per-slide font/color
   showButtons?: boolean;
   buttons?: BannerButton[];
 }
@@ -96,6 +100,39 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Check if banner should be shown (from forside settings)
+  const showBanner = branding?.forside?.showBanner ?? true;
+
+  // Helper to get text animation classes
+  const getTextAnimationClass = (animation: HeroTextAnimation | string, isActive: boolean) => {
+    const baseClasses = "transition-all duration-700";
+
+    if (animation === 'none') {
+      return ""; // No transition classes
+    }
+
+    // Active state (showing)
+    if (isActive) {
+      return `${baseClasses} opacity-100 translate-y-0 scale-100 blur-none`;
+    }
+
+    // Inactive state (hidden) based on animation type
+    console.log('Animation:', animation);
+    switch (animation) {
+      case 'fade':
+        return `${baseClasses} opacity-0`;
+      case 'slide-down':
+        return `${baseClasses} opacity-0 -translate-y-8`;
+      case 'scale':
+        return `${baseClasses} opacity-0 scale-90`;
+      case 'blur':
+        return `${baseClasses} opacity-0 blur-sm`;
+      case 'slide-up':
+      default:
+        return `${baseClasses} opacity-0 translate-y-8`;
+    }
+  };
 
   // Get hero settings from props, branding context, or defaults
   const hero: HeroSettings = heroSettings || (branding?.hero as HeroSettings) || DEFAULT_HERO;
@@ -186,11 +223,36 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
     }
   };
 
-  // Overlay title and subtitle with colors
+  // Overlay title and subtitle with colors and fonts
   const overlayTitle = extendedOverlay.title;
   const overlaySubtitle = extendedOverlay.subtitle;
-  const titleColor = extendedOverlay.titleColor || '#FFFFFF';
-  const subtitleColor = extendedOverlay.subtitleColor || 'rgba(255, 255, 255, 0.9)';
+  const usePerBannerStyling = extendedOverlay.usePerBannerStyling || false;
+
+  // Global styling (used when per-banner is OFF or as fallback)
+  const globalTitleColor = extendedOverlay.titleColor || '#FFFFFF';
+  const globalSubtitleColor = extendedOverlay.subtitleColor || 'rgba(255, 255, 255, 0.9)';
+  const globalTitleFontId = extendedOverlay.titleFontId || 'Poppins';
+  const globalSubtitleFontId = extendedOverlay.subtitleFontId || 'Inter';
+
+  // Helper functions to get per-slide or global styling
+  const getSlideStyles = (slideIndex: number) => {
+    const slide = images[slideIndex] as any;
+    if (usePerBannerStyling && slide) {
+      return {
+        titleColor: slide.titleColor || globalTitleColor,
+        subtitleColor: slide.subtitleColor || globalSubtitleColor,
+        titleFontId: slide.titleFontId || globalTitleFontId,
+        subtitleFontId: slide.subtitleFontId || globalSubtitleFontId,
+      };
+    }
+    return {
+      titleColor: globalTitleColor,
+      subtitleColor: globalSubtitleColor,
+      titleFontId: globalTitleFontId,
+      subtitleFontId: globalSubtitleFontId,
+    };
+  };
+
   const showButtons = extendedOverlay.showButtons ?? true;
   const buttons = (extendedOverlay.buttons || []) as BannerButton[];
 
@@ -266,6 +328,28 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
     );
   };
 
+  // Overlay rendering logic
+  const usePerBannerOverlay = (hero as any).usePerBannerOverlay || false;
+
+  const getSlideOverlayStyles = (slideIndex: number) => {
+    const slide = images[slideIndex] as any;
+    if (usePerBannerOverlay && slide) {
+      return {
+        backgroundColor: slide.overlayColor || hero.overlay_color || '#000',
+        opacity: slide.overlayOpacity ?? hero.overlay_opacity ?? 0.3
+      };
+    }
+    return {
+      backgroundColor: hero.overlay_color || '#000',
+      opacity: hero.overlay_opacity ?? 0.3
+    };
+  };
+
+  // If banner is hidden, render nothing (after all hooks are called)
+  if (!showBanner) {
+    return null;
+  }
+
   return (
     <section
       ref={containerRef}
@@ -309,12 +393,13 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
               <div className="max-w-2xl ml-4 md:ml-8 lg:ml-12 mt-16 md:mt-20">
                 {/* Title with fade-up animation */}
                 <h1
-                  className={`text-4xl md:text-5xl lg:text-6xl font-heading font-bold mb-4 transition-all duration-700 ${index === currentSlide
+                  className={`text-4xl md:text-5xl lg:text-6xl font-bold mb-4 transition-all duration-700 ${index === currentSlide
                     ? 'opacity-100 translate-y-0'
                     : 'opacity-0 translate-y-8'
                     }`}
                   style={{
-                    color: titleColor,
+                    color: getSlideStyles(index).titleColor,
+                    fontFamily: `'${getSlideStyles(index).titleFontId}', sans-serif`,
                     transitionDelay: index === currentSlide ? '200ms' : '0ms'
                   }}
                 >
@@ -327,7 +412,8 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                     : 'opacity-0 translate-y-8'
                     }`}
                   style={{
-                    color: subtitleColor,
+                    color: getSlideStyles(index).subtitleColor,
+                    fontFamily: `'${getSlideStyles(index).subtitleFontId}', sans-serif`,
                     transitionDelay: index === currentSlide ? '400ms' : '0ms'
                   }}
                 >
@@ -362,10 +448,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
         >
           <div
             className="absolute inset-0 z-10"
-            style={{
-              backgroundColor: hero.overlay_color || '#000',
-              opacity: hero.overlay_opacity ?? 0.3,
-            }}
+            style={getSlideOverlayStyles(index)}
           />
           <div
             className="absolute inset-0"
@@ -389,50 +472,53 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
             <div className="absolute inset-0 z-20 flex items-center">
               <div className="container mx-auto px-4 md:px-8 lg:px-16">
                 <div className="max-w-2xl ml-4 md:ml-8 lg:ml-12 mt-16 md:mt-20">
-                  {/* Title with fade-up animation */}
+                  {/* Title with animation */}
                   {image.headline && (
                     <h1
-                      className={`text-4xl md:text-5xl lg:text-6xl font-heading font-bold mb-4 transition-all duration-700 ${index === currentSlide
-                        ? 'opacity-100 translate-y-0'
-                        : 'opacity-0 translate-y-8'
+                      className={`text-4xl md:text-5xl lg:text-6xl font-bold mb-4 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
                         }`}
                       style={{
-                        color: titleColor,
+                        color: getSlideStyles(index).titleColor,
+                        fontFamily: `'${getSlideStyles(index).titleFontId}', sans-serif`,
                         transitionDelay: index === currentSlide ? '200ms' : '0ms'
                       }}
                     >
                       {image.headline}
                     </h1>
                   )}
-                  {/* Subtitle with fade-up animation (delayed) */}
+                  {/* Subtitle with animation (delayed) */}
                   {image.subline && (
                     <p
-                      className={`text-xl md:text-2xl mb-8 transition-all duration-700 ${index === currentSlide
-                        ? 'opacity-100 translate-y-0'
-                        : 'opacity-0 translate-y-8'
+                      className={`text-xl md:text-2xl mb-8 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
                         }`}
                       style={{
-                        color: subtitleColor,
+                        color: getSlideStyles(index).subtitleColor,
+                        fontFamily: `'${getSlideStyles(index).subtitleFontId}', sans-serif`,
                         transitionDelay: index === currentSlide ? '400ms' : '0ms'
                       }}
                     >
                       {image.subline}
                     </p>
                   )}
-                  {/* CTA Button with fade-up animation (more delayed) */}
-                  {image.ctaText && (
+                  {/* CTA Buttons with animation (more delayed) */}
+                  {showButtons && (image.buttons !== undefined ? image.buttons.length > 0 : image.ctaText) && (
                     <div
-                      className={`flex flex-wrap gap-4 transition-all duration-700 ${index === currentSlide
-                        ? 'opacity-100 translate-y-0'
-                        : 'opacity-0 translate-y-8'
+                      className={`flex flex-wrap gap-4 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
                         }`}
                       style={{ transitionDelay: index === currentSlide ? '600ms' : '0ms' }}
                     >
-                      <a href={image.ctaLink || '#'}>
-                        <Button size="lg" variant="default">
-                          {image.ctaText}
-                        </Button>
-                      </a>
+                      {/* Render buttons array if it exists (even if empty, don't fallback) */}
+                      {image.buttons !== undefined ? (
+                        image.buttons.map(btn => renderButton(btn))
+                      ) : image.ctaText ? (
+                        /* Legacy fallback only if buttons array is undefined */
+                        renderButton(
+                          { id: 'default', label: image.ctaText, variant: 'primary', linkType: 'INTERNAL_PAGE', target: {} } as any,
+                          true,
+                          image.ctaText,
+                          image.ctaLink
+                        )
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -486,8 +572,8 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
             <div className="max-w-2xl ml-4 md:ml-8 lg:ml-12 mt-16 md:mt-20">
               {overlayTitle && (
                 <h1
-                  className="text-4xl md:text-5xl lg:text-6xl font-heading font-bold mb-4"
-                  style={{ color: titleColor }}
+                  className="text-4xl md:text-5xl lg:text-6xl font-bold mb-4"
+                  style={{ color: globalTitleColor, fontFamily: `'${globalTitleFontId}', sans-serif` }}
                 >
                   {overlayTitle}
                 </h1>
@@ -495,7 +581,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
               {overlaySubtitle && (
                 <p
                   className="text-xl md:text-2xl mb-8"
-                  style={{ color: subtitleColor }}
+                  style={{ color: globalSubtitleColor, fontFamily: `'${globalSubtitleFontId}', sans-serif` }}
                 >
                   {overlaySubtitle}
                 </p>

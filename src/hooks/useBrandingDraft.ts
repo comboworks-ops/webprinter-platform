@@ -54,6 +54,10 @@ export interface HeroImage {
     headline?: string;
     /** Per-slide subtitle/subline text */
     subline?: string;
+    /** Per-slide overlay color (only used when usePerBannerOverlay is enabled) */
+    overlayColor?: string;
+    /** Per-slide overlay opacity (only used when usePerBannerOverlay is enabled) */
+    overlayOpacity?: number;
     /** Per-slide CTA button text (legacy - use buttons array instead) */
     ctaText?: string;
     /** Per-slide CTA button link (legacy - use buttons array instead) */
@@ -121,6 +125,8 @@ export interface HeroSettings {
     videoSettings: HeroVideoSettings;
     overlay_color: string;
     overlay_opacity: number;
+    /** Toggle for per-banner overlay settings */
+    usePerBannerOverlay?: boolean;
     overlay: HeroOverlaySettings;
 }
 
@@ -290,6 +296,15 @@ export interface HeaderSettings {
     // Dropdown styling
     dropdownBgColor: string;        // Dropdown background color
     dropdownBgOpacity: number;      // Dropdown background opacity (0-1)
+    dropdownShowBorder: boolean;    // Show border and shadow on dropdown
+
+    // Category headers (Tryksager, Storformat, etc.)
+    dropdownCategoryFontId: string;    // Category header font
+    dropdownCategoryColor: string;     // Category header color
+
+    // Product names
+    dropdownProductFontId: string;     // Product name font
+    dropdownProductColor: string;      // Product name color
 
     // Scroll behavior
     scroll: HeaderScrollSettings;
@@ -346,6 +361,11 @@ const DEFAULT_HEADER: HeaderSettings = {
     alignment: 'left',
     dropdownBgColor: '#FFFFFF',
     dropdownBgOpacity: 0.95,
+    dropdownShowBorder: true,
+    dropdownCategoryFontId: 'Inter',
+    dropdownCategoryColor: '#6B7280',  // Slightly muted for category headers
+    dropdownProductFontId: 'Inter',
+    dropdownProductColor: '#1F2937',   // Dark color for product names
     scroll: DEFAULT_HEADER_SCROLL,
     cta: DEFAULT_HEADER_CTA,
 };

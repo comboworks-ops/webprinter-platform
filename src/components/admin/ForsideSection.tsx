@@ -389,6 +389,9 @@ export function ForsideSection({
                             draft={draft}
                             updateDraft={updateDraft}
                             tenantId={tenantId}
+                            savedSwatches={savedSwatches}
+                            onSaveSwatch={onSaveSwatch}
+                            onRemoveSwatch={onRemoveSwatch}
                         />
                     )}
                 </div>

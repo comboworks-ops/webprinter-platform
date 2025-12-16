@@ -219,6 +219,12 @@ const Header = () => {
     };
   }, [headerSettings.dropdownBgColor, headerSettings.dropdownBgOpacity]);
 
+  // Dropdown styling variables for direct use in child elements
+  const categoryFont = headerSettings.dropdownCategoryFontId || 'Inter';
+  const categoryColor = headerSettings.dropdownCategoryColor || '#6B7280';
+  const productFont = headerSettings.dropdownProductFontId || 'Inter';
+  const productColor = headerSettings.dropdownProductColor || '#1F2937';
+
   // Build position class - Ensure it reacts to sticky changes
   // When isHome is true, we use manual styles (fixed/absolute). 
   // When isHome is false, we try to use Tailwind classes, but we should make sure they update.
@@ -430,7 +436,7 @@ const Header = () => {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent
                         align="start"
-                        className={`backdrop-blur-sm z-50 border shadow-xl ${(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT')
+                        className={`backdrop-blur-sm z-50 ${headerSettings.dropdownShowBorder !== false ? 'border shadow-xl' : 'border-0 shadow-none'} ${(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT')
                           ? 'min-w-[600px] max-w-4xl p-4'
                           : 'min-w-[200px] p-2'
                           } animate-in fade-in-0 slide-in-from-top-2 duration-200`}
@@ -439,7 +445,7 @@ const Header = () => {
                         {/* Tryksager Section */}
                         {allProducts.filter(p => (p.category as string) === 'tryksager').length > 0 && (
                           <div className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}>
-                            <h3 className="text-sm font-semibold text-muted-foreground mb-2 px-2">Tryksager</h3>
+                            <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>Tryksager</h3>
                             {(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? (
                               <div
                                 className="grid gap-2"
@@ -462,7 +468,7 @@ const Header = () => {
                                         />
                                       )}
                                       {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
-                                        <span className="text-xs text-center">{product.name}</span>
+                                        <span className="text-xs text-center" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>{product.name}</span>
                                       )}
                                     </Link>
                                   </DropdownMenuItem>
@@ -475,6 +481,7 @@ const Header = () => {
                                     <Link
                                       to={`/produkt/${product.slug}`}
                                       className="cursor-pointer px-2 py-1.5 text-sm hover:bg-accent/50 transition-colors rounded"
+                                      style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
                                     >
                                       {product.name}
                                     </Link>
@@ -488,7 +495,7 @@ const Header = () => {
                         {/* Storformat Section */}
                         {allProducts.filter(p => (p.category as string) === 'storformat').length > 0 && (
                           <div className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}>
-                            <h3 className="text-sm font-semibold text-muted-foreground mb-2 px-2">Storformat</h3>
+                            <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>Storformat</h3>
                             {(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? (
                               <div
                                 className="grid gap-2"
@@ -511,7 +518,7 @@ const Header = () => {
                                         />
                                       )}
                                       {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
-                                        <span className="text-xs text-center">{product.name}</span>
+                                        <span className="text-xs text-center" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>{product.name}</span>
                                       )}
                                     </Link>
                                   </DropdownMenuItem>
@@ -524,6 +531,7 @@ const Header = () => {
                                     <Link
                                       to={`/produkt/${product.slug}`}
                                       className="cursor-pointer px-2 py-1.5 text-sm hover:bg-accent/50 transition-colors rounded"
+                                      style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
                                     >
                                       {product.name}
                                     </Link>
@@ -537,7 +545,7 @@ const Header = () => {
                         {/* Tekstil Section */}
                         {allProducts.filter(p => (p.category as string) === 'tekstiltryk').length > 0 && (
                           <div className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}>
-                            <h3 className="text-sm font-semibold text-muted-foreground mb-2 px-2">Tøj & Tekstil</h3>
+                            <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>Tøj & Tekstil</h3>
                             {(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? (
                               <div
                                 className="grid gap-2"
@@ -560,7 +568,7 @@ const Header = () => {
                                         />
                                       )}
                                       {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
-                                        <span className="text-xs text-center">{product.name}</span>
+                                        <span className="text-xs text-center" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>{product.name}</span>
                                       )}
                                     </Link>
                                   </DropdownMenuItem>
@@ -573,6 +581,7 @@ const Header = () => {
                                     <Link
                                       to={`/produkt/${product.slug}`}
                                       className="cursor-pointer px-2 py-1.5 text-sm hover:bg-accent/50 transition-colors rounded"
+                                      style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
                                     >
                                       {product.name}
                                     </Link>

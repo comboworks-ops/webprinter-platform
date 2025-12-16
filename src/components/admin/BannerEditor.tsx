@@ -15,9 +15,10 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { CollapsibleCard } from "@/components/ui/CollapsibleCard";
 import {
     Upload, Trash2, GripVertical, Plus, Image as ImageIcon,
-    Video, Play, Info, AlertCircle, ExternalLink, AlertTriangle, Download, Sparkles, ChevronDown
+    Video, Play, Info, AlertCircle, ExternalLink, AlertTriangle, Download, Sparkles, ChevronDown, Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FontSelector } from "./FontSelector";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -48,6 +49,9 @@ interface BannerEditorProps {
     draft: BrandingData;
     updateDraft: (partial: Partial<BrandingData>) => void;
     tenantId: string | null;
+    savedSwatches?: string[];
+    onSaveSwatch?: (color: string) => void;
+    onRemoveSwatch?: (color: string) => void;
 }
 
 // Internal pages for link selector
@@ -74,10 +78,13 @@ export interface BannerButton extends HeroButton {
     bgOpacity?: number;
 }
 
-// Extended overlay settings with text colors
+// Extended overlay settings with text colors and fonts
 export interface BannerOverlaySettings extends HeroOverlaySettings {
     titleColor?: string;
     subtitleColor?: string;
+    titleFontId?: string;       // Font for banner title
+    subtitleFontId?: string;    // Font for banner subtitle
+    usePerBannerStyling?: boolean; // Toggle: false = global styling, true = per-banner styling
     buttons: BannerButton[];
 }
 
@@ -115,10 +122,12 @@ export const TEXT_ANIMATION_PRESETS: { value: HeroTextAnimation; label: string; 
     },
 ];
 
-export function BannerEditor({ draft, updateDraft, tenantId }: BannerEditorProps) {
+export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSaveSwatch, onRemoveSwatch }: BannerEditorProps) {
     const [uploading, setUploading] = useState(false);
+    const [uploadingToLibrary, setUploadingToLibrary] = useState(false);
     const [products, setProducts] = useState<Array<{ id: string; name: string; slug: string }>>([]);
     const [masterBackgrounds, setMasterBackgrounds] = useState<MasterAsset[]>([]);
+    const [tenantLibrary, setTenantLibrary] = useState<MasterAsset[]>([]);
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
     const [parallaxWarning, setParallaxWarning] = useState(false);
     const [selectedBannerIndex, setSelectedBannerIndex] = useState(0);
@@ -185,11 +194,11 @@ export function BannerEditor({ draft, updateDraft, tenantId }: BannerEditorProps
     useEffect(() => {
         async function fetchMasterBackgrounds() {
             try {
-                // First get the 'banners' category ID
+                // First get the 'forside-banner' category ID (homepage hero backgrounds)
                 const { data: categoryData, error: categoryError } = await supabase
                     .from('resource_categories' as any)
                     .select('id')
-                    .eq('slug', 'banners')
+                    .eq('slug', 'forside-bannere')
                     .single();
 
                 if (categoryError || !categoryData) return;
@@ -213,6 +222,139 @@ export function BannerEditor({ draft, updateDraft, tenantId }: BannerEditorProps
         }
         fetchMasterBackgrounds();
     }, []);
+
+    // Fetch tenant's own library banners
+    useEffect(() => {
+        async function fetchTenantLibrary() {
+            if (!tenantId) return;
+            try {
+                const { data } = await supabase
+                    .from('tenant_banner_library' as any)
+                    .select('id, name, url, thumbnail_url, created_at')
+                    .eq('tenant_id', tenantId)
+                    .order('created_at', { ascending: false });
+
+                if (data && data.length > 0) {
+                    setTenantLibrary(data.map((item: any) => ({
+                        id: item.id,
+                        name: item.name || 'Navnløs',
+                        url: item.url,
+                        thumbnail_url: item.thumbnail_url,
+                        category_id: null,
+                        tags: [],
+                        sort_order: 0,
+                        is_published: true,
+                        created_at: item.created_at,
+                        updated_at: item.created_at,
+                    })));
+                }
+            } catch (error) {
+                // Table might not exist yet, that's OK
+                console.log('Tenant library not available:', error);
+            }
+        }
+        fetchTenantLibrary();
+    }, [tenantId]);
+
+    // Upload to tenant's library
+    const handleLibraryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files || !e.target.files[0] || !tenantId) return;
+
+        const file = e.target.files[0];
+        setUploadingToLibrary(true);
+
+        try {
+            const fileExt = file.name.split('.').pop();
+            const fileName = `library-${Date.now()}.${fileExt}`;
+            const filePath = `branding/${tenantId}/library/${fileName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('product-images')
+                .upload(filePath, file);
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('product-images')
+                .getPublicUrl(filePath);
+
+            // Try to save to tenant_banner_library table
+            const { data: insertedData, error: insertError } = await supabase
+                .from('tenant_banner_library' as any)
+                .insert({
+                    tenant_id: tenantId,
+                    name: file.name.replace(/\.[^/.]+$/, ''),
+                    url: publicUrl,
+                    thumbnail_url: publicUrl,
+                })
+                .select()
+                .single();
+
+            if (insertError) {
+                // If table doesn't exist, just add directly to hero
+                console.log('Could not save to library, adding directly:', insertError);
+                addMasterBackground({
+                    id: `uploaded-${Date.now()}`,
+                    name: file.name,
+                    url: publicUrl,
+                    thumbnail_url: publicUrl,
+                    category_id: null,
+                    tags: [],
+                    sort_order: 0,
+                    is_published: true,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                });
+                toast.success('Billede tilføjet til banner');
+            } else {
+                // Add to local state
+                setTenantLibrary(prev => [{
+                    id: (insertedData as any).id,
+                    name: file.name.replace(/\.[^/.]+$/, ''),
+                    url: publicUrl,
+                    thumbnail_url: publicUrl,
+                    category_id: null,
+                    tags: [],
+                    sort_order: 0,
+                    is_published: true,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                }, ...prev]);
+                toast.success('Billede gemt i dit bibliotek');
+            }
+        } catch (error) {
+            console.error('Library upload error:', error);
+            toast.error('Kunne ikke uploade billede');
+        } finally {
+            setUploadingToLibrary(false);
+            e.target.value = '';
+        }
+    };
+
+    // Delete from tenant library
+    const handleLibraryDelete = async (asset: MasterAsset) => {
+        if (!tenantId) return;
+
+        try {
+            await supabase
+                .from('tenant_banner_library' as any)
+                .delete()
+                .eq('id', asset.id);
+
+            // Remove from storage
+            const urlObj = new URL(asset.url);
+            const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/public\/product-images\/(.+)/);
+            if (pathMatch) {
+                await supabase.storage.from('product-images').remove([pathMatch[1]]);
+            }
+
+            setTenantLibrary(prev => prev.filter(a => a.id !== asset.id));
+            toast.success('Billede slettet fra bibliotek');
+        } catch (error) {
+            console.error('Delete error:', error);
+            toast.error('Kunne ikke slette billede');
+        }
+    };
 
     // Get images and videos from hero (with fallback to legacy format, then to defaults)
     const heroImages: HeroImage[] = hero.images?.length > 0
@@ -289,6 +431,17 @@ export function BannerEditor({ draft, updateDraft, tenantId }: BannerEditorProps
                 url: publicUrl,
                 alt: "",
                 sortOrder: heroImages.length,
+                textAnimation: 'slide-up', // Default standard animation
+                buttons: [{ // Default standard button
+                    id: generateId(),
+                    label: "Se produkter",
+                    variant: 'primary',
+                    linkType: 'ALL_PRODUCTS',
+                    target: {},
+                    textColor: '#FFFFFF',
+                    bgColor: '#0EA5E9',
+                    bgOpacity: 1
+                }]
             };
 
             updateHero({
@@ -565,28 +718,135 @@ export function BannerEditor({ draft, updateDraft, tenantId }: BannerEditorProps
                                 </Select>
                             </div>
 
-                            {/* Master Backgrounds */}
+                            {/* Master Backgrounds - Collapsible with hover preview */}
                             {masterBackgrounds.length > 0 && (
-                                <div className="space-y-2">
-                                    <Label>Vælg fra bibliotek</Label>
-                                    <div className="flex gap-2 overflow-x-auto pb-2">
-                                        {masterBackgrounds.map((asset) => (
-                                            <button
-                                                key={asset.id}
-                                                onClick={() => addMasterBackground(asset)}
-                                                className="flex-shrink-0 w-24 h-14 rounded-lg border overflow-hidden hover:ring-2 ring-primary transition-all"
-                                                title={asset.name}
-                                            >
-                                                <img
-                                                    src={asset.thumbnail_url || asset.url}
-                                                    alt={asset.name}
-                                                    className="w-full h-full object-cover"
-                                                />
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
+                                <Collapsible>
+                                    <CollapsibleTrigger className="w-full flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
+                                        <div className="flex items-center gap-2">
+                                            <ImageIcon className="w-4 h-4 text-primary" />
+                                            <span className="font-medium">Vælg fra bibliotek</span>
+                                            <span className="text-xs text-muted-foreground">({masterBackgrounds.length} billeder)</span>
+                                        </div>
+                                        <ChevronDown className="w-4 h-4 transition-transform [data-state=open]>rotate-180" />
+                                    </CollapsibleTrigger>
+                                    <CollapsibleContent className="pt-3">
+                                        <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                                            {masterBackgrounds.map((asset) => (
+                                                <div key={asset.id} className="relative group">
+                                                    <button
+                                                        onClick={() => addMasterBackground(asset)}
+                                                        className="w-full aspect-video rounded-lg border overflow-hidden hover:ring-2 ring-primary transition-all"
+                                                        title={`Klik for at tilføje: ${asset.name}`}
+                                                    >
+                                                        <img
+                                                            src={asset.thumbnail_url || asset.url}
+                                                            alt={asset.name}
+                                                            className="w-full h-full object-cover"
+                                                        />
+                                                    </button>
+                                                    {/* Hover Preview */}
+                                                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none hidden group-hover:block">
+                                                        <div className="bg-background border rounded-xl shadow-2xl p-2 min-w-[300px] max-w-[400px]">
+                                                            <img
+                                                                src={asset.url}
+                                                                alt={asset.name}
+                                                                className="w-full h-auto rounded-lg max-h-[200px] object-cover"
+                                                            />
+                                                            <p className="text-sm font-medium mt-2 text-center truncate">{asset.name}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </CollapsibleContent>
+                                </Collapsible>
                             )}
+
+                            {/* Tenant's Own Library - Collapsible with upload */}
+                            <Collapsible defaultOpen={tenantLibrary.length > 0}>
+                                <CollapsibleTrigger className="w-full flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
+                                    <div className="flex items-center gap-2">
+                                        <Upload className="w-4 h-4 text-primary" />
+                                        <span className="font-medium">Mit bibliotek</span>
+                                        {tenantLibrary.length > 0 && (
+                                            <span className="text-xs text-muted-foreground">({tenantLibrary.length} billeder)</span>
+                                        )}
+                                    </div>
+                                    <ChevronDown className="w-4 h-4 transition-transform [data-state=open]>rotate-180" />
+                                </CollapsibleTrigger>
+                                <CollapsibleContent className="pt-3 space-y-3">
+                                    {/* Upload Button */}
+                                    <div className="flex items-center gap-3">
+                                        <label className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg cursor-pointer hover:bg-primary/90 transition-colors">
+                                            {uploadingToLibrary ? (
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                            ) : (
+                                                <Upload className="w-4 h-4" />
+                                            )}
+                                            <span className="text-sm font-medium">Upload til bibliotek</span>
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={handleLibraryUpload}
+                                                disabled={uploadingToLibrary}
+                                                className="hidden"
+                                            />
+                                        </label>
+                                        <span className="text-xs text-muted-foreground">
+                                            Upload billeder for at gemme til senere brug
+                                        </span>
+                                    </div>
+
+                                    {/* Tenant Library Grid */}
+                                    {tenantLibrary.length > 0 ? (
+                                        <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                                            {tenantLibrary.map((asset) => (
+                                                <div key={asset.id} className="relative group">
+                                                    <button
+                                                        onClick={() => addMasterBackground(asset)}
+                                                        className="w-full aspect-video rounded-lg border overflow-hidden hover:ring-2 ring-primary transition-all"
+                                                        title={`Klik for at tilføje: ${asset.name}`}
+                                                    >
+                                                        <img
+                                                            src={asset.thumbnail_url || asset.url}
+                                                            alt={asset.name}
+                                                            className="w-full h-full object-cover"
+                                                        />
+                                                    </button>
+                                                    {/* Delete button */}
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleLibraryDelete(asset);
+                                                        }}
+                                                        className="absolute top-1 right-1 p-1 bg-destructive text-destructive-foreground rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        title="Slet fra bibliotek"
+                                                    >
+                                                        <Trash2 className="w-3 h-3" />
+                                                    </button>
+                                                    {/* Hover Preview */}
+                                                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none hidden group-hover:block">
+                                                        <div className="bg-background border rounded-xl shadow-2xl p-2 min-w-[300px] max-w-[400px]">
+                                                            <img
+                                                                src={asset.url}
+                                                                alt={asset.name}
+                                                                className="w-full h-auto rounded-lg max-h-[200px] object-cover"
+                                                            />
+                                                            <p className="text-sm font-medium mt-2 text-center truncate">{asset.name}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-6 text-muted-foreground text-sm">
+                                            <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                            <p>Ingen billeder i dit bibliotek endnu</p>
+                                            <p className="text-xs mt-1">Upload billeder for at genbruge dem senere</p>
+                                        </div>
+                                    )}
+                                </CollapsibleContent>
+                            </Collapsible>
 
                             {/* Image Gallery */}
                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -900,15 +1160,88 @@ export function BannerEditor({ draft, updateDraft, tenantId }: BannerEditorProps
                             <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
                         </CollapsibleTrigger>
                         <CollapsibleContent className="pt-3">
-                            <ColorPickerWithSwatches
-                                label="Overlay Farve"
-                                value={hero.overlay_color}
-                                onChange={(color) => updateHero({ overlay_color: color })}
-                                showOpacity={true}
-                                opacity={hero.overlay_opacity}
-                                onOpacityChange={(opacity) => updateHero({ overlay_opacity: opacity })}
-                                showFullSwatches={true}
-                            />
+                            <div className="space-y-4">
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <Label>Overlay Farve</Label>
+                                        <div className="flex items-center gap-1.5">
+                                            <Label className="text-xs text-muted-foreground whitespace-nowrap">Kun dette banner</Label>
+                                            <Switch
+                                                checked={hero.usePerBannerOverlay || false}
+                                                onCheckedChange={(checked) => updateHero({ usePerBannerOverlay: checked })}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Visual Banner Selector (Images + Overlay Preview) */}
+                                    {hero.usePerBannerOverlay && (
+                                        <div className="grid grid-cols-6 sm:grid-cols-8 gap-2 mb-2">
+                                            {heroImages.map((img, idx) => {
+                                                const isActive = idx === selectedBannerIndex;
+                                                const ovColor = (img as any).overlayColor || hero.overlay_color || '#000000';
+                                                const ovOpacity = (img as any).overlayOpacity ?? hero.overlay_opacity ?? 0.3;
+
+                                                return (
+                                                    <button
+                                                        key={img.id}
+                                                        onClick={() => setSelectedBannerIndex(idx)}
+                                                        className={`relative aspect-video rounded-md overflow-hidden border-2 transition-all ${isActive ? 'border-primary ring-2 ring-primary/20' : 'border-transparent opacity-80 hover:opacity-100 hover:border-muted-foreground/50'
+                                                            }`}
+                                                    >
+                                                        <img src={img.url} className="w-full h-full object-cover" alt="" />
+
+                                                        {/* Live Overlay Preview */}
+                                                        <div
+                                                            className="absolute inset-0 transition-colors duration-200"
+                                                            style={{ backgroundColor: ovColor, opacity: ovOpacity }}
+                                                        />
+
+                                                        {/* Simple Badge */}
+                                                        <div className="absolute top-0 left-0 text-[8px] font-medium bg-black/60 text-white px-1 rounded-br-sm backdrop-blur-[1px]">
+                                                            #{idx + 1}
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                                <ColorPickerWithSwatches
+                                    label=""
+                                    value={hero.usePerBannerOverlay
+                                        ? ((heroImages[selectedBannerIndex] as any).overlayColor || hero.overlay_color)
+                                        : hero.overlay_color}
+                                    onChange={(color) => {
+                                        if (hero.usePerBannerOverlay) {
+                                            const newImages = [...heroImages] as any[];
+                                            newImages[selectedBannerIndex] = {
+                                                ...newImages[selectedBannerIndex],
+                                                overlayColor: color
+                                            };
+                                            updateHero({ images: newImages });
+                                        } else {
+                                            updateHero({ overlay_color: color });
+                                        }
+                                    }}
+                                    showOpacity={true}
+                                    opacity={hero.usePerBannerOverlay
+                                        ? ((heroImages[selectedBannerIndex] as any).overlayOpacity ?? hero.overlay_opacity)
+                                        : hero.overlay_opacity}
+                                    onOpacityChange={(opacity) => {
+                                        if (hero.usePerBannerOverlay) {
+                                            const newImages = [...heroImages] as any[];
+                                            newImages[selectedBannerIndex] = {
+                                                ...newImages[selectedBannerIndex],
+                                                overlayOpacity: opacity
+                                            };
+                                            updateHero({ images: newImages });
+                                        } else {
+                                            updateHero({ overlay_opacity: opacity });
+                                        }
+                                    }}
+                                    showFullSwatches={true}
+                                />
+                            </div>
                         </CollapsibleContent>
                     </Collapsible>
                 </div>
@@ -985,18 +1318,69 @@ export function BannerEditor({ draft, updateDraft, tenantId }: BannerEditorProps
                                 </div>
                             </div>
 
-                            {/* Banner Title with color */}
+                            {/* Banner Title with color, font, and per-banner toggle */}
                             <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <Label>Banner Overskrift</Label>
+                                <div className="flex items-center justify-between flex-wrap gap-2">
                                     <div className="flex items-center gap-2">
-                                        <Label className="text-xs text-muted-foreground">Farve:</Label>
+                                        <Label>Banner Overskrift</Label>
+                                        {(extendedOverlay as any)?.usePerBannerStyling && (
+                                            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
+                                                Banner #{selectedBannerIndex + 1}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-2">
+                                            <Label className="text-xs text-muted-foreground">Skrifttype:</Label>
+                                            <div className="w-64">
+                                                <FontSelector
+                                                    label=""
+                                                    value={(extendedOverlay as any)?.usePerBannerStyling
+                                                        ? ((heroImages[selectedBannerIndex] as any).titleFontId || (extendedOverlay as any)?.titleFontId || 'Poppins')
+                                                        : ((extendedOverlay as any)?.titleFontId || 'Poppins')}
+                                                    onChange={(v) => {
+                                                        if ((extendedOverlay as any)?.usePerBannerStyling) {
+                                                            const newImages = [...heroImages] as any[];
+                                                            newImages[selectedBannerIndex] = {
+                                                                ...newImages[selectedBannerIndex],
+                                                                titleFontId: v
+                                                            };
+                                                            updateHero({ images: newImages });
+                                                        } else {
+                                                            updateOverlay({ titleFontId: v } as any);
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
                                         <ColorPickerWithSwatches
-                                            value={(extendedOverlay as any)?.titleColor || '#FFFFFF'}
-                                            onChange={(color) => updateOverlay({ titleColor: color } as any)}
-                                            compact={true}
-                                            showFullSwatches={false}
+                                            label="Farve"
+                                            value={(extendedOverlay as any)?.usePerBannerStyling
+                                                ? ((heroImages[selectedBannerIndex] as any).titleColor || (extendedOverlay as any)?.titleColor || '#FFFFFF')
+                                                : ((extendedOverlay as any)?.titleColor || '#FFFFFF')}
+                                            onChange={(color) => {
+                                                if ((extendedOverlay as any)?.usePerBannerStyling) {
+                                                    const newImages = [...heroImages] as any[];
+                                                    newImages[selectedBannerIndex] = {
+                                                        ...newImages[selectedBannerIndex],
+                                                        titleColor: color
+                                                    };
+                                                    updateHero({ images: newImages });
+                                                } else {
+                                                    updateOverlay({ titleColor: color } as any);
+                                                }
+                                            }}
+                                            savedSwatches={savedSwatches}
+                                            onSaveSwatch={onSaveSwatch}
+                                            onRemoveSwatch={onRemoveSwatch}
                                         />
+                                        <div className="flex items-center gap-1.5 border-l pl-3">
+                                            <Label className="text-xs text-muted-foreground whitespace-nowrap">Kun dette banner</Label>
+                                            <Switch
+                                                checked={(extendedOverlay as any)?.usePerBannerStyling || false}
+                                                onCheckedChange={(checked) => updateOverlay({ usePerBannerStyling: checked } as any)}
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                                 <Input
@@ -1013,17 +1397,61 @@ export function BannerEditor({ draft, updateDraft, tenantId }: BannerEditorProps
                                 />
                             </div>
 
-                            {/* Banner Subtitle with color */}
+                            {/* Banner Subtitle with color and font - same toggle as title */}
                             <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <Label>Banner Undertitel</Label>
+                                <div className="flex items-center justify-between flex-wrap gap-2">
                                     <div className="flex items-center gap-2">
-                                        <Label className="text-xs text-muted-foreground">Farve:</Label>
+                                        <Label>Banner Undertitel</Label>
+                                        {(extendedOverlay as any)?.usePerBannerStyling && (
+                                            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
+                                                Banner #{selectedBannerIndex + 1}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-2">
+                                            <Label className="text-xs text-muted-foreground">Skrifttype:</Label>
+                                            <div className="w-64">
+                                                <FontSelector
+                                                    label=""
+                                                    value={(extendedOverlay as any)?.usePerBannerStyling
+                                                        ? ((heroImages[selectedBannerIndex] as any).subtitleFontId || (extendedOverlay as any)?.subtitleFontId || 'Inter')
+                                                        : ((extendedOverlay as any)?.subtitleFontId || 'Inter')}
+                                                    onChange={(v) => {
+                                                        if ((extendedOverlay as any)?.usePerBannerStyling) {
+                                                            const newImages = [...heroImages] as any[];
+                                                            newImages[selectedBannerIndex] = {
+                                                                ...newImages[selectedBannerIndex],
+                                                                subtitleFontId: v
+                                                            };
+                                                            updateHero({ images: newImages });
+                                                        } else {
+                                                            updateOverlay({ subtitleFontId: v } as any);
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
                                         <ColorPickerWithSwatches
-                                            value={(extendedOverlay as any)?.subtitleColor || '#FFFFFF'}
-                                            onChange={(color) => updateOverlay({ subtitleColor: color } as any)}
-                                            compact={true}
-                                            showFullSwatches={false}
+                                            label="Farve"
+                                            value={(extendedOverlay as any)?.usePerBannerStyling
+                                                ? ((heroImages[selectedBannerIndex] as any).subtitleColor || (extendedOverlay as any)?.subtitleColor || '#FFFFFF')
+                                                : ((extendedOverlay as any)?.subtitleColor || '#FFFFFF')}
+                                            onChange={(color) => {
+                                                if ((extendedOverlay as any)?.usePerBannerStyling) {
+                                                    const newImages = [...heroImages] as any[];
+                                                    newImages[selectedBannerIndex] = {
+                                                        ...newImages[selectedBannerIndex],
+                                                        subtitleColor: color
+                                                    };
+                                                    updateHero({ images: newImages });
+                                                } else {
+                                                    updateOverlay({ subtitleColor: color } as any);
+                                                }
+                                            }}
+                                            savedSwatches={savedSwatches}
+                                            onSaveSwatch={onSaveSwatch}
+                                            onRemoveSwatch={onRemoveSwatch}
                                         />
                                     </div>
                                 </div>
@@ -1042,51 +1470,50 @@ export function BannerEditor({ draft, updateDraft, tenantId }: BannerEditorProps
                                 />
                             </div>
 
-                            {/* Per-slide CTA (optional) */}
-                            <div className="grid sm:grid-cols-2 gap-3">
-                                <div className="space-y-2">
-                                    <Label>Knap tekst (valgfri)</Label>
-                                    <Input
-                                        value={heroImages[selectedBannerIndex].ctaText || ''}
-                                        onChange={(e) => {
-                                            const newImages = [...heroImages];
-                                            newImages[selectedBannerIndex] = {
-                                                ...newImages[selectedBannerIndex],
-                                                ctaText: e.target.value
-                                            };
-                                            updateHero({ images: newImages });
-                                        }}
-                                        placeholder="Se produkter"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Knap link (valgfri)</Label>
-                                    <Input
-                                        value={heroImages[selectedBannerIndex].ctaLink || ''}
-                                        onChange={(e) => {
-                                            const newImages = [...heroImages];
-                                            newImages[selectedBannerIndex] = {
-                                                ...newImages[selectedBannerIndex],
-                                                ctaLink: e.target.value
-                                            };
-                                            updateHero({ images: newImages });
-                                        }}
-                                        placeholder="/shop eller https://..."
-                                    />
-                                </div>
-                            </div>
+
+
+
 
                             {/* Text Animation Preset */}
-                            <div className="space-y-2 pt-3 border-t">
-                                <div className="flex items-center gap-2">
-                                    <Sparkles className="w-4 h-4 text-amber-500" />
-                                    <div>
-                                        <Label>Tekst Animation</Label>
-                                        <p className="text-xs text-muted-foreground">
-                                            Vælg hvordan teksten animeres ind
-                                        </p>
+                            <div className="space-y-4 pt-3 border-t">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <Sparkles className="w-4 h-4 text-amber-500" />
+                                        <div>
+                                            <Label>Tekst Animation</Label>
+                                            <p className="text-xs text-muted-foreground">
+                                                Vælg hvordan teksten animeres ind
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Banner Selector for Animation */}
+                                    <div className="flex items-center gap-2">
+                                        <Select
+                                            value={selectedBannerIndex.toString()}
+                                            onValueChange={(v) => setSelectedBannerIndex(parseInt(v))}
+                                        >
+                                            <SelectTrigger className="w-[140px] h-8 text-xs">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {heroImages.map((image, index) => (
+                                                    <SelectItem key={image.id} value={index.toString()}>
+                                                        Banner {index + 1}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <div className="w-8 h-5 rounded overflow-hidden border bg-muted">
+                                            <img
+                                                src={heroImages[selectedBannerIndex]?.url}
+                                                alt=""
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
+
                                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                     {TEXT_ANIMATION_PRESETS.map((preset) => {
                                         const isSelected = (heroImages[selectedBannerIndex].textAnimation || 'none') === preset.value;
@@ -1445,7 +1872,7 @@ export function BannerEditor({ draft, updateDraft, tenantId }: BannerEditorProps
                         )}
                     </div>
                 </div>
-            </CollapsibleCard>
+            </CollapsibleCard >
         </div >
     );
 }
