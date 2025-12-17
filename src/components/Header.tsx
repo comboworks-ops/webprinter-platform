@@ -336,6 +336,7 @@ const Header = () => {
   return (
     <header
       ref={headerRef}
+      data-branding-id="header"
       className={`${positionClass} z-50 transition-all duration-300 ease-in-out`}
       style={{
         ...getHeaderStyles(),
@@ -376,7 +377,7 @@ const Header = () => {
             : 'justify-between'
           }`}>
           {/* Logo - with improved auto-fit/scale */}
-          <Link to="/" className="hover:opacity-90 transition-opacity flex items-center">
+          <Link to="/" className="hover:opacity-90 transition-opacity flex items-center" data-branding-id="header.logo">
             {/* Text Logo - when logoType is 'text' */}
             {headerSettings.logoType === 'text' ? (
               <span
@@ -441,7 +442,9 @@ const Header = () => {
             : headerSettings.alignment === 'right'
               ? 'ml-auto mr-8'
               : 'ml-8'
-            }`}>
+            }`}
+            data-branding-id="header.menu"
+          >
             {headerSettings.navItems
               .filter(item => item.isVisible)
               .sort((a, b) => a.order - b.order)

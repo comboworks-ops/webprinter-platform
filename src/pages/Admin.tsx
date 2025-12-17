@@ -16,6 +16,7 @@ import AdminMessages from '@/components/admin/AdminMessages';
 import DomainSettings from '@/components/admin/DomainSettings';
 import BrandingSettings from '@/components/admin/BrandingSettings';
 import TenantBrandingSettings from '@/components/admin/TenantBrandingSettings';
+import TenantBrandingSettingsV2 from '@/components/admin/TenantBrandingSettingsV2';
 import MasterBrandingTemplate from '@/components/admin/MasterBrandingTemplate';
 import SubscriptionSettings from '@/components/admin/SubscriptionSettings';
 import ShopSettings from '@/components/admin/ShopSettings';
@@ -86,6 +87,7 @@ export default function Admin() {
                 {/* Min Konto routes */}
                 <Route path="/domaene" element={<DomainSettings />} />
                 <Route path="/branding" element={<TenantBrandingSettings />} />
+                <Route path="/branding-v2" element={<TenantBrandingSettingsV2 />} />
                 <Route path="/abonnement" element={<SubscriptionSettings />} />
                 <Route path="/indstillinger" element={<ShopSettings />} />
                 {/* Platform Admin Routes */}

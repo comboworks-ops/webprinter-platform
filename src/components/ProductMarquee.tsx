@@ -49,6 +49,7 @@ export function ProductMarquee() {
                                     src={product.image_url}
                                     alt={product.name}
                                     className="w-full h-full object-contain drop-shadow-sm"
+                                    style={{ filter: 'var(--product-filter)' }}
                                 />
                             ) : (
                                 <Package className="w-16 h-16 text-primary/40" />

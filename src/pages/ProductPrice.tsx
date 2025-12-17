@@ -558,6 +558,7 @@ const ProductPrice = () => {
                 src={dbProduct?.image_url || getProductImage(product.slug)}
                 alt={product.name}
                 className="w-full h-full object-contain"
+                style={{ filter: 'var(--product-filter)' }}
               />
             </div>
           )}

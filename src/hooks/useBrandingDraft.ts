@@ -533,6 +533,12 @@ const DEFAULT_BRANDING = {
     navigation: {
         dropdown_images: true,
     },
+    // Product Images & Icons
+    productImages: {
+        setId: 'default',
+        hueRotate: 0,
+        saturate: 100,
+    },
     selectedIconPackId: "classic",
 };
 

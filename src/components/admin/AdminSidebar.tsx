@@ -408,6 +408,12 @@ export function AdminSidebar() {
                     </AdminNavLink>
                   </SidebarMenuItem>
                   <SidebarMenuItem>
+                    <AdminNavLink to="/admin/branding-v2">
+                      <LayoutGrid className="h-4 w-4" />
+                      {!collapsed && <span>Site Design V2</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
                     <AdminNavLink to="/admin/skabeloner">
                       <FileText className="h-4 w-4" />
                       {!collapsed && <span>Skabeloner</span>}

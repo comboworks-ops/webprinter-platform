@@ -64,7 +64,7 @@ const Footer = () => {
   );
 
   return (
-    <footer style={bgStyle}>
+    <footer style={bgStyle} data-branding-id="footer">
       <div className="container mx-auto px-4 py-12">
         {footerSettings.style === 'minimal' ? (
           // Minimal layout - horizontal

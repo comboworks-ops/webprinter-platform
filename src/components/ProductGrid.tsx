@@ -106,6 +106,7 @@ const ProductGrid = ({ category }: ProductGridProps) => {
                         src={getProductImage(product.slug, product.image_url)}
                         alt={product.name}
                         className="w-full h-full object-contain p-2 transition-transform duration-300 hover:scale-110"
+                        style={{ filter: 'var(--product-filter)' }}
                       />
                     </Link>
                     <div className="flex items-center gap-2">

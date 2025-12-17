@@ -27,6 +27,8 @@ import PreviewShop from "./pages/PreviewShop";
 import GrafiskVejledning from "./pages/GrafiskVejledning";
 import NotFound from "./pages/NotFound";
 
+import { PreviewInteractionManager } from "@/components/preview/PreviewInteractionManager";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -36,6 +38,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <PreviewInteractionManager />
           <PageTracker />
           <Routes>
             {/* Local Dev Route for Tenant View */}

@@ -19,7 +19,11 @@ const Shop = () => {
 
             {/* Content Block Section - Dynamic from branding */}
             {branding?.forside?.contentBlocks?.filter(block => block.enabled).map((block) => (
-                <section key={block.id} className="bg-secondary py-8">
+                <section
+                    key={block.id}
+                    data-branding-id={block.id}
+                    className="bg-secondary py-8"
+                >
                     <div className={`container mx-auto px-4 ${block.textAlign === 'center' ? 'text-center' : block.textAlign === 'right' ? 'text-right' : 'text-left'}`}>
                         <div className={`flex flex-col ${block.imageUrl ? (block.imagePosition === 'right' ? 'md:flex-row' : 'md:flex-row-reverse') : ''} gap-8 items-center`}>
                             {/* Text Content */}

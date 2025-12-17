@@ -208,6 +208,16 @@ export function PreviewBrandingProvider({
         loadGoogleFonts(fontsToLoad);
     }, [branding?.fonts?.heading, branding?.fonts?.body, branding?.fonts?.pricing, branding?.header?.fontId, branding?.header?.logoFont, branding?.header?.dropdownCategoryFontId, branding?.header?.dropdownProductFontId]);
 
+    // Apply global product image filters
+    useEffect(() => {
+        if (!branding?.productImages) return;
+
+        const root = document.documentElement;
+        root.style.setProperty('--product-hue-rotate', `${branding.productImages.hueRotate}deg`);
+        root.style.setProperty('--product-saturate', `${branding.productImages.saturate}%`);
+        root.style.setProperty('--product-filter', `hue-rotate(${branding.productImages.hueRotate}deg) saturate(${branding.productImages.saturate}%)`);
+    }, [branding?.productImages?.hueRotate, branding?.productImages?.saturate]);
+
     return (
         <PreviewBrandingContext.Provider value={{ branding, isPreviewMode, tenantName, isReady }}>
             {children}

@@ -384,6 +384,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
   return (
     <section
       ref={containerRef}
+      data-branding-id="forside.hero"
       className="relative h-[500px] md:h-[600px] overflow-hidden"
       style={{
         backgroundColor: hero.overlay_color || '#000',

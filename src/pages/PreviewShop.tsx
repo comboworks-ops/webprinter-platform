@@ -467,9 +467,47 @@ export default function PreviewShop() {
         }
     }, [isDraft, roleLoading]);
 
-    // Global click interceptor for virtual navigation
+    const [editMode, setEditMode] = useState(false);
+
+    // Listen for Edit Mode toggle from parent
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            if (event.data?.type === 'SET_EDIT_MODE') {
+                setEditMode(event.data.enabled);
+                if (event.data.enabled) {
+                    toast.info("Redigering aktiveret - klik på elementer for at rette");
+                }
+            }
+        };
+
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, []);
+
+    // Global click interceptor for virtual navigation AND visual editing
     useEffect(() => {
         const handleClick = (e: MouseEvent) => {
+            // Priority 1: Visual Editing
+            if (editMode) {
+                const target = e.target as HTMLElement;
+                const brandingElement = target.closest('[data-branding-id]');
+
+                if (brandingElement) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const sectionId = brandingElement.getAttribute('data-branding-id');
+
+                    // Send message to parent editor
+                    window.parent.postMessage({
+                        type: 'ELEMENT_CLICKED',
+                        sectionId
+                    }, '*');
+
+                    return; // Stop processing navigation
+                }
+            }
+
+            // Priority 2: Virtual Navigation
             const target = e.target as HTMLElement;
             const link = target.closest('a');
 
@@ -486,6 +524,9 @@ export default function PreviewShop() {
                     e.preventDefault();
                     return;
                 }
+
+                // If in edit mode, we might want to prevent navigation unless it's explicitly allowed
+                // For now, we allow navigation if no branding element was clicked above
 
                 // Intercept and handle as virtual navigation
                 e.preventDefault();
@@ -506,7 +547,7 @@ export default function PreviewShop() {
         return () => {
             document.removeEventListener('click', handleClick, true);
         };
-    }, []);
+    }, [editMode]);
 
     // Require admin access
     if (!roleLoading && !isAdmin) {

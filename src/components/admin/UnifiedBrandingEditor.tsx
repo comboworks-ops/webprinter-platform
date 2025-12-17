@@ -1,18 +1,18 @@
-/**
- * Unified Branding Editor Component
- * 
- * A shared branding editor that works for both Master and Tenant contexts.
- * Uses adapters for data operations and capabilities for feature gating.
- */
-
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -22,20 +22,20 @@ import {
     AlertDialogFooter,
     AlertDialogHeader,
     AlertDialogTitle,
-    AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import {
-    Loader2, Upload, Type, Palette, Trash2, Sparkles,
-    Send, RotateCcw, AlertCircle, Image as ImageIcon, History, FileDown, Menu, Footprints,
-    AlertTriangle, ExternalLink, Home, LayoutDashboard
+    Loader2, Type, Palette, Trash2, Sparkles,
+    Send, RotateCcw, Image as ImageIcon, List,
+    ExternalLink, Home, Save
 } from "lucide-react";
+import { format } from "date-fns";
+import { da } from "date-fns/locale";
 
 import { FontSelector } from "@/components/admin/FontSelector";
 import { IconPackSelector } from "@/components/admin/IconPackSelector";
 import { BrandingPreviewFrame } from "@/components/admin/BrandingPreviewFrame";
 import { ForsideSection } from "@/components/admin/ForsideSection";
-import { DraftManager } from "@/components/admin/DraftManager";
 import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches";
 
 import {
@@ -52,49 +52,23 @@ interface UnifiedBrandingEditorProps {
 }
 
 export function UnifiedBrandingEditor({ adapter, capabilities }: UnifiedBrandingEditorProps) {
-    console.log('🎨 UnifiedBrandingEditor LOADED - VERSION 2.0 - BANNER AND HOVER');
+    console.log('🎨 UnifiedBrandingEditor LOADED - CLASSIC V1');
+
+    // NOTE: This component is now strictly V1 (Classic Editor)
+    // V2 (Visual Editor) is handled by BrandingEditorV2.tsx and TenantBrandingSettingsV2.tsx
+
     const editor = useBrandingEditor({ adapter, capabilities });
     const [activeTab, setActiveTab] = useState("forside");
-    const [uploading, setUploading] = useState(false);
-    const [showApplyTemplate, setShowApplyTemplate] = useState(false);
+
+    // Dialog States
     const [showPublishDialog, setShowPublishDialog] = useState(false);
     const [publishLabel, setPublishLabel] = useState("");
 
-    // Handle logo upload
-    const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
+    const [showSaveDesignDialog, setShowSaveDesignDialog] = useState(false);
+    const [saveDesignName, setSaveDesignName] = useState("");
 
-        if (!file.type.startsWith('image/')) {
-            toast.error('Kun billeder er tilladt');
-            return;
-        }
-
-        if (file.size > 2 * 1024 * 1024) {
-            toast.error('Logo må højst være 2MB');
-            return;
-        }
-
-        setUploading(true);
-        try {
-            const publicUrl = await editor.uploadAsset(file, 'logo');
-            editor.updateDraft({ logo_url: publicUrl });
-            toast.success('Logo uploadet');
-        } catch (error) {
-            console.error('Error uploading logo:', error);
-            toast.error('Kunne ikke uploade logo');
-        } finally {
-            setUploading(false);
-        }
-    };
-
-    // Remove logo
-    const handleRemoveLogo = async () => {
-        if (editor.draft.logo_url) {
-            await editor.deleteAsset(editor.draft.logo_url);
-            editor.updateDraft({ logo_url: null });
-        }
-    };
+    const [showSavedDesignsDialog, setShowSavedDesignsDialog] = useState(false);
+    const [showResetDialog, setShowResetDialog] = useState(false);
 
     // Apply master template (tenant only)
     const handleApplyMasterTemplate = async () => {
@@ -102,7 +76,6 @@ export function UnifiedBrandingEditor({ adapter, capabilities }: UnifiedBranding
             const masterData = await loadMasterTemplate();
             editor.updateDraft(masterData);
             toast.success('Master skabelon anvendt');
-            setShowApplyTemplate(false);
         } catch (error) {
             console.error('Error applying master template:', error);
             toast.error('Kunne ikke anvende skabelon');
@@ -119,6 +92,20 @@ export function UnifiedBrandingEditor({ adapter, capabilities }: UnifiedBranding
         setPublishLabel("");
     };
 
+    // Handle Save Design (Named)
+    const handleSaveDesign = async () => {
+        if (!saveDesignName.trim()) {
+            toast.error("Giv venligst dit design et navn");
+            return;
+        }
+
+        await editor.saveDesign(saveDesignName);
+        setSaveDesignName("");
+        setShowSaveDesignDialog(false);
+
+        // Optionally open the list to show it's saved? Or just toast success (which hook does).
+    };
+
     // Get the live storefront URL
     const getLiveStorefrontUrl = () => {
         // For tenant, this would be their subdomain.domain or custom domain
@@ -127,6 +114,14 @@ export function UnifiedBrandingEditor({ adapter, capabilities }: UnifiedBranding
             return `/`; // Main storefront
         }
         return `/preview-shop?published=1`;
+    };
+
+    const formatDate = (timestamp: string) => {
+        try {
+            return format(new Date(timestamp), "d. MMM yyyy", { locale: da });
+        } catch {
+            return timestamp;
+        }
     };
 
     if (editor.isLoading) {
@@ -161,129 +156,230 @@ export function UnifiedBrandingEditor({ adapter, capabilities }: UnifiedBranding
                         </a>
                     </Button>
 
-                    {editor.hasUnsavedChanges && (
-                        <Badge variant="outline" className="gap-1 text-orange-600">
-                            <AlertCircle className="h-3 w-3" />
-                            Ikke gemt
-                        </Badge>
-                    )}
                     <Badge variant={editor.mode === 'master' ? 'default' : 'secondary'}>
                         {editor.mode === 'master' ? 'Platform' : 'Lejer'}
                     </Badge>
                 </div>
             </div>
 
-            {/* Action Bar */}
-            <div className="flex flex-wrap items-center gap-2">
+            {/* ACTION BAR */}
+            <div className="flex flex-wrap items-center gap-3 p-4 bg-card border rounded-lg shadow-sm">
+
+                {/* 1. Gem design (Save Named) */}
                 <Button
-                    onClick={() => editor.saveDraft()}
-                    disabled={!editor.hasUnsavedChanges || editor.isSaving}
                     variant="outline"
+                    onClick={() => setShowSaveDesignDialog(true)}
+                    disabled={editor.isSaving}
+                    className="gap-2"
                 >
-                    {editor.isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    Gem kladde
+                    <Save className="h-4 w-4" />
+                    Gem design
                 </Button>
 
-                {/* Publish with Warning */}
-                <AlertDialog open={showPublishDialog} onOpenChange={setShowPublishDialog}>
-                    <AlertDialogTrigger asChild>
-                        <Button disabled={editor.isSaving}>
-                            <Send className="h-4 w-4 mr-2" />
-                            Publicér
-                        </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle className="flex items-center gap-2">
-                                <AlertTriangle className="h-5 w-5 text-amber-500" />
-                                Publicér branding?
-                            </AlertDialogTitle>
-                            <AlertDialogDescription className="space-y-3">
-                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">
-                                    <strong>Advarsel:</strong> Publicering vil ændre din live hjemmeside øjeblikkeligt.
-                                    Alle besøgende vil se de nye ændringer med det samme.
-                                </div>
+                {/* 2. Gemte designs (List) */}
+                <Button
+                    variant="ghost"
+                    onClick={() => {
+                        editor.loadSavedDesigns();
+                        setShowSavedDesignsDialog(true);
+                    }}
+                    disabled={editor.isSaving}
+                    className="gap-2"
+                >
+                    <List className="h-4 w-4" />
+                    Gemte designs
+                </Button>
 
-                                {editor.mode === 'master'
-                                    ? 'Dette opdaterer platform-skabelonen. Eksisterende lejere påvirkes ikke.'
-                                    : 'Ændringerne vil blive synlige for dine kunder straks.'
-                                }
+                <div className="flex-1" /> {/* Spacer */}
 
-                                <div className="space-y-2 pt-2">
-                                    <Label htmlFor="publish-label">Navngiv denne version (valgfrit)</Label>
-                                    <Input
-                                        id="publish-label"
-                                        placeholder="F.eks. 'Nyt logo design' eller 'Sommer kampagne'"
-                                        value={publishLabel}
-                                        onChange={(e) => setPublishLabel(e.target.value)}
-                                    />
-                                    <p className="text-xs text-muted-foreground">
-                                        Du kan gendanne denne version senere fra historikken.
-                                    </p>
-                                </div>
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Annuller</AlertDialogCancel>
-                            <AlertDialogAction onClick={handlePublish}>
-                                Publicér nu
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
+                {/* 3. Fortryd (Undo/Discard) */}
+                <Button
+                    variant="ghost"
+                    onClick={() => editor.discardDraft()}
+                    disabled={!editor.hasUnsavedChanges || editor.isSaving}
+                    className="gap-2 text-muted-foreground hover:text-foreground"
+                >
+                    <RotateCcw className="h-4 w-4" />
+                    Fortryd
+                </Button>
 
-                {editor.hasUnsavedChanges && (
-                    <Button variant="ghost" onClick={() => editor.discardDraft()}>
-                        <RotateCcw className="h-4 w-4 mr-2" />
-                        Kassér ændringer
-                    </Button>
-                )}
+                {/* 4. Publicér (Publish CTA) */}
+                <Button
+                    onClick={() => setShowPublishDialog(true)}
+                    disabled={editor.isSaving}
+                    className="gap-2 min-w-[100px]"
+                >
+                    <Send className="h-4 w-4" />
+                    Publicér
+                </Button>
 
-                {/* Draft & History Manager */}
-                <DraftManager
-                    draft={editor.draft}
-                    hasUnsavedChanges={editor.hasUnsavedChanges}
-                    isSaving={editor.isSaving}
-                    history={editor.history}
-                    onLoadHistory={editor.loadHistory}
-                    onSaveDraft={editor.saveDesign}
-                    onRestoreVersion={editor.restoreVersion}
-                    onResetToDefault={editor.resetToDefault}
-                    mode={editor.mode}
-                    savedDesigns={editor.savedDesigns}
-                    onLoadSavedDesigns={editor.loadSavedDesigns}
-                    onLoadDesign={editor.loadDesign}
-                    onDeleteSavedDesign={editor.deleteSavedDesign}
-                />
-
-                {/* Apply Master Template (Tenant only) */}
-                {capabilities.canApplyMasterTemplate && (
-                    <AlertDialog open={showApplyTemplate} onOpenChange={setShowApplyTemplate}>
-                        <AlertDialogTrigger asChild>
-                            <Button variant="outline">
-                                <FileDown className="h-4 w-4 mr-2" />
-                                Anvend skabelon
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Anvend platform-skabelon?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    Dette kopierer platform-skabelonen til din branding.
-                                    Dine nuværende indstillinger vil blive overskrevet.
-                                    Du kan altid fortryde ved at kassere ændringerne.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Annuller</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleApplyMasterTemplate}>
-                                    Anvend skabelon
-                                </AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                )}
+                {/* 5. Nulstil (Reset Danger) */}
+                <Button
+                    variant="ghost"
+                    onClick={() => setShowResetDialog(true)}
+                    disabled={editor.isSaving}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    size="icon"
+                >
+                    <Trash2 className="h-4 w-4" />
+                </Button>
             </div>
+
+            {/* --- DIALOGS --- */}
+
+            {/* 1. Save Design Modal */}
+            <Dialog open={showSaveDesignDialog} onOpenChange={setShowSaveDesignDialog}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Gem design</DialogTitle>
+                        <DialogDescription>
+                            Giv dit nuværende design et navn for at gemme det.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="name">Navn på design <span className="text-destructive">*</span></Label>
+                            <Input
+                                id="name"
+                                value={saveDesignName}
+                                onChange={(e) => setSaveDesignName(e.target.value)}
+                                placeholder="F.eks. Sommer Kampagne"
+                                autoFocus
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowSaveDesignDialog(false)}>Annuller</Button>
+                        <Button onClick={handleSaveDesign} disabled={!saveDesignName.trim() || editor.isSaving}>
+                            Gem
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* 2. Saved Designs List Modal */}
+            <Dialog open={showSavedDesignsDialog} onOpenChange={setShowSavedDesignsDialog}>
+                <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle>Gemte designs</DialogTitle>
+                        <DialogDescription>
+                            Klik 'Indlæs' for at anvende et design. Dette vil overskrive din nuværende kladde.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="flex-1 overflow-y-auto py-4 minimal-scrollbar">
+                        {editor.savedDesigns.length === 0 ? (
+                            <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">
+                                <List className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                <p>Ingen gemte designs fundet.</p>
+                            </div>
+                        ) : (
+                            <div className="grid gap-3">
+                                {editor.savedDesigns.map((design) => (
+                                    <div
+                                        key={design.id}
+                                        className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/5 transition-colors group"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                                                <Palette className="h-5 w-5" />
+                                            </div>
+                                            <div>
+                                                <h4 className="font-medium text-sm">{design.name}</h4>
+                                                <p className="text-xs text-muted-foreground">{formatDate(design.createdAt)}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                onClick={async () => {
+                                                    await editor.loadDesign(design.id);
+                                                    setShowSavedDesignsDialog(false);
+                                                }}
+                                            >
+                                                Indlæs
+                                            </Button>
+                                            <Button
+                                                size="icon"
+                                                variant="ghost"
+                                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                                onClick={() => {
+                                                    if (confirm('Er du sikker på at du vil slette dette design?')) {
+                                                        editor.deleteSavedDesign(design.id);
+                                                    }
+                                                }}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* 3. Reset Dialog */}
+            <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Nulstil til standard?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Dette vil fjerne alle dine branding-tilpasninger og gendanne standardindstillingerne.
+                            <br /><br />
+                            Vi gemmer en automatisk sikkerhedskopi før vi nulstiller.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Annuller</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={async () => {
+                                await editor.resetToDefault();
+                                setShowResetDialog(false);
+                            }}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            Nulstil
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Publicer Dialog */}
+            <AlertDialog open={showPublishDialog} onOpenChange={setShowPublishDialog}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                            <Send className="h-5 w-5 text-primary" />
+                            Publicér branding?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="space-y-3">
+                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+                                <strong>Bemærk:</strong> Publicering vil ændre din live hjemmeside øjeblikkeligt.
+                            </div>
+
+                            <div className="space-y-2 pt-2">
+                                <Label htmlFor="publish-label">Navngiv denne version (valgfrit)</Label>
+                                <Input
+                                    id="publish-label"
+                                    placeholder="F.eks. 'Nyt logo design'"
+                                    value={publishLabel}
+                                    onChange={(e) => setPublishLabel(e.target.value)}
+                                />
+                            </div>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Annuller</AlertDialogCancel>
+                        <AlertDialogAction onClick={handlePublish}>
+                            Publicér nu
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             {/* Main Content: Editor + Preview */}
             <div className="space-y-8">
