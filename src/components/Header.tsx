@@ -47,6 +47,9 @@ const Header = () => {
   const lastScrollY = useRef(0);
   const headerRef = useRef<HTMLElement>(null);
 
+  // Track which menu item is selected (clicked)
+  const [selectedMenuId, setSelectedMenuId] = useState<string | null>(null);
+
   // Use centralized settings hook
   const settings = useShopSettings();
   const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
@@ -216,8 +219,9 @@ const Header = () => {
 
     return {
       backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity})`,
-    };
-  }, [headerSettings.dropdownBgColor, headerSettings.dropdownBgOpacity]);
+      '--dropdown-hover-bg': headerSettings.dropdownHoverColor || '#F3F4F6',
+    } as React.CSSProperties;
+  }, [headerSettings.dropdownBgColor, headerSettings.dropdownBgOpacity, headerSettings.dropdownHoverColor]);
 
   // Dropdown styling variables for direct use in child elements
   const categoryFont = headerSettings.dropdownCategoryFontId || 'Inter';
@@ -336,8 +340,33 @@ const Header = () => {
       style={{
         ...getHeaderStyles(),
         fontFamily: `'${headerSettings.fontId}', sans-serif`,
-      }}
+        '--header-text-color': effectiveTextColor,
+        '--header-hover-color': headerSettings.hoverTextColor || '#0EA5E9',
+        '--header-active-color': headerSettings.activeTextColor || '#0284C7',
+        '--dropdown-hover-bg': headerSettings.dropdownHoverColor || '#F3F4F6',
+      } as React.CSSProperties}
     >
+      {/* Dynamic styles for hover/active states using CSS custom properties */}
+      <style>{`
+        .header-nav-link {
+          color: var(--header-text-color) !important;
+          transition: color 0.15s ease-in-out;
+        }
+        .header-nav-link:hover:not(.active) {
+          color: var(--header-hover-color) !important;
+        }
+        .header-nav-link.active,
+        .header-nav-link.active:hover {
+          color: var(--header-active-color) !important;
+        }
+        /* Custom hover/selection color for dropdown items - target focus and data-highlighted for Radix UI */
+        .dropdown-product-link:hover,
+        .dropdown-product-link:focus,
+        .dropdown-product-link[data-highlighted] {
+          background-color: var(--dropdown-hover-bg) !important;
+          outline: none;
+        }
+      `}</style>
       <div className="container mx-auto px-4 h-full">
         {/* Flex layout based on alignment: left = logo-menu-actions | center = logo-menu(centered)-actions | right = logo-spacer-menu-actions */}
         <div className={`flex items-center h-full relative ${headerSettings.alignment === 'center'
@@ -424,11 +453,13 @@ const Header = () => {
                     <DropdownMenu key={item.id}>
                       <DropdownMenuTrigger asChild>
                         <button
-                          className={`text-sm font-medium transition-colors hover:text-primary inline-flex items-center gap-1 ${location.pathname.startsWith("/produkt") ? "text-primary" : "text-foreground"
-                            }`}
+                          className="header-nav-link text-sm font-medium inline-flex items-center gap-1"
                           style={{
-                            color: location.pathname.startsWith("/produkt") ? undefined : effectiveTextColor
+                            color: selectedMenuId === item.id
+                              ? (headerSettings.activeTextColor || '#0284C7')
+                              : (headerSettings.textColor || '#1F2937')
                           }}
+                          onClick={() => setSelectedMenuId(item.id)}
                         >
                           {item.label}
                           <ChevronDown className="h-4 w-4" />
@@ -458,7 +489,7 @@ const Header = () => {
                                   <DropdownMenuItem key={product.id} asChild>
                                     <Link
                                       to={`/produkt/${product.slug}`}
-                                      className="cursor-pointer flex flex-col items-center gap-2 p-3 hover:bg-accent/50 transition-all hover:scale-105"
+                                      className="dropdown-product-link cursor-pointer flex flex-col items-center gap-2 p-3 transition-all hover:scale-105 rounded-md"
                                     >
                                       {product.image_url && (
                                         <img
@@ -480,7 +511,7 @@ const Header = () => {
                                   <DropdownMenuItem key={product.id} asChild>
                                     <Link
                                       to={`/produkt/${product.slug}`}
-                                      className="cursor-pointer px-2 py-1.5 text-sm hover:bg-accent/50 transition-colors rounded"
+                                      className="dropdown-product-link cursor-pointer px-2 py-1.5 text-sm transition-colors rounded"
                                       style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
                                     >
                                       {product.name}
@@ -508,7 +539,7 @@ const Header = () => {
                                   <DropdownMenuItem key={product.id} asChild>
                                     <Link
                                       to={`/produkt/${product.slug}`}
-                                      className="cursor-pointer flex flex-col items-center gap-2 p-3 hover:bg-accent/50 transition-all hover:scale-105"
+                                      className="dropdown-product-link cursor-pointer flex flex-col items-center gap-2 p-3 transition-all hover:scale-105 rounded-md"
                                     >
                                       {product.image_url && (
                                         <img
@@ -530,7 +561,7 @@ const Header = () => {
                                   <DropdownMenuItem key={product.id} asChild>
                                     <Link
                                       to={`/produkt/${product.slug}`}
-                                      className="cursor-pointer px-2 py-1.5 text-sm hover:bg-accent/50 transition-colors rounded"
+                                      className="dropdown-product-link cursor-pointer px-2 py-1.5 text-sm transition-colors rounded"
                                       style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
                                     >
                                       {product.name}
@@ -558,7 +589,7 @@ const Header = () => {
                                   <DropdownMenuItem key={product.id} asChild>
                                     <Link
                                       to={`/produkt/${product.slug}`}
-                                      className="cursor-pointer flex flex-col items-center gap-2 p-3 hover:bg-accent/50 transition-all hover:scale-105"
+                                      className="dropdown-product-link cursor-pointer flex flex-col items-center gap-2 p-3 transition-all hover:scale-105 rounded-md"
                                     >
                                       {product.image_url && (
                                         <img
@@ -580,7 +611,7 @@ const Header = () => {
                                   <DropdownMenuItem key={product.id} asChild>
                                     <Link
                                       to={`/produkt/${product.slug}`}
-                                      className="cursor-pointer px-2 py-1.5 text-sm hover:bg-accent/50 transition-colors rounded"
+                                      className="dropdown-product-link cursor-pointer px-2 py-1.5 text-sm transition-colors rounded"
                                       style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
                                     >
                                       {product.name}
@@ -600,11 +631,13 @@ const Header = () => {
                   <Link
                     key={item.id}
                     to={item.href}
-                    className={`text-sm font-medium transition-colors hover:text-primary ${isActive(item.href) ? "text-primary" : "text-foreground"
-                      }`}
+                    className="header-nav-link text-sm font-medium"
                     style={{
-                      color: isActive(item.href) ? undefined : effectiveTextColor
+                      color: selectedMenuId === item.id
+                        ? (headerSettings.activeTextColor || '#0284C7')
+                        : (headerSettings.textColor || '#1F2937')
                     }}
+                    onClick={() => setSelectedMenuId(item.id)}
                   >
                     {item.label}
                   </Link>

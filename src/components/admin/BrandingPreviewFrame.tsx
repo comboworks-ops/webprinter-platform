@@ -252,60 +252,93 @@ export function BrandingPreviewFrame({
             </div>
 
             {/* Device Preview Area */}
-            <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
-                {/* Device Frame */}
-                <div
-                    className={cn(
-                        "relative bg-gray-800 rounded-[2rem] shadow-2xl transition-all duration-500 ease-out",
-                        viewport === "mobile" && "rounded-[2.5rem]",
-                        viewport === "tablet" && "rounded-[1.5rem]"
-                    )}
-                    style={{
-                        width: currentSize.width * scale + 24,
-                        height: currentSize.height * scale + 24,
-                        padding: 12,
-                    }}
-                >
-                    {/* Notch for mobile */}
-                    {viewport === "mobile" && (
-                        <div className="absolute top-3 left-1/2 -translate-x-1/2 w-20 h-5 bg-gray-800 rounded-b-xl z-10" />
-                    )}
+            <div className="flex-1 flex items-center justify-center bg-slate-100 overflow-hidden relative p-8">
+                {viewport === "desktop" ? (
+                    /* Full Width Desktop View with Monitor Frame */
+                    <div className="relative w-full h-full max-w-[1400px] flex flex-col items-center">
+                        <div className="relative w-full h-full bg-gray-800 rounded-xl shadow-2xl p-3 ring-1 ring-white/10">
+                            {/* Camera Dot */}
+                            <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-gray-700 rounded-full z-10" />
 
-                    {/* Screen */}
-                    <div
-                        className="relative w-full h-full bg-white rounded-xl overflow-hidden"
-                        style={{ borderRadius: viewport === "mobile" ? "1.5rem" : "0.75rem" }}
-                    >
-                        {/* Loading Overlay */}
-                        {isLoading && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-white z-20">
-                                <div className="flex flex-col items-center gap-2">
-                                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                                    <span className="text-sm text-muted-foreground">Indlæser...</span>
-                                </div>
+                            {/* Screen Content */}
+                            <div className="relative w-full h-full bg-white rounded-lg overflow-hidden border border-gray-700/50">
+                                {isLoading && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-20 backdrop-blur-sm">
+                                        <div className="flex flex-col items-center gap-2">
+                                            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                                            <span className="text-sm text-muted-foreground">Indlæser preview...</span>
+                                        </div>
+                                    </div>
+                                )}
+                                <iframe
+                                    ref={iframeRef}
+                                    src={previewUrl}
+                                    className="w-full h-full border-0"
+                                    onLoad={handleLoad}
+                                    title="Branding Preview"
+                                    sandbox="allow-scripts allow-same-origin"
+                                />
                             </div>
+                        </div>
+                        {/* Monitor Stand Base */}
+                        <div className="w-32 h-4 bg-gray-700/50 rounded-b-xl shadow-lg mt-[1px]" />
+                        <div className="w-48 h-1.5 bg-gray-800/20 rounded-full mt-1 blur-sm" />
+                    </div>
+                ) : (
+                    /* Scaled Device Frame (Tablet/Mobile) */
+                    <div
+                        className={cn(
+                            "relative bg-gray-800 rounded-[2rem] shadow-2xl transition-all duration-500 ease-out flex-shrink-0",
+                            viewport === "mobile" && "rounded-[2.5rem]",
+                            viewport === "tablet" && "rounded-[1.5rem]"
+                        )}
+                        style={{
+                            width: currentSize.width * scale + 24,
+                            height: currentSize.height * scale + 24,
+                            padding: 12,
+                        }}
+                    >
+                        {/* Notch for mobile */}
+                        {viewport === "mobile" && (
+                            <div className="absolute top-3 left-1/2 -translate-x-1/2 w-20 h-5 bg-gray-800 rounded-b-xl z-10" />
                         )}
 
-                        {/* Scaled Iframe Container */}
+                        {/* Screen */}
                         <div
-                            style={{
-                                width: currentSize.width,
-                                height: currentSize.height,
-                                transform: `scale(${scale})`,
-                                transformOrigin: 'top left',
-                            }}
+                            className="relative w-full h-full bg-white rounded-xl overflow-hidden"
+                            style={{ borderRadius: viewport === "mobile" ? "1.5rem" : "0.75rem" }}
                         >
-                            <iframe
-                                ref={iframeRef}
-                                src={previewUrl}
-                                className="w-full h-full border-0"
-                                onLoad={handleLoad}
-                                title="Branding Preview"
-                                sandbox="allow-scripts allow-same-origin"
-                            />
+                            {/* Loading Overlay */}
+                            {isLoading && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-white z-20">
+                                    <div className="flex flex-col items-center gap-2">
+                                        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                                        <span className="text-sm text-muted-foreground">Indlæser...</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Scaled Iframe Container */}
+                            <div
+                                style={{
+                                    width: currentSize.width,
+                                    height: currentSize.height,
+                                    transform: `scale(${scale})`,
+                                    transformOrigin: 'top left',
+                                }}
+                            >
+                                <iframe
+                                    ref={iframeRef}
+                                    src={previewUrl}
+                                    className="w-full h-full border-0"
+                                    onLoad={handleLoad}
+                                    title="Branding Preview"
+                                    sandbox="allow-scripts allow-same-origin"
+                                />
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
             </div>
 
             {/* Status Bar with Publish Option */}

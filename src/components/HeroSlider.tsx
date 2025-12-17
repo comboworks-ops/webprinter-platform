@@ -88,6 +88,17 @@ function hexToRgba(hex: string, opacity: number): string {
   return `rgba(${r}, ${g}, ${b}, ${opacity})`;
 }
 
+// Helper to darken a hex color by a percentage
+function darkenColor(hex: string, percent: number): string {
+  if (!hex || !hex.startsWith('#')) return hex;
+
+  const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - Math.round(255 * (percent / 100)));
+  const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - Math.round(255 * (percent / 100)));
+  const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - Math.round(255 * (percent / 100)));
+
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
 interface HeroSliderProps {
   /** Optional hero settings override (for preview mode) */
   heroSettings?: HeroSettings;
@@ -276,7 +287,13 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
 
   // Render button with custom colors
   const renderButton = (btn: BannerButton, isDefault = false, defaultCta?: string, defaultLink?: string) => {
-    const buttonStyle: React.CSSProperties = {};
+    const bgColor = btn.bgColor || '#0EA5E9';
+    const bgHoverColor = btn.bgHoverColor || (btn.bgColor ? darkenColor(btn.bgColor, 15) : '#0284C7');
+
+    const buttonStyle: React.CSSProperties = {
+      '--btn-bg': !isDefault && btn.bgColor ? hexToRgba(btn.bgColor, btn.bgOpacity ?? 1) : undefined,
+      '--btn-hover-bg': !isDefault ? bgHoverColor : undefined,
+    } as React.CSSProperties;
 
     if (!isDefault && btn.textColor) {
       buttonStyle.color = btn.textColor;
@@ -294,12 +311,26 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
       buttonStyle.color = btn.textColor || '#FFFFFF';
     }
 
+    const handleMouseEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
+      if (!isDefault && btn.bgColor) {
+        e.currentTarget.style.backgroundColor = bgHoverColor;
+      }
+    };
+
+    const handleMouseLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
+      if (!isDefault && btn.bgColor) {
+        e.currentTarget.style.backgroundColor = hexToRgba(btn.bgColor, btn.bgOpacity ?? 1);
+      }
+    };
+
     const ButtonContent = (
       <Button
         size="lg"
         variant={btn.variant === 'secondary' ? 'outline' : 'default'}
         style={buttonStyle}
         className={btn.variant === 'secondary' && !btn.bgColor ? 'hover:bg-white/20' : ''}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
         {isDefault ? defaultCta : btn.label}
       </Button>

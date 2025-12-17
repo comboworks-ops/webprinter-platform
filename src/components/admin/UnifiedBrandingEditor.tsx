@@ -246,13 +246,14 @@ export function UnifiedBrandingEditor({ adapter, capabilities }: UnifiedBranding
                     isSaving={editor.isSaving}
                     history={editor.history}
                     onLoadHistory={editor.loadHistory}
-                    onSaveDraft={async (name) => {
-                        // Save draft (name is stored in history when publishing)
-                        await editor.saveDraft();
-                    }}
+                    onSaveDraft={editor.saveDesign}
                     onRestoreVersion={editor.restoreVersion}
                     onResetToDefault={editor.resetToDefault}
                     mode={editor.mode}
+                    savedDesigns={editor.savedDesigns}
+                    onLoadSavedDesigns={editor.loadSavedDesigns}
+                    onLoadDesign={editor.loadDesign}
+                    onDeleteSavedDesign={editor.deleteSavedDesign}
                 />
 
                 {/* Apply Master Template (Tenant only) */}
@@ -285,7 +286,7 @@ export function UnifiedBrandingEditor({ adapter, capabilities }: UnifiedBranding
             </div>
 
             {/* Main Content: Editor + Preview */}
-            <div className="grid lg:grid-cols-[1fr,400px] gap-6">
+            <div className="space-y-8">
                 {/* Editor Tabs */}
                 <div className="space-y-6">
                     <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -435,27 +436,33 @@ export function UnifiedBrandingEditor({ adapter, capabilities }: UnifiedBranding
                     </Tabs>
                 </div>
 
-                {/* Preview Panel */}
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                        <h3 className="font-semibold">Forhåndsvisning</h3>
+                {/* Preview Panel - Full Width at Bottom */}
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <div className="space-y-1">
+                            <CardTitle>Forhåndsvisning</CardTitle>
+                            <CardDescription>
+                                Ændringer vises i realtid. Kunderne ser dette efter du publicerer.
+                            </CardDescription>
+                        </div>
                         <Button variant="ghost" size="sm" asChild>
                             <a href={`/preview-shop?draft=1&tenantId=${editor.entityId}`} target="_blank" rel="noopener noreferrer">
                                 <ExternalLink className="h-4 w-4 mr-1" />
                                 Åbn i nyt vindue
                             </a>
                         </Button>
-                    </div>
-                    <BrandingPreviewFrame
-                        branding={editor.draft}
-                        previewUrl={`/preview-shop?draft=1&tenantId=${editor.entityId}`}
-                        tenantName={editor.entityName}
-                        onSaveDraft={editor.saveDraft}
-                    />
-                    <p className="text-xs text-muted-foreground text-center">
-                        Preview viser kun kundesynlige sider. Backend er ikke tilgængelig.
-                    </p>
-                </div>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <div className="h-[800px] w-full border-t">
+                            <BrandingPreviewFrame
+                                branding={editor.draft}
+                                previewUrl={`/preview-shop?draft=1&tenantId=${editor.entityId}`}
+                                tenantName={editor.entityName}
+                                onSaveDraft={editor.saveDraft}
+                            />
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
         </div>
     );

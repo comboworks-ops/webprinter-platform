@@ -37,11 +37,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
     History, Save, RotateCcw, Clock, Check, Upload,
-    FileText, Loader2, ChevronRight, Trash2
+    FileText, Loader2, ChevronRight, Trash2, Palette,
+    LayoutTemplate
 } from "lucide-react";
 import { format } from "date-fns";
 import { da } from "date-fns/locale";
-import type { BrandingHistoryEntry, BrandingData } from "@/lib/branding";
+import type { BrandingHistoryEntry, BrandingData, SavedDesign } from "@/lib/branding";
 
 interface DraftManagerProps {
     /** Current draft data */
@@ -62,6 +63,15 @@ interface DraftManagerProps {
     onResetToDefault: () => Promise<void>;
     /** Mode (master or tenant) */
     mode: 'master' | 'tenant';
+
+    /** Saved designs (user-named) */
+    savedDesigns?: SavedDesign[];
+    /** Callback to load saved designs */
+    onLoadSavedDesigns?: () => Promise<void>;
+    /** Callback to load a saved design */
+    onLoadDesign?: (id: string) => Promise<void>;
+    /** Callback to delete a saved design */
+    onDeleteSavedDesign?: (id: string) => Promise<void>;
 }
 
 export function DraftManager({
@@ -73,40 +83,78 @@ export function DraftManager({
     onSaveDraft,
     onRestoreVersion,
     onResetToDefault,
+    savedDesigns = [],
+    onLoadSavedDesigns,
+    onLoadDesign,
+    onDeleteSavedDesign,
 }: DraftManagerProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [draftName, setDraftName] = useState("");
-    const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
-    const [isRestoreDialogOpen, setIsRestoreDialogOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState<'save' | 'load' | 'history'>('save');
     const [selectedVersion, setSelectedVersion] = useState<BrandingHistoryEntry | null>(null);
+    const [selectedDesign, setSelectedDesign] = useState<SavedDesign | null>(null);
+    const [isDeleteDesignOpen, setIsDeleteDesignOpen] = useState(false);
     const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+    const [isRestoreHistoryOpen, setIsRestoreHistoryOpen] = useState(false);
+    const [isLoadDesignOpen, setIsLoadDesignOpen] = useState(false);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+    const [isLoadingDesigns, setIsLoadingDesigns] = useState(false);
 
-    // Load history when panel opens
+    // Initial load
     useEffect(() => {
-        if (isOpen && history.length === 0) {
-            setIsLoadingHistory(true);
-            onLoadHistory().finally(() => setIsLoadingHistory(false));
+        if (isOpen) {
+            // Load designs first if available
+            if (onLoadSavedDesigns && savedDesigns.length === 0) {
+                setIsLoadingDesigns(true);
+                onLoadSavedDesigns().finally(() => setIsLoadingDesigns(false));
+            }
+
+            // Only load history if explicitly requested or if we're on history tab
+            if (activeTab === 'history' && history.length === 0) {
+                setIsLoadingHistory(true);
+                onLoadHistory().finally(() => setIsLoadingHistory(false));
+            }
         }
-    }, [isOpen, history.length, onLoadHistory]);
+    }, [isOpen, activeTab, onLoadSavedDesigns, onLoadHistory]);
 
     const handleSaveDraft = async () => {
-        await onSaveDraft(draftName || undefined);
+        if (!draftName.trim()) return;
+
+        await onSaveDraft(draftName);
         setDraftName("");
-        setIsSaveDialogOpen(false);
+        // Switch to load tab to see the saved design
+        setActiveTab('load');
+    };
+
+    const handleLoadDesign = async () => {
+        if (selectedDesign && onLoadDesign) {
+            await onLoadDesign(selectedDesign.id);
+            setIsLoadDesignOpen(false);
+            setIsOpen(false); // Close main dialog after loading
+        }
+    };
+
+    const handleDeleteDesign = async () => {
+        if (selectedDesign && onDeleteSavedDesign) {
+            await onDeleteSavedDesign(selectedDesign.id);
+            setSelectedDesign(null);
+            setIsDeleteDesignOpen(false);
+        }
     };
 
     const handleRestoreVersion = async () => {
         if (selectedVersion) {
             await onRestoreVersion(selectedVersion.id);
             setSelectedVersion(null);
-            setIsRestoreDialogOpen(false);
+            setIsRestoreHistoryOpen(false);
+            setIsOpen(false);
         }
     };
 
     const handleResetToDefault = async () => {
         await onResetToDefault();
         setIsResetDialogOpen(false);
+        setIsOpen(false);
     };
 
     const formatDate = (timestamp: string) => {
@@ -122,176 +170,370 @@ export function DraftManager({
             {/* Trigger Button */}
             <Dialog open={isOpen} onOpenChange={setIsOpen}>
                 <DialogTrigger asChild>
-                    <Button variant="outline" className="gap-2">
-                        <History className="h-4 w-4" />
-                        Versioner
+                    <Button variant="outline" className="gap-2 border-dashed">
+                        <LayoutTemplate className="h-4 w-4" />
+                        Gemte Designs
                         {hasUnsavedChanges && (
-                            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px]">
+                            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px] bg-orange-100 text-orange-700 hover:bg-orange-100">
                                 Ikke gemt
                             </Badge>
                         )}
                     </Button>
                 </DialogTrigger>
-                <DialogContent className="sm:max-w-[600px] max-h-[80vh]">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <History className="h-5 w-5" />
-                            Versioner & Historik
+                <DialogContent className="sm:max-w-[700px] max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+                    <DialogHeader className="p-6 pb-2">
+                        <DialogTitle className="flex items-center gap-2 text-xl">
+                            <Palette className="h-5 w-5" />
+                            Design & Historik
                         </DialogTitle>
                         <DialogDescription>
-                            Gem kladder, se historik, og gendan tidligere versioner
+                            Gem dine designs, indlæs tidligere setups, eller fortryd ændringer.
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="space-y-4">
-                        {/* Save Draft Section */}
-                        <Card>
-                            <CardHeader className="pb-2">
-                                <CardTitle className="text-sm flex items-center gap-2">
-                                    <Save className="h-4 w-4" />
-                                    Gem nuværende kladde
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                                <div className="flex gap-2">
-                                    <Input
-                                        placeholder="Giv kladden et navn (valgfrit)..."
-                                        value={draftName}
-                                        onChange={(e) => setDraftName(e.target.value)}
-                                        className="flex-1"
-                                    />
-                                    <Button
-                                        onClick={handleSaveDraft}
-                                        disabled={isSaving || !hasUnsavedChanges}
-                                    >
-                                        {isSaving ? (
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                            <Save className="h-4 w-4" />
-                                        )}
-                                        <span className="ml-2">Gem</span>
-                                    </Button>
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                        {/* Custom Tabs */}
+                        <div className="flex items-center px-6 border-b">
+                            <button
+                                onClick={() => setActiveTab('save')}
+                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'save'
+                                        ? 'border-primary text-primary'
+                                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                                    }`}
+                            >
+                                Gem Design
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('load')}
+                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'load'
+                                        ? 'border-primary text-primary'
+                                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                                    }`}
+                            >
+                                Gemte Designs
+                                <Badge variant="secondary" className="ml-2 h-5 min-w-5 px-1 text-[10px]">
+                                    {savedDesigns.length}
+                                </Badge>
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('history')}
+                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'history'
+                                        ? 'border-primary text-primary'
+                                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                                    }`}
+                            >
+                                Fortryd / Historik
+                            </button>
+                        </div>
+
+                        {/* Content Area */}
+                        <div className="flex-1 overflow-y-auto p-6 bg-muted/5">
+
+                            {/* TAB: SAVE DESIGN */}
+                            {activeTab === 'save' && (
+                                <div className="space-y-6 max-w-md mx-auto py-4">
+                                    <div className="text-center space-y-2 mb-6">
+                                        <div className="bg-primary/10 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                                            <Save className="h-6 w-6 text-primary" />
+                                        </div>
+                                        <h3 className="font-semibold text-lg">Gem dit nuværende design</h3>
+                                        <p className="text-sm text-muted-foreground">
+                                            Giv dit design et navn, så du nemt kan finde det og skifte tilbage til det senere.
+                                        </p>
+                                    </div>
+
+                                    <Card>
+                                        <CardContent className="pt-6 space-y-4">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="design-name">Navngiv dit design</Label>
+                                                <Input
+                                                    id="design-name"
+                                                    placeholder="F.eks. 'Sommer Kampagne' eller 'Black Friday'"
+                                                    value={draftName}
+                                                    onChange={(e) => setDraftName(e.target.value)}
+                                                    className="text-base"
+                                                    autoFocus
+                                                />
+                                            </div>
+
+                                            <Button
+                                                onClick={handleSaveDraft}
+                                                className="w-full"
+                                                disabled={isSaving || !draftName.trim()}
+                                            >
+                                                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                                                Gem Design
+                                            </Button>
+
+                                            {!hasUnsavedChanges && (
+                                                <p className="text-xs text-center text-muted-foreground flex items-center justify-center gap-1 pt-2">
+                                                    <Check className="h-3 w-3 text-green-600" />
+                                                    Dine ændringer er allerede gemt i kladden
+                                                </p>
+                                            )}
+                                        </CardContent>
+                                    </Card>
                                 </div>
-                                {!hasUnsavedChanges && (
-                                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                        <Check className="h-3 w-3 text-green-600" />
-                                        Alle ændringer er gemt
-                                    </p>
-                                )}
-                            </CardContent>
-                        </Card>
+                            )}
 
-                        <Separator />
+                            {/* TAB: LOAD SAVED DESIGNS */}
+                            {activeTab === 'load' && (
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                                            Dine gemte designs
+                                        </h3>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 text-xs"
+                                            onClick={() => {
+                                                setIsLoadingDesigns(true);
+                                                onLoadSavedDesigns && onLoadSavedDesigns().finally(() => setIsLoadingDesigns(false));
+                                            }}
+                                            disabled={isLoadingDesigns}
+                                        >
+                                            <RotateCcw className={`h-3 w-3 mr-1 ${isLoadingDesigns ? 'animate-spin' : ''}`} />
+                                            Opdater
+                                        </Button>
+                                    </div>
 
-                        {/* Version History */}
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                                <h4 className="text-sm font-medium flex items-center gap-2">
-                                    <Clock className="h-4 w-4" />
-                                    Tidligere versioner
-                                </h4>
+                                    {isLoadingDesigns ? (
+                                        <div className="text-center py-12">
+                                            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-2" />
+                                            <p className="text-sm text-muted-foreground">Henter designs...</p>
+                                        </div>
+                                    ) : savedDesigns.length === 0 ? (
+                                        <div className="text-center py-12 border-2 border-dashed rounded-lg bg-muted/20">
+                                            <LayoutTemplate className="h-10 w-10 text-muted-foreground/50 mx-auto mb-3" />
+                                            <h4 className="text-sm font-medium">Ingen gemte designs endnu</h4>
+                                            <p className="text-xs text-muted-foreground mt-1 max-w-[250px] mx-auto">
+                                                Gå til fanen "Gem Design" for at gemme dit første design.
+                                            </p>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="mt-4"
+                                                onClick={() => setActiveTab('save')}
+                                            >
+                                                Opret nyt design
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <div className="grid gap-3">
+                                            {savedDesigns.map((design) => (
+                                                <div
+                                                    key={design.id}
+                                                    className="group flex items-center justify-between p-4 bg-card hover:bg-accent/5 rounded-lg border transition-all hover:shadow-sm"
+                                                >
+                                                    <div className="flex items-start gap-3">
+                                                        <div className={`p-2 rounded-md ${design.isAutoSave ? 'bg-orange-100 text-orange-600' : 'bg-primary/10 text-primary'}`}>
+                                                            {design.isAutoSave ? <RotateCcw className="h-5 w-5" /> : <Palette className="h-5 w-5" />}
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex items-center gap-2">
+                                                                <h4 className="font-medium text-sm">{design.name}</h4>
+                                                                {design.isAutoSave && (
+                                                                    <Badge variant="outline" className="text-[10px] h-5 px-1 font-normal text-orange-600 border-orange-200 bg-orange-50">
+                                                                        Auto-gem
+                                                                    </Badge>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                                                {formatDate(design.createdAt)}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                                        <Button
+                                                            variant="default"
+                                                            size="sm"
+                                                            className="h-8 text-xs"
+                                                            onClick={() => {
+                                                                setSelectedDesign(design);
+                                                                setIsLoadDesignOpen(true);
+                                                            }}
+                                                        >
+                                                            Indlæs
+                                                        </Button>
+
+                                                        {onDeleteSavedDesign && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                                                onClick={() => {
+                                                                    setSelectedDesign(design);
+                                                                    setIsDeleteDesignOpen(true);
+                                                                }}
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* TAB: HISTORY/UNDE-UNDO */}
+                            {activeTab === 'history' && (
+                                <div className="space-y-6">
+                                    {/* Default Actions */}
+                                    <Card className="border-orange-200 bg-orange-50/30">
+                                        <CardContent className="p-4 flex items-center justify-between">
+                                            <div>
+                                                <h4 className="text-sm font-medium text-orange-900">Nulstil alt?</h4>
+                                                <p className="text-xs text-orange-700/80">
+                                                    Vi laver en automatisk sikkerhedskopi før du nulstiller.
+                                                </p>
+                                            </div>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="text-orange-700 border-orange-300 hover:bg-orange-50 hover:text-orange-800"
+                                                onClick={() => setIsResetDialogOpen(true)}
+                                            >
+                                                <RotateCcw className="h-3.5 w-3.5 mr-2" />
+                                                Nulstil til standard
+                                            </Button>
+                                        </CardContent>
+                                    </Card>
+
+                                    <Separator />
+
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                                                Udgivelses-historik
+                                            </h3>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-8 text-xs"
+                                                onClick={() => {
+                                                    setIsLoadingHistory(true);
+                                                    onLoadHistory().finally(() => setIsLoadingHistory(false));
+                                                }}
+                                                disabled={isLoadingHistory}
+                                            >
+                                                <RotateCcw className={`h-3 w-3 mr-1 ${isLoadingHistory ? 'animate-spin' : ''}`} />
+                                                Hent historik
+                                            </Button>
+                                        </div>
+
+                                        {isLoadingHistory ? (
+                                            <div className="text-center py-12">
+                                                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-2" />
+                                                <p className="text-sm text-muted-foreground">Henter historik...</p>
+                                            </div>
+                                        ) : history.length === 0 ? (
+                                            <div className="text-center py-8 text-muted-foreground bg-muted/20 rounded-lg">
+                                                <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                                <p className="text-sm">Ingen historik fundet</p>
+                                                <p className="text-xs mt-1">Udgiv dine ændringer for at se dem her</p>
+                                            </div>
+                                        ) : (
+                                            <div className="relative pl-4 border-l-2 border-muted space-y-6">
+                                                {history.map((entry, index) => (
+                                                    <div key={entry.id} className="relative">
+                                                        <div className={`absolute -left-[21px] top-1 h-3 w-3 rounded-full border-2 border-background ${index === 0 ? 'bg-green-500' : 'bg-muted-foreground'}`} />
+
+                                                        <div className="flex items-start justify-between group">
+                                                            <div>
+                                                                <p className="text-sm font-medium">{entry.label}</p>
+                                                                <p className="text-xs text-muted-foreground">
+                                                                    {formatDate(entry.timestamp)}
+                                                                    {entry.publishedBy && <span> • {entry.publishedBy}</span>}
+                                                                </p>
+                                                            </div>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="opacity-0 group-hover:opacity-100 h-7 text-xs"
+                                                                onClick={() => {
+                                                                    setSelectedVersion(entry);
+                                                                    setIsRestoreHistoryOpen(true);
+                                                                }}
+                                                            >
+                                                                Gendan
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="p-4 bg-muted/10 border-t flex justify-between items-center text-xs text-muted-foreground">
+                            <span>{hasUnsavedChanges ? 'Du har ændringer der ikke er gemt' : 'Alt er gemt'}</span>
+                            <div className="flex gap-2">
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => {
-                                        setIsLoadingHistory(true);
-                                        onLoadHistory().finally(() => setIsLoadingHistory(false));
-                                    }}
-                                    disabled={isLoadingHistory}
+                                    className="h-7 text-xs"
+                                    onClick={() => setIsOpen(false)}
                                 >
-                                    {isLoadingHistory ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <RotateCcw className="h-4 w-4" />
-                                    )}
+                                    Luk
                                 </Button>
                             </div>
-
-                            <ScrollArea className="h-[250px] rounded-md border">
-                                {isLoadingHistory ? (
-                                    <div className="flex items-center justify-center h-full p-8">
-                                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                                    </div>
-                                ) : history.length === 0 ? (
-                                    <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-                                        <FileText className="h-10 w-10 text-muted-foreground mb-2" />
-                                        <p className="text-sm text-muted-foreground">
-                                            Ingen tidligere versioner endnu
-                                        </p>
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                            Publicer for at gemme i historikken
-                                        </p>
-                                    </div>
-                                ) : (
-                                    <div className="p-2 space-y-1">
-                                        {history.map((entry, index) => (
-                                            <button
-                                                key={entry.id}
-                                                onClick={() => {
-                                                    setSelectedVersion(entry);
-                                                    setIsRestoreDialogOpen(true);
-                                                }}
-                                                className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors text-left group"
-                                            >
-                                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-medium">
-                                                    {index === 0 ? (
-                                                        <Check className="h-4 w-4" />
-                                                    ) : (
-                                                        history.length - index
-                                                    )}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-medium truncate">
-                                                        {entry.label}
-                                                    </p>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        {formatDate(entry.timestamp)}
-                                                        {entry.publishedBy && (
-                                                            <span className="ml-2">
-                                                                af {entry.publishedBy}
-                                                            </span>
-                                                        )}
-                                                    </p>
-                                                </div>
-                                                {index === 0 && (
-                                                    <Badge variant="default" className="text-[10px]">
-                                                        Aktiv
-                                                    </Badge>
-                                                )}
-                                                <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </ScrollArea>
-                        </div>
-
-                        <Separator />
-
-                        {/* Reset to Default */}
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-sm font-medium">Nulstil til standard</p>
-                                <p className="text-xs text-muted-foreground">
-                                    Fjern alle tilpasninger og brug standarddesignet
-                                </p>
-                            </div>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-destructive hover:text-destructive"
-                                onClick={() => setIsResetDialogOpen(true)}
-                            >
-                                <Trash2 className="h-4 w-4 mr-1" />
-                                Nulstil
-                            </Button>
                         </div>
                     </div>
                 </DialogContent>
             </Dialog>
 
+            {/* Load Design Confirm Dialog */}
+            <AlertDialog open={isLoadDesignOpen} onOpenChange={setIsLoadDesignOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Indlæs design?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Du er ved at indlæse: <strong>{selectedDesign?.name}</strong>
+                            <br /><br />
+                            Dette vil overskrive din nuværende kladde. Sørg for at gemme dit nuværende arbejde først,
+                            hvis du vil beholde det.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setSelectedDesign(null)}>Annuller</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleLoadDesign}>
+                            Indlæs Design
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Delete Design Confirm Dialog */}
+            <AlertDialog open={isDeleteDesignOpen} onOpenChange={setIsDeleteDesignOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Slet design?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Er du sikker på, at du vil slette <strong>{selectedDesign?.name}</strong>?
+                            <br />
+                            Dette kan ikke fortrydes.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setSelectedDesign(null)}>Annuller</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleDeleteDesign}
+                            className="bg-destructive hover:bg-destructive/90"
+                        >
+                            Slet
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
             {/* Restore Version Confirm Dialog */}
-            <AlertDialog open={isRestoreDialogOpen} onOpenChange={setIsRestoreDialogOpen}>
+            <AlertDialog open={isRestoreHistoryOpen} onOpenChange={setIsRestoreHistoryOpen}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Gendan denne version?</AlertDialogTitle>
@@ -300,8 +542,7 @@ export function DraftManager({
                                 Du er ved at gendanne versionen: <strong>{selectedVersion?.label}</strong>
                             </p>
                             <p>
-                                Dette vil erstatte din nuværende kladde. Din nuværende kladde gemmes automatisk,
-                                så du kan vende tilbage til den senere.
+                                Dette vil erstatte din nuværende kladde.
                             </p>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -323,7 +564,9 @@ export function DraftManager({
                         <AlertDialogTitle>Nulstil til standarddesign?</AlertDialogTitle>
                         <AlertDialogDescription>
                             Dette vil fjerne alle dine branding-tilpasninger og gendanne standardindstillingerne.
-                            Den nuværende version gemmes i historikken, så du kan gendanne den senere.
+                            <br /><br />
+                            <strong>Automatisk sikkerhedskopi:</strong> Vi gemmer dit nuværende design automatisk før vi nulstiller,
+                            så du kan fortryde senere under "Gemte Designs".
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -332,7 +575,7 @@ export function DraftManager({
                             onClick={handleResetToDefault}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
-                            Nulstil til standard
+                            Nulstil og Gem Backup
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

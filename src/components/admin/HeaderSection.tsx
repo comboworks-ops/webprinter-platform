@@ -241,6 +241,26 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                         onRemoveSwatch={onRemoveSwatch}
                     />
 
+                    {/* Hover Color */}
+                    <ColorPickerWithSwatches
+                        label="Hover over"
+                        value={safeHeader.hoverTextColor || '#0EA5E9'}
+                        onChange={(color) => updateHeader({ hoverTextColor: color })}
+                        savedSwatches={savedSwatches}
+                        onSaveSwatch={onSaveSwatch}
+                        onRemoveSwatch={onRemoveSwatch}
+                    />
+
+                    {/* Active/Pressed Color */}
+                    <ColorPickerWithSwatches
+                        label="Menu valgt"
+                        value={safeHeader.activeTextColor || '#0284C7'}
+                        onChange={(color) => updateHeader({ activeTextColor: color })}
+                        savedSwatches={savedSwatches}
+                        onSaveSwatch={onSaveSwatch}
+                        onRemoveSwatch={onRemoveSwatch}
+                    />
+
                     <Separator />
 
                     {/* Header Height */}
@@ -479,6 +499,14 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                             showOpacity
                             opacity={safeHeader.dropdownBgOpacity ?? 0.95}
                             onOpacityChange={(opacity) => updateHeader({ dropdownBgOpacity: opacity })}
+                            savedSwatches={savedSwatches}
+                            onSaveSwatch={onSaveSwatch}
+                            onRemoveSwatch={onRemoveSwatch}
+                        />
+                        <ColorPickerWithSwatches
+                            label="Dropdown Hover Farve"
+                            value={safeHeader.dropdownHoverColor || '#F3F4F6'}
+                            onChange={(color) => updateHeader({ dropdownHoverColor: color })}
                             savedSwatches={savedSwatches}
                             onSaveSwatch={onSaveSwatch}
                             onRemoveSwatch={onRemoveSwatch}

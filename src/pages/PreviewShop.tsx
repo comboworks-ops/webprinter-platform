@@ -12,6 +12,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Truck, Award, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { mergeBrandingWithDefaults, type BrandingData } from "@/hooks/useBrandingDraft";
+import { GrafiskVejledningContent } from "@/components/content/GrafiskVejledningContent";
+import { ContactContent } from "@/components/content/ContactContent";
+import { AboutContent } from "@/components/content/AboutContent";
+import { ProductPriceContent } from "@/components/content/ProductPriceContent";
+import { TermsContent } from "@/components/content/TermsContent";
 
 // List of ALLOWED customer-visible routes in preview mode
 // This prevents navigation to admin/backend routes
@@ -146,6 +151,16 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
 
     // Render page content based on virtual navigation
     const renderPageContent = () => {
+        // Specific product page
+        if (currentPage.startsWith('/produkt/')) {
+            const slug = currentPage.split('/').pop();
+            return (
+                <div className="pt-20">
+                    <ProductPriceContent slug={slug} />
+                </div>
+            );
+        }
+
         // Products pages
         if (currentPage === '/produkter' || currentPage === '/shop' || currentPage === '/prisberegner') {
             return (
@@ -174,17 +189,8 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         // Contact page
         if (currentPage === '/kontakt') {
             return (
-                <section className="py-16 pt-24">
-                    <div className="container mx-auto px-4 max-w-2xl">
-                        <h1 className="text-3xl font-heading font-bold mb-8 text-center">Kontakt os</h1>
-                        <div className="bg-card rounded-lg p-8 shadow-sm">
-                            <div className="space-y-4 text-center">
-                                <Phone className="h-12 w-12 mx-auto text-primary" />
-                                <p className="text-lg">Telefon: 71 99 11 10</p>
-                                <p className="text-muted-foreground">Vi er klar til at hjælpe dig</p>
-                            </div>
-                        </div>
-                    </div>
+                <section className="pt-24 pb-16">
+                    <ContactContent />
                 </section>
             );
         }
@@ -192,12 +198,60 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         // About page
         if (currentPage === '/om-os') {
             return (
+                <div className="pt-20">
+                    <AboutContent />
+                </div>
+            );
+        }
+
+        // Grafisk Vejledning
+        if (currentPage === '/grafisk-vejledning') {
+            return (
+                <section className="pt-24 pb-16">
+                    <GrafiskVejledningContent />
+                </section>
+            );
+        }
+
+        // ... existing imports ...
+
+        // ... (in renderPageContent)
+
+        // Terms / Conditions pages
+        if (currentPage === '/vilkaar' || currentPage === '/betingelser') {
+            return (
+                <section className="pt-24 pb-16">
+                    <TermsContent />
+                </section>
+            );
+        }
+
+
+        // Privacy Policy
+        if (currentPage === '/privatliv') {
+            return (
                 <section className="py-16 pt-24">
                     <div className="container mx-auto px-4 max-w-3xl">
-                        <h1 className="text-3xl font-heading font-bold mb-8 text-center">Om os</h1>
+                        <h1 className="text-3xl font-heading font-bold mb-8 text-center">Privatlivspolitik</h1>
                         <div className="prose prose-lg mx-auto">
                             <p className="text-muted-foreground leading-relaxed">
-                                Vi har over 25 års erfaring med professionelt tryk og leverer høj kvalitet til konkurrencedygtige priser.
+                                Vi passer godt på dine data. Læs mere om hvordan vi indsamler og behandler personoplysninger.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+            );
+        }
+
+        // Cookie Policy
+        if (currentPage === '/cookies') {
+            return (
+                <section className="py-16 pt-24">
+                    <div className="container mx-auto px-4 max-w-3xl">
+                        <h1 className="text-3xl font-heading font-bold mb-8 text-center">Cookiepolitik</h1>
+                        <div className="prose prose-lg mx-auto">
+                            <p className="text-muted-foreground leading-relaxed">
+                                Information om brug af cookies på vores website.
                             </p>
                         </div>
                     </div>
@@ -211,14 +265,50 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
                 {/* Real Hero Slider - shows tenant hero images (now appears under the transparent header) */}
                 <HeroSlider />
 
-                {/* Tagline - MATCHES Shop.tsx */}
-                <section className="bg-secondary py-8">
-                    <div className="container mx-auto px-4 text-center">
-                        <h2 className="text-2xl md:text-3xl font-heading font-semibold text-foreground">
-                            Velkommen til danmarks billigste tryksager
-                        </h2>
-                    </div>
-                </section>
+                {/* Content Block Section - Dynamic from branding */}
+                {branding?.forside?.contentBlocks?.filter(block => block.enabled).map((block) => (
+                    <section key={block.id} className="bg-secondary py-8">
+                        <div className={`container mx-auto px-4 ${block.textAlign === 'center' ? 'text-center' : block.textAlign === 'right' ? 'text-right' : 'text-left'}`}>
+                            <div className={`flex flex-col ${block.imageUrl ? (block.imagePosition === 'right' ? 'md:flex-row' : 'md:flex-row-reverse') : ''} gap-8 items-center`}>
+                                {/* Text Content */}
+                                <div className={`flex-1 ${block.imageUrl ? '' : 'w-full'}`}>
+                                    {block.heading && (
+                                        <h2
+                                            className="text-2xl md:text-3xl font-semibold"
+                                            style={{
+                                                fontFamily: `'${block.headingFont || 'Poppins'}', sans-serif`,
+                                                color: block.headingColor || '#1F2937'
+                                            }}
+                                        >
+                                            {block.heading}
+                                        </h2>
+                                    )}
+                                    {block.text && (
+                                        <p
+                                            className="mt-4"
+                                            style={{
+                                                fontFamily: `'${block.textFont || 'Inter'}', sans-serif`,
+                                                color: block.textColor || '#4B5563'
+                                            }}
+                                        >
+                                            {block.text}
+                                        </p>
+                                    )}
+                                </div>
+                                {/* Optional Image */}
+                                {block.imageUrl && (
+                                    <div className="flex-1">
+                                        <img
+                                            src={block.imageUrl}
+                                            alt={block.heading || 'Content image'}
+                                            className="rounded-lg max-h-64 object-cover mx-auto"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </section>
+                ))}
 
                 {/* Products Section - MATCHES Shop.tsx */}
                 <section className="py-16" id="produkter">

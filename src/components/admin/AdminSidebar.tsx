@@ -1,7 +1,6 @@
 
 import { useState, useEffect } from "react";
 import { Package, Plus, FolderOpen, Globe, Search, ChevronDown, ChevronRight, Users, MessageCircle, ShoppingCart, Building2, Palette, CreditCard, Settings, LayoutGrid, UploadCloud, FileText } from "lucide-react";
-import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,11 +13,22 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
-  SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
+
+
+// Hard-coded admin sidebar styles - completely isolated from global branding
+const ADMIN_SIDEBAR_STYLES = {
+  // Colors - hard-coded, not from CSS variables
+  textDefault: '#1f2937',      // Black/dark gray for default text
+  textActive: '#0ea5e9',       // Blue for active/selected items
+  textMuted: '#6b7280',        // Muted gray for section headers
+  bgHover: 'rgba(0, 0, 0, 0.04)',  // Subtle hover background
+  bgActive: 'rgba(14, 165, 233, 0.08)', // Light blue background for active
+  bgSidebar: '#ffffff',        // White sidebar background
+  borderColor: '#e5e7eb',      // Light gray border
+} as const;
 
 interface DbProduct {
   id: string;
@@ -26,7 +36,37 @@ interface DbProduct {
   slug: string;
 }
 
-// ... existing imports ...
+// Custom AdminNavLink with hard-coded styles (isolated from global branding)
+import { NavLink as RouterNavLink, NavLinkProps } from 'react-router-dom';
+interface AdminNavLinkProps extends Omit<NavLinkProps, 'className' | 'style'> {
+  children: React.ReactNode;
+  isSubItem?: boolean;
+}
+
+function AdminNavLink({ children, isSubItem, ...props }: AdminNavLinkProps) {
+  return (
+    <RouterNavLink
+      {...props}
+      style={({ isActive }) => ({
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        padding: isSubItem ? '0.5rem 0.5rem 0.5rem 1.5rem' : '0.5rem',
+        borderRadius: '0.375rem',
+        fontSize: isSubItem ? '0.875rem' : '0.875rem',
+        fontWeight: isActive ? 500 : 400,
+        color: isActive ? ADMIN_SIDEBAR_STYLES.textActive : ADMIN_SIDEBAR_STYLES.textDefault,
+        backgroundColor: isActive ? ADMIN_SIDEBAR_STYLES.bgActive : 'transparent',
+        transition: 'all 0.15s ease-in-out',
+        textDecoration: 'none',
+      })}
+      className="admin-nav-link"
+    >
+      {children}
+    </RouterNavLink>
+  );
+}
+
 
 export function AdminSidebar() {
   const { state } = useSidebar();
@@ -181,370 +221,297 @@ export function AdminSidebar() {
   const isActive = (path: string) => currentPath === path;
   const collapsed = state === "collapsed";
 
+  // Scoped CSS for admin sidebar hover effects (isolated from global styles)
+  const scopedStyles = `
+    .admin-sidebar .admin-nav-link:hover {
+      background-color: ${ADMIN_SIDEBAR_STYLES.bgHover} !important;
+    }
+    .admin-sidebar .admin-nav-link:active {
+      transform: scale(0.98);
+    }
+    .admin-sidebar .admin-section-header {
+      color: ${ADMIN_SIDEBAR_STYLES.textDefault};
+      transition: background-color 0.15s ease;
+    }
+    .admin-sidebar .admin-section-header:hover {
+      background-color: ${ADMIN_SIDEBAR_STYLES.bgHover};
+    }
+  `;
+
   return (
-    <Sidebar
-      collapsible="icon"
-      className="border-0 bg-sidebar"
-    >
-      <SidebarContent className="pt-16">
-        {/* Dashboard Link - Top Level */}
-        <SidebarMenu className="px-2 pb-2">
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild isActive={isActive("/admin")}>
-              <NavLink to="/admin" end activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium">
-                <LayoutGrid className="h-4 w-4" />
+    <>
+      <style>{scopedStyles}</style>
+      <Sidebar
+        collapsible="icon"
+        className="admin-sidebar"
+        style={{
+          backgroundColor: ADMIN_SIDEBAR_STYLES.bgSidebar,
+          borderRight: `1px solid ${ADMIN_SIDEBAR_STYLES.borderColor}`,
+        }}
+      >
+        <SidebarContent className="pt-16 px-2">
+          {/* Dashboard Link - Top Level */}
+          <SidebarMenu className="pb-2">
+            <SidebarMenuItem>
+              <AdminNavLink to="/admin" end>
+                <LayoutGrid className="h-4 w-4" style={{ color: isActive("/admin") ? ADMIN_SIDEBAR_STYLES.textActive : ADMIN_SIDEBAR_STYLES.textDefault }} />
                 {!collapsed && <span>Dashboard</span>}
-              </NavLink>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+              </AdminNavLink>
+            </SidebarMenuItem>
+          </SidebarMenu>
 
-        {/* Products Section - Collapsible */}
-        <SidebarGroup>
-          <SidebarGroupLabel
-            className="flex items-center justify-between cursor-pointer hover:bg-muted/50 rounded-md px-2 py-2 text-sm font-medium"
-            onClick={() => setProductsOpen(!productsOpen)}
-          >
-            <div className="flex items-center gap-2">
-              <Package className="h-4 w-4" />
-              <span>Produkter</span>
-            </div>
-            {productsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          </SidebarGroupLabel>
-
-          {(productsOpen || collapsed) && (
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to="/admin/products"
-                      end
-                      className="hover:bg-muted/50"
-                      activeClassName="bg-muted text-primary font-medium"
-                    >
-                      <FolderOpen className="h-4 w-4" />
-                      {!collapsed && <span>Alle Produkter</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to="/admin/create-product"
-                      className="hover:bg-muted/50"
-                      activeClassName="bg-muted text-primary font-medium"
-                    >
-                      <Plus className="h-4 w-4" />
-                      {!collapsed && <span>Opret Produkt</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-
-                {products.map((product) => (
-                  <SidebarMenuItem key={product.id}>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to={`/admin/product/${product.slug}`}
-                        className="hover:bg-muted/50 pl-6 text-sm"
-                        activeClassName="bg-muted text-primary font-medium"
-                      >
-                        <Package className="h-3 w-3" />
-                        {!collapsed && <span>{product.name}</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          )}
-        </SidebarGroup>
-
-        {/* Marketing Section - Collapsible */}
-        <SidebarGroup>
-          <SidebarGroupLabel
-            className="flex items-center justify-between cursor-pointer hover:bg-muted/50 rounded-md px-2 py-2 text-sm font-medium"
-            onClick={() => setMarketingOpen(!marketingOpen)}
-          >
-            <div className="flex items-center gap-2">
-              <Globe className="h-4 w-4" />
-              <span>Marketing</span>
-            </div>
-            {marketingOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          </SidebarGroupLabel>
-
-          {(marketingOpen || collapsed) && (
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to="/admin/seo"
-                      className="hover:bg-muted/50"
-                      activeClassName="bg-muted text-primary font-medium"
-                    >
-                      <Search className="h-4 w-4" />
-                      {!collapsed && <span>SEO Manager</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          )}
-        </SidebarGroup>
-
-        {/* Kunder Section - Collapsible */}
-        <SidebarGroup>
-          <SidebarGroupLabel
-            className="flex items-center justify-between cursor-pointer hover:bg-muted/50 rounded-md px-2 py-2 text-sm font-medium"
-            onClick={() => setKunderOpen(!kunderOpen)}
-          >
-            <div className="flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              <span>Kunder</span>
-              {unreadMessageCount > 0 && (
-                <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
-                  {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
-                </span>
-              )}
-            </div>
-            {kunderOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          </SidebarGroupLabel>
-
-          {(kunderOpen || collapsed) && (
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to="/admin/kunder"
-                      className="hover:bg-muted/50"
-                      activeClassName="bg-muted text-primary font-medium"
-                    >
-                      <ShoppingCart className="h-4 w-4" />
-                      {!collapsed && <span>Ordrer</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to="/admin/beskeder"
-                      className="hover:bg-muted/50 relative"
-                      activeClassName="bg-muted text-primary font-medium"
-                    >
-                      <div className={`flex items-center justify-center w-6 h-6 rounded-full transition-colors ${unreadMessageCount > 0 ? 'bg-green-500 text-white' : ''}`}>
-                        <MessageCircle className="h-4 w-4" />
-                      </div>
-                      {!collapsed && <span>Beskeder</span>}
-                      {unreadMessageCount > 0 && (
-                        <span className="absolute right-2 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
-                          {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
-                        </span>
-                      )}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          )}
-        </SidebarGroup>
-
-        {/* Min Konto Section - Collapsible */}
-        <SidebarGroup>
-          <SidebarGroupLabel
-            className="flex items-center justify-between cursor-pointer hover:bg-muted/50 rounded-md px-2 py-2 text-sm font-medium"
-            onClick={() => setMinKontoOpen(!minKontoOpen)}
-          >
-            <div className="flex items-center gap-2">
-              <Building2 className="h-4 w-4" />
-              <span>Min Konto</span>
-            </div>
-            {minKontoOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          </SidebarGroupLabel>
-
-          {(minKontoOpen || collapsed) && (
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to="/admin/domaene"
-                      className="hover:bg-muted/50"
-                      activeClassName="bg-muted text-primary font-medium"
-                    >
-                      <Globe className="h-4 w-4" />
-                      {!collapsed && <span>Domæne</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to="/admin/branding"
-                      className="hover:bg-muted/50"
-                      activeClassName="bg-muted text-primary font-medium"
-                    >
-                      <Palette className="h-4 w-4" />
-                      {!collapsed && <span>Site Design</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to="/admin/skabeloner"
-                      className="hover:bg-muted/50"
-                      activeClassName="bg-muted text-primary font-medium"
-                    >
-                      <FileText className="h-4 w-4" />
-                      {!collapsed && <span>Skabeloner</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                {!isMasterAdmin && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to="/admin/abonnement"
-                        className="hover:bg-muted/50"
-                        activeClassName="bg-muted text-primary font-medium"
-                      >
-                        <CreditCard className="h-4 w-4" />
-                        {!collapsed && <span>Abonnement</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to="/admin/indstillinger"
-                      className="hover:bg-muted/50"
-                      activeClassName="bg-muted text-primary font-medium"
-                    >
-                      <Settings className="h-4 w-4" />
-                      {!collapsed && <span>Indstillinger</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          )}
-        </SidebarGroup>
-
-        {/* Platform Section - Only visible to Master Admin */}
-        {isMasterAdmin ? (
+          {/* Products Section - Collapsible */}
           <SidebarGroup>
             <SidebarGroupLabel
-              className="flex items-center justify-between cursor-pointer hover:bg-muted/50 rounded-md px-2 py-2 text-sm font-medium"
-              onClick={() => setPlatformOpen(!platformOpen)}
+              className="admin-section-header flex items-center justify-between cursor-pointer rounded-md px-2 py-2 text-sm font-medium"
+              style={{ color: ADMIN_SIDEBAR_STYLES.textDefault }}
+              onClick={() => setProductsOpen(!productsOpen)}
             >
               <div className="flex items-center gap-2">
-                <LayoutGrid className="h-4 w-4" />
-                <span>Platform</span>
+                <Package className="h-4 w-4" />
+                <span>Produkter</span>
               </div>
-              {platformOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              {productsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             </SidebarGroupLabel>
 
-            {(platformOpen || collapsed) && (
+            {(productsOpen || collapsed) && (
               <SidebarGroupContent>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to="/admin/tenants"
-                        className="hover:bg-muted/50"
-                        activeClassName="bg-muted text-primary font-medium"
-                      >
-                        <Users className="h-4 w-4" />
-                        {!collapsed && <span>Lejere</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
+                    <AdminNavLink to="/admin/products" end>
+                      <FolderOpen className="h-4 w-4" />
+                      {!collapsed && <span>Alle Produkter</span>}
+                    </AdminNavLink>
                   </SidebarMenuItem>
+
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to="/admin/resources"
-                        className="hover:bg-muted/50"
-                        activeClassName="bg-muted text-primary font-medium"
-                      >
-                        <FolderOpen className="h-4 w-4" />
-                        {!collapsed && <span>Ressourcer</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
+                    <AdminNavLink to="/admin/create-product">
+                      <Plus className="h-4 w-4" />
+                      {!collapsed && <span>Opret Produkt</span>}
+                    </AdminNavLink>
                   </SidebarMenuItem>
+
+                  {products.map((product) => (
+                    <SidebarMenuItem key={product.id}>
+                      <AdminNavLink to={`/admin/product/${product.slug}`} isSubItem>
+                        <Package className="h-3 w-3" />
+                        {!collapsed && <span>{product.name}</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            )}
+          </SidebarGroup>
+
+          {/* Marketing Section - Collapsible */}
+          <SidebarGroup>
+            <SidebarGroupLabel
+              className="admin-section-header flex items-center justify-between cursor-pointer rounded-md px-2 py-2 text-sm font-medium"
+              style={{ color: ADMIN_SIDEBAR_STYLES.textDefault }}
+              onClick={() => setMarketingOpen(!marketingOpen)}
+            >
+              <div className="flex items-center gap-2">
+                <Globe className="h-4 w-4" />
+                <span>Marketing</span>
+              </div>
+              {marketingOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </SidebarGroupLabel>
+
+            {(marketingOpen || collapsed) && (
+              <SidebarGroupContent>
+                <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to="/admin/branding-template"
-                        className="hover:bg-muted/50"
-                        activeClassName="bg-muted text-primary font-medium"
-                      >
-                        <Palette className="h-4 w-4" />
-                        {!collapsed && <span>Site Design Skabelon</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to="/admin/updates"
-                        className="hover:bg-muted/50"
-                        activeClassName="bg-muted text-primary font-medium"
-                      >
-                        <UploadCloud className="h-4 w-4" />
-                        {!collapsed && <span>System Updates</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to="/admin/master-skabeloner"
-                        className="hover:bg-muted/50"
-                        activeClassName="bg-muted text-primary font-medium"
-                      >
-                        <FileText className="h-4 w-4" />
-                        {!collapsed && <span>Skabeloner</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
+                    <AdminNavLink to="/admin/seo">
+                      <Search className="h-4 w-4" />
+                      {!collapsed && <span>SEO Manager</span>}
+                    </AdminNavLink>
                   </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarGroupContent>
             )}
           </SidebarGroup>
-        ) : (
-          /* Tenant Updates - Only visible to Tenants */
+
+          {/* Kunder Section - Collapsible */}
           <SidebarGroup>
-            <SidebarGroupLabel className="px-2 py-2 text-sm font-medium">
-              System
+            <SidebarGroupLabel
+              className="admin-section-header flex items-center justify-between cursor-pointer rounded-md px-2 py-2 text-sm font-medium"
+              style={{ color: ADMIN_SIDEBAR_STYLES.textDefault }}
+              onClick={() => setKunderOpen(!kunderOpen)}
+            >
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                <span>Kunder</span>
+                {unreadMessageCount > 0 && (
+                  <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
+                    {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
+                  </span>
+                )}
+              </div>
+              {kunderOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to="/admin/tenant-updates"
-                      className="hover:bg-muted/50 relative pr-6"
-                      activeClassName="bg-muted text-primary font-medium"
-                    >
+
+            {(kunderOpen || collapsed) && (
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/kunder">
+                      <ShoppingCart className="h-4 w-4" />
+                      {!collapsed && <span>Ordrer</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/beskeder">
+                      <div className={`flex items-center justify-center w-6 h-6 rounded-full transition-colors ${unreadMessageCount > 0 ? 'bg-green-500 text-white' : ''}`}>
+                        <MessageCircle className="h-4 w-4" />
+                      </div>
+                      {!collapsed && <span>Beskeder</span>}
+                      {unreadMessageCount > 0 && (
+                        <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
+                          {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
+                        </span>
+                      )}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            )}
+          </SidebarGroup>
+
+          {/* Min Konto Section - Collapsible */}
+          <SidebarGroup>
+            <SidebarGroupLabel
+              className="admin-section-header flex items-center justify-between cursor-pointer rounded-md px-2 py-2 text-sm font-medium"
+              style={{ color: ADMIN_SIDEBAR_STYLES.textDefault }}
+              onClick={() => setMinKontoOpen(!minKontoOpen)}
+            >
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4" />
+                <span>Min Konto</span>
+              </div>
+              {minKontoOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </SidebarGroupLabel>
+
+            {(minKontoOpen || collapsed) && (
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/domaene">
+                      <Globe className="h-4 w-4" />
+                      {!collapsed && <span>Domæne</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/branding">
+                      <Palette className="h-4 w-4" />
+                      {!collapsed && <span>Site Design</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/skabeloner">
+                      <FileText className="h-4 w-4" />
+                      {!collapsed && <span>Skabeloner</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+                  {!isMasterAdmin && (
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/abonnement">
+                        <CreditCard className="h-4 w-4" />
+                        {!collapsed && <span>Abonnement</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                  )}
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/indstillinger">
+                      <Settings className="h-4 w-4" />
+                      {!collapsed && <span>Indstillinger</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            )}
+          </SidebarGroup>
+
+          {/* Platform Section - Only visible to Master Admin */}
+          {isMasterAdmin ? (
+            <SidebarGroup>
+              <SidebarGroupLabel
+                className="admin-section-header flex items-center justify-between cursor-pointer rounded-md px-2 py-2 text-sm font-medium"
+                style={{ color: ADMIN_SIDEBAR_STYLES.textDefault }}
+                onClick={() => setPlatformOpen(!platformOpen)}
+              >
+                <div className="flex items-center gap-2">
+                  <LayoutGrid className="h-4 w-4" />
+                  <span>Platform</span>
+                </div>
+                {platformOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </SidebarGroupLabel>
+
+              {(platformOpen || collapsed) && (
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/tenants">
+                        <Users className="h-4 w-4" />
+                        {!collapsed && <span>Lejere</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/resources">
+                        <FolderOpen className="h-4 w-4" />
+                        {!collapsed && <span>Ressourcer</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/branding-template">
+                        <Palette className="h-4 w-4" />
+                        {!collapsed && <span>Site Design Skabelon</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/updates">
+                        <UploadCloud className="h-4 w-4" />
+                        {!collapsed && <span>System Updates</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/master-skabeloner">
+                        <FileText className="h-4 w-4" />
+                        {!collapsed && <span>Skabeloner</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              )}
+            </SidebarGroup>
+          ) : (
+            /* Tenant Updates - Only visible to Tenants */
+            <SidebarGroup>
+              <SidebarGroupLabel
+                className="admin-section-header px-2 py-2 text-sm font-medium"
+                style={{ color: ADMIN_SIDEBAR_STYLES.textDefault }}
+              >
+                System
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/tenant-updates">
                       <UploadCloud className="h-4 w-4" />
                       {!collapsed && <span>System Opdateringer</span>}
                       {unreadSystemCount > 0 && (
-                        <span className="absolute right-2 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
+                        <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
                           {unreadSystemCount > 9 ? '9+' : unreadSystemCount}
                         </span>
                       )}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
-      </SidebarContent>
-    </Sidebar >
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
+        </SidebarContent>
+      </Sidebar>
+    </>
   );
 }

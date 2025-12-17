@@ -1685,6 +1685,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                             <Label className="text-xs">Tekst farve</Label>
                                                             <div className="flex items-center gap-2">
                                                                 <ColorPickerWithSwatches
+                                                                    label=""
                                                                     value={button.textColor || '#FFFFFF'}
                                                                     onChange={(color) => {
                                                                         const newImages = [...heroImages];
@@ -1693,19 +1694,9 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                                         newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
                                                                         updateHero({ images: newImages });
                                                                     }}
-                                                                    compact={true}
-                                                                    showFullSwatches={false}
-                                                                />
-                                                                <Input
-                                                                    value={button.textColor || '#FFFFFF'}
-                                                                    onChange={(e) => {
-                                                                        const newImages = [...heroImages];
-                                                                        const btns = [...(newImages[selectedBannerIndex].buttons || [])];
-                                                                        btns[btnIndex] = { ...btns[btnIndex], textColor: e.target.value };
-                                                                        newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
-                                                                        updateHero({ images: newImages });
-                                                                    }}
-                                                                    className="font-mono text-xs flex-1"
+                                                                    savedSwatches={savedSwatches}
+                                                                    onSaveSwatch={onSaveSwatch}
+                                                                    onRemoveSwatch={onRemoveSwatch}
                                                                 />
                                                             </div>
                                                         </div>
@@ -1713,6 +1704,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                             <Label className="text-xs">Baggrund farve</Label>
                                                             <div className="flex items-center gap-2">
                                                                 <ColorPickerWithSwatches
+                                                                    label=""
                                                                     value={button.bgColor || '#0EA5E9'}
                                                                     onChange={(color) => {
                                                                         const newImages = [...heroImages];
@@ -1721,19 +1713,28 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                                         newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
                                                                         updateHero({ images: newImages });
                                                                     }}
-                                                                    compact={true}
-                                                                    showFullSwatches={false}
+                                                                    savedSwatches={savedSwatches}
+                                                                    onSaveSwatch={onSaveSwatch}
+                                                                    onRemoveSwatch={onRemoveSwatch}
                                                                 />
-                                                                <Input
-                                                                    value={button.bgColor || '#0EA5E9'}
-                                                                    onChange={(e) => {
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <Label className="text-xs">Hover farve</Label>
+                                                            <div className="flex items-center gap-2">
+                                                                <ColorPickerWithSwatches
+                                                                    label=""
+                                                                    value={button.bgHoverColor || '#0284C7'}
+                                                                    onChange={(color) => {
                                                                         const newImages = [...heroImages];
                                                                         const btns = [...(newImages[selectedBannerIndex].buttons || [])];
-                                                                        btns[btnIndex] = { ...btns[btnIndex], bgColor: e.target.value };
+                                                                        btns[btnIndex] = { ...btns[btnIndex], bgHoverColor: color };
                                                                         newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
                                                                         updateHero({ images: newImages });
                                                                     }}
-                                                                    className="font-mono text-xs flex-1"
+                                                                    savedSwatches={savedSwatches}
+                                                                    onSaveSwatch={onSaveSwatch}
+                                                                    onRemoveSwatch={onRemoveSwatch}
                                                                 />
                                                             </div>
                                                         </div>

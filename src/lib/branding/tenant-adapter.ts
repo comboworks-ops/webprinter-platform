@@ -11,6 +11,7 @@ import {
     type BrandingStorageAdapter,
     type BrandingData,
     type BrandingHistoryEntry,
+    type SavedDesign,
     DEFAULT_BRANDING,
     mergeBrandingWithDefaults,
 } from './types';
@@ -163,7 +164,7 @@ export function createTenantAdapter(
         },
 
         async resetToDefault(): Promise<BrandingData> {
-            // Get current settings to preserve history
+            // Get current settings to preserve history and auto-save current state
             const { data: current, error: fetchError } = await supabase
                 .from('tenants' as any)
                 .select('settings')
@@ -174,13 +175,45 @@ export function createTenantAdapter(
 
             const currentSettings = (current as any)?.settings || {};
             const currentBranding = currentSettings.branding || {};
+            const currentDraft = currentBranding.draft || currentBranding.published || {};
+
+            // Auto-save current state before reset
+            const savedDesigns = currentBranding.savedDesigns || [];
+            const autoSaveEntry: SavedDesign = {
+                id: `auto-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                name: `Auto-gem før nulstil (${new Date().toLocaleDateString('da-DK')})`,
+                data: mergeBrandingWithDefaults(currentDraft),
+                createdAt: new Date().toISOString(),
+                isAutoSave: true,
+            };
+
+            // Attempt to fetch Master Tenant branding to use as default
+            let newDefault = DEFAULT_BRANDING;
+            try {
+                const { data: masterTenant } = await supabase
+                    .from('tenants' as any)
+                    .select('settings')
+                    .eq('id', '00000000-0000-0000-0000-000000000000') // Master ID
+                    .maybeSingle();
+
+                if (masterTenant?.settings?.branding?.published) {
+                    newDefault = mergeBrandingWithDefaults(masterTenant.settings.branding.published);
+                } else if (masterTenant?.settings?.branding) {
+                    // Legacy master format
+                    newDefault = mergeBrandingWithDefaults(masterTenant.settings.branding);
+                }
+            } catch (e) {
+                console.warn('Could not fetch master branding, using built-in defaults:', e);
+            }
 
             const newSettings = {
                 ...currentSettings,
                 branding: {
                     ...currentBranding,
-                    published: DEFAULT_BRANDING,
-                    draft: DEFAULT_BRANDING,
+                    published: newDefault,
+                    draft: newDefault,
+                    savedDesigns: [autoSaveEntry, ...savedDesigns].slice(0, 20), // Keep last 20
+                    history: currentBranding.history || [], // Preserve history
                 }
             };
 
@@ -191,7 +224,7 @@ export function createTenantAdapter(
 
             if (error) throw error;
 
-            return DEFAULT_BRANDING;
+            return newDefault;
         },
 
         async loadHistory(): Promise<BrandingHistoryEntry[]> {
@@ -218,6 +251,101 @@ export function createTenantAdapter(
 
             await this.saveDraft(version.data);
             return version.data;
+        },
+
+        // Saved Designs methods
+
+        async saveDesign(name: string, data: BrandingData, isAutoSave?: boolean): Promise<SavedDesign> {
+            const { data: current, error: fetchError } = await supabase
+                .from('tenants' as any)
+                .select('settings')
+                .eq('id', tenantId)
+                .single();
+
+            if (fetchError) throw fetchError;
+
+            const currentSettings = (current as any)?.settings || {};
+            const currentBranding = currentSettings.branding || {};
+            const savedDesigns = currentBranding.savedDesigns || [];
+
+            const newDesign: SavedDesign = {
+                id: `design-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                name: name || `Design ${new Date().toLocaleDateString('da-DK')}`,
+                data: data,
+                createdAt: new Date().toISOString(),
+                isAutoSave: isAutoSave || false,
+            };
+
+            const newSettings = {
+                ...currentSettings,
+                branding: {
+                    ...currentBranding,
+                    savedDesigns: [newDesign, ...savedDesigns].slice(0, 20), // Keep last 20
+                }
+            };
+
+            const { error } = await supabase
+                .from('tenants' as any)
+                .update({ settings: newSettings })
+                .eq('id', tenantId);
+
+            if (error) throw error;
+
+            return newDesign;
+        },
+
+        async loadSavedDesigns(): Promise<SavedDesign[]> {
+            const { data, error } = await supabase
+                .from('tenants' as any)
+                .select('settings')
+                .eq('id', tenantId)
+                .single();
+
+            if (error) throw error;
+
+            const settings = (data as any)?.settings || {};
+            const branding = settings.branding || {};
+            return branding.savedDesigns || [];
+        },
+
+        async loadSavedDesign(id: string): Promise<BrandingData> {
+            const savedDesigns = await this.loadSavedDesigns();
+            const design = savedDesigns.find(d => d.id === id);
+
+            if (!design) {
+                throw new Error('Design not found');
+            }
+
+            return design.data;
+        },
+
+        async deleteSavedDesign(id: string): Promise<void> {
+            const { data: current, error: fetchError } = await supabase
+                .from('tenants' as any)
+                .select('settings')
+                .eq('id', tenantId)
+                .single();
+
+            if (fetchError) throw fetchError;
+
+            const currentSettings = (current as any)?.settings || {};
+            const currentBranding = currentSettings.branding || {};
+            const savedDesigns = (currentBranding.savedDesigns || []).filter((d: SavedDesign) => d.id !== id);
+
+            const newSettings = {
+                ...currentSettings,
+                branding: {
+                    ...currentBranding,
+                    savedDesigns,
+                }
+            };
+
+            const { error } = await supabase
+                .from('tenants' as any)
+                .update({ settings: newSettings })
+                .eq('id', tenantId);
+
+            if (error) throw error;
         },
 
         async uploadAsset(file: File, type: 'logo' | 'hero-image' | 'hero-video'): Promise<string> {

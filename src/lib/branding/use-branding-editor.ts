@@ -13,6 +13,7 @@ import {
     type BrandingHistoryEntry,
     type BrandingCapabilities,
     type BrandingMode,
+    type SavedDesign,
     DEFAULT_BRANDING,
     brandingEquals,
     mergeBrandingWithDefaults,
@@ -46,10 +47,17 @@ export interface UseBrandingEditorReturn {
     publish: (label?: string) => Promise<void>;
     resetToDefault: () => Promise<void>;
 
-    // History
+    // History (published versions)
     history: BrandingHistoryEntry[];
     loadHistory: () => Promise<void>;
     restoreVersion: (versionId: string) => Promise<void>;
+
+    // Saved Designs (user-named snapshots)
+    savedDesigns: SavedDesign[];
+    loadSavedDesigns: () => Promise<void>;
+    saveDesign: (name?: string) => Promise<void>;
+    loadDesign: (id: string) => Promise<void>;
+    deleteSavedDesign: (id: string) => Promise<void>;
 
     // Asset operations
     uploadAsset: (file: File, type: 'logo' | 'hero-image' | 'hero-video') => Promise<string>;
@@ -66,6 +74,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
     const [published, setPublished] = useState<BrandingData>(DEFAULT_BRANDING);
     const [originalDraft, setOriginalDraft] = useState<BrandingData>(DEFAULT_BRANDING);
     const [history, setHistory] = useState<BrandingHistoryEntry[]>([]);
+    const [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
 
@@ -75,9 +84,10 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
     const loadData = useCallback(async () => {
         setIsLoading(true);
         try {
-            const [draftData, publishedData] = await Promise.all([
+            const [draftData, publishedData, savedDesignsData] = await Promise.all([
                 adapter.loadDraft(),
                 adapter.loadPublished(),
+                adapter.loadSavedDesigns(),
             ]);
 
             const mergedDraft = mergeBrandingWithDefaults(draftData);
@@ -86,6 +96,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             setDraft(mergedDraft);
             setPublished(mergedPublished);
             setOriginalDraft(mergedDraft);
+            setSavedDesigns(savedDesignsData);
         } catch (error) {
             console.error('Error loading branding data:', error);
             toast.error('Kunne ikke indlæse branding data');
@@ -251,6 +262,74 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         }
     }, [adapter]);
 
+    // Load saved designs
+    const loadSavedDesigns = useCallback(async () => {
+        try {
+            const designs = await adapter.loadSavedDesigns();
+            setSavedDesigns(designs);
+        } catch (error) {
+            console.error('Error loading saved designs:', error);
+        }
+    }, [adapter]);
+
+    // Save design (user-named)
+    const saveDesign = useCallback(async (name?: string) => {
+        setIsSaving(true);
+        try {
+            // If name provided, save as new design
+            if (name) {
+                await adapter.saveDesign(name, draft);
+                toast.success('Design gemt');
+                await loadSavedDesigns(); // Refresh list
+            } else {
+                // If no name, just save current draft state (standard save)
+                await adapter.saveDraft(draft);
+                setOriginalDraft(draft);
+                toast.success('Kladde gemt');
+            }
+        } catch (error) {
+            console.error('Error saving design:', error);
+            toast.error('Kunne ikke gemme');
+            throw error;
+        } finally {
+            setIsSaving(false);
+        }
+    }, [adapter, draft, loadSavedDesigns]);
+
+    // Load saved design
+    const loadDesign = useCallback(async (id: string) => {
+        setIsSaving(true);
+        try {
+            const designData = await adapter.loadSavedDesign(id);
+            const merged = mergeBrandingWithDefaults(designData);
+            setDraft(merged);
+            setOriginalDraft(merged); // Treat loaded design as new baseline
+            toast.success('Design indlæst');
+        } catch (error) {
+            console.error('Error loading design:', error);
+            toast.error('Kunne ikke indlæse design');
+            throw error;
+        } finally {
+            setIsSaving(false);
+        }
+    }, [adapter]);
+
+    // Delete saved design
+    const deleteSavedDesign = useCallback(async (id: string) => {
+        setIsSaving(true);
+        try {
+            await adapter.deleteSavedDesign(id);
+            await loadSavedDesigns();
+            toast.success('Design slettet');
+        } catch (error) {
+            console.error('Error deleting design:', error);
+            toast.error('Kunne ikke slette design');
+            throw error;
+        } finally {
+            setIsSaving(false);
+        }
+    }, [adapter, loadSavedDesigns]);
+
     // Upload asset
     const uploadAsset = useCallback(async (
         file: File,
@@ -291,6 +370,13 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         history,
         loadHistory,
         restoreVersion,
+
+        // Saved Designs
+        savedDesigns,
+        loadSavedDesigns,
+        saveDesign,
+        loadDesign,
+        deleteSavedDesign,
 
         // Asset operations
         uploadAsset,

@@ -32,6 +32,15 @@ Dev server runs at: `http://localhost:8080`
 - **Banner Selector:** Added a dropdown selector directly in the Animation section for easy switching.
 - **Defaults:** New banners default to "Slide Up" animation and include a standard "Se produkter" button.
 
+### 4. Indholdsblokke (Content Blocks)
+Implemented dynamic content sections below the banner:
+- **Location:** Appears between Banner and Product Grid on front page.
+- **Fields:** H2 Heading, Body Text, Optional Image.
+- **Alignment:** Text alignment (left/center/right), Image position (left/right).
+- **Toggle:** Each block has an `enabled` toggle.
+- **Default:** "Velkommen til Danmarks Billigste tryksager" with center alignment.
+- **Limit:** Up to 4 content blocks allowed.
+
 ---
 
 ## 🎨 Branding System Architecture

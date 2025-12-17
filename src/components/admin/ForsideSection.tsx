@@ -402,7 +402,7 @@ export function ForsideSection({
                 title="Indholdsblokke"
                 description="Tilføj sektioner med billede og tekst (maks 4)"
                 icon={<Layout className="h-4 w-4" />}
-                defaultOpen={true}
+                defaultOpen={false}
             >
                 <div className="space-y-4">
                     {contentBlocks.map((block, index) => (
@@ -449,7 +449,26 @@ export function ForsideSection({
                             <CardContent className={cn("space-y-4", !block.enabled && "opacity-50")}>
                                 {/* Heading */}
                                 <div className="space-y-2">
-                                    <Label>Overskrift (H2)</Label>
+                                    <div className="flex items-center justify-between gap-4">
+                                        <Label>Overskrift (H2)</Label>
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-56">
+                                                <FontSelector
+                                                    label=""
+                                                    value={block.headingFont || 'Poppins'}
+                                                    onChange={(v) => updateBlock(block.id, { headingFont: v })}
+                                                />
+                                            </div>
+                                            <ColorPickerWithSwatches
+                                                label=""
+                                                value={block.headingColor || '#1F2937'}
+                                                onChange={(color) => updateBlock(block.id, { headingColor: color })}
+                                                savedSwatches={savedSwatches}
+                                                onSaveSwatch={onSaveSwatch}
+                                                onRemoveSwatch={onRemoveSwatch}
+                                            />
+                                        </div>
+                                    </div>
                                     <Input
                                         placeholder="Indtast overskrift..."
                                         value={block.heading || ''}
@@ -460,7 +479,26 @@ export function ForsideSection({
 
                                 {/* Text */}
                                 <div className="space-y-2">
-                                    <Label>Tekst</Label>
+                                    <div className="flex items-center justify-between gap-4">
+                                        <Label>Tekst</Label>
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-56">
+                                                <FontSelector
+                                                    label=""
+                                                    value={block.textFont || 'Inter'}
+                                                    onChange={(v) => updateBlock(block.id, { textFont: v })}
+                                                />
+                                            </div>
+                                            <ColorPickerWithSwatches
+                                                label=""
+                                                value={block.textColor || '#4B5563'}
+                                                onChange={(color) => updateBlock(block.id, { textColor: color })}
+                                                savedSwatches={savedSwatches}
+                                                onSaveSwatch={onSaveSwatch}
+                                                onRemoveSwatch={onRemoveSwatch}
+                                            />
+                                        </div>
+                                    </div>
                                     <Textarea
                                         placeholder="Indtast brødtekst..."
                                         value={block.text || ''}

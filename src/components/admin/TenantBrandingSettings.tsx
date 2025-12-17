@@ -31,13 +31,13 @@ export function TenantBrandingSettings() {
 
                 const { data: tenant } = await (supabase
                     .from('tenants') as any)
-                    .select('id, shop_name')
+                    .select('id, name')
                     .eq('owner_id', user.id)
-                    .single();
+                    .maybeSingle();
 
                 if (tenant) {
                     setTenantId(tenant.id);
-                    setTenantName(tenant.shop_name || 'Min Shop');
+                    setTenantName(tenant.name || 'Min Shop');
                 }
             } catch (error) {
                 console.error('Error loading tenant:', error);

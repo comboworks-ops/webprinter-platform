@@ -85,7 +85,7 @@ export default function Admin() {
                 <Route path="/beskeder" element={<AdminMessages />} />
                 {/* Min Konto routes */}
                 <Route path="/domaene" element={<DomainSettings />} />
-                <Route path="/branding" element={<BrandingSettings />} />
+                <Route path="/branding" element={<TenantBrandingSettings />} />
                 <Route path="/abonnement" element={<SubscriptionSettings />} />
                 <Route path="/indstillinger" element={<ShopSettings />} />
                 {/* Platform Admin Routes */}

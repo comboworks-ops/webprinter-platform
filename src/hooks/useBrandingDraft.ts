@@ -35,6 +35,8 @@ export interface HeroButton {
     textColor?: string;
     /** Custom background color for the button */
     bgColor?: string;
+    /** Custom hover background color for the button */
+    bgHoverColor?: string;
     /** Background opacity (0-1) */
     bgOpacity?: number;
 }
@@ -287,6 +289,8 @@ export interface HeaderSettings {
     bgColor: string;
     bgOpacity: number;
     textColor: string;              // Navigation text color
+    hoverTextColor: string;         // Navigation hover text color
+    activeTextColor: string;        // Navigation active/pressed text color
     autoContrastText: boolean;      // Auto-adjust text color for contrast
     transparentOverHero: boolean;
     style: HeaderStyleType;
@@ -296,6 +300,7 @@ export interface HeaderSettings {
     // Dropdown styling
     dropdownBgColor: string;        // Dropdown background color
     dropdownBgOpacity: number;      // Dropdown background opacity (0-1)
+    dropdownHoverColor?: string;    // Dropdown hover color
     dropdownShowBorder: boolean;    // Show border and shadow on dropdown
 
     // Category headers (Tryksager, Storformat, etc.)
@@ -354,6 +359,8 @@ const DEFAULT_HEADER: HeaderSettings = {
     bgColor: '#FFFFFF',
     bgOpacity: 0.95,
     textColor: '#1F2937',
+    hoverTextColor: '#0EA5E9',     // Primary blue for hover
+    activeTextColor: '#0284C7',    // Darker blue for active/pressed
     autoContrastText: true,
     transparentOverHero: true,
     style: 'solid',
@@ -361,6 +368,7 @@ const DEFAULT_HEADER: HeaderSettings = {
     alignment: 'left',
     dropdownBgColor: '#FFFFFF',
     dropdownBgOpacity: 0.95,
+    dropdownHoverColor: '#F3F4F6', // Light gray hover
     dropdownShowBorder: true,
     dropdownCategoryFontId: 'Inter',
     dropdownCategoryColor: '#6B7280',  // Slightly muted for category headers
@@ -454,7 +462,11 @@ export interface ContentBlock {
     id: string;
     enabled: boolean;
     heading?: string;           // Renders as H2 for SEO
+    headingFont?: string;       // Font for heading
+    headingColor?: string;      // Color for heading
     text?: string;              // Renders as paragraph
+    textFont?: string;          // Font for body text
+    textColor?: string;         // Color for body text
     imageUrl?: string;
     imagePosition: 'left' | 'right';
     textAlign: 'left' | 'center' | 'right';
@@ -470,11 +482,15 @@ export interface ForsideSettings {
 const DEFAULT_CONTENT_BLOCK: ContentBlock = {
     id: 'block-1',
     enabled: true,
-    heading: 'Velkommen til vores butik',
-    text: 'Vi tilbyder professionelt tryk og hurtig levering til hele Danmark.',
+    heading: 'Velkommen til Danmarks Billigste tryksager',
+    headingFont: 'Poppins',
+    headingColor: '#1F2937',
+    text: '',
+    textFont: 'Inter',
+    textColor: '#4B5563',
     imageUrl: undefined,
     imagePosition: 'left',
-    textAlign: 'left',
+    textAlign: 'center',
 };
 
 // Default forside settings

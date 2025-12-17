@@ -91,6 +91,22 @@ export interface BrandingHistoryEntry {
 }
 
 // =============================================================================
+// SAVED DESIGN (User-named snapshots)
+// =============================================================================
+
+/**
+ * A saved design snapshot with a user-provided name.
+ * Separate from publish history - these are explicit saves by the user.
+ */
+export interface SavedDesign {
+    id: string;
+    name: string;           // User-provided name (e.g., "Sommer kampagne")
+    data: BrandingData;
+    createdAt: string;
+    isAutoSave?: boolean;   // True for auto-saves (e.g., before reset)
+}
+
+// =============================================================================
 // STORAGE ADAPTER INTERFACE
 // =============================================================================
 
@@ -125,16 +141,30 @@ export interface BrandingStorageAdapter {
     /** Discard draft, revert to published */
     discardDraft(): Promise<BrandingData>;
 
-    /** Reset to platform default */
+    /** Reset to platform default (auto-saves current state first) */
     resetToDefault(): Promise<BrandingData>;
 
-    // History
+    // History (published versions)
 
     /** Load version history */
     loadHistory(): Promise<BrandingHistoryEntry[]>;
 
     /** Restore a specific version */
     restoreVersion(versionId: string): Promise<BrandingData>;
+
+    // Saved Designs (user-named snapshots)
+
+    /** Save current draft as a named design */
+    saveDesign(name: string, data: BrandingData, isAutoSave?: boolean): Promise<SavedDesign>;
+
+    /** Load all saved designs */
+    loadSavedDesigns(): Promise<SavedDesign[]>;
+
+    /** Load a specific saved design */
+    loadSavedDesign(id: string): Promise<BrandingData>;
+
+    /** Delete a saved design */
+    deleteSavedDesign(id: string): Promise<void>;
 
     // Asset management
 

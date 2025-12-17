@@ -23,6 +23,7 @@ export {
     type BrandingMode,
     type BrandingStorageAdapter,
     type BrandingHistoryEntry,
+    type SavedDesign,
     type BrandingCapabilities,
     type BrandingEditorContext,
     type HeroSettings,

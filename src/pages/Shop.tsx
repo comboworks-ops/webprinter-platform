@@ -4,8 +4,11 @@ import HeroSlider from "@/components/HeroSlider";
 import ProductGrid from "@/components/ProductGrid";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Truck, Award, Phone } from "lucide-react";
+import { useShopSettings } from "@/hooks/useShopSettings";
 
 const Shop = () => {
+    const { data: settings } = useShopSettings();
+    const branding = settings?.branding;
 
     return <div className="min-h-screen flex flex-col">
         <Header />
@@ -14,12 +17,50 @@ const Shop = () => {
         <main className="flex-1" style={{ marginTop: '-80px' }}>
             <HeroSlider />
 
-            {/* Tagline */}
-            <section className="bg-secondary py-8">
-                <div className="container mx-auto px-4 text-center">
-                    <h2 className="text-2xl md:text-3xl font-heading font-semibold text-foreground">Velkommen til danmarks billigste tryksager</h2>
-                </div>
-            </section>
+            {/* Content Block Section - Dynamic from branding */}
+            {branding?.forside?.contentBlocks?.filter(block => block.enabled).map((block) => (
+                <section key={block.id} className="bg-secondary py-8">
+                    <div className={`container mx-auto px-4 ${block.textAlign === 'center' ? 'text-center' : block.textAlign === 'right' ? 'text-right' : 'text-left'}`}>
+                        <div className={`flex flex-col ${block.imageUrl ? (block.imagePosition === 'right' ? 'md:flex-row' : 'md:flex-row-reverse') : ''} gap-8 items-center`}>
+                            {/* Text Content */}
+                            <div className={`flex-1 ${block.imageUrl ? '' : 'w-full'}`}>
+                                {block.heading && (
+                                    <h2
+                                        className="text-2xl md:text-3xl font-semibold"
+                                        style={{
+                                            fontFamily: `'${block.headingFont || 'Poppins'}', sans-serif`,
+                                            color: block.headingColor || '#1F2937'
+                                        }}
+                                    >
+                                        {block.heading}
+                                    </h2>
+                                )}
+                                {block.text && (
+                                    <p
+                                        className="mt-4"
+                                        style={{
+                                            fontFamily: `'${block.textFont || 'Inter'}', sans-serif`,
+                                            color: block.textColor || '#4B5563'
+                                        }}
+                                    >
+                                        {block.text}
+                                    </p>
+                                )}
+                            </div>
+                            {/* Optional Image */}
+                            {block.imageUrl && (
+                                <div className="flex-1">
+                                    <img
+                                        src={block.imageUrl}
+                                        alt={block.heading || 'Content image'}
+                                        className="rounded-lg max-h-64 object-cover mx-auto"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </section>
+            ))}
 
             {/* Products Section */}
             <section className="py-16" id="produkter">
