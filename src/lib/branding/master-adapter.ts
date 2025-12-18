@@ -160,6 +160,8 @@ export function createMasterAdapter(): BrandingStorageAdapter {
                 branding_template_savedDesigns: [autoSaveEntry, ...savedDesigns].slice(0, 20),
             };
 
+            console.log('Resetting master branding to defaults with urls:', DEFAULT_BRANDING.hero.images.map(img => img.url));
+
             const { error } = await supabase
                 .from('tenants' as any)
                 .update({ settings: newSettings })
