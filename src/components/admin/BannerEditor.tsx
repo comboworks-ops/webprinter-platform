@@ -204,8 +204,9 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                 const { data: categoryData, error: categoryError } = await supabase
                     .from('resource_categories' as any)
                     .select('id')
-                    .eq('slug', 'forside-bannere')
-                    .single();
+                    .or('slug.eq.forside-bannere,slug.eq.banners')
+                    .limit(1)
+                    .maybeSingle();
 
                 if (categoryError || !categoryData) return;
 
