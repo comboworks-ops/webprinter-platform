@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-// Default hero slideshow images
-import heroPrinting from "@/assets/hero-printing.jpg";
-import heroBanners from "@/assets/hero-banners.jpg";
-import heroFlyers from "@/assets/hero-flyers.jpg";
+// Default hero slideshow images (Stable public paths for DB persistence)
+const heroPrinting = "/images/hero/hero-printing.jpg";
+const heroBanners = "/images/hero/hero-banners.jpg";
+const heroFlyers = "/images/hero/hero-flyers.jpg";
 
 // Hero banner dimension constants (can be changed platform-wide here)
 export const HERO_RECOMMENDED_WIDTH = 1920;
