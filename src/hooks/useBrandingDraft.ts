@@ -3,7 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 // Default hero slideshow images (Root public paths for maximum compatibility)
-const heroPrinting = "/hero-print.jpg";
+// Default hero slideshow images (Root public paths for maximum compatibility)
+const heroPrinting = "https://images.unsplash.com/photo-1595079676339-1534802ad6cf?q=80&w=1920&h=600&auto=format&fit=crop";
 const heroBanners = "/hero-banner.jpg";
 const heroFlyers = "/hero-flyer.jpg";
 
