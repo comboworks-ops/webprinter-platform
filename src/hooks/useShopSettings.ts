@@ -44,7 +44,7 @@ export function useShopSettings() {
             const isEffectiveLocalhost = !forceDomain && !isLocalTenantRoute && (effectiveHostname === 'localhost' || effectiveHostname === '127.0.0.1');
 
             // 1. Production: Try to find tenant by Domain or Subdomain
-            if (!isEffectiveLocalhost && !isVercel && !marketingDomains.includes(effectiveHostname)) {
+            if (!isEffectiveLocalhost && !marketingDomains.includes(effectiveHostname)) {
 
                 // A. Custom Domain Match (e.g. tryk.dk)
                 const { data: tenantByDomain } = await supabase
@@ -62,24 +62,30 @@ export function useShopSettings() {
                     };
                 }
 
-                // B. Subdomain Match (e.g. shop1.webprinter.dk)
-                if (effectiveHostname.endsWith(ROOT_DOMAIN)) {
-                    const subdomain = effectiveHostname.replace(`.${ROOT_DOMAIN}`, '');
-                    if (subdomain !== 'www' && subdomain !== '') {
-                        const { data: tenantBySub } = await supabase
-                            .from('tenants' as any)
-                            .select('*')
-                            .eq('subdomain', subdomain)
-                            .maybeSingle();
+                // B. Subdomain Match (e.g. shop1.webprinter.dk or shop1.webprinter-platform.vercel.app)
+                let subdomain: string | null = null;
 
-                        if (tenantBySub) {
-                            return {
-                                ...(tenantBySub as any).settings,
-                                tenant_name: (tenantBySub as any).name,
-                                id: (tenantBySub as any).id,
-                                subdomain: (tenantBySub as any).subdomain
-                            };
-                        }
+                if (effectiveHostname.endsWith(ROOT_DOMAIN)) {
+                    subdomain = effectiveHostname.replace(`.${ROOT_DOMAIN}`, '');
+                } else if (isVercel && effectiveHostname !== "webprinter-platform.vercel.app") {
+                    // Handle Vercel preview subdomains: tenant.webprinter-platform.vercel.app
+                    subdomain = effectiveHostname.replace('.webprinter-platform.vercel.app', '');
+                }
+
+                if (subdomain && subdomain !== 'www' && subdomain !== '') {
+                    const { data: tenantBySub } = await supabase
+                        .from('tenants' as any)
+                        .select('*')
+                        .eq('subdomain', subdomain)
+                        .maybeSingle();
+
+                    if (tenantBySub) {
+                        return {
+                            ...(tenantBySub as any).settings,
+                            tenant_name: (tenantBySub as any).name,
+                            id: (tenantBySub as any).id,
+                            subdomain: (tenantBySub as any).subdomain
+                        };
                     }
                 }
             }

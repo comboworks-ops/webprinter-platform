@@ -21,8 +21,7 @@ export default function SubdomainRouter() {
     const hostname = window.location.hostname;
 
     // Decide if we are on a Marketing Domain
-    const isVercel = hostname.endsWith(".vercel.app");
-    const isMarketing = MARKETING_DOMAINS.includes(hostname) || (isVercel && hostname === "webprinter-platform.vercel.app");
+    const isMarketing = MARKETING_DOMAINS.includes(hostname);
 
     // If we are on a marketing domain, render the Index (Landing Page)
     // BUT: If the user explicitly goes to /shop, /login, etc, we should allow it?
