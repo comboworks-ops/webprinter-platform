@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { useUserRole } from "@/hooks/useUserRole";
 import { Loader2, Home, ArrowLeft } from "lucide-react";
 import { PreviewBrandingProvider, usePreviewBranding } from "@/contexts/PreviewBrandingContext";
@@ -336,18 +337,18 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
                             <div className="flex flex-col items-center">
                                 <Truck className="h-12 w-12 mb-4" />
-                                <h3 className="text-lg font-heading font-semibold mb-2">Hurtig levering</h3>
-                                <p className="text-sm opacity-90">Express-muligheder til hele Danmark</p>
+                                <h3 className="text-lg font-heading font-semibold mb-2 text-white">Hurtig levering</h3>
+                                <p className="text-sm opacity-90 text-white">Express-muligheder til hele Danmark</p>
                             </div>
                             <div className="flex flex-col items-center">
                                 <Award className="h-12 w-12 mb-4" />
-                                <h3 className="text-lg font-heading font-semibold mb-2">Kvalitet til skarpe priser</h3>
-                                <p className="text-sm opacity-90">25+ års erfaring med professionelt tryk</p>
+                                <h3 className="text-lg font-heading font-semibold mb-2 text-white">Kvalitet til skarpe priser</h3>
+                                <p className="text-sm opacity-90 text-white">25+ års erfaring med professionelt tryk</p>
                             </div>
                             <div className="flex flex-col items-center">
                                 <Phone className="h-12 w-12 mb-4" />
-                                <h3 className="text-lg font-heading font-semibold mb-2">Personlig rådgivning</h3>
-                                <p className="text-sm opacity-90">Tlf: 71 99 11 10</p>
+                                <h3 className="text-lg font-heading font-semibold mb-2 text-white">Personlig rådgivning</h3>
+                                <p className="text-sm opacity-90 text-white">Tlf: 71 99 11 10</p>
                             </div>
                         </div>
                     </div>

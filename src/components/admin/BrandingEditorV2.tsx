@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
     Loader2, Save, RotateCcw, Send, Trash2, List,
     X, ChevronRight, Layout, Type, Palette, Sparkles, Image as ImageIcon,
-    ExternalLink, Monitor, Smartphone, Tablet
+    ExternalLink, Monitor, Smartphone, Tablet, FolderUp, LayoutTemplate
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -45,6 +45,7 @@ import { FooterSection } from "@/components/admin/FooterSection";
 import { BannerEditor } from "@/components/admin/BannerEditor";
 import { LogoSection } from "@/components/admin/LogoSection";
 import { ContentBlocksSection } from "@/components/admin/ContentBlocksSection";
+import { supabase } from "@/integrations/supabase/client";
 
 import {
     type BrandingStorageAdapter,
@@ -70,6 +71,22 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
     const [saveDesignName, setSaveDesignName] = useState("");
     const [showSavedDesignsDialog, setShowSavedDesignsDialog] = useState(false);
     const [showResetDialog, setShowResetDialog] = useState(false);
+
+    // Premade Designs feature
+    const [showSaveToResourcesDialog, setShowSaveToResourcesDialog] = useState(false);
+    const [resourceDesignName, setResourceDesignName] = useState("");
+    const [resourceDesignDescription, setResourceDesignDescription] = useState("");
+    const [resourceDesignPrice, setResourceDesignPrice] = useState(0);
+    const [resourceDesignVisible, setResourceDesignVisible] = useState(true);
+    const [showPremadeDesignsDialog, setShowPremadeDesignsDialog] = useState(false);
+    const [availablePremadeDesigns, setAvailablePremadeDesigns] = useState<any[]>([]);
+    const [loadingPremadeDesigns, setLoadingPremadeDesigns] = useState(false);
+
+    // Saved Premade Designs management (Master)
+    const [showSavedPremadeDesignsDialog, setShowSavedPremadeDesignsDialog] = useState(false);
+    const [savedPremadeDesigns, setSavedPremadeDesigns] = useState<any[]>([]);
+    const [loadingSavedDesigns, setLoadingSavedDesigns] = useState(false);
+    const [tenantList, setTenantList] = useState<any[]>([]);
 
     const [focusedBlockId, setFocusedBlockId] = useState<string | null>(null);
 
@@ -404,91 +421,9 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
     };
 
     return (
-        <div className="flex flex-col h-[calc(100vh-4rem)] -m-6"> {/* Negative margin to break out of container padding if needed, or just h-full */}
-            {/* Top Toolbar */}
-            <div className="h-16 border-b bg-background flex items-center justify-between px-4 z-20">
-                <div className="flex items-center gap-4">
-                    <h1 className="text-xl font-bold">
-                        {editor.mode === 'master' ? 'Design Skabelon' : 'Visuel Editor'}
-                    </h1>
-                    <Badge variant={editor.mode === 'master' ? 'default' : 'secondary'}>
-                        {editor.mode === 'master' ? 'Platform' : 'Lejer'}
-                    </Badge>
-                </div>
-
-                <div className="flex items-center gap-2">
-                    {onSwitchVersion && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={onSwitchVersion}
-                            className="mr-2"
-                        >
-                            Tilbage til Classic
-                        </Button>
-                    )}
-
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => editor.discardDraft()}
-                        disabled={!editor.hasUnsavedChanges || editor.isSaving}
-                        className="gap-2"
-                    >
-                        <RotateCcw className="h-4 w-4" />
-                        <span className="hidden sm:inline">Fortryd</span>
-                    </Button>
-
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowSaveDesignDialog(true)}
-                        disabled={editor.isSaving}
-                        className="gap-2"
-                    >
-                        <Save className="h-4 w-4" />
-                        <span className="hidden sm:inline">Gem kladde</span>
-                    </Button>
-
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                            editor.loadSavedDesigns();
-                            setShowSavedDesignsDialog(true);
-                        }}
-                        disabled={editor.isSaving}
-                        className="gap-2"
-                    >
-                        <List className="h-4 w-4" />
-                        <span className="hidden sm:inline">Hent</span>
-                    </Button>
-
-                    <Button
-                        size="sm"
-                        onClick={() => setShowPublishDialog(true)}
-                        disabled={editor.isSaving}
-                        className="gap-2"
-                    >
-                        <Send className="h-4 w-4" />
-                        Publicér
-                    </Button>
-
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setShowResetDialog(true)}
-                        disabled={editor.isSaving}
-                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                        title="Nulstil til standard"
-                    >
-                        <Trash2 className="h-4 w-4" />
-                    </Button>
-                </div>
-            </div>
-
+        <div className="flex flex-col h-[calc(100vh-4rem)] -m-6">
             {/* Main Content Area */}
-            <div className="flex-1 flex overflow-hidden relative">
+            <div className="flex-1 flex overflow-hidden relative min-h-0">
                 {/* Left Sidebar - Collapsible */}
                 <div
                     className={`
@@ -516,7 +451,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
 
                 {/* Main Preview Area */}
                 <div className="flex-1 bg-muted/10 relative flex flex-col">
-                    {/* Toggle Sidebar Button (visible when closed on mobile or if we add collapse toggle for desktop) */}
+                    {/* Toggle Sidebar Button (visible when closed on mobile) */}
                     {!sidebarOpen && (
                         <Button
                             variant="secondary"
@@ -528,8 +463,143 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                         </Button>
                     )}
 
-                    <div className="flex-1 p-8 overflow-hidden">
-                        <div className="w-full h-full bg-white rounded-lg shadow-2xl border overflow-hidden">
+                    <div className="flex-1 p-8 overflow-hidden flex flex-col">
+                        {/* ACTION BAR - aligned with preview frame */}
+                        <div className="flex flex-wrap items-center gap-2 p-3 bg-card border rounded-t-lg mb-0">
+                            {/* 1. Gem design */}
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setShowSaveDesignDialog(true)}
+                                disabled={editor.isSaving}
+                                className="gap-2"
+                            >
+                                <Save className="h-4 w-4" />
+                                Gem design
+                            </Button>
+
+                            {/* 2. Gemte designs */}
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                    editor.loadSavedDesigns();
+                                    setShowSavedDesignsDialog(true);
+                                }}
+                                disabled={editor.isSaving}
+                                className="gap-2"
+                            >
+                                <List className="h-4 w-4" />
+                                Gemte designs
+                            </Button>
+
+                            {/* 3. Premade Designs - Master: Save to resources + View saved, Tenant: Browse designs */}
+                            {editor.mode === 'master' ? (
+                                <>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setShowSaveToResourcesDialog(true)}
+                                        disabled={editor.isSaving}
+                                        className="gap-2"
+                                    >
+                                        <FolderUp className="h-4 w-4" />
+                                        Gem som skabelon
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                            setShowSavedPremadeDesignsDialog(true);
+                                            setLoadingSavedDesigns(true);
+                                            // Fetch saved designs and tenants
+                                            Promise.all([
+                                                supabase.from('premade_designs' as any).select('*').order('created_at', { ascending: false }),
+                                                supabase.from('tenants' as any).select('id, name').neq('id', '00000000-0000-0000-0000-000000000000')
+                                            ]).then(([designsRes, tenantsRes]) => {
+                                                if (!designsRes.error) setSavedPremadeDesigns(designsRes.data || []);
+                                                if (!tenantsRes.error) setTenantList(tenantsRes.data || []);
+                                                setLoadingSavedDesigns(false);
+                                            });
+                                        }}
+                                        className="gap-2"
+                                    >
+                                        <LayoutTemplate className="h-4 w-4" />
+                                        Mine skabeloner
+                                    </Button>
+                                </>
+                            ) : (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                        setShowPremadeDesignsDialog(true);
+                                        // Fetch designs when button is clicked
+                                        setLoadingPremadeDesigns(true);
+                                        supabase
+                                            .from('premade_designs' as any)
+                                            .select('*')
+                                            .eq('is_visible', true)
+                                            .order('created_at', { ascending: false })
+                                            .then(({ data, error }) => {
+                                                console.log('Premade designs fetch result:', { data, error });
+                                                if (error) {
+                                                    console.error('Error fetching premade designs:', error);
+                                                    toast.error('Kunne ikke hente designs');
+                                                }
+                                                if (data) {
+                                                    setAvailablePremadeDesigns(data);
+                                                }
+                                                setLoadingPremadeDesigns(false);
+                                            });
+                                    }}
+                                    disabled={editor.isSaving}
+                                    className="gap-2"
+                                >
+                                    <LayoutTemplate className="h-4 w-4" />
+                                    Premade Designs
+                                </Button>
+                            )}
+
+                            <div className="flex-1" />
+
+                            {/* 3. Fortryd */}
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => editor.discardDraft()}
+                                disabled={!editor.hasUnsavedChanges || editor.isSaving}
+                                className="gap-2 text-muted-foreground hover:text-foreground"
+                            >
+                                <RotateCcw className="h-4 w-4" />
+                                Fortryd
+                            </Button>
+
+                            {/* 4. Publicér */}
+                            <Button
+                                size="sm"
+                                onClick={() => setShowPublishDialog(true)}
+                                disabled={editor.isSaving}
+                                className="gap-2"
+                            >
+                                <Send className="h-4 w-4" />
+                                Publicér
+                            </Button>
+
+                            {/* 5. Nulstil */}
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setShowResetDialog(true)}
+                                disabled={editor.isSaving}
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8"
+                            >
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                        </div>
+
+                        {/* Preview Frame */}
+                        <div className="flex-1 w-full bg-white rounded-b-lg border border-t-0 overflow-hidden">
                             <BrandingPreviewFrame
                                 branding={editor.draft}
                                 previewUrl={`/preview-shop?draft=1&tenantId=${editor.entityId}`}
@@ -695,6 +765,342 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            {/* 4. Save to Resources Dialog (Master Only) */}
+            <Dialog open={showSaveToResourcesDialog} onOpenChange={setShowSaveToResourcesDialog}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <FolderUp className="h-5 w-5 text-primary" />
+                            Gem til ressourcer
+                        </DialogTitle>
+                        <DialogDescription>
+                            Gem dette design som en premade design skabelon, der kan tildeles til lejere.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="resource-design-name">Navn *</Label>
+                            <Input
+                                id="resource-design-name"
+                                placeholder="F.eks. 'Moderne Trykkeri Design'"
+                                value={resourceDesignName}
+                                onChange={(e) => setResourceDesignName(e.target.value)}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="resource-design-desc">Beskrivelse</Label>
+                            <Input
+                                id="resource-design-desc"
+                                placeholder="Kort beskrivelse af designet..."
+                                value={resourceDesignDescription}
+                                onChange={(e) => setResourceDesignDescription(e.target.value)}
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="resource-design-price">Pris (kr)</Label>
+                                <Input
+                                    id="resource-design-price"
+                                    type="number"
+                                    min="0"
+                                    placeholder="0 = Gratis"
+                                    value={resourceDesignPrice}
+                                    onChange={(e) => setResourceDesignPrice(Number(e.target.value) || 0)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Synlighed</Label>
+                                <div className="flex items-center gap-2 pt-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={resourceDesignVisible}
+                                        onChange={(e) => setResourceDesignVisible(e.target.checked)}
+                                        className="h-4 w-4"
+                                    />
+                                    <span className="text-sm">{resourceDesignVisible ? 'Synlig for alle lejere' : 'Skjult'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setShowSaveToResourcesDialog(false)}>
+                            Annuller
+                        </Button>
+                        <Button
+                            onClick={async () => {
+                                if (!resourceDesignName.trim()) {
+                                    toast.error("Indtast et navn for designet");
+                                    return;
+                                }
+                                try {
+                                    const { data: { user } } = await supabase.auth.getUser();
+                                    const { error } = await supabase
+                                        .from('premade_designs' as any)
+                                        .insert({
+                                            name: resourceDesignName.trim(),
+                                            description: resourceDesignDescription.trim() || null,
+                                            branding_data: editor.draft,
+                                            is_visible: resourceDesignVisible,
+                                            price: resourceDesignPrice,
+                                            created_by: user?.id,
+                                        });
+
+                                    if (error) throw error;
+
+                                    toast.success(`Design "${resourceDesignName}" gemt til ressourcer! ${resourceDesignVisible ? 'Synlig for lejere.' : 'Skjult indtil publiceret.'}`);
+                                    setResourceDesignName("");
+                                    setResourceDesignDescription("");
+                                    setResourceDesignPrice(0);
+                                    setResourceDesignVisible(true);
+                                    setShowSaveToResourcesDialog(false);
+                                } catch (error: any) {
+                                    console.error('Error saving premade design:', error);
+                                    toast.error(error.message || 'Kunne ikke gemme design');
+                                }
+                            }}
+                            disabled={!resourceDesignName.trim()}
+                        >
+                            <FolderUp className="h-4 w-4 mr-2" />
+                            Gem design
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* 5. Premade Designs Browser Dialog (Tenant Only) */}
+            <Dialog
+                open={showPremadeDesignsDialog}
+                onOpenChange={(open) => {
+                    setShowPremadeDesignsDialog(open);
+                    if (open) {
+                        // Fetch designs when dialog opens
+                        setLoadingPremadeDesigns(true);
+                        supabase
+                            .from('premade_designs' as any)
+                            .select('*')
+                            .eq('is_visible', true)
+                            .order('created_at', { ascending: false })
+                            .then(({ data, error }) => {
+                                console.log('Premade designs fetch result:', { data, error });
+                                if (error) {
+                                    console.error('Error fetching premade designs:', error);
+                                    toast.error('Kunne ikke hente designs');
+                                }
+                                if (data) {
+                                    setAvailablePremadeDesigns(data);
+                                }
+                                setLoadingPremadeDesigns(false);
+                            });
+                    }
+                }}
+            >
+                <DialogContent className="max-w-3xl max-h-[80vh] overflow-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <LayoutTemplate className="h-5 w-5 text-primary" />
+                            Premade Designs
+                        </DialogTitle>
+                        <DialogDescription>
+                            Vælg et forudlavet design at anvende på din hjemmeside. Dit nuværende design erstattes.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        {loadingPremadeDesigns ? (
+                            <div className="flex justify-center py-8">
+                                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            </div>
+                        ) : availablePremadeDesigns.length === 0 ? (
+                            <div className="border-2 border-dashed rounded-lg p-8 text-center text-muted-foreground">
+                                <LayoutTemplate className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                                <p className="text-sm">Ingen premade designs tilgængelige</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {availablePremadeDesigns.map((design) => (
+                                    <Card key={design.id} className="overflow-hidden hover:ring-2 hover:ring-primary transition-all cursor-pointer group">
+                                        <div className="aspect-video bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center relative">
+                                            <LayoutTemplate className="w-16 h-16 text-primary/30" />
+                                            {design.price > 0 && (
+                                                <Badge className="absolute top-2 right-2">{design.price} kr</Badge>
+                                            )}
+                                            {design.price === 0 && (
+                                                <Badge variant="secondary" className="absolute top-2 right-2">Gratis</Badge>
+                                            )}
+                                        </div>
+                                        <CardContent className="p-4">
+                                            <h4 className="font-semibold mb-1">{design.name}</h4>
+                                            {design.description && (
+                                                <p className="text-sm text-muted-foreground mb-3">{design.description}</p>
+                                            )}
+                                            <Button
+                                                className="w-full"
+                                                onClick={() => {
+                                                    if (design.branding_data) {
+                                                        // Apply the design to current draft
+                                                        editor.updateDraft(design.branding_data);
+                                                        toast.success(`Design "${design.name}" anvendt!`);
+                                                        setShowPremadeDesignsDialog(false);
+                                                    } else {
+                                                        toast.error('Design data ikke tilgængelig');
+                                                    }
+                                                }}
+                                            >
+                                                Anvend design
+                                            </Button>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setShowPremadeDesignsDialog(false)}>
+                            Luk
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* 6. Saved Premade Designs Management Dialog (Master Only) */}
+            <Dialog open={showSavedPremadeDesignsDialog} onOpenChange={setShowSavedPremadeDesignsDialog}>
+                <DialogContent className="max-w-4xl max-h-[85vh] overflow-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <LayoutTemplate className="h-5 w-5 text-primary" />
+                            Mine Gemte Skabeloner
+                        </DialogTitle>
+                        <DialogDescription>
+                            Administrer dine gemte premade designs. Rediger, slet, eller tildel til lejere.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        {loadingSavedDesigns ? (
+                            <div className="flex justify-center py-8">
+                                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            </div>
+                        ) : savedPremadeDesigns.length === 0 ? (
+                            <div className="border-2 border-dashed rounded-lg p-8 text-center text-muted-foreground">
+                                <LayoutTemplate className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                                <p className="text-sm">Ingen gemte skabeloner endnu</p>
+                                <p className="text-xs mt-1">Brug "Gem som skabelon" for at gemme dit nuværende design</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                {savedPremadeDesigns.map((design) => (
+                                    <Card key={design.id} className="p-4">
+                                        <div className="flex items-start gap-4">
+                                            <div className="w-24 h-16 bg-gradient-to-br from-primary/10 to-primary/5 rounded flex items-center justify-center flex-shrink-0">
+                                                <LayoutTemplate className="w-8 h-8 text-primary/30" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="font-semibold">{design.name}</h4>
+                                                {design.description && (
+                                                    <p className="text-sm text-muted-foreground">{design.description}</p>
+                                                )}
+                                                <div className="flex items-center gap-4 mt-2 text-sm">
+                                                    <span className="text-muted-foreground">
+                                                        {design.price > 0 ? `${design.price} kr` : 'Gratis'}
+                                                    </span>
+                                                    <span className={design.is_visible ? 'text-green-600' : 'text-orange-500'}>
+                                                        {design.is_visible ? '✓ Synlig for alle' : '○ Skjult'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                                {/* Load into editor */}
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => {
+                                                        if (design.branding_data) {
+                                                            editor.updateDraft(design.branding_data);
+                                                            toast.success(`Design "${design.name}" indlæst i editor`);
+                                                            setShowSavedPremadeDesignsDialog(false);
+                                                        }
+                                                    }}
+                                                >
+                                                    Rediger
+                                                </Button>
+                                                {/* Toggle visibility */}
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={async () => {
+                                                        await supabase
+                                                            .from('premade_designs' as any)
+                                                            .update({ is_visible: !design.is_visible })
+                                                            .eq('id', design.id);
+                                                        setSavedPremadeDesigns(prev =>
+                                                            prev.map(d => d.id === design.id ? { ...d, is_visible: !d.is_visible } : d)
+                                                        );
+                                                        toast.success(design.is_visible ? 'Skjult for lejere' : 'Synlig for alle lejere');
+                                                    }}
+                                                >
+                                                    {design.is_visible ? 'Skjul' : 'Publicer'}
+                                                </Button>
+                                                {/* Assign to specific tenant */}
+                                                {tenantList.length > 0 && (
+                                                    <select
+                                                        className="h-9 px-2 text-sm border rounded-md"
+                                                        defaultValue=""
+                                                        onChange={async (e) => {
+                                                            const tenantId = e.target.value;
+                                                            if (tenantId) {
+                                                                const { data: { user } } = await supabase.auth.getUser();
+                                                                await supabase
+                                                                    .from('tenant_premade_designs' as any)
+                                                                    .upsert({
+                                                                        tenant_id: tenantId,
+                                                                        design_id: design.id,
+                                                                        granted_by: user?.id
+                                                                    });
+                                                                const tenant = tenantList.find(t => t.id === tenantId);
+                                                                toast.success(`Tildelt til ${tenant?.name || 'lejer'}`);
+                                                                e.target.value = '';
+                                                            }
+                                                        }}
+                                                    >
+                                                        <option value="">Tildel til...</option>
+                                                        {tenantList.map((tenant) => (
+                                                            <option key={tenant.id} value={tenant.id}>
+                                                                {tenant.name}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                )}
+                                                {/* Delete */}
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-destructive hover:text-destructive"
+                                                    onClick={async () => {
+                                                        if (confirm(`Slet "${design.name}"?`)) {
+                                                            await supabase
+                                                                .from('premade_designs' as any)
+                                                                .delete()
+                                                                .eq('id', design.id);
+                                                            setSavedPremadeDesigns(prev => prev.filter(d => d.id !== design.id));
+                                                            toast.success('Design slettet');
+                                                        }
+                                                    }}
+                                                >
+                                                    Slet
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </Card>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setShowSavedPremadeDesignsDialog(false)}>
+                            Luk
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

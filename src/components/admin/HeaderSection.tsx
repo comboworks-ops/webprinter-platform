@@ -212,6 +212,35 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                     />
                                 </div>
                             </div>
+
+                            <Separator />
+
+                            <div className="space-y-4">
+                                <ColorPickerWithSwatches
+                                    label="Knap baggrundsfarve"
+                                    value={safeHeader.cta.bgColor || '#0EA5E9'}
+                                    onChange={(color) => updateCta({ bgColor: color })}
+                                    savedSwatches={savedSwatches}
+                                    onSaveSwatch={onSaveSwatch}
+                                    onRemoveSwatch={onRemoveSwatch}
+                                />
+                                <ColorPickerWithSwatches
+                                    label="Knap tekstfarve"
+                                    value={safeHeader.cta.textColor || '#FFFFFF'}
+                                    onChange={(color) => updateCta({ textColor: color })}
+                                    savedSwatches={savedSwatches}
+                                    onSaveSwatch={onSaveSwatch}
+                                    onRemoveSwatch={onRemoveSwatch}
+                                />
+                                <ColorPickerWithSwatches
+                                    label="Knap hover farve"
+                                    value={safeHeader.cta.hoverBgColor || '#0284C7'}
+                                    onChange={(color) => updateCta({ hoverBgColor: color })}
+                                    savedSwatches={savedSwatches}
+                                    onSaveSwatch={onSaveSwatch}
+                                    onRemoveSwatch={onRemoveSwatch}
+                                />
+                            </div>
                         </>
                     )}
                 </div>
@@ -256,6 +285,26 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                         label="Menu valgt"
                         value={safeHeader.activeTextColor || '#0284C7'}
                         onChange={(color) => updateHeader({ activeTextColor: color })}
+                        savedSwatches={savedSwatches}
+                        onSaveSwatch={onSaveSwatch}
+                        onRemoveSwatch={onRemoveSwatch}
+                    />
+
+                    <Separator />
+
+                    {/* Action Elements Hover Color */}
+                    <ColorPickerWithSwatches
+                        label="Hover over element"
+                        value={safeHeader.actionHoverBgColor || 'rgba(0,0,0,0.05)'}
+                        onChange={(color) => updateHeader({ actionHoverBgColor: color })}
+                        savedSwatches={savedSwatches}
+                        onSaveSwatch={onSaveSwatch}
+                        onRemoveSwatch={onRemoveSwatch}
+                    />
+                    <ColorPickerWithSwatches
+                        label="Hover over element tekst"
+                        value={safeHeader.actionHoverTextColor || '#0EA5E9'}
+                        onChange={(color) => updateHeader({ actionHoverTextColor: color })}
                         savedSwatches={savedSwatches}
                         onSaveSwatch={onSaveSwatch}
                         onRemoveSwatch={onRemoveSwatch}

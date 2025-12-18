@@ -263,6 +263,12 @@ export interface HeaderCtaSettings {
     label: string;
     href: string;
     variant: 'filled' | 'outline';
+    /** Custom background color for the CTA button */
+    bgColor?: string;
+    /** Custom text color for the CTA button */
+    textColor?: string;
+    /** Custom hover background color for the CTA button */
+    hoverBgColor?: string;
 }
 
 // Header style settings
@@ -291,6 +297,8 @@ export interface HeaderSettings {
     textColor: string;              // Navigation text color
     hoverTextColor: string;         // Navigation hover text color
     activeTextColor: string;        // Navigation active/pressed text color
+    actionHoverTextColor?: string;  // Hover text color for search, language, account icons
+    actionHoverBgColor?: string;    // Hover background color for the circular area behind icons
     autoContrastText: boolean;      // Auto-adjust text color for contrast
     transparentOverHero: boolean;
     style: HeaderStyleType;
@@ -334,6 +342,9 @@ const DEFAULT_HEADER_CTA: HeaderCtaSettings = {
     label: 'Kontakt os',
     href: '/kontakt',
     variant: 'filled',
+    bgColor: '#0EA5E9',
+    textColor: '#FFFFFF',
+    hoverBgColor: '#0284C7',
 };
 
 // Default nav items
@@ -348,7 +359,7 @@ const DEFAULT_NAV_ITEMS: HeaderNavItem[] = [
 // Default header settings
 const DEFAULT_HEADER: HeaderSettings = {
     logoType: 'text',
-    logoText: 'Min Shop',
+    logoText: 'Shopnavn',
     logoFont: 'Inter',
     logoTextColor: '#1F2937',      // Separate color for logo text
     logoImageUrl: null,
@@ -361,6 +372,8 @@ const DEFAULT_HEADER: HeaderSettings = {
     textColor: '#1F2937',
     hoverTextColor: '#0EA5E9',     // Primary blue for hover
     activeTextColor: '#0284C7',    // Darker blue for active/pressed
+    actionHoverTextColor: '#0EA5E9',
+    actionHoverBgColor: 'rgba(14, 165, 233, 0.1)', // Light version of primary blue
     autoContrastText: true,
     transparentOverHero: true,
     style: 'solid',
@@ -481,7 +494,7 @@ export interface ForsideSettings {
 // Default content block
 const DEFAULT_CONTENT_BLOCK: ContentBlock = {
     id: 'block-1',
-    enabled: true,
+    enabled: false,
     heading: 'Velkommen til Danmarks Billigste tryksager',
     headingFont: 'Poppins',
     headingColor: '#1F2937',

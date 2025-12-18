@@ -11,7 +11,12 @@ const Footer = () => {
 
   // Default values if loading or not found
   const company = settings?.company || {};
-  const brandName = settings?.branding?.shop_name || settings?.tenant_name || "Webprinter.dk";
+
+  // Sync with header logo text - check preview branding first, then settings, then defaults
+  const headerSettings = isPreviewMode && previewBranding?.header
+    ? previewBranding.header
+    : settings?.branding?.header;
+  const brandName = headerSettings?.logoText || settings?.branding?.shop_name || settings?.tenant_name || "Shopnavn";
 
   // Get footer settings with defaults - prioritize preview branding if in preview mode
   const footerSource = isPreviewMode && previewBranding?.footer
@@ -70,7 +75,7 @@ const Footer = () => {
           // Minimal layout - horizontal
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="text-center md:text-left">
-              <h3 className="text-xl font-heading font-bold mb-2">{brandName}</h3>
+              <h3 className="text-xl font-heading font-bold mb-2 text-white">{brandName}</h3>
               {footerSettings.text && (
                 <p className={`${textColorClass} text-sm`}>{footerSettings.text}</p>
               )}
@@ -118,7 +123,7 @@ const Footer = () => {
         ) : footerSettings.style === 'centered' ? (
           // Centered layout
           <div className="text-center space-y-6">
-            <h3 className="text-xl font-heading font-bold">{brandName}</h3>
+            <h3 className="text-xl font-heading font-bold text-white">{brandName}</h3>
             {footerSettings.text && (
               <p className={`${textColorClass} text-sm max-w-md mx-auto`}>{footerSettings.text}</p>
             )}
@@ -167,7 +172,7 @@ const Footer = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
             {/* Column 1: Brand */}
             <div>
-              <h3 className="text-xl font-heading font-bold mb-4">{brandName}</h3>
+              <h3 className="text-xl font-heading font-bold mb-4 text-white">{brandName}</h3>
               <p className={`${textColorClass} text-sm`}>
                 {footerSettings.text || 'Din partner for professionelt tryk og storformat print.'}
               </p>
@@ -178,7 +183,7 @@ const Footer = () => {
 
             {/* Column 2: Links */}
             <div>
-              <h4 className="text-lg font-heading font-semibold mb-4">Links</h4>
+              <h4 className="text-lg font-heading font-semibold mb-4 text-white">Links</h4>
               <ul className="space-y-2">
                 {visibleLinks.map(link => (
                   <li key={link.id}>
@@ -192,7 +197,7 @@ const Footer = () => {
 
             {/* Column 3: Contact + Social */}
             <div>
-              <h4 className="text-lg font-heading font-semibold mb-4">Kontakt</h4>
+              <h4 className="text-lg font-heading font-semibold mb-4 text-white">Kontakt</h4>
               <ul className={`space-y-3 text-sm ${textColorClass}`}>
                 {company.phone && (
                   <li className="flex items-center gap-2">

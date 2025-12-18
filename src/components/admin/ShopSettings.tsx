@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 export function ShopSettings() {
     // Company Info
+    const [companyName, setCompanyName] = useState("");
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
     const [address, setAddress] = useState("");
@@ -49,6 +50,7 @@ export function ShopSettings() {
 
                 // Company
                 if (s.company) {
+                    setCompanyName(s.company.name || "");
                     setEmail(s.company.email || "");
                     setPhone(s.company.phone || "");
                     setAddress(s.company.address || "");
@@ -96,6 +98,7 @@ export function ShopSettings() {
             const newSettings = {
                 ...current,
                 company: {
+                    name: companyName.trim() || null, // Use null if empty so fallback works
                     email,
                     phone,
                     address,
@@ -119,6 +122,13 @@ export function ShopSettings() {
                 .eq('id', (tenant as any).id);
 
             if (error) throw error;
+
+            // Always update tenant name to match company name (or clear it if empty)
+            await supabase
+                .from('tenants' as any)
+                .update({ name: companyName.trim() || null })
+                .eq('id', (tenant as any).id);
+
             toast.success('Indstillinger gemt');
         } catch (error) {
             console.error("Error saving settings:", error);
@@ -147,6 +157,16 @@ export function ShopSettings() {
                     <CardDescription>Disse oplysninger bruges på fakturaer og kontaktsiden</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="companyName">Firmanavn</Label>
+                        <Input
+                            id="companyName"
+                            value={companyName}
+                            onChange={(e) => setCompanyName(e.target.value)}
+                            placeholder="Dit Trykkeri ApS"
+                        />
+                        <p className="text-xs text-muted-foreground">Dette navn vises i admin panelet</p>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="email">Email</Label>

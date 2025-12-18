@@ -75,9 +75,19 @@ const Header = () => {
     bgColor: '#FFFFFF',
     bgOpacity: 0.95, // 95% opacity - shows color clearly while allowing slight transparency
     textColor: '#1F2937',
+    hoverTextColor: '#0EA5E9',
+    activeTextColor: '#0284C7',
+    actionHoverTextColor: '#0EA5E9',
+    actionHoverBgColor: 'rgba(0,0,0,0.05)',
     autoContrastText: true,
     dropdownMode: 'IMAGE_AND_TEXT' as const,
     transparentOverHero: true, // Default to true for standard template
+    // Logo defaults
+    logoType: 'text' as const,
+    logoText: 'Shopnavn',
+    logoFont: 'Inter',
+    logoTextColor: '#1F2937',
+    logoImageUrl: null as string | null,
     ...rawHeader,
     scroll: {
       sticky: true,
@@ -86,6 +96,15 @@ const Header = () => {
       ...rawHeader?.scroll,
       // Calculate heightPx from height setting (must be after spread to override)
       heightPx: heightMap[rawHeader?.height || 'md'] || 72,
+    },
+    cta: {
+      enabled: false,
+      label: 'Kontakt os',
+      href: '/kontakt',
+      bgColor: '#0EA5E9',
+      textColor: '#FFFFFF',
+      hoverBgColor: '#0284C7',
+      ...rawHeader?.cta,
     },
     // Ensure navItems exists (fallback to defaults if missing)
     navItems: rawHeader?.navItems || [
@@ -344,7 +363,11 @@ const Header = () => {
         '--header-text-color': effectiveTextColor,
         '--header-hover-color': headerSettings.hoverTextColor || '#0EA5E9',
         '--header-active-color': headerSettings.activeTextColor || '#0284C7',
+        '--header-action-hover-text': headerSettings.actionHoverTextColor || '#0EA5E9',
+        '--header-action-hover-bg': headerSettings.actionHoverBgColor || 'rgba(0,0,0,0.05)',
         '--dropdown-hover-bg': headerSettings.dropdownHoverColor || '#F3F4F6',
+        '--header-cta-bg': headerSettings.cta.bgColor || '#0EA5E9',
+        '--header-cta-hover': headerSettings.cta.hoverBgColor || '#0284C7',
       } as React.CSSProperties}
     >
       {/* Dynamic styles for hover/active states using CSS custom properties */}
@@ -360,12 +383,31 @@ const Header = () => {
         .header-nav-link.active:hover {
           color: var(--header-active-color) !important;
         }
+        .header-action-link {
+          color: var(--header-text-color) !important;
+          transition: all 0.2s ease-in-out;
+          border-radius: 9999px;
+        }
+        .header-action-link:hover {
+          color: var(--header-action-hover-text) !important;
+          background-color: var(--header-action-hover-bg) !important;
+        }
         /* Custom hover/selection color for dropdown items - target focus and data-highlighted for Radix UI */
         .dropdown-product-link:hover,
         .dropdown-product-link:focus,
         .dropdown-product-link[data-highlighted] {
           background-color: var(--dropdown-hover-bg) !important;
           outline: none;
+        }
+        .header-cta-button {
+          background-color: var(--header-cta-bg) !important;
+          border-color: var(--header-cta-bg) !important;
+          transition: all 0.2s ease-in-out;
+        }
+        .header-cta-button:hover {
+          background-color: var(--header-cta-hover) !important;
+          border-color: var(--header-cta-hover) !important;
+          transform: translateY(-1px);
         }
       `}</style>
       <div className="container mx-auto px-4 h-full">
@@ -387,7 +429,7 @@ const Header = () => {
                   fontFamily: `'${headerSettings.logoFont || 'Inter'}', sans-serif`,
                 }}
               >
-                {headerSettings.logoText || tenantName}
+                {headerSettings.logoText || 'Shopnavn'}
               </span>
             ) : settings.data?.id === '00000000-0000-0000-0000-000000000000' && !headerSettings.logoImageUrl ? (
               // Master tenant with no image - show WebprinterLogo
@@ -675,7 +717,7 @@ const Header = () => {
                   {searchQuery && (
                     <button
                       onClick={() => setSearchQuery('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground header-action-link"
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -725,7 +767,7 @@ const Header = () => {
                 variant="ghost"
                 size="icon"
                 onClick={handleSearchToggle}
-                style={{ color: effectiveTextColor }}
+                className="header-action-link"
               >
                 {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
               </Button>
@@ -734,7 +776,7 @@ const Header = () => {
             {/* Language Switcher */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="hidden md:flex" style={{ color: effectiveTextColor }}>
+                <Button variant="ghost" size="icon" className="hidden md:flex header-action-link">
                   {/* Danish Flag (Dannebrog) or current language flag */}
                   {language === 'da' ? (
                     <svg className="h-5 w-5 rounded-sm" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -783,7 +825,13 @@ const Header = () => {
 
             {/* CTA Button - only show when enabled in settings */}
             {headerSettings.cta?.enabled && (
-              <Button asChild className="hidden md:flex">
+              <Button
+                asChild
+                className="hidden md:flex header-cta-button"
+                style={{
+                  color: headerSettings.cta.textColor || '#FFFFFF',
+                }}
+              >
                 <Link to={headerSettings.cta.href || '/kontakt'} className="no-link-color">{headerSettings.cta.label || t("orderNow")}</Link>
               </Button>
             )}
@@ -792,7 +840,7 @@ const Header = () => {
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="hidden md:flex items-center gap-2" style={{ color: effectiveTextColor }}>
+                  <Button variant="ghost" size="sm" className="hidden md:flex items-center gap-2 header-action-link">
                     <User className="h-4 w-4" />
                     {user.email}
                   </Button>
@@ -835,7 +883,7 @@ const Header = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Button asChild variant="outline" size="sm" style={{ color: effectiveTextColor, borderColor: effectiveTextColor }}>
+              <Button asChild variant="outline" size="sm" className="header-action-link" style={{ borderColor: effectiveTextColor }}>
                 <Link to="/auth">{t("login")}</Link>
               </Button>
             )}
@@ -844,8 +892,7 @@ const Header = () => {
             <Button
               variant="ghost"
               size="icon"
-              className="lg:hidden"
-              style={{ color: effectiveTextColor }}
+              className="lg:hidden header-action-link"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
               {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
@@ -930,7 +977,13 @@ const Header = () => {
 
             {/* CTA Button - Mobile - only show when enabled */}
             {headerSettings.cta?.enabled && (
-              <Button asChild className="w-full mt-4">
+              <Button
+                asChild
+                className="w-full mt-4 header-cta-button"
+                style={{
+                  color: headerSettings.cta.textColor || '#FFFFFF',
+                }}
+              >
                 <Link to={headerSettings.cta.href || '/kontakt'} onClick={() => setMobileMenuOpen(false)} className="no-link-color">
                   {headerSettings.cta.label || t("orderNow")}
                 </Link>

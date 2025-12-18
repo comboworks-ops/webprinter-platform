@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export function AdminHeader() {
-    const [tenantName, setTenantName] = useState("Webprinter");
+    const [tenantName, setTenantName] = useState("Virksomhed");
     const [tenantDomain, setTenantDomain] = useState("");
     const [userEmail, setUserEmail] = useState("");
     const [unreadCount, setUnreadCount] = useState(0);
@@ -91,12 +91,15 @@ export function AdminHeader() {
 
             const { data: tenant } = await supabase
                 .from('tenants' as any)
-                .select('name, domain')
+                .select('name, domain, settings')
                 .eq('owner_id', user.id)
                 .maybeSingle();
 
             if (tenant) {
-                setTenantName((tenant as any).name);
+                // Prefer company name from settings, fallback to tenant name
+                const settings = (tenant as any).settings;
+                const companyName = settings?.company?.name;
+                setTenantName(companyName || (tenant as any).name || "Virksomhed");
                 setTenantDomain((tenant as any).domain || "");
             }
         }

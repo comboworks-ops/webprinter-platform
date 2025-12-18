@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, ExternalLink, Monitor, Smartphone, Tablet, Loader2, Home, Send, AlertTriangle } from "lucide-react";
+import { RefreshCw, ExternalLink, Monitor, Smartphone, Tablet, Loader2, Home, Send, AlertTriangle, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { BrandingData } from "@/hooks/useBrandingDraft";
@@ -47,6 +47,7 @@ export function BrandingPreviewFrame({
     // Broadcast channel so detached preview windows get live updates
     const broadcastRef = useRef<BroadcastChannel | null>(null);
     const [viewport, setViewport] = useState<ViewportSize>("desktop");
+    const [isFlipped, setIsFlipped] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [iframeReady, setIframeReady] = useState(false);
     const [currentPath, setCurrentPath] = useState("/");
@@ -170,10 +171,10 @@ export function BrandingPreviewFrame({
             }
             setIsSavingForPreview(false);
         }
-        // Open with draft=1 and preview_mode=1 to enable BroadcastChannel listening
+        // Open with draft=1 to enable BroadcastChannel listening (but NOT preview_mode=1, which enables editing UI)
         const urlWithDraft = previewUrl.includes('?')
-            ? `${previewUrl}&draft=1&preview_mode=1&t=${Date.now()}`
-            : `${previewUrl}?draft=1&preview_mode=1&t=${Date.now()}`;
+            ? `${previewUrl}&draft=1&t=${Date.now()}`
+            : `${previewUrl}?draft=1&t=${Date.now()}`;
         window.open(urlWithDraft, '_blank');
 
         // Send branding via broadcast channel immediately so new tab gets it
@@ -184,8 +185,13 @@ export function BrandingPreviewFrame({
         }, 500);
     };
 
-    const currentSize = VIEWPORT_SIZES[viewport];
-    const scale = viewport === "desktop" ? 0.6 : viewport === "tablet" ? 0.5 : 0.45;
+    const baseSize = VIEWPORT_SIZES[viewport];
+    // When flipped (landscape), swap width and height for tablet/mobile
+    const currentSize = (viewport !== "desktop" && isFlipped)
+        ? { ...baseSize, width: baseSize.height, height: baseSize.width }
+        : baseSize;
+    // Increased scale for tablet/mobile
+    const scale = viewport === "desktop" ? 0.6 : viewport === "tablet" ? 0.75 : 0.7;
 
     return (
         <div className="flex flex-col h-full bg-gradient-to-br from-slate-100 to-slate-200 rounded-lg overflow-hidden">
@@ -198,14 +204,31 @@ export function BrandingPreviewFrame({
                             variant={viewport === size ? "default" : "ghost"}
                             size="sm"
                             className="gap-1.5 h-8"
-                            onClick={() => setViewport(size)}
+                            onClick={() => {
+                                setViewport(size);
+                                // Reset flip when switching to desktop
+                                if (size === "desktop") setIsFlipped(false);
+                            }}
                         >
                             {size === "desktop" && <Monitor className="w-4 h-4" />}
-                            {size === "tablet" && <Tablet className="w-4 h-4" />}
-                            {size === "mobile" && <Smartphone className="w-4 h-4" />}
+                            {size === "tablet" && <Tablet className={cn("w-4 h-4", viewport === "tablet" && isFlipped && "rotate-90")} />}
+                            {size === "mobile" && <Smartphone className={cn("w-4 h-4", viewport === "mobile" && isFlipped && "rotate-90")} />}
                             <span className="hidden lg:inline text-xs">{VIEWPORT_SIZES[size].label}</span>
                         </Button>
                     ))}
+
+                    {/* Flip button - only for tablet/mobile */}
+                    {viewport !== "desktop" && (
+                        <Button
+                            variant={isFlipped ? "secondary" : "ghost"}
+                            size="sm"
+                            className="h-8 w-8 p-0 ml-1"
+                            onClick={() => setIsFlipped(!isFlipped)}
+                            title={isFlipped ? "Portræt" : "Landskab"}
+                        >
+                            <RotateCcw className="w-4 h-4" />
+                        </Button>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-1">
@@ -288,25 +311,35 @@ export function BrandingPreviewFrame({
                     /* Scaled Device Frame (Tablet/Mobile) */
                     <div
                         className={cn(
-                            "relative bg-gray-800 rounded-[2rem] shadow-2xl transition-all duration-500 ease-out flex-shrink-0",
+                            "relative bg-gray-800 shadow-2xl flex-shrink-0 transition-all duration-500 ease-out",
                             viewport === "mobile" && "rounded-[2.5rem]",
                             viewport === "tablet" && "rounded-[1.5rem]"
                         )}
                         style={{
-                            width: currentSize.width * scale + 24,
-                            height: currentSize.height * scale + 24,
+                            width: isFlipped
+                                ? VIEWPORT_SIZES[viewport].height * scale + 24
+                                : VIEWPORT_SIZES[viewport].width * scale + 24,
+                            height: isFlipped
+                                ? VIEWPORT_SIZES[viewport].width * scale + 24
+                                : VIEWPORT_SIZES[viewport].height * scale + 24,
                             padding: 12,
+                            transform: isFlipped ? 'rotate(0deg)' : 'rotate(0deg)',
                         }}
                     >
-                        {/* Notch for mobile */}
-                        {viewport === "mobile" && (
-                            <div className="absolute top-3 left-1/2 -translate-x-1/2 w-20 h-5 bg-gray-800 rounded-b-xl z-10" />
+                        {/* Notch for mobile - moves to right side when flipped */}
+                        {viewport === "mobile" && !isFlipped && (
+                            <div className="absolute top-3 left-1/2 -translate-x-1/2 w-20 h-5 bg-gray-800 rounded-b-xl z-10 transition-all duration-500" />
+                        )}
+                        {viewport === "mobile" && isFlipped && (
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-20 bg-gray-800 rounded-l-xl z-10 transition-all duration-500" />
                         )}
 
                         {/* Screen */}
                         <div
-                            className="relative w-full h-full bg-white rounded-xl overflow-hidden"
-                            style={{ borderRadius: viewport === "mobile" ? "1.5rem" : "0.75rem" }}
+                            className="relative w-full h-full bg-white overflow-hidden transition-all duration-500"
+                            style={{
+                                borderRadius: viewport === "mobile" ? "1.5rem" : "0.75rem"
+                            }}
                         >
                             {/* Loading Overlay */}
                             {isLoading && (

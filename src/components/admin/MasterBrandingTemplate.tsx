@@ -2,13 +2,14 @@
  * Master Branding Template Page
  * 
  * This is the master admin's branding template editor.
+ * Uses V2 editor for creating premade designs that can be saved to resources.
  * Only accessible to the platform owner (Master Admin).
  */
 
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Navigate } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
-import { UnifiedBrandingEditor } from "./UnifiedBrandingEditor";
+import { BrandingEditorV2 } from "./BrandingEditorV2";
 import {
     createMasterAdapter,
     MASTER_CAPABILITIES,
@@ -33,7 +34,7 @@ export function MasterBrandingTemplate() {
     const adapter = createMasterAdapter();
 
     return (
-        <UnifiedBrandingEditor
+        <BrandingEditorV2
             adapter={adapter}
             capabilities={MASTER_CAPABILITIES}
         />

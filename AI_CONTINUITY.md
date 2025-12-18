@@ -1,8 +1,9 @@
 # Webprinter Platform - AI Continuity Document
 
-> Last Updated: December 16, 2024
-> Backup Tag: `backup-2024-12-16`
-> Commit: `334f839`
+> Last Updated: December 18, 2024
+> Backup Tag: `backup-2024-12-18`
+> Status: Major site designer upgrades completed (V2, Colors, Hover states)
+> Commit: `Latest`
 
 This document is designed for AI assistants (chatbots, codex machines) to understand the project state and continue development.
 
@@ -184,6 +185,25 @@ npm run lint
 - Dropdown text color picker
 - These were removed manually by the user
 
+### Dec 18, 2024 Session Summary
+
+#### 🚀 Major Upgrades
+1. ✅ **Branding Editor V2** - Implemented a new "click-to-edit" visual editor that coexists with V1. Includes side-by-side preview and categorized tools.
+2. ✅ **CTA Button Customization** - Added full color control for the header CTA button:
+   - `bgColor`: Background color
+   - `textColor`: Text color
+   - `hoverBgColor`: Hover background color with smooth transition and lift effect
+3. ✅ **Element Hover Effects** - Added granular hover control for header action items (Search, Language, User/Account):
+   - `actionHoverBgColor`: Circular background color on hover (renamed from "Hover over element")
+   - `actionHoverTextColor`: Icon/Text color on hover (renamed from "Hover over element tekst")
+4. ✅ **UI Polish** - Added visual separators in the site designer UI for better grouping of color settings.
+5. ✅ **Stability Fixes** - Fixed an issue where the preview screen would turn blank due to missing default initialization for new branding fields.
+
+#### 🔧 Implementation Details
+- **Header.tsx**: Now uses CSS Variables (`--header-cta-bg`, `--header-action-hover-bg`, etc.) linked to the branding state for real-time reactivity.
+- **HeaderSection.tsx**: Added `ColorPickerWithSwatches` components with the new labels and separators.
+- **useBrandingDraft.ts**: Updated `BrandingData` schema and `mergeBrandingWithDefaults` to handle the new nested properties safely.
+
 ---
 
 ## 🔗 Related Documents
@@ -201,3 +221,4 @@ npm run lint
 3. **Build before committing** - `npm run build` catches type errors
 4. **Use git tags for backups** - `git tag backup-YYYY-MM-DD`
 5. **Danish labels in UI** - The UI is in Danish (e.g., "Baggrundsfarve" = Background color)
+6. **CSS Variables** - Use CSS variables in `Header.tsx` for hover states to avoid JS-in-CSS performance issues and ensure clean transitions.

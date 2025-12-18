@@ -20,8 +20,8 @@ export const AboutContent = () => {
                     <Card className="bg-primary text-primary-foreground">
                         <CardContent className="p-6 text-center">
                             <Award className="h-12 w-12 mx-auto mb-4" />
-                            <h3 className="text-lg font-heading font-semibold mb-2">Kvalitet</h3>
-                            <p className="text-sm opacity-90">
+                            <h3 className="text-lg font-heading font-semibold mb-2 text-white">Kvalitet</h3>
+                            <p className="text-sm opacity-90 text-white">
                                 Topkvalitet i alle vores produkter med moderne printteknik
                             </p>
                         </CardContent>
@@ -30,8 +30,8 @@ export const AboutContent = () => {
                     <Card className="bg-primary text-primary-foreground">
                         <CardContent className="p-6 text-center">
                             <Users className="h-12 w-12 mx-auto mb-4" />
-                            <h3 className="text-lg font-heading font-semibold mb-2">Personlig rådgivning</h3>
-                            <p className="text-sm opacity-90">
+                            <h3 className="text-lg font-heading font-semibold mb-2 text-white">Personlig rådgivning</h3>
+                            <p className="text-sm opacity-90 text-white">
                                 Eksperter der hjælper dig med at vælge den rigtige løsning
                             </p>
                         </CardContent>
@@ -40,8 +40,8 @@ export const AboutContent = () => {
                     <Card className="bg-primary text-primary-foreground">
                         <CardContent className="p-6 text-center">
                             <Leaf className="h-12 w-12 mx-auto mb-4" />
-                            <h3 className="text-lg font-heading font-semibold mb-2">Bæredygtighed</h3>
-                            <p className="text-sm opacity-90">
+                            <h3 className="text-lg font-heading font-semibold mb-2 text-white">Bæredygtighed</h3>
+                            <p className="text-sm opacity-90 text-white">
                                 Vi tager ansvar for miljøet i vores produktion
                             </p>
                         </CardContent>
@@ -50,8 +50,8 @@ export const AboutContent = () => {
                     <Card className="bg-primary text-primary-foreground">
                         <CardContent className="p-6 text-center">
                             <Clock className="h-12 w-12 mx-auto mb-4" />
-                            <h3 className="text-lg font-heading font-semibold mb-2">Levering til tiden</h3>
-                            <p className="text-sm opacity-90">
+                            <h3 className="text-lg font-heading font-semibold mb-2 text-white">Levering til tiden</h3>
+                            <p className="text-sm opacity-90 text-white">
                                 Hurtig behandling og præcise leveringstider
                             </p>
                         </CardContent>
@@ -60,7 +60,7 @@ export const AboutContent = () => {
 
                 <div className="text-center">
                     <Button size="lg" asChild>
-                        <Link to="/produkter">Se produkter</Link>
+                        <Link to="/produkter" style={{ color: 'white' }}>Se produkter</Link>
                     </Button>
                 </div>
             </div>
