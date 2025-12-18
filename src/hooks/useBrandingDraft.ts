@@ -2,11 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-// Default hero slideshow images (Root public paths for maximum compatibility)
-// Default hero slideshow images (Root public paths for maximum compatibility)
+// Default hero slideshow images (External URLs for maximum reliability in production)
 const heroPrinting = "https://images.unsplash.com/photo-1595079676339-1534802ad6cf?q=80&w=1920&h=600&auto=format&fit=crop";
-const heroBanners = "/hero-banner.jpg";
-const heroFlyers = "/hero-flyer.jpg";
+const heroBanners = "https://images.unsplash.com/photo-1504868584819-f8e8b4b6d7e3?q=80&w=1920&h=600&auto=format&fit=crop";
+const heroFlyers = "https://images.unsplash.com/photo-1568667256549-094345857637?q=80&w=1920&h=600&auto=format&fit=crop";
 
 // Hero banner dimension constants (can be changed platform-wide here)
 export const HERO_RECOMMENDED_WIDTH = 1920;
