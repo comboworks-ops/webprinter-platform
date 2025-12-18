@@ -410,7 +410,7 @@ export function AdminSidebar() {
                   <SidebarMenuItem>
                     <AdminNavLink to="/admin/branding-v2">
                       <LayoutGrid className="h-4 w-4" />
-                      {!collapsed && <span>Site Design V2</span>}
+                      {!collapsed && <span>{isMasterAdmin ? 'Eget Shop Design' : 'Site Design V2'}</span>}
                     </AdminNavLink>
                   </SidebarMenuItem>
                   <SidebarMenuItem>
@@ -471,7 +471,7 @@ export function AdminSidebar() {
                     <SidebarMenuItem>
                       <AdminNavLink to="/admin/branding-template">
                         <Palette className="h-4 w-4" />
-                        {!collapsed && <span>Site Design Skabelon</span>}
+                        {!collapsed && <span>Platform Master Design</span>}
                       </AdminNavLink>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
