@@ -209,27 +209,27 @@ export function ContentBlocksSection({
                     </CardHeader>
                     <CardContent className={cn("space-y-4", !block.enabled && "opacity-50")}>
                         {/* Heading */}
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-4">
-                                <Label>Overskrift (H2)</Label>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-56">
-                                        <FontSelector
-                                            label=""
-                                            value={block.headingFont || 'Poppins'}
-                                            onChange={(v) => updateBlock(block.id, { headingFont: v })}
-                                        />
-                                    </div>
-                                    <ColorPickerWithSwatches
-                                        label=""
-                                        value={block.headingColor || '#1F2937'}
-                                        onChange={(color) => updateBlock(block.id, { headingColor: color })}
-                                        savedSwatches={savedSwatches}
-                                        onSaveSwatch={onSaveSwatch}
-                                        onRemoveSwatch={onRemoveSwatch}
-                                    />
-                                </div>
+                        <div className="space-y-3">
+                            <Label>Overskrift (H2)</Label>
+
+                            <div className="space-y-3 pt-1">
+                                <FontSelector
+                                    label="Skrifttype"
+                                    inline
+                                    value={block.headingFont || 'Poppins'}
+                                    onChange={(v) => updateBlock(block.id, { headingFont: v })}
+                                />
+                                <ColorPickerWithSwatches
+                                    label="Farve"
+                                    inline
+                                    value={block.headingColor || '#1F2937'}
+                                    onChange={(color) => updateBlock(block.id, { headingColor: color })}
+                                    savedSwatches={savedSwatches}
+                                    onSaveSwatch={onSaveSwatch}
+                                    onRemoveSwatch={onRemoveSwatch}
+                                />
                             </div>
+
                             <Input
                                 placeholder="Indtast overskrift..."
                                 value={block.heading || ''}
@@ -239,27 +239,27 @@ export function ContentBlocksSection({
                         </div>
 
                         {/* Text */}
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-4">
-                                <Label>Tekst</Label>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-56">
-                                        <FontSelector
-                                            label=""
-                                            value={block.textFont || 'Inter'}
-                                            onChange={(v) => updateBlock(block.id, { textFont: v })}
-                                        />
-                                    </div>
-                                    <ColorPickerWithSwatches
-                                        label=""
-                                        value={block.textColor || '#4B5563'}
-                                        onChange={(color) => updateBlock(block.id, { textColor: color })}
-                                        savedSwatches={savedSwatches}
-                                        onSaveSwatch={onSaveSwatch}
-                                        onRemoveSwatch={onRemoveSwatch}
-                                    />
-                                </div>
+                        <div className="space-y-3">
+                            <Label>Tekst</Label>
+
+                            <div className="space-y-3 pt-1">
+                                <FontSelector
+                                    label="Skrifttype"
+                                    inline
+                                    value={block.textFont || 'Inter'}
+                                    onChange={(v) => updateBlock(block.id, { textFont: v })}
+                                />
+                                <ColorPickerWithSwatches
+                                    label="Farve"
+                                    inline
+                                    value={block.textColor || '#4B5563'}
+                                    onChange={(color) => updateBlock(block.id, { textColor: color })}
+                                    savedSwatches={savedSwatches}
+                                    onSaveSwatch={onSaveSwatch}
+                                    onRemoveSwatch={onRemoveSwatch}
+                                />
                             </div>
+
                             <Textarea
                                 placeholder="Indtast brødtekst..."
                                 value={block.text || ''}
@@ -270,11 +270,12 @@ export function ContentBlocksSection({
                         </div>
 
                         {/* Image */}
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                             <Label>Billede</Label>
-                            <div className="flex items-center gap-4">
+
+                            <div className="flex items-center gap-4 p-2 border rounded-md">
                                 {block.imageUrl ? (
-                                    <div className="relative w-24 h-16 border rounded overflow-hidden">
+                                    <div className="relative w-24 h-16 border rounded overflow-hidden flex-shrink-0">
                                         <img
                                             src={block.imageUrl}
                                             alt=""
@@ -290,7 +291,7 @@ export function ContentBlocksSection({
                                         </Button>
                                     </div>
                                 ) : (
-                                    <label className="w-24 h-16 border-2 border-dashed rounded flex flex-col items-center justify-center cursor-pointer hover:bg-muted/50">
+                                    <label className="w-24 h-16 border-2 border-dashed rounded flex flex-col items-center justify-center cursor-pointer hover:bg-muted/50 flex-shrink-0">
                                         {uploading === block.id ? (
                                             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                                         ) : (
@@ -309,55 +310,57 @@ export function ContentBlocksSection({
                                     </label>
                                 )}
 
-                                {/* Image Position */}
-                                <div className="space-y-1">
-                                    <Label className="text-xs">Placering</Label>
-                                    <Select
-                                        value={block.imagePosition}
-                                        onValueChange={(v: 'left' | 'right') => updateBlock(block.id, { imagePosition: v })}
-                                        disabled={!block.enabled}
-                                    >
-                                        <SelectTrigger className="w-24 h-8">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="left">Venstre</SelectItem>
-                                            <SelectItem value="right">Højre</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
+                                <div className="flex-1 space-y-2">
+                                    {/* Image Position */}
+                                    <div className="flex items-center justify-between gap-3">
+                                        <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Placering</Label>
+                                        <Select
+                                            value={block.imagePosition}
+                                            onValueChange={(v: 'left' | 'right') => updateBlock(block.id, { imagePosition: v })}
+                                            disabled={!block.enabled}
+                                        >
+                                            <SelectTrigger className="h-7 text-xs w-24">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="left" className="text-xs">Venstre</SelectItem>
+                                                <SelectItem value="right" className="text-xs">Højre</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
 
-                                {/* Text Alignment */}
-                                <div className="space-y-1">
-                                    <Label className="text-xs">Tekstjustering</Label>
-                                    <div className="flex gap-1">
-                                        <Button
-                                            variant={block.textAlign === 'left' ? 'default' : 'outline'}
-                                            size="icon"
-                                            className="h-8 w-8"
-                                            onClick={() => updateBlock(block.id, { textAlign: 'left' })}
-                                            disabled={!block.enabled}
-                                        >
-                                            <AlignLeft className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                            variant={block.textAlign === 'center' ? 'default' : 'outline'}
-                                            size="icon"
-                                            className="h-8 w-8"
-                                            onClick={() => updateBlock(block.id, { textAlign: 'center' })}
-                                            disabled={!block.enabled}
-                                        >
-                                            <AlignCenter className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                            variant={block.textAlign === 'right' ? 'default' : 'outline'}
-                                            size="icon"
-                                            className="h-8 w-8"
-                                            onClick={() => updateBlock(block.id, { textAlign: 'right' })}
-                                            disabled={!block.enabled}
-                                        >
-                                            <AlignRight className="h-4 w-4" />
-                                        </Button>
+                                    {/* Text Alignment */}
+                                    <div className="flex items-center justify-between gap-3">
+                                        <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Justering</Label>
+                                        <div className="flex gap-1">
+                                            <Button
+                                                variant={block.textAlign === 'left' ? 'secondary' : 'ghost'}
+                                                size="icon"
+                                                className="h-7 w-7"
+                                                onClick={() => updateBlock(block.id, { textAlign: 'left' })}
+                                                disabled={!block.enabled}
+                                            >
+                                                <AlignLeft className="h-3.5 w-3.5" />
+                                            </Button>
+                                            <Button
+                                                variant={block.textAlign === 'center' ? 'secondary' : 'ghost'}
+                                                size="icon"
+                                                className="h-7 w-7"
+                                                onClick={() => updateBlock(block.id, { textAlign: 'center' })}
+                                                disabled={!block.enabled}
+                                            >
+                                                <AlignCenter className="h-3.5 w-3.5" />
+                                            </Button>
+                                            <Button
+                                                variant={block.textAlign === 'right' ? 'secondary' : 'ghost'}
+                                                size="icon"
+                                                className="h-7 w-7"
+                                                onClick={() => updateBlock(block.id, { textAlign: 'right' })}
+                                                disabled={!block.enabled}
+                                            >
+                                                <AlignRight className="h-3.5 w-3.5" />
+                                            </Button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

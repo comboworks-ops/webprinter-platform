@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useRef, type ReactNode 
 import type { BrandingData } from "@/hooks/useBrandingDraft";
 import { mergeBrandingWithDefaults } from "@/hooks/useBrandingDraft";
 import { getGoogleFontsUrl } from "@/components/admin/FontSelector";
+import { applyFavicon } from "@/hooks/useFavicon";
 
 interface PreviewBrandingContextValue {
     /** The branding data (draft in preview, published in production) */
@@ -217,6 +218,12 @@ export function PreviewBrandingProvider({
         root.style.setProperty('--product-saturate', `${branding.productImages.saturate}%`);
         root.style.setProperty('--product-filter', `hue-rotate(${branding.productImages.hueRotate}deg) saturate(${branding.productImages.saturate}%)`);
     }, [branding?.productImages?.hueRotate, branding?.productImages?.saturate]);
+
+    // Apply favicon from branding
+    useEffect(() => {
+        if (!branding?.favicon) return;
+        applyFavicon(branding.favicon);
+    }, [branding?.favicon?.type, branding?.favicon?.presetId, branding?.favicon?.presetColor, branding?.favicon?.customUrl]);
 
     return (
         <PreviewBrandingContext.Provider value={{ branding, isPreviewMode, tenantName, isReady }}>

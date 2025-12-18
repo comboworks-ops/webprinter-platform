@@ -553,6 +553,13 @@ const DEFAULT_BRANDING = {
         saturate: 100,
     },
     selectedIconPackId: "classic",
+    // Favicon (browser tab icon)
+    favicon: {
+        type: 'preset' as 'preset' | 'custom',  // 'preset' = built-in icon, 'custom' = uploaded
+        presetId: 'default',                     // ID of the preset icon
+        presetColor: '#0EA5E9',                  // Color for preset icons
+        customUrl: null as string | null,        // URL to custom uploaded .ico file
+    },
 };
 
 export type BrandingData = typeof DEFAULT_BRANDING;

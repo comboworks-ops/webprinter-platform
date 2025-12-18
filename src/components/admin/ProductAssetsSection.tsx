@@ -4,8 +4,10 @@ import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Check, Lock, Image as ImageIcon, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { IconPackSelector } from "./IconPackSelector";
+import { IconPackSelector, ICON_PACKS } from "./IconPackSelector";
 import type { BrandingData } from "@/hooks/useBrandingDraft";
+import type { PaidItemType } from "@/hooks/usePaidItems";
+import { toast } from "sonner";
 import flyersPng from "@/assets/products/flyers.png";
 
 // Sample Product Image Sets
@@ -39,9 +41,19 @@ const PRODUCT_IMAGE_SETS = [
 interface ProductAssetsSectionProps {
     draft: BrandingData;
     updateDraft: (updates: Partial<BrandingData>) => void;
+    // Paid items callbacks (optional - only provided for tenants)
+    onAddPaidItem?: (item: { type: PaidItemType; itemId: string; name: string; price: number }) => Promise<void>;
+    isItemPurchased?: (type: PaidItemType, itemId: string) => boolean;
+    isItemPending?: (type: PaidItemType, itemId: string) => boolean;
 }
 
-export function ProductAssetsSection({ draft, updateDraft }: ProductAssetsSectionProps) {
+export function ProductAssetsSection({
+    draft,
+    updateDraft,
+    onAddPaidItem,
+    isItemPurchased,
+    isItemPending,
+}: ProductAssetsSectionProps) {
     const { productImages, selectedIconPackId } = draft;
 
     const handleFilterChange = (key: 'hueRotate' | 'saturate', value: number[]) => {
@@ -54,14 +66,67 @@ export function ProductAssetsSection({ draft, updateDraft }: ProductAssetsSectio
         });
     };
 
-    const handleSetChange = (setId: string) => {
+    const handleSetChange = async (setId: string) => {
         if (!productImages) return;
+
+        // Find the set
+        const set = PRODUCT_IMAGE_SETS.find(s => s.id === setId);
+        if (!set) return;
+
+        // If it's a premium set and we have the paid items handler
+        if (set.isPremium && set.price > 0 && onAddPaidItem) {
+            const alreadyPurchased = isItemPurchased?.('icon_pack', `product-images-${set.id}`);
+
+            if (!alreadyPurchased) {
+                await onAddPaidItem({
+                    type: 'icon_pack', // Using icon_pack type for product images too
+                    itemId: `product-images-${set.id}`,
+                    name: `Produktbilleder: ${set.name}`,
+                    price: set.price,
+                });
+                toast.success(
+                    `${set.name} valgt! ${set.price} kr tilføjet til kurv.`,
+                    { duration: 4000 }
+                );
+            } else {
+                toast.success(`${set.name} valgt! (Allerede købt)`);
+            }
+        }
+
         updateDraft({
             productImages: {
                 ...productImages,
                 setId
             }
         });
+    };
+
+    const handleIconPackChange = async (packId: string) => {
+        // Find the pack
+        const pack = ICON_PACKS.find(p => p.id === packId);
+        if (!pack) return;
+
+        // If it's a premium pack and we have the paid items handler
+        if (pack.isPremium && pack.price && pack.price > 0 && onAddPaidItem) {
+            const alreadyPurchased = isItemPurchased?.('icon_pack', `icon-pack-${pack.id}`);
+
+            if (!alreadyPurchased) {
+                await onAddPaidItem({
+                    type: 'icon_pack',
+                    itemId: `icon-pack-${pack.id}`,
+                    name: `Ikon Pakke: ${pack.name}`,
+                    price: pack.price,
+                });
+                toast.success(
+                    `${pack.name} valgt! ${pack.price} kr tilføjet til kurv.`,
+                    { duration: 4000 }
+                );
+            } else {
+                toast.success(`${pack.name} valgt! (Allerede købt)`);
+            }
+        }
+
+        updateDraft({ selectedIconPackId: packId });
     };
 
     // Safe values with defaults
@@ -185,7 +250,7 @@ export function ProductAssetsSection({ draft, updateDraft }: ProductAssetsSectio
             <div className="space-y-4 pt-4 border-t">
                 <IconPackSelector
                     selectedPackId={selectedIconPackId}
-                    onChange={(id) => updateDraft({ selectedIconPackId: id })}
+                    onChange={handleIconPackChange}
                 />
             </div>
         </div>

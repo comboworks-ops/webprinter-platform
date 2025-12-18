@@ -1,5 +1,6 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 // Popular Google Fonts curated for print/web businesses
 const AVAILABLE_FONTS = [
@@ -43,18 +44,23 @@ const AVAILABLE_FONTS = [
 ];
 
 interface FontSelectorProps {
-    label: string;
+    label?: string;
     value: string;
     onChange: (value: string) => void;
     description?: string;
+    inline?: boolean;
 }
 
-export function FontSelector({ label, value, onChange, description }: FontSelectorProps) {
+export function FontSelector({ label, value, onChange, description, inline }: FontSelectorProps) {
     return (
-        <div className="space-y-2">
-            <Label>{label}</Label>
+        <div className={cn("space-y-2", inline && "flex items-center justify-between gap-3 space-y-0 w-full")}>
+            {label && (
+                <Label className={cn(inline && "text-xs text-muted-foreground whitespace-nowrap")}>
+                    {label}
+                </Label>
+            )}
             <Select value={value} onValueChange={onChange}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger className={cn("w-full transition-all", inline && "h-9 text-xs")}>
                     <SelectValue placeholder="Vælg skrifttype" />
                 </SelectTrigger>
                 <SelectContent className="max-h-[300px]">
@@ -62,24 +68,24 @@ export function FontSelector({ label, value, onChange, description }: FontSelect
                         <SelectItem
                             key={font.name}
                             value={font.name}
-                            className="py-3"
+                            className="py-1.5"
                         >
-                            <div className="flex flex-col">
+                            <div className="flex items-center justify-between gap-4 w-full pr-1">
                                 <span
                                     style={{ fontFamily: `'${font.name}', ${font.category.toLowerCase()}` }}
-                                    className="text-base font-medium"
+                                    className="text-sm font-medium truncate"
                                 >
                                     {font.name}
                                 </span>
-                                <span className="text-xs text-muted-foreground">
-                                    {font.category} • {font.description}
+                                <span className="text-[10px] text-muted-foreground opacity-70 whitespace-nowrap tabular-nums">
+                                    {font.category}
                                 </span>
                             </div>
                         </SelectItem>
                     ))}
                 </SelectContent>
             </Select>
-            {description && (
+            {!inline && description && (
                 <p className="text-xs text-muted-foreground">{description}</p>
             )}
         </div>

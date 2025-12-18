@@ -69,6 +69,12 @@ interface MasterAsset {
     name: string;
     url: string;
     thumbnail_url?: string;
+    category_id?: string | null;
+    tags?: string[];
+    sort_order?: number;
+    is_published?: boolean;
+    created_at?: string;
+    updated_at?: string;
 }
 
 // Extended button type with color settings
@@ -304,7 +310,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                     is_published: true,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
-                });
+                } as MasterAsset);
                 toast.success('Billede tilføjet til banner');
             } else {
                 // Add to local state
@@ -1259,7 +1265,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                     {heroImages.length > 0 && (
                         <div className="space-y-3">
                             <Label>Vælg banner at redigere</Label>
-                            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                            <div className="grid grid-cols-3 gap-2">
                                 {heroImages.map((image, index) => {
                                     const isSelected = selectedBannerIndex === index;
                                     return (
@@ -1319,70 +1325,63 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                             </div>
 
                             {/* Banner Title with color, font, and per-banner toggle */}
-                            <div className="space-y-2">
-                                <div className="flex items-center justify-between flex-wrap gap-2">
-                                    <div className="flex items-center gap-2">
-                                        <Label>Banner Overskrift</Label>
-                                        {(extendedOverlay as any)?.usePerBannerStyling && (
-                                            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
-                                                Banner #{selectedBannerIndex + 1}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex items-center gap-2">
-                                            <Label className="text-xs text-muted-foreground">Skrifttype:</Label>
-                                            <div className="w-64">
-                                                <FontSelector
-                                                    label=""
-                                                    value={(extendedOverlay as any)?.usePerBannerStyling
-                                                        ? ((heroImages[selectedBannerIndex] as any).titleFontId || (extendedOverlay as any)?.titleFontId || 'Poppins')
-                                                        : ((extendedOverlay as any)?.titleFontId || 'Poppins')}
-                                                    onChange={(v) => {
-                                                        if ((extendedOverlay as any)?.usePerBannerStyling) {
-                                                            const newImages = [...heroImages] as any[];
-                                                            newImages[selectedBannerIndex] = {
-                                                                ...newImages[selectedBannerIndex],
-                                                                titleFontId: v
-                                                            };
-                                                            updateHero({ images: newImages });
-                                                        } else {
-                                                            updateOverlay({ titleFontId: v } as any);
-                                                        }
-                                                    }}
-                                                />
-                                            </div>
-                                        </div>
-                                        <ColorPickerWithSwatches
-                                            label="Farve"
-                                            value={(extendedOverlay as any)?.usePerBannerStyling
-                                                ? ((heroImages[selectedBannerIndex] as any).titleColor || (extendedOverlay as any)?.titleColor || '#FFFFFF')
-                                                : ((extendedOverlay as any)?.titleColor || '#FFFFFF')}
-                                            onChange={(color) => {
-                                                if ((extendedOverlay as any)?.usePerBannerStyling) {
-                                                    const newImages = [...heroImages] as any[];
-                                                    newImages[selectedBannerIndex] = {
-                                                        ...newImages[selectedBannerIndex],
-                                                        titleColor: color
-                                                    };
-                                                    updateHero({ images: newImages });
-                                                } else {
-                                                    updateOverlay({ titleColor: color } as any);
-                                                }
-                                            }}
-                                            savedSwatches={savedSwatches}
-                                            onSaveSwatch={onSaveSwatch}
-                                            onRemoveSwatch={onRemoveSwatch}
+                            {/* Banner Title with color, font, and per-banner toggle */}
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <Label>Banner Overskrift</Label>
+                                    <div className="flex items-center gap-1.5 border-l pl-3 ml-2">
+                                        <Label className="text-xs text-muted-foreground whitespace-nowrap">Individuel stil</Label>
+                                        <Switch
+                                            checked={(extendedOverlay as any)?.usePerBannerStyling || false}
+                                            onCheckedChange={(checked) => updateOverlay({ usePerBannerStyling: checked } as any)}
                                         />
-                                        <div className="flex items-center gap-1.5 border-l pl-3">
-                                            <Label className="text-xs text-muted-foreground whitespace-nowrap">Kun dette banner</Label>
-                                            <Switch
-                                                checked={(extendedOverlay as any)?.usePerBannerStyling || false}
-                                                onCheckedChange={(checked) => updateOverlay({ usePerBannerStyling: checked } as any)}
-                                            />
-                                        </div>
                                     </div>
                                 </div>
+
+                                <div className="space-y-3 pt-1">
+                                    <FontSelector
+                                        label="Skrifttype"
+                                        inline
+                                        value={(extendedOverlay as any)?.usePerBannerStyling
+                                            ? ((heroImages[selectedBannerIndex] as any).titleFontId || (extendedOverlay as any)?.titleFontId || 'Poppins')
+                                            : ((extendedOverlay as any)?.titleFontId || 'Poppins')}
+                                        onChange={(v) => {
+                                            if ((extendedOverlay as any)?.usePerBannerStyling) {
+                                                const newImages = [...heroImages] as any[];
+                                                newImages[selectedBannerIndex] = {
+                                                    ...newImages[selectedBannerIndex],
+                                                    titleFontId: v
+                                                };
+                                                updateHero({ images: newImages });
+                                            } else {
+                                                updateOverlay({ titleFontId: v } as any);
+                                            }
+                                        }}
+                                    />
+                                    <ColorPickerWithSwatches
+                                        label="Farve"
+                                        inline
+                                        value={(extendedOverlay as any)?.usePerBannerStyling
+                                            ? ((heroImages[selectedBannerIndex] as any).titleColor || (extendedOverlay as any)?.titleColor || '#FFFFFF')
+                                            : ((extendedOverlay as any)?.titleColor || '#FFFFFF')}
+                                        onChange={(color) => {
+                                            if ((extendedOverlay as any)?.usePerBannerStyling) {
+                                                const newImages = [...heroImages] as any[];
+                                                newImages[selectedBannerIndex] = {
+                                                    ...newImages[selectedBannerIndex],
+                                                    titleColor: color
+                                                };
+                                                updateHero({ images: newImages });
+                                            } else {
+                                                updateOverlay({ titleColor: color } as any);
+                                            }
+                                        }}
+                                        savedSwatches={savedSwatches}
+                                        onSaveSwatch={onSaveSwatch}
+                                        onRemoveSwatch={onRemoveSwatch}
+                                    />
+                                </div>
+
                                 <Input
                                     value={heroImages[selectedBannerIndex].headline || ''}
                                     onChange={(e) => {
@@ -1398,63 +1397,53 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                             </div>
 
                             {/* Banner Subtitle with color and font - same toggle as title */}
-                            <div className="space-y-2">
-                                <div className="flex items-center justify-between flex-wrap gap-2">
-                                    <div className="flex items-center gap-2">
-                                        <Label>Banner Undertitel</Label>
-                                        {(extendedOverlay as any)?.usePerBannerStyling && (
-                                            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
-                                                Banner #{selectedBannerIndex + 1}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex items-center gap-2">
-                                            <Label className="text-xs text-muted-foreground">Skrifttype:</Label>
-                                            <div className="w-64">
-                                                <FontSelector
-                                                    label=""
-                                                    value={(extendedOverlay as any)?.usePerBannerStyling
-                                                        ? ((heroImages[selectedBannerIndex] as any).subtitleFontId || (extendedOverlay as any)?.subtitleFontId || 'Inter')
-                                                        : ((extendedOverlay as any)?.subtitleFontId || 'Inter')}
-                                                    onChange={(v) => {
-                                                        if ((extendedOverlay as any)?.usePerBannerStyling) {
-                                                            const newImages = [...heroImages] as any[];
-                                                            newImages[selectedBannerIndex] = {
-                                                                ...newImages[selectedBannerIndex],
-                                                                subtitleFontId: v
-                                                            };
-                                                            updateHero({ images: newImages });
-                                                        } else {
-                                                            updateOverlay({ subtitleFontId: v } as any);
-                                                        }
-                                                    }}
-                                                />
-                                            </div>
-                                        </div>
-                                        <ColorPickerWithSwatches
-                                            label="Farve"
-                                            value={(extendedOverlay as any)?.usePerBannerStyling
-                                                ? ((heroImages[selectedBannerIndex] as any).subtitleColor || (extendedOverlay as any)?.subtitleColor || '#FFFFFF')
-                                                : ((extendedOverlay as any)?.subtitleColor || '#FFFFFF')}
-                                            onChange={(color) => {
-                                                if ((extendedOverlay as any)?.usePerBannerStyling) {
-                                                    const newImages = [...heroImages] as any[];
-                                                    newImages[selectedBannerIndex] = {
-                                                        ...newImages[selectedBannerIndex],
-                                                        subtitleColor: color
-                                                    };
-                                                    updateHero({ images: newImages });
-                                                } else {
-                                                    updateOverlay({ subtitleColor: color } as any);
-                                                }
-                                            }}
-                                            savedSwatches={savedSwatches}
-                                            onSaveSwatch={onSaveSwatch}
-                                            onRemoveSwatch={onRemoveSwatch}
-                                        />
-                                    </div>
+                            <div className="space-y-3">
+                                <Label>Banner Undertitel</Label>
+
+                                <div className="space-y-3 pt-1">
+                                    <FontSelector
+                                        label="Skrifttype"
+                                        inline
+                                        value={(extendedOverlay as any)?.usePerBannerStyling
+                                            ? ((heroImages[selectedBannerIndex] as any).subtitleFontId || (extendedOverlay as any)?.subtitleFontId || 'Inter')
+                                            : ((extendedOverlay as any)?.subtitleFontId || 'Inter')}
+                                        onChange={(v) => {
+                                            if ((extendedOverlay as any)?.usePerBannerStyling) {
+                                                const newImages = [...heroImages] as any[];
+                                                newImages[selectedBannerIndex] = {
+                                                    ...newImages[selectedBannerIndex],
+                                                    subtitleFontId: v
+                                                };
+                                                updateHero({ images: newImages });
+                                            } else {
+                                                updateOverlay({ subtitleFontId: v } as any);
+                                            }
+                                        }}
+                                    />
+                                    <ColorPickerWithSwatches
+                                        label="Farve"
+                                        inline
+                                        value={(extendedOverlay as any)?.usePerBannerStyling
+                                            ? ((heroImages[selectedBannerIndex] as any).subtitleColor || (extendedOverlay as any)?.subtitleColor || '#FFFFFF')
+                                            : ((extendedOverlay as any)?.subtitleColor || '#FFFFFF')}
+                                        onChange={(color) => {
+                                            if ((extendedOverlay as any)?.usePerBannerStyling) {
+                                                const newImages = [...heroImages] as any[];
+                                                newImages[selectedBannerIndex] = {
+                                                    ...newImages[selectedBannerIndex],
+                                                    subtitleColor: color
+                                                };
+                                                updateHero({ images: newImages });
+                                            } else {
+                                                updateOverlay({ subtitleColor: color } as any);
+                                            }
+                                        }}
+                                        savedSwatches={savedSwatches}
+                                        onSaveSwatch={onSaveSwatch}
+                                        onRemoveSwatch={onRemoveSwatch}
+                                    />
                                 </div>
+
                                 <Textarea
                                     value={heroImages[selectedBannerIndex].subline || ''}
                                     onChange={(e) => {
@@ -1514,7 +1503,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                <div className="grid grid-cols-2 gap-2">
                                     {TEXT_ANIMATION_PRESETS.map((preset) => {
                                         const isSelected = (heroImages[selectedBannerIndex].textAnimation || 'none') === preset.value;
                                         return (
@@ -1578,7 +1567,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                         value={selectedBannerIndex.toString()}
                                         onValueChange={(v) => setSelectedBannerIndex(parseInt(v))}
                                     >
-                                        <SelectTrigger className="w-[200px]">
+                                        <SelectTrigger className="flex-1 min-w-0">
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -1644,10 +1633,11 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                         </Button>
                                                     </div>
 
-                                                    <div className="grid sm:grid-cols-2 gap-3">
-                                                        <div className="space-y-1">
-                                                            <Label className="text-xs">Tekst</Label>
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <Label className="text-xs text-muted-foreground w-12 shrink-0">Tekst</Label>
                                                             <Input
+                                                                className="h-8 text-xs flex-1"
                                                                 value={button.label}
                                                                 onChange={(e) => {
                                                                     const newImages = [...heroImages];
@@ -1658,8 +1648,8 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                                 }}
                                                             />
                                                         </div>
-                                                        <div className="space-y-1">
-                                                            <Label className="text-xs">Stil</Label>
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <Label className="text-xs text-muted-foreground w-12 shrink-0">Stil</Label>
                                                             <Select
                                                                 value={button.variant}
                                                                 onValueChange={(v) => {
@@ -1670,74 +1660,60 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                                     updateHero({ images: newImages });
                                                                 }}
                                                             >
-                                                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                                                <SelectTrigger className="h-8 text-xs flex-1"><SelectValue /></SelectTrigger>
                                                                 <SelectContent>
                                                                     <SelectItem value="primary">Primær</SelectItem>
                                                                     <SelectItem value="secondary">Sekundær</SelectItem>
                                                                 </SelectContent>
                                                             </Select>
                                                         </div>
-                                                    </div>
 
-                                                    {/* Button Color Controls */}
-                                                    <div className="grid sm:grid-cols-2 gap-3">
-                                                        <div className="space-y-1">
-                                                            <Label className="text-xs">Tekst farve</Label>
-                                                            <div className="flex items-center gap-2">
-                                                                <ColorPickerWithSwatches
-                                                                    label=""
-                                                                    value={button.textColor || '#FFFFFF'}
-                                                                    onChange={(color) => {
-                                                                        const newImages = [...heroImages];
-                                                                        const btns = [...(newImages[selectedBannerIndex].buttons || [])];
-                                                                        btns[btnIndex] = { ...btns[btnIndex], textColor: color };
-                                                                        newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
-                                                                        updateHero({ images: newImages });
-                                                                    }}
-                                                                    savedSwatches={savedSwatches}
-                                                                    onSaveSwatch={onSaveSwatch}
-                                                                    onRemoveSwatch={onRemoveSwatch}
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <Label className="text-xs">Baggrund farve</Label>
-                                                            <div className="flex items-center gap-2">
-                                                                <ColorPickerWithSwatches
-                                                                    label=""
-                                                                    value={button.bgColor || '#0EA5E9'}
-                                                                    onChange={(color) => {
-                                                                        const newImages = [...heroImages];
-                                                                        const btns = [...(newImages[selectedBannerIndex].buttons || [])];
-                                                                        btns[btnIndex] = { ...btns[btnIndex], bgColor: color };
-                                                                        newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
-                                                                        updateHero({ images: newImages });
-                                                                    }}
-                                                                    savedSwatches={savedSwatches}
-                                                                    onSaveSwatch={onSaveSwatch}
-                                                                    onRemoveSwatch={onRemoveSwatch}
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <Label className="text-xs">Hover farve</Label>
-                                                            <div className="flex items-center gap-2">
-                                                                <ColorPickerWithSwatches
-                                                                    label=""
-                                                                    value={button.bgHoverColor || '#0284C7'}
-                                                                    onChange={(color) => {
-                                                                        const newImages = [...heroImages];
-                                                                        const btns = [...(newImages[selectedBannerIndex].buttons || [])];
-                                                                        btns[btnIndex] = { ...btns[btnIndex], bgHoverColor: color };
-                                                                        newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
-                                                                        updateHero({ images: newImages });
-                                                                    }}
-                                                                    savedSwatches={savedSwatches}
-                                                                    onSaveSwatch={onSaveSwatch}
-                                                                    onRemoveSwatch={onRemoveSwatch}
-                                                                />
-                                                            </div>
-                                                        </div>
+                                                        {/* Button Color Controls */}
+                                                        <ColorPickerWithSwatches
+                                                            label="Tekst farve"
+                                                            inline
+                                                            value={button.textColor || '#FFFFFF'}
+                                                            onChange={(color) => {
+                                                                const newImages = [...heroImages];
+                                                                const btns = [...(newImages[selectedBannerIndex].buttons || [])];
+                                                                btns[btnIndex] = { ...btns[btnIndex], textColor: color };
+                                                                newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
+                                                                updateHero({ images: newImages });
+                                                            }}
+                                                            savedSwatches={savedSwatches}
+                                                            onSaveSwatch={onSaveSwatch}
+                                                            onRemoveSwatch={onRemoveSwatch}
+                                                        />
+                                                        <ColorPickerWithSwatches
+                                                            label="Baggrund farve"
+                                                            inline
+                                                            value={button.bgColor || '#0EA5E9'}
+                                                            onChange={(color) => {
+                                                                const newImages = [...heroImages];
+                                                                const btns = [...(newImages[selectedBannerIndex].buttons || [])];
+                                                                btns[btnIndex] = { ...btns[btnIndex], bgColor: color };
+                                                                newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
+                                                                updateHero({ images: newImages });
+                                                            }}
+                                                            savedSwatches={savedSwatches}
+                                                            onSaveSwatch={onSaveSwatch}
+                                                            onRemoveSwatch={onRemoveSwatch}
+                                                        />
+                                                        <ColorPickerWithSwatches
+                                                            label="Hover farve"
+                                                            inline
+                                                            value={button.bgHoverColor || '#0284C7'}
+                                                            onChange={(color) => {
+                                                                const newImages = [...heroImages];
+                                                                const btns = [...(newImages[selectedBannerIndex].buttons || [])];
+                                                                btns[btnIndex] = { ...btns[btnIndex], bgHoverColor: color };
+                                                                newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
+                                                                updateHero({ images: newImages });
+                                                            }}
+                                                            savedSwatches={savedSwatches}
+                                                            onSaveSwatch={onSaveSwatch}
+                                                            onRemoveSwatch={onRemoveSwatch}
+                                                        />
                                                     </div>
 
                                                     <div className="grid sm:grid-cols-2 gap-3">
@@ -1753,7 +1729,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                                     updateHero({ images: newImages });
                                                                 }}
                                                             >
-                                                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                                                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                                                                 <SelectContent>
                                                                     <SelectItem value="ALL_PRODUCTS">Alle produkter</SelectItem>
                                                                     <SelectItem value="PRODUCT">Specifikt produkt</SelectItem>
@@ -1765,7 +1741,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                         <div className="space-y-1">
                                                             <Label className="text-xs">Destination</Label>
                                                             {button.linkType === 'ALL_PRODUCTS' && (
-                                                                <Input value="/shop" disabled className="bg-muted" />
+                                                                <Input value="/shop" disabled className="bg-muted h-8" />
                                                             )}
                                                             {button.linkType === 'PRODUCT' && (
                                                                 <Select
@@ -1779,7 +1755,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                                         updateHero({ images: newImages });
                                                                     }}
                                                                 >
-                                                                    <SelectTrigger><SelectValue placeholder="Vælg" /></SelectTrigger>
+                                                                    <SelectTrigger className="h-8"><SelectValue placeholder="Vælg" /></SelectTrigger>
                                                                     <SelectContent>
                                                                         {products.map(p => (
                                                                             <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
@@ -1798,7 +1774,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                                         updateHero({ images: newImages });
                                                                     }}
                                                                 >
-                                                                    <SelectTrigger><SelectValue placeholder="Vælg" /></SelectTrigger>
+                                                                    <SelectTrigger className="h-8"><SelectValue placeholder="Vælg" /></SelectTrigger>
                                                                     <SelectContent>
                                                                         {INTERNAL_PAGES.map(p => (
                                                                             <SelectItem key={p.path} value={p.path}>{p.label}</SelectItem>
@@ -1808,6 +1784,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                             )}
                                                             {button.linkType === 'EXTERNAL_URL' && (
                                                                 <Input
+                                                                    className="h-8"
                                                                     value={button.target?.url || ""}
                                                                     onChange={(e) => {
                                                                         const newImages = [...heroImages];

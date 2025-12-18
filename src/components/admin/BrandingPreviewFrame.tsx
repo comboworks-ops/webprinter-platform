@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, ExternalLink, Monitor, Smartphone, Tablet, Loader2, Home, Send, AlertTriangle, RotateCcw } from "lucide-react";
+import { RefreshCw, ExternalLink, Monitor, Smartphone, Tablet, Loader2, Home, Send, AlertTriangle, RotateCcw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { BrandingData } from "@/hooks/useBrandingDraft";
@@ -15,6 +15,8 @@ interface BrandingPreviewFrameProps {
     isPublishing?: boolean;
     /** Optional callback to save draft before opening in new tab */
     onSaveDraft?: () => Promise<void>;
+    /** Optional callback to reset design to default */
+    onResetDesign?: () => void;
 }
 
 type ViewportSize = "desktop" | "tablet" | "mobile";
@@ -43,6 +45,7 @@ export function BrandingPreviewFrame({
     onPublish,
     isPublishing = false,
     onSaveDraft,
+    onResetDesign,
 }: BrandingPreviewFrameProps) {
     // Broadcast channel so detached preview windows get live updates
     const broadcastRef = useRef<BroadcastChannel | null>(null);
@@ -234,6 +237,20 @@ export function BrandingPreviewFrame({
                 <div className="flex items-center gap-1">
                     {iframeReady && (
                         <span className="text-xs text-green-600 mr-2 hidden sm:inline">● Live</span>
+                    )}
+
+                    {/* Reset Design */}
+                    {onResetDesign && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={onResetDesign}
+                            title="Nulstil til standard design"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            <span className="hidden sm:inline text-xs">Nulstil design</span>
+                        </Button>
                     )}
 
                     {/* Back to Frontpage */}

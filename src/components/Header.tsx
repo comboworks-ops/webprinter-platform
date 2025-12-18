@@ -541,6 +541,7 @@ const Header = () => {
                                           src={product.image_url}
                                           alt={product.name}
                                           className="w-14 h-14 object-contain"
+                                          style={{ filter: 'var(--product-filter)' }}
                                         />
                                       )}
                                       {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
@@ -591,6 +592,7 @@ const Header = () => {
                                           src={product.image_url}
                                           alt={product.name}
                                           className="w-14 h-14 object-contain"
+                                          style={{ filter: 'var(--product-filter)' }}
                                         />
                                       )}
                                       {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
@@ -641,6 +643,7 @@ const Header = () => {
                                           src={product.image_url}
                                           alt={product.name}
                                           className="w-14 h-14 object-contain"
+                                          style={{ filter: 'var(--product-filter)' }}
                                         />
                                       )}
                                       {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
@@ -745,6 +748,7 @@ const Header = () => {
                               src={product.image_url}
                               alt={product.name}
                               className="w-10 h-10 object-cover rounded"
+                              style={{ filter: 'var(--product-filter)' }}
                             />
                           )}
                           <div className="flex-1 min-w-0">
@@ -930,6 +934,7 @@ const Header = () => {
                       src={product.image_url}
                       alt={product.name}
                       className="w-5 h-5 object-contain"
+                      style={{ filter: 'var(--product-filter)' }}
                     />
                   )}
                   {product.name}

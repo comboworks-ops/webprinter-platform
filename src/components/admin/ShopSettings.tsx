@@ -16,6 +16,7 @@ export function ShopSettings() {
     const [phone, setPhone] = useState("");
     const [address, setAddress] = useState("");
     const [cvr, setCvr] = useState("");
+    const [adminName, setAdminName] = useState("");
 
     // Notifications
     const [emailNotifications, setEmailNotifications] = useState(true);
@@ -55,6 +56,7 @@ export function ShopSettings() {
                     setPhone(s.company.phone || "");
                     setAddress(s.company.address || "");
                     setCvr(s.company.cvr || "");
+                    setAdminName(s.company.admin_name || "");
                 }
 
                 // Notifications
@@ -102,7 +104,8 @@ export function ShopSettings() {
                     email,
                     phone,
                     address,
-                    cvr
+                    cvr,
+                    admin_name: adminName.trim() || null
                 },
                 notifications: {
                     new_orders: emailNotifications,
@@ -166,6 +169,15 @@ export function ShopSettings() {
                             placeholder="Dit Trykkeri ApS"
                         />
                         <p className="text-xs text-muted-foreground">Dette navn vises i admin panelet</p>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="adminName">Navn på administrator</Label>
+                        <Input
+                            id="adminName"
+                            value={adminName}
+                            onChange={(e) => setAdminName(e.target.value)}
+                            placeholder="F.eks. Anders Andersen"
+                        />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">

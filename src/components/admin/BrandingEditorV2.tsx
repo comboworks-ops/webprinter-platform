@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -8,7 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
     Loader2, Save, RotateCcw, Send, Trash2, List,
     X, ChevronRight, Layout, Type, Palette, Sparkles, Image as ImageIcon,
-    ExternalLink, Monitor, Smartphone, Tablet, FolderUp, LayoutTemplate
+    ExternalLink, Monitor, Smartphone, Tablet, FolderUp, LayoutTemplate, ShoppingCart,
+    Pencil, Eye, EyeOff, Check
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -44,8 +45,11 @@ import { HeaderSection } from "@/components/admin/HeaderSection";
 import { FooterSection } from "@/components/admin/FooterSection";
 import { BannerEditor } from "@/components/admin/BannerEditor";
 import { LogoSection } from "@/components/admin/LogoSection";
+import { FaviconEditor } from "@/components/admin/FaviconEditor";
 import { ContentBlocksSection } from "@/components/admin/ContentBlocksSection";
+import { PendingPurchasesDialog, PendingPurchasesBadge } from "@/components/admin/PendingPurchasesDialog";
 import { supabase } from "@/integrations/supabase/client";
+import { usePaidItems } from "@/hooks/usePaidItems";
 
 import {
     type BrandingStorageAdapter,
@@ -64,6 +68,10 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
     const [activeSection, setActiveSection] = useState<string | null>(null);
     const [sidebarOpen, setSidebarOpen] = useState(true);
 
+    // Paid items management (only for tenants)
+    const paidItems = usePaidItems(editor.mode === 'tenant' ? editor.entityId : null);
+    const [showPendingPurchasesDialog, setShowPendingPurchasesDialog] = useState(false);
+
     // Dialog States
     const [showPublishDialog, setShowPublishDialog] = useState(false);
     const [publishLabel, setPublishLabel] = useState("");
@@ -81,6 +89,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
     const [showPremadeDesignsDialog, setShowPremadeDesignsDialog] = useState(false);
     const [availablePremadeDesigns, setAvailablePremadeDesigns] = useState<any[]>([]);
     const [loadingPremadeDesigns, setLoadingPremadeDesigns] = useState(false);
+    const [capturingThumbnail, setCapturingThumbnail] = useState(false);
 
     // Saved Premade Designs management (Master)
     const [showSavedPremadeDesignsDialog, setShowSavedPremadeDesignsDialog] = useState(false);
@@ -88,9 +97,24 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
     const [loadingSavedDesigns, setLoadingSavedDesigns] = useState(false);
     const [tenantList, setTenantList] = useState<any[]>([]);
 
+    // Edit premade design state
+    const [editingDesign, setEditingDesign] = useState<{
+        id: string;
+        name: string;
+        description: string;
+        price: number;
+        is_visible: boolean;
+        thumbnail_url?: string;
+    } | null>(null);
+    const [savingDesignEdit, setSavingDesignEdit] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+
     const [focusedBlockId, setFocusedBlockId] = useState<string | null>(null);
 
-    // Listen for click events from preview
+    // Ref for screenshot capture promise resolution
+    const screenshotResolverRef = useRef<{ resolve: (url: string | null) => void; reject: (err: any) => void } | null>(null);
+
+    // Listen for click events from preview AND screenshot responses
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             if (event.data?.type === 'EDIT_SECTION') {
@@ -118,24 +142,111 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
 
                 setSidebarOpen(true);
             }
+
+            // Handle screenshot capture response
+            if (event.data?.type === 'SCREENSHOT_CAPTURED' && screenshotResolverRef.current) {
+                screenshotResolverRef.current.resolve(event.data.dataUrl);
+                screenshotResolverRef.current = null;
+            }
+            if (event.data?.type === 'SCREENSHOT_ERROR' && screenshotResolverRef.current) {
+                console.error('Screenshot error:', event.data.error);
+                screenshotResolverRef.current.resolve(null); // Resolve with null instead of rejecting
+                screenshotResolverRef.current = null;
+            }
         };
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
     }, []);
 
+    // Capture and upload a thumbnail from the preview iframe
+    const capturePreviewThumbnail = useCallback(async (): Promise<string | null> => {
+        setCapturingThumbnail(true);
+        try {
+            // Find the preview iframe
+            const iframe = document.querySelector('iframe[title="Branding Preview"]') as HTMLIFrameElement;
+            if (!iframe || !iframe.contentWindow) {
+                console.warn('Preview iframe not found');
+                return null;
+            }
+
+            // Request screenshot from iframe
+            const requestId = Date.now().toString();
+            const screenshotPromise = new Promise<string | null>((resolve, reject) => {
+                screenshotResolverRef.current = { resolve, reject };
+
+                // Timeout after 10 seconds
+                setTimeout(() => {
+                    if (screenshotResolverRef.current) {
+                        screenshotResolverRef.current.resolve(null);
+                        screenshotResolverRef.current = null;
+                    }
+                }, 10000);
+            });
+
+            iframe.contentWindow.postMessage({ type: 'CAPTURE_SCREENSHOT', requestId }, '*');
+
+            const dataUrl = await screenshotPromise;
+            if (!dataUrl) {
+                console.warn('Screenshot capture failed or timed out');
+                return null;
+            }
+
+            // Convert data URL to blob
+            const response = await fetch(dataUrl);
+            const blob = await response.blob();
+
+            // Upload to Supabase storage
+            const fileName = `premade-thumb-${Date.now()}.jpg`;
+            const filePath = `premade-designs/${fileName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('product-images')
+                .upload(filePath, blob, { contentType: 'image/jpeg' });
+
+            if (uploadError) {
+                console.error('Thumbnail upload error:', uploadError);
+                return null;
+            }
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('product-images')
+                .getPublicUrl(filePath);
+
+            return publicUrl;
+        } catch (error) {
+            console.error('Error capturing thumbnail:', error);
+            return null;
+        } finally {
+            setCapturingThumbnail(false);
+        }
+    }, []);
+
     // ... existing publish/save handlers ...
 
-    // ... inside renderSidebarContent switch ...
-
-
-    // Handle Publish
+    // Handle Publish - checks for pending paid items first
     const handlePublish = async () => {
+        // If tenant has pending paid items, show payment dialog instead
+        if (editor.mode === 'tenant' && paidItems.hasPendingItems) {
+            setShowPublishDialog(false);
+            setShowPendingPurchasesDialog(true);
+            return;
+        }
+
         if (editor.hasUnsavedChanges) {
             await editor.saveDraft();
         }
         await editor.publish(publishLabel || undefined);
         setShowPublishDialog(false);
+        setPublishLabel("");
+    };
+
+    // Handle publish after payment is complete
+    const handlePublishAfterPayment = async () => {
+        if (editor.hasUnsavedChanges) {
+            await editor.saveDraft();
+        }
+        await editor.publish(publishLabel || undefined);
         setPublishLabel("");
     };
 
@@ -169,40 +280,88 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
     const renderSidebarContent = () => {
         if (!activeSection) {
             return (
-                <div className="space-y-4">
-                    <p className="text-sm text-muted-foreground p-4">
-                        Klik på elementer i forhåndsvisningen for at redigere dem, eller vælg en sektion herunder.
-                    </p>
-                    <div className="grid gap-2 px-4">
-                        <Button variant="outline" className="justify-start" onClick={() => setActiveSection('logo')}>
-                            <ImageIcon className="mr-2 h-4 w-4" /> Logo
-                        </Button>
-                        <Button variant="outline" className="justify-start" onClick={() => setActiveSection('header')}>
-                            <Layout className="mr-2 h-4 w-4" /> Header & Navigation
-                        </Button>
+                <div className="space-y-2 p-3">
+                    <h2 className="font-extrabold text-2xl text-foreground pb-4 px-1">
+                        Vælg sektion:
+                    </h2>
+                    <div className="grid gap-2">
+                        <button
+                            className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-indigo-100 text-indigo-900 hover:bg-indigo-50/50 hover:border-indigo-200 group"
+                            onClick={() => setActiveSection('logo')}
+                        >
+                            <div className="h-8 w-8 rounded-lg bg-indigo-100/50 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-100 transition-colors">
+                                <ImageIcon className="h-4 w-4" />
+                            </div>
+                            <span className="font-semibold">Logo & Favicon</span>
+                        </button>
+                        <button
+                            className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-slate-100 text-slate-900 hover:bg-slate-50/50 hover:border-slate-200 group"
+                            onClick={() => setActiveSection('header')}
+                        >
+                            <div className="h-8 w-8 rounded-lg bg-slate-100/50 flex items-center justify-center text-slate-600 group-hover:bg-slate-100 transition-colors">
+                                <Layout className="h-4 w-4" />
+                            </div>
+                            <span className="font-semibold">Header & Menu</span>
+                        </button>
                         {capabilities.sections.typography && (
-                            <Button variant="outline" className="justify-start" onClick={() => setActiveSection('typography')}>
-                                <Type className="mr-2 h-4 w-4" /> Typografi
-                            </Button>
+                            <button
+                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-amber-100 text-amber-900 hover:bg-amber-50/50 hover:border-amber-200 group"
+                                onClick={() => setActiveSection('typography')}
+                            >
+                                <div className="h-8 w-8 rounded-lg bg-amber-100/50 flex items-center justify-center text-amber-600 group-hover:bg-amber-100 transition-colors">
+                                    <Type className="h-4 w-4" />
+                                </div>
+                                <span className="font-semibold">Typografi</span>
+                            </button>
                         )}
                         {capabilities.sections.colors && (
-                            <Button variant="outline" className="justify-start" onClick={() => setActiveSection('colors')}>
-                                <Palette className="mr-2 h-4 w-4" /> Farver
-                            </Button>
+                            <button
+                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-pink-100 text-pink-900 hover:bg-pink-50/50 hover:border-pink-200 group"
+                                onClick={() => setActiveSection('colors')}
+                            >
+                                <div className="h-8 w-8 rounded-lg bg-pink-100/50 flex items-center justify-center text-pink-600 group-hover:bg-pink-100 transition-colors">
+                                    <Palette className="h-4 w-4" />
+                                </div>
+                                <span className="font-semibold">Farver</span>
+                            </button>
                         )}
-                        <Button variant="outline" className="justify-start" onClick={() => setActiveSection('banner')}>
-                            <ImageIcon className="mr-2 h-4 w-4" /> Banner (Hero)
-                        </Button>
-                        <Button variant="outline" className="justify-start" onClick={() => setActiveSection('content')}>
-                            <Layout className="mr-2 h-4 w-4" /> Indholdsblokke
-                        </Button>
-                        <Button variant="outline" className="justify-start" onClick={() => setActiveSection('footer')}>
-                            <Layout className="mr-2 h-4 w-4" /> Footer
-                        </Button>
+                        <button
+                            className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-blue-100 text-blue-900 hover:bg-blue-50/50 hover:border-blue-200 group"
+                            onClick={() => setActiveSection('banner')}
+                        >
+                            <div className="h-8 w-8 rounded-lg bg-blue-100/50 flex items-center justify-center text-blue-600 group-hover:bg-blue-100 transition-colors">
+                                <ImageIcon className="h-4 w-4" />
+                            </div>
+                            <span className="font-semibold">Banner (Hero)</span>
+                        </button>
+                        <button
+                            className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-violet-100 text-violet-900 hover:bg-violet-50/50 hover:border-violet-200 group"
+                            onClick={() => setActiveSection('content')}
+                        >
+                            <div className="h-8 w-8 rounded-lg bg-violet-100/50 flex items-center justify-center text-violet-600 group-hover:bg-violet-100 transition-colors">
+                                <Layout className="h-4 w-4" />
+                            </div>
+                            <span className="font-semibold">Indholdsblokke</span>
+                        </button>
+                        <button
+                            className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-slate-100 text-slate-900 hover:bg-slate-50/50 hover:border-slate-200 group"
+                            onClick={() => setActiveSection('footer')}
+                        >
+                            <div className="h-8 w-8 rounded-lg bg-slate-100/50 flex items-center justify-center text-slate-600 group-hover:bg-slate-100 transition-colors">
+                                <Layout className="h-4 w-4" />
+                            </div>
+                            <span className="font-semibold">Footer</span>
+                        </button>
                         {capabilities.sections.iconPacks && (
-                            <Button variant="outline" className="justify-start" onClick={() => setActiveSection('icons')}>
-                                <Sparkles className="mr-2 h-4 w-4" /> Produkt billeder & ikoner
-                            </Button>
+                            <button
+                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-emerald-100 text-emerald-900 hover:bg-emerald-50/50 hover:border-emerald-200 group"
+                                onClick={() => setActiveSection('icons')}
+                            >
+                                <div className="h-8 w-8 rounded-lg bg-emerald-100/50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-100 transition-colors">
+                                    <Sparkles className="h-4 w-4" />
+                                </div>
+                                <span className="font-semibold">Produktbilleder (Ikoner)</span>
+                            </button>
                         )}
                     </div>
                 </div>
@@ -212,10 +371,10 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
         switch (activeSection) {
             case 'logo':
                 return (
-                    <div className="space-y-4 px-4 pb-8">
+                    <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-semibold">Logo</h3>
-                            <Button variant="ghost" size="sm" onClick={() => setActiveSection(null)}>Luk</Button>
+                            <h3 className="text-sm font-medium">Logo & Favicon</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
                         </div>
                         <LogoSection
                             draft={editor.draft}
@@ -234,14 +393,33 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                 });
                             }}
                         />
+
+                        {/* Favicon Editor */}
+                        <FaviconEditor
+                            favicon={editor.draft.favicon}
+                            onChange={(favicon) => editor.updateDraft({ favicon })}
+                            savedSwatches={editor.draft.savedSwatches}
+                            onSaveSwatch={(color) => {
+                                const swatches = editor.draft.savedSwatches || [];
+                                if (!swatches.includes(color) && swatches.length < 20) {
+                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                }
+                            }}
+                            onRemoveSwatch={(color) => {
+                                editor.updateDraft({
+                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                });
+                            }}
+                            tenantId={editor.entityId}
+                        />
                     </div>
                 );
             case 'header':
                 return (
-                    <div className="space-y-4 px-4 pb-8">
+                    <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-semibold">Header</h3>
-                            <Button variant="ghost" size="sm" onClick={() => setActiveSection(null)}>Luk</Button>
+                            <h3 className="text-sm font-medium">Header</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
                         </div>
                         <HeaderSection
                             header={editor.draft.header}
@@ -263,10 +441,10 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                 );
             case 'banner':
                 return (
-                    <div className="space-y-4 px-4 pb-8">
+                    <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-semibold">Banner</h3>
-                            <Button variant="ghost" size="sm" onClick={() => setActiveSection(null)}>Luk</Button>
+                            <h3 className="text-sm font-medium">Banner (Hero)</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
                         </div>
                         <BannerEditor
                             draft={editor.draft}
@@ -289,10 +467,10 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                 );
             case 'content':
                 return (
-                    <div className="space-y-4 px-4 pb-8">
+                    <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-semibold">Indholdsblokke</h3>
-                            <Button variant="ghost" size="sm" onClick={() => setActiveSection(null)}>Luk</Button>
+                            <h3 className="text-sm font-medium">Indholdsblokke</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
                         </div>
                         <ContentBlocksSection
                             draft={editor.draft}
@@ -316,10 +494,10 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                 );
             case 'footer':
                 return (
-                    <div className="space-y-4 px-4 pb-8">
+                    <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-semibold">Footer</h3>
-                            <Button variant="ghost" size="sm" onClick={() => setActiveSection(null)}>Luk</Button>
+                            <h3 className="text-sm font-medium">Footer</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
                         </div>
                         <FooterSection
                             footer={editor.draft.footer}
@@ -341,14 +519,15 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                 );
             case 'typography':
                 return (
-                    <div className="space-y-4 px-4 pb-8">
+                    <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-semibold">Typografi</h3>
-                            <Button variant="ghost" size="sm" onClick={() => setActiveSection(null)}>Luk</Button>
+                            <h3 className="text-sm font-medium">Typografi</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
                         </div>
-                        <div className="space-y-6">
+                        <div className="space-y-3 pt-2">
                             <FontSelector
                                 label="Overskrifter"
+                                inline
                                 value={editor.draft.fonts.heading}
                                 onChange={(v) => editor.updateDraft({
                                     fonts: { ...editor.draft.fonts, heading: v }
@@ -356,6 +535,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                             />
                             <FontSelector
                                 label="Brødtekst"
+                                inline
                                 value={editor.draft.fonts.body}
                                 onChange={(v) => editor.updateDraft({
                                     fonts: { ...editor.draft.fonts, body: v }
@@ -363,6 +543,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                             />
                             <FontSelector
                                 label="Priser"
+                                inline
                                 value={editor.draft.fonts.pricing}
                                 onChange={(v) => editor.updateDraft({
                                     fonts: { ...editor.draft.fonts, pricing: v }
@@ -373,45 +554,60 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                 );
             case 'colors':
                 return (
-                    <div className="space-y-4 px-4 pb-8">
+                    <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-semibold">Farver</h3>
-                            <Button variant="ghost" size="sm" onClick={() => setActiveSection(null)}>Luk</Button>
+                            <h3 className="text-sm font-medium">Farver</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
                         </div>
-                        <div className="space-y-4">
+                        <div className="space-y-3 pt-2">
                             {Object.entries(editor.draft.colors).map(([key, value]) => (
-                                <div key={key} className="flex items-center gap-4">
-                                    <Label className="w-32 capitalize">
-                                        {key === 'primary' && 'Primær'}
-                                        {key === 'secondary' && 'Sekundær'}
-                                        {key === 'background' && 'Baggrund'}
-                                        {key === 'card' && 'Kort'}
-                                        {key === 'dropdown' && 'Dropdown'}
-                                        {key === 'hover' && 'Hover (mus over)'}
-                                    </Label>
-                                    <ColorPickerWithSwatches
-                                        value={value}
-                                        onChange={(color) => editor.updateDraft({
-                                            colors: { ...editor.draft.colors, [key]: color }
-                                        })}
-                                        compact={true}
-                                        showFullSwatches={false}
-                                    />
-                                </div>
+                                <ColorPickerWithSwatches
+                                    key={key}
+                                    label={
+                                        key === 'primary' ? 'Primær' :
+                                            key === 'secondary' ? 'Sekundær' :
+                                                key === 'background' ? 'Baggrund' :
+                                                    key === 'card' ? 'Kort' :
+                                                        key === 'dropdown' ? 'Dropdown' :
+                                                            key === 'hover' ? 'Hover (mus over)' : key
+                                    }
+                                    inline
+                                    value={value}
+                                    onChange={(color) => editor.updateDraft({
+                                        colors: { ...editor.draft.colors, [key]: color }
+                                    })}
+                                    compact={true}
+                                    showFullSwatches={false}
+                                    savedSwatches={editor.draft.savedSwatches}
+                                    onSaveSwatch={(color) => {
+                                        const swatches = editor.draft.savedSwatches || [];
+                                        if (!swatches.includes(color) && swatches.length < 20) {
+                                            editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                        }
+                                    }}
+                                    onRemoveSwatch={(color) => {
+                                        editor.updateDraft({
+                                            savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                        });
+                                    }}
+                                />
                             ))}
                         </div>
                     </div>
                 );
             case 'icons':
                 return (
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between px-4">
-                            <h3 className="font-semibold">Produkt billeder & ikoner</h3>
-                            <Button variant="ghost" size="sm" onClick={() => setActiveSection(null)}>Luk</Button>
+                    <div className="space-y-3 px-3 pb-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Produktbilleder</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
                         </div>
                         <ProductAssetsSection
                             draft={editor.draft}
                             updateDraft={editor.updateDraft}
+                            onAddPaidItem={editor.mode === 'tenant' ? paidItems.addPendingItem : undefined}
+                            isItemPurchased={editor.mode === 'tenant' ? paidItems.isItemPurchased : undefined}
+                            isItemPending={editor.mode === 'tenant' ? paidItems.isItemPending : undefined}
                         />
                     </div>
                 );
@@ -427,22 +623,24 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                 {/* Left Sidebar - Collapsible */}
                 <div
                     className={`
-                        absolute inset-y-0 left-0 z-10 w-80 bg-background border-r transform transition-transform duration-300 ease-in-out
+                        absolute inset-y-0 left-0 z-10 w-96 flex-shrink-0 bg-background border-r transform transition-transform duration-300 ease-in-out
                         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
                         lg:relative lg:translate-x-0
+                        overflow-hidden
+                        branding-sidebar
                     `}
                 >
                     <div className="h-full flex flex-col">
-                        <div className="p-4 border-b flex items-center justify-between bg-muted/20">
-                            <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">
+                        <div className="px-3 py-2.5 border-b flex items-center justify-between bg-muted/20">
+                            <h2 className="font-extrabold text-2xl text-foreground px-1">
                                 {activeSection ? 'Redigerer' : 'Værktøjer'}
                             </h2>
-                            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(false)}>
-                                <X className="h-4 w-4" />
+                            <Button variant="ghost" size="icon" className="h-6 w-6 lg:hidden" onClick={() => setSidebarOpen(false)}>
+                                <X className="h-3.5 w-3.5" />
                             </Button>
                         </div>
                         <ScrollArea className="flex-1">
-                            <div className="py-4">
+                            <div className="py-2">
                                 {renderSidebarContent()}
                             </div>
                         </ScrollArea>
@@ -561,6 +759,15 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                 </Button>
                             )}
 
+                            {/* Pending Purchases Badge (Tenant only) */}
+                            {editor.mode === 'tenant' && paidItems.hasPendingItems && (
+                                <PendingPurchasesBadge
+                                    count={paidItems.pendingItems.length}
+                                    totalCost={paidItems.totalPendingCost}
+                                    onClick={() => setShowPendingPurchasesDialog(true)}
+                                />
+                            )}
+
                             <div className="flex-1" />
 
                             {/* 3. Fortryd */}
@@ -585,17 +792,6 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                 <Send className="h-4 w-4" />
                                 Publicér
                             </Button>
-
-                            {/* 5. Nulstil */}
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setShowResetDialog(true)}
-                                disabled={editor.isSaving}
-                                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8"
-                            >
-                                <Trash2 className="h-4 w-4" />
-                            </Button>
                         </div>
 
                         {/* Preview Frame */}
@@ -605,6 +801,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                 previewUrl={`/preview-shop?draft=1&tenantId=${editor.entityId}`}
                                 tenantName={editor.entityName}
                                 onSaveDraft={editor.saveDraft}
+                                onResetDesign={() => setShowResetDialog(true)}
                             />
                         </div>
                     </div>
@@ -723,6 +920,11 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                         <AlertDialogAction
                             onClick={async () => {
                                 await editor.resetToDefault();
+                                // Also clear any pending paid items since we're resetting to default
+                                if (editor.mode === 'tenant' && paidItems.hasPendingItems) {
+                                    await paidItems.clearPendingItems();
+                                    toast.success('Design nulstillet og indkøbskurv ryddet');
+                                }
                                 setShowResetDialog(false);
                             }}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -834,12 +1036,19 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                     return;
                                 }
                                 try {
+                                    // Capture thumbnail from preview
+                                    toast.loading('Opretter thumbnail fra preview...', { id: 'save-design' });
+                                    const thumbnailUrl = await capturePreviewThumbnail();
+
                                     const { data: { user } } = await supabase.auth.getUser();
+
+                                    toast.loading('Gemmer design...', { id: 'save-design' });
                                     const { error } = await supabase
                                         .from('premade_designs' as any)
                                         .insert({
                                             name: resourceDesignName.trim(),
                                             description: resourceDesignDescription.trim() || null,
+                                            thumbnail_url: thumbnailUrl,
                                             branding_data: editor.draft,
                                             is_visible: resourceDesignVisible,
                                             price: resourceDesignPrice,
@@ -848,7 +1057,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
 
                                     if (error) throw error;
 
-                                    toast.success(`Design "${resourceDesignName}" gemt til ressourcer! ${resourceDesignVisible ? 'Synlig for lejere.' : 'Skjult indtil publiceret.'}`);
+                                    toast.success(`Design "${resourceDesignName}" gemt til ressourcer! ${resourceDesignVisible ? 'Synlig for lejere.' : 'Skjult indtil publiceret.'}`, { id: 'save-design' });
                                     setResourceDesignName("");
                                     setResourceDesignDescription("");
                                     setResourceDesignPrice(0);
@@ -856,13 +1065,17 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                     setShowSaveToResourcesDialog(false);
                                 } catch (error: any) {
                                     console.error('Error saving premade design:', error);
-                                    toast.error(error.message || 'Kunne ikke gemme design');
+                                    toast.error(error.message || 'Kunne ikke gemme design', { id: 'save-design' });
                                 }
                             }}
-                            disabled={!resourceDesignName.trim()}
+                            disabled={!resourceDesignName.trim() || capturingThumbnail}
                         >
-                            <FolderUp className="h-4 w-4 mr-2" />
-                            Gem design
+                            {capturingThumbnail ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <FolderUp className="h-4 w-4 mr-2" />
+                            )}
+                            {capturingThumbnail ? 'Opretter thumbnail...' : 'Gem design'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -919,8 +1132,12 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {availablePremadeDesigns.map((design) => (
                                     <Card key={design.id} className="overflow-hidden hover:ring-2 hover:ring-primary transition-all cursor-pointer group">
-                                        <div className="aspect-video bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center relative">
-                                            <LayoutTemplate className="w-16 h-16 text-primary/30" />
+                                        <div className="aspect-video bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center relative overflow-hidden">
+                                            {design.thumbnail_url ? (
+                                                <img src={design.thumbnail_url} alt={design.name} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <LayoutTemplate className="w-16 h-16 text-primary/30" />
+                                            )}
                                             {design.price > 0 && (
                                                 <Badge className="absolute top-2 right-2">{design.price} kr</Badge>
                                             )}
@@ -935,18 +1152,43 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                             )}
                                             <Button
                                                 className="w-full"
-                                                onClick={() => {
+                                                onClick={async () => {
                                                     if (design.branding_data) {
                                                         // Apply the design to current draft
                                                         editor.updateDraft(design.branding_data);
-                                                        toast.success(`Design "${design.name}" anvendt!`);
+
+                                                        // If design has a price, add to pending purchases
+                                                        if (design.price > 0 && !paidItems.isItemPurchased('premade_design', design.id)) {
+                                                            await paidItems.addPendingItem({
+                                                                type: 'premade_design',
+                                                                itemId: design.id,
+                                                                name: design.name,
+                                                                price: design.price,
+                                                                thumbnailUrl: design.thumbnail_url,
+                                                            });
+                                                            toast.success(
+                                                                `Design "${design.name}" anvendt! Husk: ${design.price} kr skal betales ved publicering.`,
+                                                                { duration: 5000 }
+                                                            );
+                                                        } else if (paidItems.isItemPurchased('premade_design', design.id)) {
+                                                            toast.success(`Design "${design.name}" anvendt! (Allerede købt)`);
+                                                        } else {
+                                                            toast.success(`Design "${design.name}" anvendt!`);
+                                                        }
+
                                                         setShowPremadeDesignsDialog(false);
                                                     } else {
                                                         toast.error('Design data ikke tilgængelig');
                                                     }
                                                 }}
                                             >
-                                                Anvend design
+                                                {design.price > 0 && !paidItems.isItemPurchased('premade_design', design.id) ? (
+                                                    <>Anvend design ({design.price} kr)</>
+                                                ) : paidItems.isItemPurchased('premade_design', design.id) ? (
+                                                    <>Anvend design ✓</>
+                                                ) : (
+                                                    <>Anvend design</>
+                                                )}
                                             </Button>
                                         </CardContent>
                                     </Card>
@@ -963,7 +1205,24 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
             </Dialog>
 
             {/* 6. Saved Premade Designs Management Dialog (Master Only) */}
-            <Dialog open={showSavedPremadeDesignsDialog} onOpenChange={setShowSavedPremadeDesignsDialog}>
+            <Dialog
+                open={showSavedPremadeDesignsDialog}
+                onOpenChange={(open) => {
+                    setShowSavedPremadeDesignsDialog(open);
+                    if (open) {
+                        setLoadingSavedDesigns(true);
+                        supabase
+                            .from('premade_designs' as any)
+                            .select('*')
+                            .order('created_at', { ascending: false })
+                            .then(({ data, error }) => {
+                                if (data) setSavedPremadeDesigns(data);
+                                if (error) console.error('Error fetching master premade designs:', error);
+                                setLoadingSavedDesigns(false);
+                            });
+                    }
+                }}
+            >
                 <DialogContent className="max-w-4xl max-h-[85vh] overflow-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
@@ -988,119 +1247,306 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                         ) : (
                             <div className="space-y-4">
                                 {savedPremadeDesigns.map((design) => (
-                                    <Card key={design.id} className="p-4">
-                                        <div className="flex items-start gap-4">
-                                            <div className="w-24 h-16 bg-gradient-to-br from-primary/10 to-primary/5 rounded flex items-center justify-center flex-shrink-0">
-                                                <LayoutTemplate className="w-8 h-8 text-primary/30" />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <h4 className="font-semibold">{design.name}</h4>
-                                                {design.description && (
-                                                    <p className="text-sm text-muted-foreground">{design.description}</p>
-                                                )}
-                                                <div className="flex items-center gap-4 mt-2 text-sm">
-                                                    <span className="text-muted-foreground">
-                                                        {design.price > 0 ? `${design.price} kr` : 'Gratis'}
-                                                    </span>
-                                                    <span className={design.is_visible ? 'text-green-600' : 'text-orange-500'}>
-                                                        {design.is_visible ? '✓ Synlig for alle' : '○ Skjult'}
-                                                    </span>
+                                    <Card key={design.id} className="overflow-hidden">
+                                        {/* View Mode */}
+                                        {editingDesign?.id !== design.id ? (
+                                            <div className="p-4">
+                                                <div className="flex items-start gap-4">
+                                                    <div className="w-28 h-20 bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                                        {design.thumbnail_url ? (
+                                                            <img src={design.thumbnail_url} alt={design.name} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <LayoutTemplate className="w-10 h-10 text-primary/30" />
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-start justify-between">
+                                                            <div>
+                                                                <h4 className="font-semibold text-lg">{design.name}</h4>
+                                                                {design.description && (
+                                                                    <p className="text-sm text-muted-foreground mt-1">{design.description}</p>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex items-center gap-1 ml-4">
+                                                                <Badge variant={design.is_visible ? "default" : "secondary"}>
+                                                                    {design.is_visible ? (
+                                                                        <><Eye className="w-3 h-3 mr-1" /> Synlig</>
+                                                                    ) : (
+                                                                        <><EyeOff className="w-3 h-3 mr-1" /> Skjult</>
+                                                                    )}
+                                                                </Badge>
+                                                                <Badge variant="outline" className="font-mono">
+                                                                    {design.price > 0 ? `${design.price} kr` : 'Gratis'}
+                                                                </Badge>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 mt-3">
+                                                            {/* Edit button */}
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => setEditingDesign({
+                                                                    id: design.id,
+                                                                    name: design.name,
+                                                                    description: design.description || '',
+                                                                    price: design.price || 0,
+                                                                    is_visible: design.is_visible ?? true,
+                                                                    thumbnail_url: design.thumbnail_url,
+                                                                })}
+                                                                className="gap-1"
+                                                            >
+                                                                <Pencil className="h-3 w-3" />
+                                                                Rediger
+                                                            </Button>
+                                                            {/* Load into editor */}
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => {
+                                                                    if (design.branding_data) {
+                                                                        editor.updateDraft(design.branding_data);
+                                                                        toast.success(`Design "${design.name}" indlæst i editor`);
+                                                                        setShowSavedPremadeDesignsDialog(false);
+                                                                    }
+                                                                }}
+                                                            >
+                                                                Indlæs i editor
+                                                            </Button>
+                                                            {/* Assign to specific tenant */}
+                                                            {tenantList.length > 0 && (
+                                                                <select
+                                                                    className="h-8 px-2 text-sm border rounded-md bg-background"
+                                                                    defaultValue=""
+                                                                    onChange={async (e) => {
+                                                                        const tenantId = e.target.value;
+                                                                        if (tenantId) {
+                                                                            const { data: { user } } = await supabase.auth.getUser();
+                                                                            await supabase
+                                                                                .from('tenant_premade_designs' as any)
+                                                                                .upsert({
+                                                                                    tenant_id: tenantId,
+                                                                                    design_id: design.id,
+                                                                                    granted_by: user?.id
+                                                                                });
+                                                                            const tenant = tenantList.find(t => t.id === tenantId);
+                                                                            toast.success(`Tildelt til ${tenant?.name || 'lejer'}`);
+                                                                            e.target.value = '';
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <option value="">Tildel til...</option>
+                                                                    {tenantList.map((tenant) => (
+                                                                        <option key={tenant.id} value={tenant.id}>
+                                                                            {tenant.name}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            )}
+                                                            {/* Delete */}
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="text-destructive hover:text-destructive ml-auto"
+                                                                onClick={() => setShowDeleteConfirm(design.id)}
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </Button>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-2 flex-shrink-0">
-                                                {/* Load into editor */}
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => {
-                                                        if (design.branding_data) {
-                                                            editor.updateDraft(design.branding_data);
-                                                            toast.success(`Design "${design.name}" indlæst i editor`);
-                                                            setShowSavedPremadeDesignsDialog(false);
-                                                        }
-                                                    }}
-                                                >
-                                                    Rediger
-                                                </Button>
-                                                {/* Toggle visibility */}
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={async () => {
-                                                        await supabase
-                                                            .from('premade_designs' as any)
-                                                            .update({ is_visible: !design.is_visible })
-                                                            .eq('id', design.id);
-                                                        setSavedPremadeDesigns(prev =>
-                                                            prev.map(d => d.id === design.id ? { ...d, is_visible: !d.is_visible } : d)
-                                                        );
-                                                        toast.success(design.is_visible ? 'Skjult for lejere' : 'Synlig for alle lejere');
-                                                    }}
-                                                >
-                                                    {design.is_visible ? 'Skjul' : 'Publicer'}
-                                                </Button>
-                                                {/* Assign to specific tenant */}
-                                                {tenantList.length > 0 && (
-                                                    <select
-                                                        className="h-9 px-2 text-sm border rounded-md"
-                                                        defaultValue=""
-                                                        onChange={async (e) => {
-                                                            const tenantId = e.target.value;
-                                                            if (tenantId) {
-                                                                const { data: { user } } = await supabase.auth.getUser();
-                                                                await supabase
-                                                                    .from('tenant_premade_designs' as any)
-                                                                    .upsert({
-                                                                        tenant_id: tenantId,
-                                                                        design_id: design.id,
-                                                                        granted_by: user?.id
-                                                                    });
-                                                                const tenant = tenantList.find(t => t.id === tenantId);
-                                                                toast.success(`Tildelt til ${tenant?.name || 'lejer'}`);
-                                                                e.target.value = '';
-                                                            }
-                                                        }}
-                                                    >
-                                                        <option value="">Tildel til...</option>
-                                                        {tenantList.map((tenant) => (
-                                                            <option key={tenant.id} value={tenant.id}>
-                                                                {tenant.name}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                )}
-                                                {/* Delete */}
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="text-destructive hover:text-destructive"
-                                                    onClick={async () => {
-                                                        if (confirm(`Slet "${design.name}"?`)) {
-                                                            await supabase
-                                                                .from('premade_designs' as any)
-                                                                .delete()
-                                                                .eq('id', design.id);
-                                                            setSavedPremadeDesigns(prev => prev.filter(d => d.id !== design.id));
-                                                            toast.success('Design slettet');
-                                                        }
-                                                    }}
-                                                >
-                                                    Slet
-                                                </Button>
+                                        ) : (
+                                            /* Edit Mode */
+                                            <div className="p-4 bg-muted/30 border-l-4 border-primary">
+                                                <div className="flex items-start gap-4">
+                                                    <div className="w-28 h-20 bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                                        {editingDesign.thumbnail_url ? (
+                                                            <img src={editingDesign.thumbnail_url} alt={editingDesign.name} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <LayoutTemplate className="w-10 h-10 text-primary/30" />
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-1 space-y-3">
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <div>
+                                                                <Label htmlFor="edit-name" className="text-xs">Navn</Label>
+                                                                <Input
+                                                                    id="edit-name"
+                                                                    value={editingDesign.name}
+                                                                    onChange={(e) => setEditingDesign(prev => prev ? { ...prev, name: e.target.value } : null)}
+                                                                    className="h-9"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <Label htmlFor="edit-price" className="text-xs">Pris (kr)</Label>
+                                                                <Input
+                                                                    id="edit-price"
+                                                                    type="number"
+                                                                    min="0"
+                                                                    value={editingDesign.price}
+                                                                    onChange={(e) => setEditingDesign(prev => prev ? { ...prev, price: Number(e.target.value) || 0 } : null)}
+                                                                    className="h-9"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <Label htmlFor="edit-desc" className="text-xs">Beskrivelse</Label>
+                                                            <Input
+                                                                id="edit-desc"
+                                                                value={editingDesign.description}
+                                                                onChange={(e) => setEditingDesign(prev => prev ? { ...prev, description: e.target.value } : null)}
+                                                                placeholder="Kort beskrivelse af dette design..."
+                                                                className="h-9"
+                                                            />
+                                                        </div>
+                                                        <div className="flex items-center justify-between">
+                                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={editingDesign.is_visible}
+                                                                    onChange={(e) => setEditingDesign(prev => prev ? { ...prev, is_visible: e.target.checked } : null)}
+                                                                    className="h-4 w-4 rounded"
+                                                                />
+                                                                <span className="text-sm">
+                                                                    {editingDesign.is_visible ? (
+                                                                        <span className="text-green-600 flex items-center gap-1">
+                                                                            <Eye className="w-4 h-4" /> Synlig for alle lejere
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-muted-foreground flex items-center gap-1">
+                                                                            <EyeOff className="w-4 h-4" /> Skjult for lejere
+                                                                        </span>
+                                                                    )}
+                                                                </span>
+                                                            </label>
+                                                            <div className="flex items-center gap-2">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => setEditingDesign(null)}
+                                                                    disabled={savingDesignEdit}
+                                                                >
+                                                                    Annuller
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    onClick={async () => {
+                                                                        if (!editingDesign.name.trim()) {
+                                                                            toast.error('Navn er påkrævet');
+                                                                            return;
+                                                                        }
+                                                                        setSavingDesignEdit(true);
+                                                                        try {
+                                                                            const { error } = await supabase
+                                                                                .from('premade_designs' as any)
+                                                                                .update({
+                                                                                    name: editingDesign.name.trim(),
+                                                                                    description: editingDesign.description.trim() || null,
+                                                                                    price: editingDesign.price,
+                                                                                    is_visible: editingDesign.is_visible,
+                                                                                })
+                                                                                .eq('id', editingDesign.id);
+
+                                                                            if (error) throw error;
+
+                                                                            // Update local state
+                                                                            setSavedPremadeDesigns(prev =>
+                                                                                prev.map(d => d.id === editingDesign.id ? {
+                                                                                    ...d,
+                                                                                    name: editingDesign.name.trim(),
+                                                                                    description: editingDesign.description.trim() || null,
+                                                                                    price: editingDesign.price,
+                                                                                    is_visible: editingDesign.is_visible,
+                                                                                } : d)
+                                                                            );
+                                                                            toast.success('Skabelon opdateret');
+                                                                            setEditingDesign(null);
+                                                                        } catch (error: any) {
+                                                                            console.error('Error updating design:', error);
+                                                                            toast.error(error.message || 'Kunne ikke opdatere');
+                                                                        } finally {
+                                                                            setSavingDesignEdit(false);
+                                                                        }
+                                                                    }}
+                                                                    disabled={savingDesignEdit || !editingDesign.name.trim()}
+                                                                    className="gap-1"
+                                                                >
+                                                                    {savingDesignEdit ? (
+                                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                                    ) : (
+                                                                        <Check className="h-4 w-4" />
+                                                                    )}
+                                                                    Gem ændringer
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </div>
+                                        )}
                                     </Card>
                                 ))}
                             </div>
                         )}
                     </div>
                     <DialogFooter>
-                        <Button variant="ghost" onClick={() => setShowSavedPremadeDesignsDialog(false)}>
+                        <Button variant="ghost" onClick={() => {
+                            setShowSavedPremadeDesignsDialog(false);
+                            setEditingDesign(null);
+                        }}>
                             Luk
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <AlertDialog open={!!showDeleteConfirm} onOpenChange={(open) => !open && setShowDeleteConfirm(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Slet skabelon?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Er du sikker på at du vil slette denne skabelon? Denne handling kan ikke fortrydes.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Annuller</AlertDialogCancel>
+                        <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={async () => {
+                                if (!showDeleteConfirm) return;
+                                try {
+                                    await supabase
+                                        .from('premade_designs' as any)
+                                        .delete()
+                                        .eq('id', showDeleteConfirm);
+                                    setSavedPremadeDesigns(prev => prev.filter(d => d.id !== showDeleteConfirm));
+                                    toast.success('Skabelon slettet');
+                                } catch (error) {
+                                    toast.error('Kunne ikke slette skabelon');
+                                }
+                                setShowDeleteConfirm(null);
+                            }}
+                        >
+                            Slet
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* 7. Pending Purchases Dialog (Tenant Only) */}
+            {editor.mode === 'tenant' && (
+                <PendingPurchasesDialog
+                    open={showPendingPurchasesDialog}
+                    onOpenChange={setShowPendingPurchasesDialog}
+                    pendingItems={paidItems.pendingItems}
+                    totalCost={paidItems.totalPendingCost}
+                    onRemoveItem={paidItems.removePendingItem}
+                    onConfirmPurchase={paidItems.processPurchase}
+                    onPublish={handlePublishAfterPayment}
+                    isPublishing={editor.isSaving}
+                />
+            )}
         </div>
     );
 }

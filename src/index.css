@@ -108,3 +108,61 @@ All colors MUST be HSL.
     opacity: 0.85;
   }
 }
+
+/* Sidebar Panel Styles - Reverted to default */
+
+@layer components {
+
+  /* Branding Sidebar Typography Enforcer */
+  .branding-sidebar h3,
+  .branding-sidebar label,
+  .branding-sidebar .font-bold,
+  .branding-sidebar .font-semibold,
+  .branding-sidebar [class*="card-title"] {
+    font-size: 1rem !important;
+    /* 16px - Bigger */
+    font-weight: 800 !important;
+    /* Extra Bold - Bolder */
+    line-height: 1.25 !important;
+  }
+
+  /* Main Menu Button Specifics - Match Dropdown Style */
+  .branding-sidebar .menu-btn-item {
+    font-size: 0.875rem !important;
+    /* 14px - standard dropdown */
+    font-weight: 600 !important;
+    /* Semi-bold */
+  }
+
+  /* Description & Normal Text */
+  .branding-sidebar p,
+  .branding-sidebar button:not(.menu-btn-item),
+  /* Exclude menu items */
+  .branding-sidebar input,
+  .branding-sidebar select,
+  .branding-sidebar .text-sm,
+  .branding-sidebar .text-base,
+  .branding-sidebar span:not(.text-xs):not(.text-muted-foreground) {
+    font-size: 0.75rem !important;
+    /* 12px */
+    font-weight: 400 !important;
+  }
+
+  /* Small Info */
+  .branding-sidebar .text-xs,
+  .branding-sidebar .text-muted-foreground,
+  .branding-sidebar .text-muted {
+    font-size: 0.6875rem !important;
+    /* 11px */
+  }
+
+  /* Large Titles Override (Værktøjer etc) */
+  .branding-sidebar h2,
+  .branding-sidebar .text-2xl,
+  .branding-sidebar .text-xl {
+    font-size: 1.5rem !important;
+    /* 24px */
+    font-weight: 800 !important;
+    line-height: 1.2 !important;
+  }
+}

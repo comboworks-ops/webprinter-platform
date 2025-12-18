@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import { PreviewBrandingProvider, usePreviewBranding } from "@/contexts/PreviewB
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import HeroSlider from "@/components/HeroSlider";
+import html2canvas from "html2canvas";
 import ProductGrid from "@/components/ProductGrid";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Truck, Award, Phone } from "lucide-react";
@@ -470,13 +471,54 @@ export default function PreviewShop() {
 
     const [editMode, setEditMode] = useState(false);
 
-    // Listen for Edit Mode toggle from parent
+    // Listen for Edit Mode toggle from parent AND screenshot capture requests
     useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
+        const handleMessage = async (event: MessageEvent) => {
             if (event.data?.type === 'SET_EDIT_MODE') {
                 setEditMode(event.data.enabled);
                 if (event.data.enabled) {
                     toast.info("Redigering aktiveret - klik på elementer for at rette");
+                }
+            }
+
+            // Handle screenshot capture request
+            if (event.data?.type === 'CAPTURE_SCREENSHOT') {
+                try {
+                    // Find the main content container
+                    const container = document.querySelector('.min-h-screen');
+                    if (!container) {
+                        window.parent.postMessage({ type: 'SCREENSHOT_ERROR', error: 'Container not found' }, '*');
+                        return;
+                    }
+
+                    // Capture screenshot using html2canvas
+                    const canvas = await html2canvas(container as HTMLElement, {
+                        useCORS: true,
+                        allowTaint: true,
+                        scale: 0.5, // Reduce size for thumbnail
+                        width: 1280,
+                        height: 720,
+                        windowWidth: 1280,
+                        windowHeight: 720,
+                        logging: false,
+                    });
+
+                    // Convert to base64 data URL
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+
+                    // Send back to parent
+                    window.parent.postMessage({
+                        type: 'SCREENSHOT_CAPTURED',
+                        dataUrl,
+                        requestId: event.data.requestId
+                    }, '*');
+                } catch (error) {
+                    console.error('Screenshot capture error:', error);
+                    window.parent.postMessage({
+                        type: 'SCREENSHOT_ERROR',
+                        error: String(error),
+                        requestId: event.data.requestId
+                    }, '*');
                 }
             }
         };

@@ -88,6 +88,8 @@ interface ColorPickerWithSwatchesProps {
     onSaveSwatch?: (color: string) => void;
     /** Callback to remove a swatch */
     onRemoveSwatch?: (color: string) => void;
+    /** Inline mode - label and input on one line */
+    inline?: boolean;
 }
 
 export function ColorPickerWithSwatches({
@@ -101,7 +103,8 @@ export function ColorPickerWithSwatches({
     showFullSwatches = true,
     savedSwatches = [],
     onSaveSwatch,
-    onRemoveSwatch
+    onRemoveSwatch,
+    inline = false
 }: ColorPickerWithSwatchesProps) {
     const [isOpen, setIsOpen] = useState(false);
     const colorInputRef = useRef<HTMLInputElement>(null);
@@ -225,45 +228,47 @@ export function ColorPickerWithSwatches({
             )}
 
             {/* Default Swatches Grid - Scrollable */}
-            <div className="space-y-2">
-                <Label className="text-xs font-semibold text-foreground">Farvepalette</Label>
-                <ScrollArea className="h-[180px] rounded-md border p-2">
-                    <div
-                        className="grid gap-1"
-                        style={{
-                            gridTemplateColumns: 'repeat(9, 1fr)',
-                        }}
-                    >
-                        {DEFAULT_SWATCHES.map((color, index) => (
-                            <button
-                                key={`${color}-${index}`}
-                                onClick={() => {
-                                    handleSwatchClick(color);
-                                    if (compact) setIsOpen(false);
-                                }}
-                                className={cn(
-                                    "h-6 w-6 rounded border shadow-sm hover:scale-110 transition-transform relative",
-                                    value.toLowerCase() === color.toLowerCase()
-                                        ? "ring-2 ring-primary ring-offset-1"
-                                        : "",
-                                    color === "#FFFFFF" && "border-gray-300"
-                                )}
-                                style={{ backgroundColor: color }}
-                                title={color}
-                            >
-                                {value.toLowerCase() === color.toLowerCase() && (
-                                    <Check className={cn(
-                                        "h-3 w-3 absolute inset-0 m-auto",
-                                        color === "#FFFFFF" || color.startsWith("#FEF") || color.startsWith("#F0F")
-                                            ? "text-gray-800"
-                                            : "text-white"
-                                    )} />
-                                )}
-                            </button>
-                        ))}
-                    </div>
-                </ScrollArea>
-            </div>
+            {showFullSwatches && (
+                <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-foreground">Farvepalette</Label>
+                    <ScrollArea className="h-[180px] rounded-md border p-2">
+                        <div
+                            className="grid gap-1"
+                            style={{
+                                gridTemplateColumns: 'repeat(9, 1fr)',
+                            }}
+                        >
+                            {DEFAULT_SWATCHES.map((color, index) => (
+                                <button
+                                    key={`${color}-${index}`}
+                                    onClick={() => {
+                                        handleSwatchClick(color);
+                                        if (compact) setIsOpen(false);
+                                    }}
+                                    className={cn(
+                                        "h-6 w-6 rounded border shadow-sm hover:scale-110 transition-transform relative",
+                                        value.toLowerCase() === color.toLowerCase()
+                                            ? "ring-2 ring-primary ring-offset-1"
+                                            : "",
+                                        color === "#FFFFFF" && "border-gray-300"
+                                    )}
+                                    style={{ backgroundColor: color }}
+                                    title={color}
+                                >
+                                    {value.toLowerCase() === color.toLowerCase() && (
+                                        <Check className={cn(
+                                            "h-3 w-3 absolute inset-0 m-auto",
+                                            color === "#FFFFFF" || color.startsWith("#FEF") || color.startsWith("#F0F")
+                                                ? "text-gray-800"
+                                                : "text-white"
+                                        )} />
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                    </ScrollArea>
+                </div>
+            )}
 
             {/* Custom picker & Hex input */}
             <div className="flex items-center gap-2 pt-2 border-t">
@@ -337,14 +342,21 @@ export function ColorPickerWithSwatches({
 
     // Full inline mode with popover for the picker
     return (
-        <div className="space-y-2">
-            {label && <Label className="text-sm font-medium">{label}</Label>}
+        <div className={cn("space-y-2", inline && "flex items-center justify-between gap-3 space-y-0 w-full")}>
+            {label && (
+                <Label className={cn("text-sm font-medium", inline && "text-xs text-muted-foreground whitespace-nowrap")}>
+                    {label}
+                </Label>
+            )}
 
-            <div className="flex items-center gap-2">
+            <div className={cn("flex items-center gap-2", inline && "gap-1.5")}>
                 <Popover open={isOpen} onOpenChange={setIsOpen}>
                     <PopoverTrigger asChild>
                         <button
-                            className="h-10 w-10 rounded-lg border-2 overflow-hidden shadow-sm hover:ring-2 ring-primary transition-all flex-shrink-0"
+                            className={cn(
+                                "h-10 w-10 rounded-lg border-2 overflow-hidden shadow-sm hover:ring-2 ring-primary transition-all flex-shrink-0",
+                                inline && "h-9 w-9 rounded-md"
+                            )}
                             style={{ backgroundColor: value }}
                             title="Klik for at vælge farve"
                         />
@@ -357,13 +369,13 @@ export function ColorPickerWithSwatches({
                 <Input
                     value={value.toUpperCase()}
                     onChange={(e) => onChange(e.target.value)}
-                    className="font-mono flex-1 h-10 uppercase"
+                    className={cn("font-mono flex-1 h-10 uppercase", inline && "h-9 text-xs px-2")}
                     placeholder="#000000"
                 />
             </div>
 
             {/* RGB display (optional info) */}
-            {rgb && (
+            {!inline && rgb && (
                 <p className="text-xs text-muted-foreground">
                     RGB: {rgb.r}, {rgb.g}, {rgb.b}
                     {showOpacity && ` / ${Math.round(opacity * 100)}%`}
