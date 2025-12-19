@@ -614,14 +614,29 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
 
     // Deep merge Hero
     if (data.hero) {
+        // Use stored images/media only if they exist and are non-empty
+        const heroImages = (data.hero.images && data.hero.images.length > 0)
+            ? data.hero.images
+            : DEFAULT_BRANDING.hero.images;
+        const heroMedia = (data.hero.media && data.hero.media.length > 0)
+            ? data.hero.media
+            : DEFAULT_BRANDING.hero.media;
+        const heroVideos = (data.hero.videos && data.hero.videos.length > 0)
+            ? data.hero.videos
+            : DEFAULT_BRANDING.hero.videos;
+
         merged.hero = {
             ...DEFAULT_BRANDING.hero,
             ...data.hero,
+            images: heroImages,
+            media: heroMedia,
+            videos: heroVideos,
             slideshow: { ...DEFAULT_BRANDING.hero.slideshow, ...(data.hero.slideshow || {}) },
             overlay: { ...DEFAULT_BRANDING.hero.overlay, ...(data.hero.overlay || {}) },
             videoSettings: { ...DEFAULT_BRANDING.hero.videoSettings, ...(data.hero.videoSettings || {}) },
         };
     }
+
 
     // Deep merge Forside
     if (data.forside) {
