@@ -615,9 +615,24 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
     // Deep merge Hero
     if (data.hero) {
         // Use stored images/media only if they exist and are non-empty
-        const heroImages = (data.hero.images && data.hero.images.length > 0)
+        let heroImages = (data.hero.images && data.hero.images.length > 0)
             ? data.hero.images
             : DEFAULT_BRANDING.hero.images;
+
+        // HOTFIX: Replace known broken Unsplash URL if it exists in saved data
+        // This fixes tenants who saved the default template when it had the broken image
+        const BROKEN_URL_PART = "photo-1595079676339";
+        const FIXED_URL = "https://images.unsplash.com/photo-1586075010923-2dd4570fb338?q=80&w=1920&h=600&auto=format&fit=crop";
+
+        if (heroImages && heroImages.length > 0) {
+            heroImages = heroImages.map((img: any) => {
+                if (img.url && img.url.includes(BROKEN_URL_PART)) {
+                    return { ...img, url: FIXED_URL };
+                }
+                return img;
+            });
+        }
+
         const heroMedia = (data.hero.media && data.hero.media.length > 0)
             ? data.hero.media
             : DEFAULT_BRANDING.hero.media;
