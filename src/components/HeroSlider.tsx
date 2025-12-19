@@ -32,10 +32,10 @@ interface ExtendedOverlay {
   buttons?: BannerButton[];
 }
 
-// Fallback images (used when no branding images are configured)
-import heroPrinting from "@/assets/hero-printing.jpg";
-import heroBanners from "@/assets/hero-banners.jpg";
-import heroFlyers from "@/assets/hero-flyers.jpg";
+// Fallback images (external URLs for production reliability)
+const heroPrinting = "https://images.unsplash.com/photo-1595079676339-1534802ad6cf?q=80&w=1920&h=600&auto=format&fit=crop";
+const heroBanners = "https://images.unsplash.com/photo-1504868584819-f8e8b4b6d7e3?q=80&w=1920&h=600&auto=format&fit=crop";
+const heroFlyers = "https://images.unsplash.com/photo-1568667256549-094345857637?q=80&w=1920&h=600&auto=format&fit=crop";
 
 const DEFAULT_SLIDES = [
   {
@@ -60,6 +60,7 @@ const DEFAULT_SLIDES = [
     link: "/prisberegner",
   },
 ];
+
 
 // Helper to get button link
 function getButtonLink(button: BannerButton): string {
