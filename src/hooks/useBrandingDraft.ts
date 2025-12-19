@@ -182,33 +182,66 @@ const DEFAULT_OVERLAY: HeroOverlaySettings = {
 const DEFAULT_HERO_IMAGES: HeroImage[] = [
     {
         id: 'default-1',
-        url: heroPrinting,
+        url: '/images/banners/banner-professionelt-tryk.jpg',
         alt: 'Professionelt tryk',
         sortOrder: 0,
         headline: 'Professionelt tryk – hurtig levering i hele Danmark',
         subline: 'Flyers, foldere, plakater, bannere m.m. — beregn prisen direkte.',
         ctaText: 'Se tryksager',
         ctaLink: '#tryksager',
+        buttons: [{
+            id: 'btn-1',
+            label: 'Se tryksager',
+            variant: 'primary',
+            linkType: 'ALL_PRODUCTS',
+            target: {},
+            textColor: '#FFFFFF',
+            bgColor: '#0EA5E9',
+            bgOpacity: 1
+        }],
+        textAnimation: 'slide-up'
     },
     {
         id: 'default-2',
-        url: heroBanners,
+        url: '/images/banners/banner-storformat.jpg',
         alt: 'Storformat print',
         sortOrder: 1,
         headline: 'Storformat print i topkvalitet',
         subline: 'Bannere, beachflag, skilte og messeudstyr – til konkurrencedygtige priser.',
         ctaText: 'Se storformat',
         ctaLink: '#storformat',
+        buttons: [{
+            id: 'btn-2',
+            label: 'Se storformat',
+            variant: 'primary',
+            linkType: 'INTERNAL_PAGE',
+            target: { path: '#storformat' },
+            textColor: '#FFFFFF',
+            bgColor: '#0EA5E9',
+            bgOpacity: 1
+        }],
+        textAnimation: 'slide-up'
     },
     {
         id: 'default-3',
-        url: heroFlyers,
+        url: '/images/banners/banner-billige-tryksager.jpg',
         alt: 'Billige tryksager',
         sortOrder: 2,
         headline: 'Billige tryksager online',
         subline: 'Bestil nemt og hurtigt – personlig service og dansk produktion.',
         ctaText: 'Beregn pris',
         ctaLink: '/prisberegner',
+        buttons: [{
+            id: 'btn-3',
+            label: 'Beregn pris',
+            variant: 'primary',
+            linkType: 'INTERNAL_PAGE',
+            target: { path: '/prisberegner' },
+            textColor: '#FFFFFF',
+            bgColor: '#0EA5E9',
+            bgOpacity: 1
+        }],
+        textAnimation: 'slide-up'
     },
 ];
 
