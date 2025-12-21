@@ -9,7 +9,7 @@ import {
     Loader2, Save, RotateCcw, Send, Trash2, List,
     X, ChevronRight, Layout, Type, Palette, Sparkles, Image as ImageIcon,
     ExternalLink, Monitor, Smartphone, Tablet, FolderUp, LayoutTemplate, ShoppingCart,
-    Pencil, Eye, EyeOff, Check
+    Pencil, Eye, EyeOff, Check, History
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -937,31 +937,70 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
 
             {/* Publish Dialog */}
             <AlertDialog open={showPublishDialog} onOpenChange={setShowPublishDialog}>
-                <AlertDialogContent>
+                <AlertDialogContent className="max-w-md">
                     <AlertDialogHeader>
                         <AlertDialogTitle className="flex items-center gap-2">
                             <Send className="h-5 w-5 text-primary" />
                             Publicér branding?
                         </AlertDialogTitle>
-                        <AlertDialogDescription className="space-y-3">
+                        <AlertDialogDescription className="space-y-4">
                             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
                                 <strong>Bemærk:</strong> Publicering vil ændre din live hjemmeside øjeblikkeligt.
                             </div>
 
-                            <div className="space-y-2 pt-2">
+                            {/* Recent Publishes Section */}
+                            {editor.history.length > 0 && (
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Seneste udgivelser</Label>
+                                    <div className="space-y-1 max-h-[120px] overflow-y-auto minimal-scrollbar px-1">
+                                        {editor.history.slice(0, 3).map((v) => (
+                                            <button
+                                                key={v.id}
+                                                onClick={() => setPublishLabel(v.label)}
+                                                className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent border border-transparent hover:border-accent transition-all text-left group"
+                                            >
+                                                <div className="flex items-center gap-2 overflow-hidden">
+                                                    <History className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0" />
+                                                    <span className="text-sm font-medium truncate">{v.label}</span>
+                                                </div>
+                                                <span className="text-[10px] text-muted-foreground whitespace-nowrap ml-2">
+                                                    {format(new Date(v.timestamp), 'd. MMM HH:mm', { locale: da })}
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <Separator className="my-2" />
+                                </div>
+                            )}
+
+                            <div className="space-y-2 pt-1">
                                 <Label htmlFor="publish-label">Navngiv denne version (valgfrit)</Label>
-                                <Input
-                                    id="publish-label"
-                                    placeholder="F.eks. 'Nyt logo design'"
-                                    value={publishLabel}
-                                    onChange={(e) => setPublishLabel(e.target.value)}
-                                />
+                                <div className="relative">
+                                    <Input
+                                        id="publish-label"
+                                        placeholder="F.eks. 'Nyt logo design'"
+                                        value={publishLabel}
+                                        onChange={(e) => setPublishLabel(e.target.value)}
+                                        className="pr-10"
+                                    />
+                                    {publishLabel && (
+                                        <button
+                                            onClick={() => setPublishLabel("")}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                        >
+                                            <X className="h-4 w-4" />
+                                        </button>
+                                    )}
+                                </div>
+                                <p className="text-[10px] text-muted-foreground">
+                                    Tip: Klik på en seneste udgave ovenfor for at genbruge navnet.
+                                </p>
                             </div>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Annuller</AlertDialogCancel>
-                        <AlertDialogAction onClick={handlePublish}>
+                        <AlertDialogAction onClick={handlePublish} disabled={editor.isSaving}>
                             Publicér nu
                         </AlertDialogAction>
                     </AlertDialogFooter>

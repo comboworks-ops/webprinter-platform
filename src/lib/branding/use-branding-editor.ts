@@ -84,10 +84,11 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
     const loadData = useCallback(async () => {
         setIsLoading(true);
         try {
-            const [draftData, publishedData, savedDesignsData] = await Promise.all([
+            const [draftData, publishedData, savedDesignsData, historyData] = await Promise.all([
                 adapter.loadDraft(),
                 adapter.loadPublished(),
                 adapter.loadSavedDesigns(),
+                adapter.loadHistory(),
             ]);
 
             const mergedDraft = mergeBrandingWithDefaults(draftData);
@@ -97,6 +98,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             setPublished(mergedPublished);
             setOriginalDraft(mergedDraft);
             setSavedDesigns(savedDesignsData);
+            setHistory(historyData || []);
         } catch (error) {
             console.error('Error loading branding data:', error);
             toast.error('Kunne ikke indlæse branding data');
