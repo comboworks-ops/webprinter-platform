@@ -10,6 +10,8 @@ import { Loader2 } from "lucide-react";
 import { Navigate } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
 import { BrandingEditorV2 } from "./BrandingEditorV2";
+import { useSidebar } from "@/components/ui/sidebar";
+import { useEffect } from "react";
 import {
     createMasterAdapter,
     MASTER_CAPABILITIES,
@@ -17,6 +19,15 @@ import {
 
 export function MasterBrandingTemplate() {
     const { isMasterAdmin, loading: roleLoading } = useUserRole();
+    const { setOpen } = useSidebar();
+
+    // Auto-collapse sidebar on mount to give more space for the visual editor
+    useEffect(() => {
+        setOpen(false);
+        return () => {
+            setOpen(true); // Re-open when leaving Platform Master Design
+        };
+    }, [setOpen]);
 
     if (roleLoading) {
         return (
