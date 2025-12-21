@@ -142,6 +142,13 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
     const hero: HeroSettings = {
         ...DEFAULT_HERO,
         ...draft.hero,
+        // Vital: if draft.hero.images exists (even if empty []), use it.
+        // If it's missing entirely (undefined), we might be in legacy mode or first load.
+        images: (draft.hero?.images !== undefined)
+            ? draft.hero.images
+            : (draft.hero?.media && draft.hero.media.length > 0)
+                ? draft.hero.media.map((url, i) => ({ id: `legacy-${i}`, url, sortOrder: i }))
+                : (draft.hero?.images === undefined ? DEFAULT_HERO.images : []),
         slideshow: { ...DEFAULT_SLIDESHOW, ...draft.hero?.slideshow },
         overlay: { ...DEFAULT_OVERLAY, ...draft.hero?.overlay },
         videoSettings: { ...DEFAULT_VIDEO_SETTINGS, ...draft.hero?.videoSettings },
@@ -363,12 +370,8 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
         }
     };
 
-    // Get images and videos from hero (with fallback to legacy format, then to defaults)
-    const heroImages: HeroImage[] = hero.images?.length > 0
-        ? hero.images
-        : (hero.media && hero.media.length > 0)
-            ? hero.media.map((url, i) => ({ id: `legacy-${i}`, url, sortOrder: i }))
-            : DEFAULT_HERO.images; // Fall back to default template images
+    // Get images and videos from hero (we respect an empty array if explicitly set)
+    const heroImages: HeroImage[] = hero.images || [];
 
     const heroVideos: HeroVideo[] = hero.videos || [];
 

@@ -3,9 +3,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 // Default hero slideshow images (External URLs for maximum reliability in production)
-const heroPrinting = "https://images.unsplash.com/photo-1586075010923-2dd4570fb338?q=80&w=1920&h=600&auto=format&fit=crop";
-const heroBanners = "https://images.unsplash.com/photo-1504868584819-f8e8b4b6d7e3?q=80&w=1920&h=600&auto=format&fit=crop";
-const heroFlyers = "https://images.unsplash.com/photo-1568667256549-094345857637?q=80&w=1920&h=600&auto=format&fit=crop";
+const heroPrinting = "/hero-print.jpg";
+const heroBanners = "/hero-banner.jpg";
+const heroFlyers = "/hero-flyer.jpg";
 
 // Hero banner dimension constants (can be changed platform-wide here)
 export const HERO_RECOMMENDED_WIDTH = 1920;
@@ -182,66 +182,33 @@ const DEFAULT_OVERLAY: HeroOverlaySettings = {
 const DEFAULT_HERO_IMAGES: HeroImage[] = [
     {
         id: 'default-1',
-        url: '/images/banners/banner-professionelt-tryk.jpg',
+        url: heroPrinting,
         alt: 'Professionelt tryk',
         sortOrder: 0,
         headline: 'Professionelt tryk – hurtig levering i hele Danmark',
         subline: 'Flyers, foldere, plakater, bannere m.m. — beregn prisen direkte.',
         ctaText: 'Se tryksager',
         ctaLink: '#tryksager',
-        buttons: [{
-            id: 'btn-1',
-            label: 'Se tryksager',
-            variant: 'primary',
-            linkType: 'ALL_PRODUCTS',
-            target: {},
-            textColor: '#FFFFFF',
-            bgColor: '#0EA5E9',
-            bgOpacity: 1
-        }],
-        textAnimation: 'slide-up'
     },
     {
         id: 'default-2',
-        url: '/images/banners/banner-storformat.jpg',
+        url: heroBanners,
         alt: 'Storformat print',
         sortOrder: 1,
         headline: 'Storformat print i topkvalitet',
         subline: 'Bannere, beachflag, skilte og messeudstyr – til konkurrencedygtige priser.',
         ctaText: 'Se storformat',
         ctaLink: '#storformat',
-        buttons: [{
-            id: 'btn-2',
-            label: 'Se storformat',
-            variant: 'primary',
-            linkType: 'INTERNAL_PAGE',
-            target: { path: '#storformat' },
-            textColor: '#FFFFFF',
-            bgColor: '#0EA5E9',
-            bgOpacity: 1
-        }],
-        textAnimation: 'slide-up'
     },
     {
         id: 'default-3',
-        url: '/images/banners/banner-billige-tryksager.jpg',
+        url: heroFlyers,
         alt: 'Billige tryksager',
         sortOrder: 2,
         headline: 'Billige tryksager online',
         subline: 'Bestil nemt og hurtigt – personlig service og dansk produktion.',
         ctaText: 'Beregn pris',
         ctaLink: '/prisberegner',
-        buttons: [{
-            id: 'btn-3',
-            label: 'Beregn pris',
-            variant: 'primary',
-            linkType: 'INTERNAL_PAGE',
-            target: { path: '/prisberegner' },
-            textColor: '#FFFFFF',
-            bgColor: '#0EA5E9',
-            bgOpacity: 1
-        }],
-        textAnimation: 'slide-up'
     },
 ];
 
@@ -647,44 +614,20 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
 
     // Deep merge Hero
     if (data.hero) {
-        // Use stored images/media only if they exist and are non-empty
-        let heroImages = (data.hero.images && data.hero.images.length > 0)
-            ? data.hero.images
-            : DEFAULT_BRANDING.hero.images;
-
-        // HOTFIX: Replace known broken Unsplash URL if it exists in saved data
-        // This fixes tenants who saved the default template when it had the broken image
-        const BROKEN_URL_PART = "photo-1595079676339";
-        const FIXED_URL = "https://images.unsplash.com/photo-1586075010923-2dd4570fb338?q=80&w=1920&h=600&auto=format&fit=crop";
-
-        if (heroImages && heroImages.length > 0) {
-            heroImages = heroImages.map((img: any) => {
-                if (img.url && img.url.includes(BROKEN_URL_PART)) {
-                    return { ...img, url: FIXED_URL };
-                }
-                return img;
-            });
-        }
-
-        const heroMedia = (data.hero.media && data.hero.media.length > 0)
-            ? data.hero.media
-            : DEFAULT_BRANDING.hero.media;
-        const heroVideos = (data.hero.videos && data.hero.videos.length > 0)
-            ? data.hero.videos
-            : DEFAULT_BRANDING.hero.videos;
-
         merged.hero = {
             ...DEFAULT_BRANDING.hero,
             ...data.hero,
-            images: heroImages,
-            media: heroMedia,
-            videos: heroVideos,
+            // Prioritize the images array if it exists (even if empty)
+            images: (data.hero.images !== undefined)
+                ? data.hero.images
+                : (data.hero.media && data.hero.media.length > 0)
+                    ? data.hero.media.map((url: string, i: number) => ({ id: `migrated-${i}`, url, sortOrder: i }))
+                    : (data.hero.images === undefined ? DEFAULT_BRANDING.hero.images : []),
             slideshow: { ...DEFAULT_BRANDING.hero.slideshow, ...(data.hero.slideshow || {}) },
             overlay: { ...DEFAULT_BRANDING.hero.overlay, ...(data.hero.overlay || {}) },
             videoSettings: { ...DEFAULT_BRANDING.hero.videoSettings, ...(data.hero.videoSettings || {}) },
         };
     }
-
 
     // Deep merge Forside
     if (data.forside) {

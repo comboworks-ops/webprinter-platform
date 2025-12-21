@@ -32,10 +32,10 @@ interface ExtendedOverlay {
   buttons?: BannerButton[];
 }
 
-// Fallback images (external URLs for production reliability)
-const heroPrinting = "https://images.unsplash.com/photo-1586075010923-2dd4570fb338?q=80&w=1920&h=600&auto=format&fit=crop";
-const heroBanners = "https://images.unsplash.com/photo-1504868584819-f8e8b4b6d7e3?q=80&w=1920&h=600&auto=format&fit=crop";
-const heroFlyers = "https://images.unsplash.com/photo-1568667256549-094345857637?q=80&w=1920&h=600&auto=format&fit=crop";
+// Fallback images (used when no branding images are configured)
+const heroPrinting = "/hero-print.jpg";
+const heroBanners = "/hero-banner.jpg";
+const heroFlyers = "/hero-flyer.jpg";
 
 const DEFAULT_SLIDES = [
   {
@@ -60,7 +60,6 @@ const DEFAULT_SLIDES = [
     link: "/prisberegner",
   },
 ];
-
 
 // Helper to get button link
 function getButtonLink(button: BannerButton): string {
@@ -159,16 +158,20 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
   // Get extended overlay settings
   const extendedOverlay = (hero.overlay || {}) as ExtendedOverlay;
 
-  // Get media items based on type
+  // Important: We only use defaults if the configuration is missing (undefined).
+  // An empty array [] is treated as an intentional empty state.
   const isVideoMode = hero.mediaType === 'video';
-  const images: HeroImage[] = hero.images?.length > 0
-    ? hero.images
-    : (hero.media || []).map((url, i) => ({ id: `legacy-${i}`, url, sortOrder: i }));
+
+  // Use defaults ONLY if neither images nor media nor videos is defined at all
+  const useDefaults = !isVideoMode &&
+    hero.images === undefined &&
+    (hero.media === undefined || hero.media.length === 0) &&
+    (hero.videos === undefined || hero.videos.length === 0);
+
+  const images: HeroImage[] = isVideoMode ? [] : (hero.images || (hero.media || []).map((url, i) => ({ id: `legacy-${i}`, url, sortOrder: i })));
   const videos: HeroVideo[] = hero.videos || [];
 
-  // Use defaults if no media configured
-  const useDefaults = !isVideoMode && images.length === 0;
-  const mediaItems = isVideoMode ? videos : (useDefaults ? [] : images);
+  const mediaItems = isVideoMode ? videos : images;
   const totalSlides = useDefaults ? DEFAULT_SLIDES.length : mediaItems.length;
 
   // Parallax scroll handler
@@ -379,6 +382,11 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
 
   // If banner is hidden, render nothing (after all hooks are called)
   if (!showBanner) {
+    return null;
+  }
+
+  // If no slides are configured and we are not in defaults mode, return null
+  if (!useDefaults && totalSlides === 0) {
     return null;
   }
 

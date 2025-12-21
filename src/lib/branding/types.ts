@@ -309,6 +309,12 @@ export function mergeBrandingWithDefaults(data: Partial<BrandingData>): Branding
         hero: {
             ...DEFAULT_HERO,
             ...data.hero,
+            // Ensure empty arrays are not refilled by defaults during merge
+            images: (data.hero?.images !== undefined)
+                ? data.hero.images
+                : (data.hero?.media && data.hero.media.length > 0)
+                    ? data.hero.media.map((url: string, i: number) => ({ id: `migrated-${i}`, url, sortOrder: i }))
+                    : (data.hero?.images === undefined ? DEFAULT_HERO.images : []),
             slideshow: { ...DEFAULT_HERO.slideshow, ...data.hero?.slideshow },
             overlay: { ...DEFAULT_HERO.overlay, ...data.hero?.overlay },
             videoSettings: { ...DEFAULT_HERO.videoSettings, ...data.hero?.videoSettings },
