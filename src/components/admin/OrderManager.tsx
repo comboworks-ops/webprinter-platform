@@ -9,9 +9,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Loader2, Package, Truck, CheckCircle, AlertCircle, Clock, Eye, FileText, Search, FileDown } from 'lucide-react';
+import { Loader2, Package, Truck, CheckCircle, AlertCircle, Clock, Eye, FileText, Search, FileDown, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { downloadInvoice } from '@/lib/invoiceGenerator';
+import { Link } from 'react-router-dom';
 
 interface Order {
     id: string;
@@ -612,6 +613,15 @@ export function OrderManager() {
                                 >
                                     <FileDown className="mr-2 h-4 w-4" />
                                     Download Faktura
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    asChild
+                                >
+                                    <Link to={`/admin/beskeder?orderId=${selectedOrder.id}`}>
+                                        <MessageCircle className="mr-2 h-4 w-4" />
+                                        Gå til besked
+                                    </Link>
                                 </Button>
                                 <div className="flex gap-2">
                                     <Button variant="outline" onClick={() => setDialogOpen(false)}>

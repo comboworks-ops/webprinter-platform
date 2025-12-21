@@ -11,9 +11,12 @@ import {
     CreditCard,
     ArrowRight,
     Package,
-    ExternalLink
+    ExternalLink,
+    ChevronLeft,
+    ChevronRight
 } from "lucide-react";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { useUserRole } from "@/hooks/useUserRole";
 import {
     Area,
     AreaChart,
@@ -25,8 +28,6 @@ import {
 } from "recharts";
 import {
     format,
-    subDays,
-    subMonths,
     isSameDay,
     isSameMonth,
     startOfMonth,
@@ -35,17 +36,14 @@ import {
     startOfWeek,
     endOfWeek,
     addWeeks,
-    subWeeks,
     addMonths,
     addYears,
-    subYears,
     startOfYear,
     endOfYear,
     eachMonthOfInterval,
     getYear
 } from "date-fns";
 import { da } from "date-fns/locale";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export function Dashboard() {
     const navigate = useNavigate();
@@ -59,11 +57,11 @@ export function Dashboard() {
         customersCount: 0,
         pendingOrders: 0
     });
+    const { isMasterAdmin } = useUserRole();
 
     const [chartData, setChartData] = useState<{ name: string, total: number }[]>([]);
 
     useEffect(() => {
-        // Determine tenant ID to fetch stats for
         const tenantId = settings.data?.id;
         if (tenantId) fetchStats(tenantId);
     }, [settings.data?.id]);
@@ -211,7 +209,6 @@ export function Dashboard() {
                         Her er overblikket over din forretning i dag.
                     </p>
                 </div>
-
             </div>
 
             {/* Stats Cards */}

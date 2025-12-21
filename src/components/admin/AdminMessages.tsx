@@ -9,6 +9,9 @@ import { Loader2, MessageCircle, Send, User, Clock, CheckCheck, Search, Package,
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus, Users, Globe, ChevronDown, ChevronRight } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { da } from 'date-fns/locale';
 
@@ -40,50 +43,82 @@ export default function AdminMessages() {
     const [newMessage, setNewMessage] = useState('');
     const [sending, setSending] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
-    const [activeTab, setActiveTab] = useState('orders');
+    const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
     const [platformMessages, setPlatformMessages] = useState<any[]>([]);
+    const [allTenants, setAllTenants] = useState<any[]>([]);
+    const [sectionsOpen, setSectionsOpen] = useState({ orders: true, support: true });
+    const [searchParams] = useSearchParams();
     const [supportInput, setSupportInput] = useState('');
     const [isMaster, setIsMaster] = useState(false);
     const [myTenantId, setMyTenantId] = useState<string | null>(null);
 
     useEffect(() => {
+        const orderId = searchParams.get('orderId');
+        const tenantId = searchParams.get('tenantId');
+
+        if (orderId) {
+            setSelectedOrderId(orderId);
+            setSelectedTenantId(null);
+        }
+        if (tenantId) {
+            setSelectedTenantId(tenantId);
+            setSelectedOrderId(null);
+        }
+    }, [searchParams]);
+
+    useEffect(() => {
         checkRole();
         fetchOrdersWithMessages();
-    }, []);
+        if (isMaster) {
+            fetchAllTenants();
+        }
+    }, [isMaster]);
+
+    const fetchAllTenants = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('tenants' as any)
+                .select('id, name')
+                .order('name');
+            if (error) throw error;
+            setAllTenants(data || []);
+        } catch (e) {
+            console.error('Error fetching all tenants:', e);
+        }
+    };
 
     useEffect(() => {
         let interval: NodeJS.Timeout;
-        if (activeTab === 'support') {
+
+        fetchPlatformMessages();
+        markSupportMessagesAsRead();
+
+        interval = setInterval(() => {
             fetchPlatformMessages();
             markSupportMessagesAsRead();
-            interval = setInterval(() => {
-                fetchPlatformMessages();
-                // Also mark as read periodically if staying on the tab
-                markSupportMessagesAsRead();
-            }, 5000);
-        }
+        }, 5000);
+
         return () => clearInterval(interval);
-    }, [activeTab, isMaster]);
+    }, [selectedTenantId, isMaster, myTenantId]);
 
     const markSupportMessagesAsRead = async () => {
         try {
             const targetSenderRole = isMaster ? 'tenant' : 'master';
 
             // Update all unread messages sent BY the other party
-            const query = supabase
+            let query = supabase
                 .from('platform_messages' as any)
                 .update({ is_read: true })
                 .eq('sender_role', targetSenderRole)
                 .eq('is_read', false);
 
-            // If master, we might want to only mark messages read for the selected tenant context? 
-            // But currently Master View is ALL. So we mark ALL tenant messages as read?
-            // Yes, for this MVP flat view, if Master looks at the Support Tab, they "See" all messages.
-
-            if (!isMaster && myTenantId) {
-                // Tenant only marks messages sent to THEM (tenant_id context)
-                // Although RLS prevents updating others anyway.
-                query.eq('tenant_id', myTenantId);
+            if (isMaster && selectedTenantId) {
+                query = query.eq('tenant_id', selectedTenantId);
+            } else if (!isMaster && myTenantId) {
+                query = query.eq('tenant_id', myTenantId);
+            } else if (isMaster && !selectedTenantId) {
+                // If master but no tenant selected, don't mark anything as read
+                return;
             }
 
             await query;
@@ -164,12 +199,10 @@ export default function AdminMessages() {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             // Determine tenant_id target
-            let targetTenantId = myTenantId;
+            let targetTenantId = isMaster ? selectedTenantId : myTenantId;
 
-            // If Master, we need to know who we are replying to.
-            // For MVP: We reply to the tenant of the last received message.
-            if (isMaster && platformMessages.length > 0) {
-                // Find last message from a tenant (not master)
+            if (!targetTenantId && isMaster && platformMessages.length > 0) {
+                // Fallback: Find last message from a tenant (not master)
                 const lastTenantMsg = [...platformMessages].reverse().find(m => m.sender_role === 'tenant');
                 if (lastTenantMsg) {
                     targetTenantId = lastTenantMsg.tenant_id;
@@ -369,6 +402,48 @@ export default function AdminMessages() {
         order.product_name.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    const toggleSection = (section: 'orders' | 'support') => {
+        setSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }));
+    };
+
+    const handleSelectTenant = (id: string) => {
+        setSelectedTenantId(id);
+        setSelectedOrderId(null);
+    };
+
+    const handleSelectOrderLocal = (id: string) => {
+        handleSelectOrder(id);
+        setSelectedTenantId(null);
+    };
+
+    const activeView = selectedOrderId ? 'order' : (selectedTenantId ? 'support' : 'selection');
+    const platformThreadMessages = isMaster
+        ? platformMessages.filter(m => m.tenant_id === selectedTenantId)
+        : platformMessages;
+
+    const supportThreads = Object.values(
+        platformMessages.reduce((acc: any, msg: any) => {
+            const tid = msg.tenant_id;
+            if (!acc[tid]) {
+                acc[tid] = {
+                    tenant_id: tid,
+                    tenant_name: msg.tenants?.name || 'Ukendt Shop',
+                    last_message: msg.content,
+                    last_message_at: msg.created_at,
+                    unread_count: 0
+                };
+            }
+            if (msg.sender_role === 'tenant' && !msg.is_read) {
+                acc[tid].unread_count++;
+            }
+            if (new Date(msg.created_at) >= new Date(acc[tid].last_message_at)) {
+                acc[tid].last_message = msg.content;
+                acc[tid].last_message_at = msg.created_at;
+            }
+            return acc;
+        }, {})
+    ).sort((a: any, b: any) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -378,232 +453,364 @@ export default function AdminMessages() {
     }
 
     return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div>
-                <h1 className="text-3xl font-bold">Beskeder</h1>
-                <p className="text-muted-foreground">Kommuniker med kunder om deres ordrer</p>
-            </div>
-
-            {/* Header */}
+        <div className="h-[calc(100vh-140px)] flex flex-col gap-6">
             <div>
                 <h1 className="text-3xl font-bold">Beskeder</h1>
                 <p className="text-muted-foreground">Kommuniker med kunder og support</p>
             </div>
 
-            <Tabs defaultValue="orders" onValueChange={setActiveTab} className="h-[calc(100vh-250px)]">
-                <TabsList className="mb-4">
-                    <TabsTrigger value="orders">Kunder & Ordrer</TabsTrigger>
-                    <TabsTrigger value="support">
-                        {isMaster ? 'Tenant Support' : 'Kontakt Support'}
-                    </TabsTrigger>
-                </TabsList>
+            <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-4 gap-6">
+                {/* Sidebar */}
+                <Card className="lg:col-span-1 flex flex-col min-h-0 overflow-hidden">
+                    <CardHeader className="pb-3 border-b">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Søg i beskeder..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="pl-9"
+                            />
+                        </div>
+                    </CardHeader>
+                    <CardContent className="flex-1 overflow-y-auto p-2 space-y-4">
+                        {/* Support Section */}
+                        <div className="space-y-1">
+                            <button
+                                onClick={() => toggleSection('support')}
+                                className="w-full flex items-center justify-between px-2 py-1.5 text-xs font-bold text-muted-foreground uppercase tracking-wider hover:bg-muted/50 rounded-md transition-colors"
+                            >
+                                <span className="flex items-center gap-2">
+                                    <LifeBuoy className="h-3.5 w-3.5" />
+                                    {isMaster ? 'Shop Support' : 'Support'}
+                                </span>
+                                {sectionsOpen.support ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                            </button>
 
-                <TabsContent value="orders" className="h-full m-0">
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-                        {/* Conversation List */}
-                        <Card className="lg:col-span-1 flex flex-col">
-                            <CardHeader className="pb-3">
-                                <div className="relative">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                        placeholder="Søg i beskeder..."
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="pl-9"
-                                    />
+                            {sectionsOpen.support && (
+                                <div className="space-y-1 mt-1">
+                                    {isMaster ? (
+                                        supportThreads.length === 0 ? (
+                                            <p className="text-[10px] text-center py-4 text-muted-foreground opacity-50">Ingen aktive samtaler</p>
+                                        ) : (
+                                            supportThreads.map((thread: any) => (
+                                                <button
+                                                    key={thread.tenant_id}
+                                                    onClick={() => handleSelectTenant(thread.tenant_id)}
+                                                    className={cn(
+                                                        "w-full text-left p-2.5 rounded-lg transition-all border border-transparent",
+                                                        selectedTenantId === thread.tenant_id
+                                                            ? "bg-primary text-primary-foreground shadow-md"
+                                                            : "hover:bg-muted"
+                                                    )}
+                                                >
+                                                    <div className="flex items-center justify-between mb-0.5">
+                                                        <span className="font-semibold text-sm truncate">{thread.tenant_name}</span>
+                                                        {thread.unread_count > 0 && (
+                                                            <Badge className="bg-red-500 text-white h-4 min-w-[16px] px-1 flex items-center justify-center text-[10px]">
+                                                                {thread.unread_count}
+                                                            </Badge>
+                                                        )}
+                                                    </div>
+                                                    <p className={cn(
+                                                        "text-[10px] truncate opacity-80",
+                                                        selectedTenantId === thread.tenant_id ? "text-primary-foreground" : "text-muted-foreground"
+                                                    )}>
+                                                        {thread.last_message}
+                                                    </p>
+                                                </button>
+                                            ))
+                                        )
+                                    ) : (
+                                        <button
+                                            onClick={() => handleSelectTenant(myTenantId || '')}
+                                            className={cn(
+                                                "w-full text-left p-2.5 rounded-lg transition-all border border-transparent",
+                                                selectedTenantId === myTenantId
+                                                    ? "bg-primary text-primary-foreground shadow-md"
+                                                    : "hover:bg-muted"
+                                            )}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <LifeBuoy className="h-4 w-4" />
+                                                <span className="font-semibold text-sm">Kontakt Support</span>
+                                            </div>
+                                        </button>
+                                    )}
                                 </div>
-                            </CardHeader>
-                            <CardContent className="flex-1 overflow-y-auto p-2">
-                                {filteredOrders.length === 0 ? (
-                                    <div className="text-center py-8 text-muted-foreground">
-                                        <MessageCircle className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                                        <p>Ingen beskeder endnu</p>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-1">
-                                        {filteredOrders.map((order) => (
+                            )}
+                        </div>
+
+                        {/* Orders Section */}
+                        <div className="space-y-1">
+                            <button
+                                onClick={() => toggleSection('orders')}
+                                className="w-full flex items-center justify-between px-2 py-1.5 text-xs font-bold text-muted-foreground uppercase tracking-wider hover:bg-muted/50 rounded-md transition-colors"
+                            >
+                                <span className="flex items-center gap-2">
+                                    <Package className="h-3.5 w-3.5" />
+                                    Kunder & Ordrer
+                                </span>
+                                {sectionsOpen.orders ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                            </button>
+
+                            {sectionsOpen.orders && (
+                                <div className="space-y-1 mt-1">
+                                    {filteredOrders.length === 0 ? (
+                                        <p className="text-[10px] text-center py-4 text-muted-foreground opacity-50">Ingen beskeder endnu</p>
+                                    ) : (
+                                        filteredOrders.map((order) => (
                                             <button
                                                 key={order.order_id}
-                                                onClick={() => handleSelectOrder(order.order_id)}
+                                                onClick={() => handleSelectOrderLocal(order.order_id)}
                                                 className={cn(
-                                                    "w-full text-left p-3 rounded-lg transition-colors",
+                                                    "w-full text-left p-2.5 rounded-lg transition-all border border-transparent",
                                                     selectedOrderId === order.order_id
-                                                        ? "bg-primary text-primary-foreground"
+                                                        ? "bg-primary text-primary-foreground shadow-md"
                                                         : "hover:bg-muted"
                                                 )}
                                             >
                                                 <div className="flex items-start justify-between">
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-2">
-                                                            <p className="font-medium truncate">
+                                                            <p className="font-semibold text-sm truncate">
                                                                 {order.customer_name}
                                                             </p>
                                                             {order.unread_count > 0 && (
-                                                                <Badge className="bg-red-500 text-white h-5 w-5 p-0 flex items-center justify-center text-[10px]">
+                                                                <Badge className="bg-red-500 text-white h-4 min-w-[16px] px-1 flex items-center justify-center text-[10px]">
                                                                     {order.unread_count}
                                                                 </Badge>
                                                             )}
                                                         </div>
                                                         <p className={cn(
-                                                            "text-xs truncate",
+                                                            "text-[10px] truncate",
                                                             selectedOrderId === order.order_id ? "text-primary-foreground/70" : "text-muted-foreground"
                                                         )}>
                                                             #{order.order_number} - {order.product_name}
                                                         </p>
-                                                        {order.messages.length > 0 && (
-                                                            <p className={cn(
-                                                                "text-xs truncate mt-1",
-                                                                selectedOrderId === order.order_id ? "text-primary-foreground/70" : "text-muted-foreground"
-                                                            )}>
-                                                                {order.messages[order.messages.length - 1].content.substring(0, 40)}...
-                                                            </p>
-                                                        )}
                                                     </div>
-                                                    <span className={cn(
-                                                        "text-xs whitespace-nowrap ml-2",
-                                                        selectedOrderId === order.order_id ? "text-primary-foreground/70" : "text-muted-foreground"
-                                                    )}>
-                                                        {formatMessageTime(order.last_message_at)}
-                                                    </span>
+                                                </div>
+                                            </button>
+                                        ))
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Main View Area */}
+                <Card className="lg:col-span-3 flex flex-col min-h-0 overflow-hidden">
+                    {activeView === 'order' && selectedOrder ? (
+                        <>
+                            <CardHeader className="border-b px-6 py-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <div className="bg-primary/10 p-2 rounded-full">
+                                            <User className="h-6 w-6 text-primary" />
+                                        </div>
+                                        <div>
+                                            <CardTitle className="text-xl">{selectedOrder.customer_name}</CardTitle>
+                                            <CardDescription className="flex items-center gap-2">
+                                                <Package className="h-3.5 w-3.5" />
+                                                Ordre #{selectedOrder.order_number} - {selectedOrder.product_name}
+                                            </CardDescription>
+                                        </div>
+                                    </div>
+                                    <Button variant="outline" size="sm" asChild>
+                                        <a href={`/admin/kunder`}>Se ordre</a>
+                                    </Button>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="flex-1 overflow-y-auto p-6 space-y-4 bg-muted/5">
+                                {selectedOrder.messages.map((msg) => (
+                                    <div
+                                        key={msg.id}
+                                        className={cn(
+                                            "max-w-[75%] p-4 rounded-2xl shadow-sm",
+                                            msg.sender_type === 'admin'
+                                                ? "bg-primary text-primary-foreground ml-auto rounded-tr-none"
+                                                : "bg-card border mr-auto rounded-tl-none"
+                                        )}
+                                    >
+                                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                                        <div className={cn(
+                                            "flex items-center gap-1 mt-2 text-[10px]",
+                                            msg.sender_type === 'admin' ? "text-primary-foreground/60 justify-end" : "text-muted-foreground"
+                                        )}>
+                                            <Clock className="h-3 w-3" />
+                                            {formatMessageTime(msg.created_at)}
+                                            {msg.sender_type === 'admin' && (
+                                                <CheckCheck className={cn(
+                                                    "h-3 w-3 ml-1",
+                                                    msg.is_read ? "text-blue-300" : "text-gray-400"
+                                                )} />
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                                <div className="h-1" />
+                            </CardContent>
+                            <div className="p-4 border-t bg-card">
+                                <div className="flex items-end gap-3 max-w-4xl mx-auto">
+                                    <Textarea
+                                        placeholder="Skriv dit svar her..."
+                                        value={newMessage}
+                                        onChange={(e) => setNewMessage(e.target.value)}
+                                        className="flex-1 min-h-[44px] max-h-[200px] resize-none border-none bg-muted/40 focus-visible:ring-1"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                handleSendMessage();
+                                            }
+                                        }}
+                                    />
+                                    <Button
+                                        onClick={handleSendMessage}
+                                        disabled={sending || !newMessage.trim()}
+                                        size="icon"
+                                        className="h-11 w-11 shrink-0 rounded-full"
+                                    >
+                                        {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                                    </Button>
+                                </div>
+                            </div>
+                        </>
+                    ) : activeView === 'support' && (selectedTenantId || !isMaster) ? (
+                        <>
+                            <CardHeader className="border-b px-6 py-4">
+                                <div className="flex items-center gap-4">
+                                    <div className="bg-primary/10 p-2 rounded-full">
+                                        <LifeBuoy className="h-6 w-6 text-primary" />
+                                    </div>
+                                    <div>
+                                        <CardTitle className="text-xl">
+                                            {isMaster ? (
+                                                platformMessages.find(m => m.tenant_id === selectedTenantId)?.tenants?.name || 'Shop Support'
+                                            ) : (
+                                                'Support Samtale'
+                                            )}
+                                        </CardTitle>
+                                        <CardDescription>
+                                            {isMaster ? 'Direkte dialog med shop ejeren' : 'Kontakt vores support team'}
+                                        </CardDescription>
+                                    </div>
+                                    {isMaster && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setSelectedTenantId(null)}
+                                            className="ml-auto text-muted-foreground hover:text-primary"
+                                        >
+                                            Skift Shop
+                                        </Button>
+                                    )}
+                                </div>
+                            </CardHeader>
+                            <CardContent className="flex-1 overflow-y-auto p-6 space-y-4 bg-muted/5">
+                                {platformThreadMessages.map(msg => (
+                                    <div key={msg.id} className={cn(
+                                        "max-w-[75%] p-4 rounded-2xl shadow-sm",
+                                        (msg.sender_role === 'tenant' && !isMaster) || (msg.sender_role === 'master' && isMaster)
+                                            ? "bg-primary text-primary-foreground ml-auto rounded-tr-none"
+                                            : "bg-card border mr-auto rounded-tl-none"
+                                    )}>
+                                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                                        <div className={cn(
+                                            "flex items-center gap-1 mt-2 text-[10px] opacity-70",
+                                            (msg.sender_role === 'tenant' && !isMaster) || (msg.sender_role === 'master' && isMaster) ? "justify-end" : ""
+                                        )}>
+                                            <Clock className="h-3 w-3" />
+                                            {formatMessageTime(msg.created_at)}
+                                            {isMaster && msg.sender_role === 'tenant' && (
+                                                <span className="ml-1 border-l pl-1">fra Shop</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                                {platformThreadMessages.length === 0 && (
+                                    <div className="text-center text-muted-foreground py-20">
+                                        <LifeBuoy className="h-16 w-16 mx-auto mb-4 opacity-10" />
+                                        <p className="text-lg font-medium opacity-50">Ingen beskeder endnu</p>
+                                        <p className="text-sm opacity-40">Skriv den første besked nedenfor for at starte samtalen</p>
+                                    </div>
+                                )}
+                            </CardContent>
+                            <div className="p-4 border-t bg-card">
+                                <div className="flex items-end gap-3 max-w-4xl mx-auto">
+                                    <Textarea
+                                        value={supportInput}
+                                        onChange={e => setSupportInput(e.target.value)}
+                                        placeholder={isMaster ? "Skriv svar til tenant..." : "Skriv til support..."}
+                                        className="flex-1 min-h-[44px] max-h-[200px] resize-none border-none bg-muted/40 focus-visible:ring-1"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                sendSupportMessage();
+                                            }
+                                        }}
+                                    />
+                                    <Button
+                                        onClick={sendSupportMessage}
+                                        disabled={sending || !supportInput.trim()}
+                                        size="icon"
+                                        className="h-11 w-11 shrink-0 rounded-full"
+                                    >
+                                        {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                                    </Button>
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-muted/5">
+                            {isMaster && activeView === 'selection' ? (
+                                <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                    <div className="mb-10 text-center">
+                                        <div className="bg-primary/10 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-sm">
+                                            <Users className="h-10 w-10 text-primary" />
+                                        </div>
+                                        <h2 className="text-3xl font-bold tracking-tight mb-2">Vælg en shop at kontakte</h2>
+                                        <p className="text-lg text-muted-foreground">Her kan du starte eller fortsætte en dialog med dine lejere</p>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {allTenants.map(tenant => (
+                                            <button
+                                                key={tenant.id}
+                                                onClick={() => handleSelectTenant(tenant.id)}
+                                                className="flex items-center justify-between p-5 rounded-2xl border bg-card hover:bg-accent hover:border-primary/50 transition-all group text-left shadow-sm hover:shadow-md"
+                                            >
+                                                <div className="flex flex-col">
+                                                    <span className="font-bold text-lg">{tenant.name}</span>
+                                                    {tenant.domain && (
+                                                        <span className="text-xs text-muted-foreground flex items-center gap-1.5 mt-1">
+                                                            <Globe className="h-3.5 w-3.5" />
+                                                            {tenant.domain}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="bg-primary/5 group-hover:bg-primary/15 p-3 rounded-xl transition-colors">
+                                                    <MessageCircle className="h-5 w-5 text-primary" />
                                                 </div>
                                             </button>
                                         ))}
                                     </div>
-                                )}
-                            </CardContent>
-                        </Card>
-
-                        {/* Message Thread */}
-                        <Card className="lg:col-span-2 flex flex-col">
-                            {selectedOrder ? (
-                                <>
-                                    <CardHeader className="border-b">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <CardTitle className="text-lg flex items-center gap-2">
-                                                    <User className="h-5 w-5" />
-                                                    {selectedOrder.customer_name}
-                                                </CardTitle>
-                                                <CardDescription className="flex items-center gap-2 mt-1">
-                                                    <Package className="h-3 w-3" />
-                                                    Ordre #{selectedOrder.order_number} - {selectedOrder.product_name}
-                                                </CardDescription>
-                                            </div>
-                                            <Button variant="outline" size="sm" asChild>
-                                                <a href={`/admin/kunder`}>Se ordre</a>
-                                            </Button>
-                                        </div>
-                                    </CardHeader>
-                                    <CardContent className="flex-1 overflow-y-auto p-4 space-y-3">
-                                        {selectedOrder.messages.map((msg) => (
-                                            <div
-                                                key={msg.id}
-                                                className={cn(
-                                                    "max-w-[80%] p-3 rounded-lg",
-                                                    msg.sender_type === 'admin'
-                                                        ? "bg-primary text-primary-foreground ml-auto"
-                                                        : "bg-muted mr-auto"
-                                                )}
-                                            >
-                                                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                                                <div className={cn(
-                                                    "flex items-center gap-1 mt-1 text-xs",
-                                                    msg.sender_type === 'admin' ? "text-primary-foreground/70 justify-end" : "text-muted-foreground"
-                                                )}>
-                                                    <Clock className="h-3 w-3" />
-                                                    {formatMessageTime(msg.created_at)}
-                                                    {msg.sender_type === 'admin' && (
-                                                        <CheckCheck className={cn(
-                                                            "h-3 w-3 ml-1",
-                                                            msg.is_read ? "text-blue-300" : "text-gray-300"
-                                                        )} />
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </CardContent>
-                                    <div className="p-4 border-t">
-                                        <div className="flex gap-2">
-                                            <Textarea
-                                                placeholder="Skriv et svar..."
-                                                value={newMessage}
-                                                onChange={(e) => setNewMessage(e.target.value)}
-                                                rows={2}
-                                                className="flex-1 resize-none"
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                                        e.preventDefault();
-                                                        handleSendMessage();
-                                                    }
-                                                }}
-                                            />
-                                            <Button
-                                                onClick={handleSendMessage}
-                                                disabled={sending || !newMessage.trim()}
-                                                className="self-end"
-                                            >
-                                                {sending ? (
-                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                ) : (
-                                                    <Send className="h-4 w-4" />
-                                                )}
-                                            </Button>
-                                        </div>
-                                    </div>
-                                </>
+                                </div>
                             ) : (
-                                <div className="flex-1 flex items-center justify-center text-muted-foreground">
-                                    <div className="text-center">
-                                        <MessageCircle className="h-16 w-16 mx-auto mb-4 opacity-30" />
-                                        <p className="text-lg font-medium">Vælg en samtale</p>
-                                        <p className="text-sm">Vælg en kunde fra listen for at se beskeder</p>
+                                <div className="max-w-md animate-in fade-in zoom-in duration-500">
+                                    <div className="bg-muted/50 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6">
+                                        <MessageCircle className="h-12 w-12 text-muted-foreground opacity-40" />
                                     </div>
-                                </div>
-                            )}
-                        </Card>
-                    </div>
-                </TabsContent>
-
-                <TabsContent value="support" className="h-full m-0">
-                    <Card className="h-full flex flex-col p-6">
-                        {/* Placeholder for Support Chat UI - Implementing simple single-thread view for Tenant first */}
-                        <div className="flex-1 overflow-y-auto space-y-4 mb-4 border rounded-lg p-4 bg-muted/10">
-                            {platformMessages.map(msg => (
-                                <div key={msg.id} className={cn(
-                                    "max-w-[80%] p-3 rounded-lg",
-                                    (msg.sender_role === 'tenant' && !isMaster) || (msg.sender_role === 'master' && isMaster)
-                                        ? "bg-primary text-primary-foreground ml-auto"
-                                        : "bg-muted mr-auto"
-                                )}>
-                                    <p className="text-sm">{msg.content}</p>
-                                    <span className="text-xs opacity-70 block mt-1">
-                                        {formatMessageTime(msg.created_at)}
-                                        {isMaster && msg.tenants?.name ? ` - ${msg.tenants.name}` : ''}
-                                    </span>
-                                </div>
-                            ))}
-                            {platformMessages.length === 0 && (
-                                <div className="text-center text-muted-foreground mt-10">
-                                    <LifeBuoy className="h-12 w-12 mx-auto mb-2 opacity-20" />
-                                    <p>Start en samtale med supporten her.</p>
+                                    <h3 className="text-2xl font-semibold mb-2">Vælg en samtale</h3>
+                                    <p className="text-muted-foreground">
+                                        Vælg en kunde eller en support-tråd fra menuen til venstre for at se beskeder
+                                    </p>
                                 </div>
                             )}
                         </div>
-                        <div className="flex gap-2">
-                            <Textarea
-                                value={supportInput}
-                                onChange={e => setSupportInput(e.target.value)}
-                                placeholder="Skriv til support..."
-                                className="flex-1"
-                            />
-                            <Button onClick={sendSupportMessage} disabled={sending}>
-                                <Send className="h-4 w-4" />
-                            </Button>
-                        </div>
-                    </Card>
-                </TabsContent>
-            </Tabs>
+                    )}
+                </Card>
+            </div>
         </div>
     );
 }

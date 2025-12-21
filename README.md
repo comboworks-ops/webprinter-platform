@@ -255,6 +255,12 @@ npm run preview  # Preview production build
 
 ## 🚀 Recent Developments (Dec 2024)
 
+### Unified Messaging System
+- **Unified Collapsible Sidebar**: Transitioned from a tabbed interface to a single-view sidebar with collapsible sections for "Support" and "Customers & Orders".
+- **Master Admin Support Channel**: Implemented a multi-thread support interface for Master Admins to manage communications with all tenants.
+- **Visual Shop Selection**: Integrated a visual grid of active shops for quick communication initiation.
+- **Deep-Link Integration**: Added direct messaging buttons to `OrderManager` and `TenantOverview` with URL-based thread routing.
+
 ### Branding Editor V2
 - **Visual "Click-to-Edit" Interface**: A major upgrade to the branding experience allowing users to click elements in the preview to edit them.
 - **Advanced Header Controls**:
@@ -272,4 +278,4 @@ npm run preview  # Preview production build
 
 ---
 
-*Last updated: December 18, 2024*
+*Last updated: December 21, 2024*

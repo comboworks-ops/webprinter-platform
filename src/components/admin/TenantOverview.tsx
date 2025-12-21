@@ -4,8 +4,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, ExternalLink } from "lucide-react";
+import { Loader2, ExternalLink, MessageCircle } from "lucide-react";
 import { format } from "date-fns";
+import { Link } from "react-router-dom";
 
 interface Tenant {
     id: string;
@@ -77,6 +78,12 @@ export function TenantOverview() {
                                         <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Aktiv</Badge>
                                     </TableCell>
                                     <TableCell className="text-right">
+                                        <Button variant="ghost" size="sm" asChild>
+                                            <Link to={`/admin/beskeder?tab=support&tenantId=${tenant.id}`}>
+                                                <MessageCircle className="h-4 w-4 mr-2" />
+                                                Besked
+                                            </Link>
+                                        </Button>
                                         {tenant.domain && (
                                             <Button variant="ghost" size="sm" asChild>
                                                 <a href={`https://${tenant.domain}`} target="_blank" rel="noopener noreferrer">
