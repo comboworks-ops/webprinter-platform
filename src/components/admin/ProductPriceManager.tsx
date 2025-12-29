@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Loader2, Save, Trash2, ArrowLeft } from "lucide-react";
+import { Loader2, Save, Trash2, ArrowLeft, X } from "lucide-react";
 import { ProductImageUpload } from "./ProductImageUpload";
 import { AddPriceRow } from "./AddPriceRow";
 import { ProductAboutSection } from "./ProductAboutSection";
@@ -22,6 +22,10 @@ import { ProductTooltipEditor } from "./ProductTooltipEditor";
 import { PriceHierarchyFilter } from "./PriceHierarchyFilter";
 import { OptionGroupManager } from "./OptionGroupManager";
 import { resolveAdminTenant } from "@/lib/adminTenant";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { STANDARD_FORMATS, getDimensionsFromVariant } from "@/utils/formatStandards";
+import { ProductColorProfileSelector } from "./ProductColorProfileSelector";
 
 interface BasePrice {
   id: string;
@@ -68,7 +72,8 @@ function getPricingTypeLabel(type: string | undefined): string {
     'rate': 'Takst',
     'formula': 'Formel',
     'fixed': 'Fast pris',
-    'custom-dimensions': 'Brugerdefinerede dimensioner'
+    'custom-dimensions': 'Brugerdefinerede dimensioner',
+    'machine-priced': 'Maskin-beregning (MPA)'
   };
   return labels[type] || type;
 }
@@ -88,7 +93,50 @@ export function ProductPriceManager() {
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [editedName, setEditedName] = useState("");
   const [editedDescription, setEditedDescription] = useState("");
+  const [editedWidth, setEditedWidth] = useState("");
+  const [editedHeight, setEditedHeight] = useState("");
+  const [editedBleed, setEditedBleed] = useState("3");
+  const [editedMinDpi, setEditedMinDpi] = useState("300");
+  const [editedIsFreeForm, setEditedIsFreeForm] = useState(false);
+  const [editedStandardFormat, setEditedStandardFormat] = useState("");
   const [hasProductEdits, setHasProductEdits] = useState(false);
+  const [hasSpecEdits, setHasSpecEdits] = useState(false);
+  const [hasMachineEdits, setHasMachineEdits] = useState(false);
+  const [editedColorProfileId, setEditedColorProfileId] = useState<string | null>(null);
+  const [hasColorProfileEdit, setHasColorProfileEdit] = useState(false);
+
+  // MPA (Machine Pricing Add-On) State
+  const [pricingType, setPricingType] = useState<'STANDARD' | 'MACHINE_PRICED'>('STANDARD');
+  const [mpaConfig, setMpaConfig] = useState<any>({
+    pricing_profile_id: "",
+    margin_profile_id: "",
+    allowed_sides: "4+0_AND_4+4",
+    quantities: [50, 100, 250, 500, 1000],
+    bleed_mm: 3,
+    gap_mm: 2,
+    material_ids: [],
+    finish_ids: [],
+    numbering_enabled: false,
+    numbering_setup_fee: 0,
+    numbering_price_per_unit: 0,
+    numbering_positions: 1,
+    sizes: []
+  });
+  const [availableMpaData, setAvailableMpaData] = useState<{
+    pricingProfiles: any[];
+    marginProfiles: any[];
+    materials: any[];
+    finishes: any[];
+    machines: any[];
+    inkSets: any[];
+  }>({
+    pricingProfiles: [],
+    marginProfiles: [],
+    materials: [],
+    finishes: [],
+    machines: [],
+    inkSets: []
+  });
   const [filteredPrices, setFilteredPrices] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState("details");
 
@@ -101,8 +149,100 @@ export function ProductPriceManager() {
       fetchPrices();
       setEditedName(product.name);
       setEditedDescription(product.description);
+      const specs = (product.technical_specs as any) || {};
+      setEditedWidth(specs.width_mm?.toString() || "");
+      setEditedHeight(specs.height_mm?.toString() || "");
+      setEditedBleed(specs.bleed_mm?.toString() || "3");
+      setEditedMinDpi(specs.min_dpi?.toString() || "300");
+      setEditedIsFreeForm(specs.is_free_form || false);
+      setEditedStandardFormat(specs.standard_format || "");
+      setHasProductEdits(false);
+      setHasSpecEdits(false);
+      setHasMachineEdits(false);
+      setHasColorProfileEdit(false);
+      setEditedColorProfileId(product.output_color_profile_id || null);
+      fetchMpaConfig(product.id);
     }
   }, [product]);
+
+  const fetchMpaConfig = async (productId: string) => {
+    try {
+      const { tenantId } = await resolveAdminTenant();
+      if (!tenantId) return;
+
+      // Fetch Profiles/Materials for selects
+      const [pp, mp, mat, fin, cfg] = await Promise.all([
+        supabase.from('pricing_profiles' as any).select('*').eq('tenant_id', tenantId),
+        supabase.from('margin_profiles' as any).select('*').eq('tenant_id', tenantId),
+        supabase.from('materials' as any).select('*').eq('tenant_id', tenantId),
+        supabase.from('finish_options' as any).select('*').eq('tenant_id', tenantId),
+        supabase.from('product_pricing_configs' as any).select('*').eq('product_id', productId).maybeSingle()
+      ]);
+
+      setAvailableMpaData({
+        pricingProfiles: pp.data || [],
+        marginProfiles: mp.data || [],
+        materials: mat.data || [],
+        finishes: fin.data || [],
+        machines: pp.data || [], // We'll use profile list to find machine/ink for now
+        inkSets: [] // Will fetch specifically if needed, but for now we'll just fix the type error
+      });
+
+      // Refined fetch to include machines and inkSets
+      const [allMachines, allInk] = await Promise.all([
+        supabase.from('machines' as any).select('*').eq('tenant_id', tenantId),
+        supabase.from('ink_sets' as any).select('*').eq('tenant_id', tenantId)
+      ]);
+
+      setAvailableMpaData(prev => ({
+        ...prev,
+        machines: allMachines.data || [],
+        inkSets: allInk.data || []
+      }));
+
+      if (cfg.data) {
+        setPricingType((cfg.data as any).pricing_type);
+        setMpaConfig(cfg.data);
+      }
+    } catch (e) {
+      console.error("Error fetching MPA config:", e);
+    }
+  };
+
+  const handleSaveMachineConfig = async () => {
+    if (!product) return;
+    setSaving(true);
+    try {
+      const { tenantId } = await resolveAdminTenant();
+      if (!tenantId) return;
+
+      const data = {
+        ...mpaConfig,
+        product_id: product.id,
+        tenant_id: tenantId,
+        pricing_type: pricingType,
+        updated_at: new Date().toISOString()
+      };
+
+      // Check if exists
+      const { data: existing } = await supabase.from('product_pricing_configs' as any).select('id').eq('product_id', product.id).maybeSingle();
+
+      let error;
+      if (existing) {
+        ({ error } = await supabase.from('product_pricing_configs' as any).update(data).eq('product_id', product.id));
+      } else {
+        ({ error } = await supabase.from('product_pricing_configs' as any).insert(data));
+      }
+
+      if (error) throw error;
+      toast.success("Maskin-konfiguration gemt");
+      setHasMachineEdits(false);
+    } catch (err: any) {
+      toast.error("Fejl: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const fetchProduct = async () => {
     if (!slug) return;
@@ -272,6 +412,38 @@ export function ProductPriceManager() {
     } catch (error) {
       console.error('Error updating product:', error);
       toast.error('Kunne ikke opdatere produktdetaljer');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveTechnicalSpecs = async () => {
+    if (!product || !hasSpecEdits) return;
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({
+          technical_specs: {
+            width_mm: parseFloat(editedWidth) || null,
+            height_mm: parseFloat(editedHeight) || null,
+            bleed_mm: parseFloat(editedBleed) || null,
+            min_dpi: parseInt(editedMinDpi) || null,
+            is_free_form: editedIsFreeForm,
+            standard_format: editedStandardFormat
+          }
+        })
+        .eq('id', product.id);
+
+      if (error) throw error;
+
+      toast.success('Tekniske specifikationer opdateret');
+      setHasSpecEdits(false);
+      await fetchProduct();
+    } catch (error) {
+      console.error('Error updating technical specs:', error);
+      toast.error('Kunne ikke opdatere tekniske specifikationer');
     } finally {
       setSaving(false);
     }
@@ -500,6 +672,8 @@ export function ProductPriceManager() {
           <TabsTrigger value="pricing">Priser</TabsTrigger>
           <TabsTrigger value="options">Valgmuligheder</TabsTrigger>
           <TabsTrigger value="custom-fields">Felter</TabsTrigger>
+          <TabsTrigger value="format">Format & Preflight</TabsTrigger>
+          <TabsTrigger value="machine">Maskin-beregning (MPA)</TabsTrigger>
           <TabsTrigger value="tooltips">Tooltips</TabsTrigger>
           <TabsTrigger value="about">Om</TabsTrigger>
         </TabsList>
@@ -535,6 +709,45 @@ export function ProductPriceManager() {
                 currentImageUrl={product.image_url}
                 onImageUpdate={handleImageUpdate}
               />
+
+              {/* Color Profile Selector */}
+              <div className="pt-4 border-t">
+                <ProductColorProfileSelector
+                  productId={product.id}
+                  currentProfileId={editedColorProfileId}
+                  onProfileChange={(profileId) => {
+                    setEditedColorProfileId(profileId);
+                    setHasColorProfileEdit(profileId !== (product.output_color_profile_id || null));
+                  }}
+                />
+                {hasColorProfileEdit && (
+                  <Button
+                    className="mt-3"
+                    onClick={async () => {
+                      setSaving(true);
+                      try {
+                        const { error } = await supabase
+                          .from('products')
+                          .update({ output_color_profile_id: editedColorProfileId } as any)
+                          .eq('id', product.id);
+                        if (error) throw error;
+                        toast.success('Farveprofil opdateret');
+                        setHasColorProfileEdit(false);
+                        await fetchProduct();
+                      } catch (err: any) {
+                        toast.error('Fejl: ' + err.message);
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                    disabled={saving}
+                  >
+                    {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    Gem Farveprofil
+                  </Button>
+                )}
+              </div>
+
               <Button
                 onClick={handleSaveProductDetails}
                 disabled={!hasProductEdits || saving}
@@ -546,6 +759,172 @@ export function ProductPriceManager() {
                 )}
                 Gem Produktdetaljer
               </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="format" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Format & Preflight Indstillinger</CardTitle>
+                  <CardDescription>
+                    Definer de præcise mål for produktet. Dette bruges til beskæringslinjer og automatisk fil-tjek.
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="edit-free-form" className="text-sm font-medium">Fripas / Fri format</Label>
+                  <Switch
+                    id="edit-free-form"
+                    checked={editedIsFreeForm}
+                    onCheckedChange={(checked) => {
+                      setEditedIsFreeForm(checked);
+                      if (checked) setEditedStandardFormat("");
+                      setHasSpecEdits(true);
+                    }}
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-standard-format">Vælg Format</Label>
+                    <Select
+                      value={editedStandardFormat}
+                      onValueChange={(value) => {
+                        const format = STANDARD_FORMATS.find(f => f.id === value);
+                        if (format && value !== 'custom') {
+                          setEditedStandardFormat(value);
+                          setEditedWidth(format.width.toString());
+                          setEditedHeight(format.height.toString());
+                          setHasSpecEdits(true);
+                        } else if (value === 'custom') {
+                          setEditedStandardFormat('custom');
+                          setEditedIsFreeForm(true);
+                          setHasSpecEdits(true);
+                        }
+                      }}
+                    >
+                      <SelectTrigger id="edit-standard-format">
+                        <SelectValue placeholder="Vælg format..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STANDARD_FORMATS.map(f => (
+                          <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-width">Bredde (mm)</Label>
+                      <Input
+                        id="edit-width"
+                        type="number"
+                        value={editedWidth}
+                        onChange={(e) => {
+                          setEditedWidth(e.target.value);
+                          setEditedStandardFormat("");
+                          setHasSpecEdits(true);
+                        }}
+                        placeholder="f.eks. 210"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-height">Højde (mm)</Label>
+                      <Input
+                        id="edit-height"
+                        type="number"
+                        value={editedHeight}
+                        onChange={(e) => {
+                          setEditedHeight(e.target.value);
+                          setEditedStandardFormat("");
+                          setHasSpecEdits(true);
+                        }}
+                        placeholder="f.eks. 297"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-bleed">Bleed (mm)</Label>
+                      <Input
+                        id="edit-bleed"
+                        type="number"
+                        value={editedBleed}
+                        onChange={(e) => {
+                          setEditedBleed(e.target.value);
+                          setHasSpecEdits(true);
+                        }}
+                        placeholder="f.eks. 3"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-dpi">Min. DPI</Label>
+                      <Input
+                        id="edit-dpi"
+                        type="number"
+                        value={editedMinDpi}
+                        onChange={(e) => {
+                          setEditedMinDpi(e.target.value);
+                          setHasSpecEdits(true);
+                        }}
+                        placeholder="f.eks. 300"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Visual Preview */}
+                <div className="bg-slate-50 p-6 rounded-xl border flex items-center justify-center min-h-[200px]">
+                  <div className="text-center w-full">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold mb-4">Live Preflight Preview</p>
+                    <div
+                      className="relative bg-white border shadow-sm mx-auto flex items-center justify-center transition-all duration-300"
+                      style={{
+                        width: '120px',
+                        height: `${(parseFloat(editedHeight) / parseFloat(editedWidth)) * 120 || 160}px`,
+                        maxHeight: '200px'
+                      }}
+                    >
+                      {/* Bleed line */}
+                      <div
+                        className="absolute border border-red-500 border-dashed pointer-events-none"
+                        style={{
+                          top: `${(parseFloat(editedBleed) / (parseFloat(editedHeight) + parseFloat(editedBleed) * 2)) * 100}%`,
+                          bottom: `${(parseFloat(editedBleed) / (parseFloat(editedHeight) + parseFloat(editedBleed) * 2)) * 100}%`,
+                          left: `${(parseFloat(editedBleed) / (parseFloat(editedWidth) + parseFloat(editedBleed) * 2)) * 100}%`,
+                          right: `${(parseFloat(editedBleed) / (parseFloat(editedWidth) + parseFloat(editedBleed) * 2)) * 100}%`,
+                        }}
+                      />
+                      <div className="text-[8px] text-slate-400 font-medium">Design Zone</div>
+                    </div>
+                    <p className="text-[10px] text-red-500 font-bold mt-2">Rød linje = Beskæring (Bleed)</p>
+                    {!editedIsFreeForm && editedStandardFormat && (
+                      <p className="text-[10px] text-slate-500 font-medium mt-1">Valgt: {STANDARD_FORMATS.find(f => f.id === editedStandardFormat)?.name}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-4">
+                <Button
+                  onClick={handleSaveTechnicalSpecs}
+                  disabled={!hasSpecEdits || saving}
+                >
+                  {saving ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  Gem Format Indstillinger
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -782,7 +1161,7 @@ export function ProductPriceManager() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <OptionGroupManager productId={product.id} />
+              <OptionGroupManager productId={product.id} tenantId={product.tenant_id} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -790,6 +1169,7 @@ export function ProductPriceManager() {
         <TabsContent value="custom-fields" className="space-y-6">
           <CustomFieldsManager
             productId={product.id}
+            tenantId={product.tenant_id}
             onFieldsUpdate={fetchPrices}
           />
         </TabsContent>
@@ -812,8 +1192,264 @@ export function ProductPriceManager() {
             aboutDescription={product.about_description}
             aboutImageUrl={product.about_image_url}
             templateFiles={product.template_files}
+            technicalSpecs={product.technical_specs}
             onUpdate={fetchProduct}
           />
+        </TabsContent>
+
+        <TabsContent value="machine" className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Maskin-baseret Prisberegning</CardTitle>
+                <CardDescription>Aktiver avanceret prisberegning baseret på maskiner, blæk og materialer.</CardDescription>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="pricing-type">Metode:</Label>
+                  <Select value={pricingType} onValueChange={(v: any) => { setPricingType(v); setHasMachineEdits(true); }}>
+                    <SelectTrigger className="w-[160px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="STANDARD">Matrix</SelectItem>
+                      <SelectItem value="MACHINE_PRICED">Maskin (MPA)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {pricingType === 'MACHINE_PRICED' && (
+                  <div className="flex items-center gap-2">
+                    <Label>Visning:</Label>
+                    <Select value={mpaConfig.display_mode || 'SELECTION'} onValueChange={v => { setMpaConfig({ ...mpaConfig, display_mode: v }); setHasMachineEdits(true); }}>
+                      <SelectTrigger className="w-[160px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="SELECTION">Valgmenu</SelectItem>
+                        <SelectItem value="MATRIX">Pris-tabel</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {pricingType === 'MACHINE_PRICED' ? (
+                <div className="grid gap-6">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Pris-profil</Label>
+                      <Select value={mpaConfig.pricing_profile_id} onValueChange={v => { setMpaConfig({ ...mpaConfig, pricing_profile_id: v }); setHasMachineEdits(true); }}>
+                        <SelectTrigger><SelectValue placeholder="Vælg profil" /></SelectTrigger>
+                        <SelectContent>
+                          {availableMpaData.pricingProfiles.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      {mpaConfig.pricing_profile_id && (
+                        <div className="text-[10px] bg-muted p-1.5 rounded border">
+                          {(() => {
+                            const p = availableMpaData.pricingProfiles.find(x => x.id === mpaConfig.pricing_profile_id);
+                            if (!p) return null;
+                            const m = availableMpaData.machines?.find(x => x.id === (p as any).machine_id);
+                            const i = availableMpaData.inkSets?.find(x => x.id === (p as any).ink_set_id);
+                            return `Maskine: ${m?.name || '?'}, Blæk: ${i?.name || '?'}`;
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Margin-profil</Label>
+                      <Select value={mpaConfig.margin_profile_id} onValueChange={v => { setMpaConfig({ ...mpaConfig, margin_profile_id: v }); setHasMachineEdits(true); }}>
+                        <SelectTrigger><SelectValue placeholder="Vælg margin-profil" /></SelectTrigger>
+                        <SelectContent>
+                          {availableMpaData.marginProfiles.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">Bestemmer avance og pris-trapper.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Tryk-sider</Label>
+                    <Select value={mpaConfig.allowed_sides} onValueChange={v => { setMpaConfig({ ...mpaConfig, allowed_sides: v }); setHasMachineEdits(true); }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="4+0_ONLY">Kun 4+0 (En-sidet)</SelectItem>
+                        <SelectItem value="4+4_ONLY">Kun 4+4 (To-sidet)</SelectItem>
+                        <SelectItem value="4+0_AND_4+4">Valgfrit (4+0 eller 4+4)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Beskæring (bleed) mm</Label>
+                      <Input
+                        type="number"
+                        value={mpaConfig.bleed_mm}
+                        onChange={e => { setMpaConfig({ ...mpaConfig, bleed_mm: parseInt(e.target.value) }); setHasMachineEdits(true); }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Mellemrum (gap) mm</Label>
+                      <Input
+                        type="number"
+                        value={mpaConfig.gap_mm}
+                        onChange={e => { setMpaConfig({ ...mpaConfig, gap_mm: parseInt(e.target.value) }); setHasMachineEdits(true); }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label>Tilgængelige Materialer</Label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-3 border rounded-md max-h-[150px] overflow-y-auto bg-muted/20">
+                      {availableMpaData.materials.map(m => (
+                        <div key={m.id} className="flex items-center space-x-2">
+                          <Switch
+                            checked={mpaConfig.material_ids?.includes(m.id)}
+                            onCheckedChange={checked => {
+                              const ids = checked
+                                ? [...(mpaConfig.material_ids || []), m.id]
+                                : (mpaConfig.material_ids || []).filter((id: string) => id !== m.id);
+                              setMpaConfig({ ...mpaConfig, material_ids: ids });
+                              setHasMachineEdits(true);
+                            }}
+                          />
+                          <span className="text-sm truncate">{m.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label>Tilgængelige Færdiggørelser</Label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-3 border rounded-md max-h-[150px] overflow-y-auto bg-muted/20">
+                      {availableMpaData.finishes.map(f => (
+                        <div key={f.id} className="flex items-center space-x-2">
+                          <Switch
+                            checked={mpaConfig.finish_ids?.includes(f.id)}
+                            onCheckedChange={checked => {
+                              const ids = checked
+                                ? [...(mpaConfig.finish_ids || []), f.id]
+                                : (mpaConfig.finish_ids || []).filter((id: string) => id !== f.id);
+                              setMpaConfig({ ...mpaConfig, finish_ids: ids });
+                              setHasMachineEdits(true);
+                            }}
+                          />
+                          <span className="text-sm truncate">{f.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Mængder (komma-separeret)</Label>
+                    <Input
+                      value={mpaConfig.quantities?.join(', ')}
+                      onChange={e => {
+                        const q = e.target.value.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v));
+                        setMpaConfig({ ...mpaConfig, quantities: q });
+                        setHasMachineEdits(true);
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">De mængder kunden kan vælge (f.eks. 100, 250, 500).</p>
+                  </div>
+
+                  <div className="space-y-4 p-4 border rounded-md bg-muted/10">
+                    <div className="flex items-center space-x-2">
+                      <Switch checked={mpaConfig.numbering_enabled} onCheckedChange={v => { setMpaConfig({ ...mpaConfig, numbering_enabled: v }); setHasMachineEdits(true); }} />
+                      <Label className="font-semibold">Tillad numerering</Label>
+                    </div>
+
+                    {mpaConfig.numbering_enabled && (
+                      <div className="grid grid-cols-3 gap-4 pt-2">
+                        <div className="space-y-2">
+                          <Label className="text-xs">Opstarts-gebyr</Label>
+                          <Input
+                            type="number"
+                            size={1}
+                            value={mpaConfig.numbering_setup_fee}
+                            onChange={e => { setMpaConfig({ ...mpaConfig, numbering_setup_fee: parseFloat(e.target.value) }); setHasMachineEdits(true); }}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs">Pris pr. enhed</Label>
+                          <Input
+                            type="number"
+                            size={1}
+                            value={mpaConfig.numbering_price_per_unit}
+                            onChange={e => { setMpaConfig({ ...mpaConfig, numbering_price_per_unit: parseFloat(e.target.value) }); setHasMachineEdits(true); }}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs">Antal positioner</Label>
+                          <Input
+                            type="number"
+                            size={1}
+                            value={mpaConfig.numbering_positions}
+                            onChange={e => { setMpaConfig({ ...mpaConfig, numbering_positions: parseInt(e.target.value) }); setHasMachineEdits(true); }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label>Størrelses-presets (valgfrit)</Label>
+                    <div className="space-y-2">
+                      {(mpaConfig.sizes || []).map((s: any, idx: number) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <Input placeholder="Navn (f.eks. A4)" value={s.name} onChange={e => {
+                            const newSizes = [...mpaConfig.sizes];
+                            newSizes[idx].name = e.target.value;
+                            setMpaConfig({ ...mpaConfig, sizes: newSizes });
+                            setHasMachineEdits(true);
+                          }} />
+                          <Input type="number" placeholder="Bredde" value={s.width} onChange={e => {
+                            const newSizes = [...mpaConfig.sizes];
+                            newSizes[idx].width = parseInt(e.target.value);
+                            setMpaConfig({ ...mpaConfig, sizes: newSizes });
+                            setHasMachineEdits(true);
+                          }} />
+                          <Input type="number" placeholder="Højde" value={s.height} onChange={e => {
+                            const newSizes = [...mpaConfig.sizes];
+                            newSizes[idx].height = parseInt(e.target.value);
+                            setMpaConfig({ ...mpaConfig, sizes: newSizes });
+                            setHasMachineEdits(true);
+                          }} />
+                          <Button variant="ghost" size="icon" onClick={() => {
+                            const newSizes = mpaConfig.sizes.filter((_: any, i: number) => i !== idx);
+                            setMpaConfig({ ...mpaConfig, sizes: newSizes });
+                            setHasMachineEdits(true);
+                          }}><X className="h-4 w-4" /></Button>
+                        </div>
+                      ))}
+                      <Button variant="outline" size="sm" onClick={() => {
+                        setMpaConfig({ ...mpaConfig, sizes: [...(mpaConfig.sizes || []), { name: "", width: 210, height: 297 }] });
+                        setHasMachineEdits(true);
+                      }}>
+                        Tilføj størrelse
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t flex justify-end">
+                    <Button disabled={!hasMachineEdits || saving} onClick={handleSaveMachineConfig}>
+                      {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                      Gem Maskin-opsætning
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-8 text-center bg-muted/30 border border-dashed rounded-lg">
+                  <p className="text-muted-foreground">Dette produkt bruger standard matrix-prisberegning.</p>
+                  <Button variant="outline" className="mt-4" onClick={() => setPricingType('MACHINE_PRICED')}>
+                    Skift til Maskin-beregning
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

@@ -8,6 +8,7 @@ import { ProductFilters } from "@/components/product-price-page/ProductFilters";
 import { StaticProductInfo } from "@/components/product-price-page/StaticProductInfo";
 import { CustomDimensionsCalculator } from "@/components/product-price-page/CustomDimensionsCalculator";
 import { DynamicProductOptions } from "@/components/product-price-page/DynamicProductOptions";
+import { MachineConfigurator } from "@/components/product-price-page/MachineConfigurator";
 import { getProductBySlug } from "@/utils/productMetadata";
 import { getProductImage } from "@/utils/productImages";
 import { supabase } from "@/integrations/supabase/client";
@@ -31,6 +32,7 @@ import {
   calculateFoilPrice,
   getGenericMatrixDataFromDB
 } from "@/utils/pricingDatabase";
+import { getDimensionsFromVariant } from "@/utils/formatStandards";
 
 // List of products with specific pricing tables
 const specificPricingProducts = ['flyers', 'foldere', 'visitkort', 'plakater', 'klistermærker', 'skilte', 'bannere', 'folie', 'beachflag', 'hæfter', 'salgsmapper'];
@@ -141,10 +143,22 @@ const ProductPrice = () => {
   const [basePricePerSqm, setBasePricePerSqm] = useState<Record<string, number>>({});
   const [optionExtraPrice, setOptionExtraPrice] = useState<number>(0);
   const [optionSelections, setOptionSelections] = useState<Record<string, { optionId: string; name: string; extraPrice: number; priceMode: "fixed" | "per_quantity" | "per_area" }>>({});
+
+  // Debug: Track productPrice state changes
+  useEffect(() => {
+    console.log('[ProductPrice] productPrice state changed to:', productPrice);
+  }, [productPrice]);;
   const [dbProductId, setDbProductId] = useState<string | null>(null);
   const [genericVariantNames, setGenericVariantNames] = useState<string[]>([]);
   const [selectedVariantName, setSelectedVariantName] = useState<string>("");
-  const [dbProduct, setDbProduct] = useState<{ id: string; name: string; description: string; image_url: string | null } | null>(null);
+  const [dbProduct, setDbProduct] = useState<{
+    id: string;
+    name: string;
+    description: string;
+    image_url: string | null;
+    technical_specs?: any;
+  } | null>(null);
+  const [mpaConfig, setMpaConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   // Use static product if available, otherwise fall back to database product
@@ -167,14 +181,31 @@ const ProductPrice = () => {
     async function fetchDbProduct() {
       if (!slug) return;
       setLoading(true);
-      const { data } = await supabase
+      console.log('[ProductPrice] Fetching product with slug:', slug);
+      const { data, error } = await supabase
         .from('products')
-        .select('id, name, description, image_url')
+        .select('id, name, description, image_url, technical_specs')
         .eq('slug', slug)
         .maybeSingle();
+
+      console.log('[ProductPrice] Database result:', { data, error });
+
       if (data) {
+        console.log('[ProductPrice] Setting dbProductId to:', data.id);
         setDbProductId(data.id);
         setDbProduct(data);
+
+        // Fetch MPA Config if available
+        const { data: cfg } = await supabase
+          .from('product_pricing_configs' as any)
+          .select('*')
+          .eq('product_id', data.id)
+          .eq('pricing_type', 'MACHINE_PRICED')
+          .maybeSingle();
+
+        if (cfg) setMpaConfig(cfg);
+      } else {
+        console.warn('[ProductPrice] No product found for slug:', slug);
       }
       setLoading(false);
     }
@@ -220,6 +251,9 @@ const ProductPrice = () => {
   // Update matrix data
   useEffect(() => {
     if (!product) return;
+
+    // Skip for MPA products - MachineConfigurator handles pricing
+    if (mpaConfig) return;
 
     if (isGenericPricing && (!dbProductId || !selectedVariantName)) return;
     if (!isGenericPricing && !selectedFormat) return;
@@ -387,6 +421,9 @@ const ProductPrice = () => {
   // Recalculate base price when area or selection changes for area-based products
   useEffect(() => {
     if (!selectedCell) return;
+    // Skip for MPA products - MachineConfigurator handles pricing
+    if (mpaConfig) return;
+
     const isAreaBased = product?.id === "bannere" || product?.id === "skilte" || product?.id === "folie";
     const qty = selectedCell.column;
     let base = matrixData.cells[selectedCell.row]?.[qty] || 0;
@@ -398,9 +435,28 @@ const ProductPrice = () => {
     setProductPrice(base);
     const extra = computeOptionExtras(optionSelections, qty, customArea || 1);
     setOptionExtraPrice(extra);
-  }, [selectedCell, customArea, basePricePerSqm, matrixData, product, computeOptionExtras, optionSelections]);
+  }, [selectedCell, customArea, basePricePerSqm, matrixData, product, computeOptionExtras, optionSelections, mpaConfig]);
 
   // Loading State
+  // Determine current dimensions based on selection
+  const currentDimensions = useMemo(() => {
+    // 1. Try to get dimensions from the selected variant name (A4, A5, etc.)
+    const variantDims = getDimensionsFromVariant(selectedFormat || selectedVariantName || "");
+    if (variantDims) return { ...variantDims, bleed: parseFloat(dbProduct?.technical_specs?.bleed_mm) || 3 };
+
+    // 2. Fall back to product-wide technical specs
+    if (dbProduct?.technical_specs) {
+      return {
+        width: dbProduct.technical_specs.width_mm || 210,
+        height: dbProduct.technical_specs.height_mm || 297,
+        bleed: dbProduct.technical_specs.bleed_mm || 3
+      };
+    }
+
+    // 3. Ultimate default
+    return { width: 210, height: 297, bleed: 3 };
+  }, [selectedFormat, selectedVariantName, dbProduct?.technical_specs]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col">
@@ -486,28 +542,46 @@ const ProductPrice = () => {
             {/* For area-based products, show options below width/height calculator (e.g., lamination) */}
             {isAreaBased && optionsBlock}
 
-            <PriceMatrix
-              rows={matrixData.rows}
-              columns={matrixData.columns}
-              cells={matrixData.cells}
-              onCellClick={handleCellClick}
-              selectedCell={selectedCell}
-              columnUnit="stk"
-              customArea={isAreaBased ? customArea : undefined}
-              basePricePerSqm={isAreaBased ? basePricePerSqm : undefined}
-              computeExtras={(qty, area) => computeOptionExtras(optionSelections, qty, area || 1)}
-            />
+            {mpaConfig ? (
+              <MachineConfigurator
+                productId={dbProductId || ""}
+                width={0}
+                height={0}
+                onPriceUpdate={(data) => {
+                  console.log('[ProductPrice] Received from MachineConfigurator:', data);
+                  setProductPrice(data.totalPrice);
+                  // Update selected cell mock to satisfy ProductPricePanel
+                  setSelectedCell({ row: data.materialName || "Special", column: data.quantity });
+                }}
+              />
+            ) : (
+              <PriceMatrix
+                rows={matrixData.rows}
+                columns={matrixData.columns}
+                cells={matrixData.cells}
+                onCellClick={handleCellClick}
+                selectedCell={selectedCell}
+                columnUnit="stk"
+                customArea={isAreaBased ? customArea : undefined}
+                basePricePerSqm={isAreaBased ? basePricePerSqm : undefined}
+                computeExtras={(qty, area) => computeOptionExtras(optionSelections, qty, area || 1)}
+              />
+            )}
           </div>
 
-          <div className="lg:col-span-1 lg:self-end">
+          <div className="lg:col-span-1 space-y-6">
             <div>
               <ProductPricePanel
+                productId={dbProductId || ""}
+                quantity={selectedCell?.column || 0}
                 productPrice={productPrice}
                 extraPrice={optionExtraPrice}
                 onShippingChange={handleShippingChange}
                 optionSelections={optionSelections}
                 selectedVariant={selectedCell?.row}
                 productName={product.name}
+                productSlug={slug || ""}
+                selectedFormat={selectedFormat}
                 summary={[
                   product.name,
                   // For area-based products, show custom dimensions instead of format

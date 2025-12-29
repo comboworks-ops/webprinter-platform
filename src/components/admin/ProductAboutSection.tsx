@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
+import { Json } from "@/integrations/supabase/types";
 import { toast } from "sonner";
 import { Loader2, Save, Upload, X, Download, FileText } from "lucide-react";
 
@@ -25,6 +26,7 @@ interface ProductAboutSectionProps {
   aboutDescription: string | null;
   aboutImageUrl: string | null;
   templateFiles?: TemplateFile[];
+  technicalSpecs?: Json | null;
   onUpdate: () => void;
 }
 
@@ -96,7 +98,7 @@ export function ProductAboutSection({
       const fileName = `${productId}-about-${Date.now()}.${fileExt}`;
       const filePath = `about/${fileName}`;
 
-      const { error: uploadError, data } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('product-images')
         .upload(filePath, file, { upsert: true });
 
@@ -137,7 +139,6 @@ export function ProductAboutSection({
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Convert templates to plain objects for JSON storage
       const templatesForStorage = templates.map(t => ({
         name: t.name,
         url: t.url,
@@ -152,7 +153,7 @@ export function ProductAboutSection({
           about_title: title || null,
           about_description: description || null,
           about_image_url: imageUrl || null,
-          template_files: templatesForStorage as any
+          template_files: templatesForStorage as any,
         })
         .eq('id', productId);
 
@@ -213,8 +214,7 @@ export function ProductAboutSection({
       setTemplates([...templates, newTemplate]);
       setSelectedTemplateFormat("");
       toast.success('Skabelon uploadet');
-      
-      // Reset file input
+
       event.target.value = '';
     } catch (error) {
       console.error('Error uploading template:', error);
@@ -227,8 +227,6 @@ export function ProductAboutSection({
   const handleRemoveTemplate = async (index: number) => {
     try {
       const template = templates[index];
-      
-      // Delete from storage
       if (template.path) {
         await supabase.storage
           .from('product-templates')
@@ -244,7 +242,7 @@ export function ProductAboutSection({
     }
   };
 
-  const hasChanges = 
+  const hasChanges =
     title !== (aboutTitle || "") ||
     description !== (aboutDescription || "") ||
     imageUrl !== (aboutImageUrl || "") ||
@@ -255,7 +253,7 @@ export function ProductAboutSection({
       <CardHeader>
         <CardTitle>Om Produktet</CardTitle>
         <CardDescription>
-          Tilføj yderligere information om produktet, som vises på produktsiden. Denne information synkroniseres automatisk til forsiden.
+          Tilføj yderligere information om produktet, som vises på produktsiden.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -285,77 +283,35 @@ export function ProductAboutSection({
           {imageUrl ? (
             <div className="space-y-2">
               <div className="relative w-full h-48 border rounded-lg overflow-hidden">
-                <img
-                  src={imageUrl}
-                  alt="About section"
-                  className="w-full h-full object-contain"
-                />
+                <img src={imageUrl} alt="About section" className="w-full h-full object-contain" />
               </div>
               <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRemoveImage}
-                  disabled={uploading}
-                >
+                <Button variant="outline" size="sm" onClick={handleRemoveImage} disabled={uploading}>
                   <X className="h-4 w-4 mr-2" />
                   Fjern billede
                 </Button>
                 <Label htmlFor="about-image-upload" className="flex-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={uploading}
-                    asChild
-                    className="w-full"
-                  >
+                  <Button variant="outline" size="sm" disabled={uploading} asChild className="w-full">
                     <span>
-                      {uploading ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Upload className="h-4 w-4 mr-2" />
-                      )}
+                      {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
                       Udskift billede
                     </span>
                   </Button>
                 </Label>
-                <input
-                  id="about-image-upload"
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  className="hidden"
-                />
+                <input id="about-image-upload" type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
               </div>
             </div>
           ) : (
             <div>
               <Label htmlFor="about-image-upload">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={uploading}
-                  asChild
-                >
+                <Button variant="outline" disabled={uploading} asChild>
                   <span>
-                    {uploading ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Upload className="h-4 w-4 mr-2" />
-                    )}
+                    {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
                     Upload billede
                   </span>
                 </Button>
               </Label>
-              <input
-                id="about-image-upload"
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="hidden"
-              />
+              <input id="about-image-upload" type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
             </div>
           )}
         </div>
@@ -363,18 +319,14 @@ export function ProductAboutSection({
         <div className="space-y-4 border-t pt-4">
           <div>
             <Label className="text-base font-semibold">Skabelonfiler (download links til kunder)</Label>
-            <p className="text-sm text-muted-foreground mt-1">
-              Upload skabelonfiler for hvert format. Kunder kan downloade den skabelon der matcher deres valgte format.
-            </p>
           </div>
-          
+
           {templates.length > 0 && (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Filnavn</TableHead>
                   <TableHead>Format</TableHead>
-                  <TableHead>Uploadet</TableHead>
                   <TableHead className="text-right">Handlinger</TableHead>
                 </TableRow>
               </TableHeader>
@@ -385,28 +337,13 @@ export function ProductAboutSection({
                       <FileText className="h-4 w-4" />
                       {template.name}
                     </TableCell>
-                    <TableCell>
-                      {template.format || <span className="text-muted-foreground">Alle formater</span>}
-                    </TableCell>
-                    <TableCell>
-                      {new Date(template.uploadedAt).toLocaleDateString('da-DK')}
-                    </TableCell>
+                    <TableCell>{template.format || "Alle"}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex gap-2 justify-end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => window.open(template.url, '_blank')}
-                        >
+                        <Button variant="outline" size="sm" onClick={() => window.open(template.url, '_blank')}>
                           <Download className="h-4 w-4" />
                         </Button>
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleRemoveTemplate(index)}
-                        >
+                        <Button variant="destructive" size="sm" onClick={() => handleRemoveTemplate(index)}>
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
@@ -416,62 +353,36 @@ export function ProductAboutSection({
               </TableBody>
             </Table>
           )}
-          
+
           <div className="flex gap-3 items-end">
             {availableFormats.length > 0 && (
               <div className="space-y-2">
-                <Label>Format (valgfrit)</Label>
+                <Label>Format</Label>
                 <Select value={selectedTemplateFormat || "all"} onValueChange={(val) => setSelectedTemplateFormat(val === "all" ? "" : val)}>
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Alle formater" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Alle formater</SelectItem>
-                    {availableFormats.map(format => (
-                      <SelectItem key={format} value={format}>{format}</SelectItem>
-                    ))}
+                    {availableFormats.map(format => <SelectItem key={format} value={format}>{format}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
             )}
-            <div>
-              <Label htmlFor="template-upload">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={uploadingTemplate}
-                  asChild
-                >
-                  <span>
-                    {uploadingTemplate ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Upload className="h-4 w-4 mr-2" />
-                    )}
-                    Upload Skabelon
-                  </span>
-                </Button>
-              </Label>
-              <input
-                id="template-upload"
-                type="file"
-                accept=".pdf,.indd,.idml,.zip"
-                onChange={handleTemplateUpload}
-                className="hidden"
-              />
-            </div>
+            <Label htmlFor="template-upload">
+              <Button variant="outline" disabled={uploadingTemplate} asChild>
+                <span>
+                  {uploadingTemplate ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                  Upload Skabelon
+                </span>
+              </Button>
+            </Label>
+            <input id="template-upload" type="file" accept=".pdf,.indd,.idml,.zip" onChange={handleTemplateUpload} className="hidden" />
           </div>
         </div>
 
-        <Button
-          onClick={handleSave}
-          disabled={!hasChanges || saving}
-        >
-          {saving ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="mr-2 h-4 w-4" />
-          )}
+        <Button onClick={handleSave} disabled={!hasChanges || saving}>
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
           Gem Om-sektion
         </Button>
       </CardContent>

@@ -12,6 +12,7 @@ import { Plus, Save, Trash2, Loader2 } from "lucide-react";
 
 interface CustomFieldsManagerProps {
   productId: string;
+  tenantId?: string;
   onFieldsUpdate?: () => void;
 }
 
@@ -24,7 +25,7 @@ interface CustomField {
   default_value?: any;
 }
 
-export function CustomFieldsManager({ productId, onFieldsUpdate }: CustomFieldsManagerProps) {
+export function CustomFieldsManager({ productId, tenantId, onFieldsUpdate }: CustomFieldsManagerProps) {
   const [fields, setFields] = useState<CustomField[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -72,6 +73,7 @@ export function CustomFieldsManager({ productId, onFieldsUpdate }: CustomFieldsM
         .from('custom_fields')
         .insert([{
           product_id: productId,
+          tenant_id: tenantId,
           field_name: newField.field_name.toLowerCase().replace(/\s+/g, '_'),
           field_label: newField.field_label,
           field_type: newField.field_type,
@@ -211,12 +213,12 @@ export function CustomFieldsManager({ productId, onFieldsUpdate }: CustomFieldsM
                   />
                 </div>
               </div>
-              
+
               <div className="space-y-2">
                 <Label>Felttype</Label>
                 <Select
                   value={newField.field_type}
-                  onValueChange={(value: 'number' | 'boolean') => 
+                  onValueChange={(value: 'number' | 'boolean') =>
                     setNewField({ ...newField, field_type: value })
                   }
                 >
@@ -234,7 +236,7 @@ export function CustomFieldsManager({ productId, onFieldsUpdate }: CustomFieldsM
                 <Switch
                   id="required"
                   checked={newField.is_required}
-                  onCheckedChange={(checked) => 
+                  onCheckedChange={(checked) =>
                     setNewField({ ...newField, is_required: checked })
                   }
                 />

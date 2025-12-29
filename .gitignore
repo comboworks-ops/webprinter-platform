@@ -29,3 +29,20 @@ dist-ssr
 *.sln
 *.sw?
 .vercel
+
+# Temporary/Debug scripts
+*.sql
+*.js
+*.mjs
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.node.json
+!supabase/migrations/*.sql
+!supabase/functions/**
+!docs/*.md
+!src/**/*.ts
+!src/**/*.tsx
+!src/**/*.js
+!src/**/*.jsx

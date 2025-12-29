@@ -30,9 +30,10 @@ interface ProductOption {
 
 interface OptionGroupManagerProps {
   productId: string;
+  tenantId?: string;
 }
 
-export function OptionGroupManager({ productId }: OptionGroupManagerProps) {
+export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerProps) {
   const [groups, setGroups] = useState<OptionGroup[]>([]);
   const [options, setOptions] = useState<Record<string, ProductOption[]>>({});
   const [loading, setLoading] = useState(true);
@@ -97,7 +98,7 @@ export function OptionGroupManager({ productId }: OptionGroupManagerProps) {
           optionsMap[group.id] = optionsData;
         }
       }
-      setOptions(optionsMap);
+      setOptions(optionsMap as Record<string, ProductOption[]>);
     }
 
     setLoading(false);
@@ -109,47 +110,92 @@ export function OptionGroupManager({ productId }: OptionGroupManagerProps) {
       return;
     }
 
-    // Create the group (without description to avoid schema cache issues)
-    const { data: newGroup, error: groupError } = await supabase
-      .from('product_option_groups')
-      .insert({
-        name: newGroupName.toLowerCase().replace(/\s+/g, '_'),
-        label: newGroupLabel,
-        display_type: newGroupDisplayType
-      })
-      .select()
-      .single();
+    const normalizedName = newGroupName.toLowerCase().replace(/\s+/g, '_');
 
-    if (groupError || !newGroup) {
-      toast.error("Fejl ved oprettelse: " + groupError?.message);
+    // 1. Check if group with this NAME already exists (global unique constraint)
+    const { data: existingGroup, error: findError } = await (supabase
+      .from('product_option_groups') as any)
+      .select('*')
+      .eq('name', normalizedName)
+      .maybeSingle();
+
+    if (findError) {
+      toast.error("Kunne ikke søge efter eksisterende gruppe: " + findError.message);
       return;
     }
 
-    // Update description separately (bypasses TypeScript type checking for new column)
-    if (newGroupDescription.trim()) {
-      const { error: descError } = await (supabase
-        .from('product_option_groups') as any)
-        .update({ description: newGroupDescription.trim() })
-        .eq('id', newGroup.id);
+    let groupToAssign = existingGroup;
 
-      if (descError) {
-        console.warn('Could not save description:', descError.message);
+    // 2. If it doesn't exist, CREATE it
+    if (!groupToAssign) {
+      const { data: newGroup, error: createError } = await (supabase
+        .from('product_option_groups') as any)
+        .insert({
+          name: normalizedName,
+          label: newGroupLabel,
+          display_type: newGroupDisplayType,
+          tenant_id: tenantId
+        })
+        .select()
+        .single();
+
+      if (createError) {
+        toast.error("Fejl ved oprettelse: " + createError.message);
+        return;
+      }
+      groupToAssign = newGroup;
+
+      // Update description separately if needed
+      if (newGroupDescription.trim() && groupToAssign) {
+        await (supabase.from('product_option_groups') as any)
+          .update({ description: newGroupDescription.trim() })
+          .eq('id', groupToAssign.id);
+      }
+    } else {
+      console.log("Reusing existing group:", groupToAssign.name);
+      // Optionally update label/type if they differ? 
+      // User might expect the new values to take effect if they manually typed them.
+      await (supabase.from('product_option_groups') as any)
+        .update({
+          label: newGroupLabel,
+          display_type: newGroupDisplayType
+        })
+        .eq('id', groupToAssign.id);
+    }
+
+    // 3. Check if already assigned to this product
+    if (groupToAssign) {
+      const { data: existingAssignment } = await supabase
+        .from('product_option_group_assignments')
+        .select('*')
+        .eq('product_id', productId)
+        .eq('option_group_id', groupToAssign.id)
+        .maybeSingle();
+
+      if (existingAssignment) {
+        toast.error("Denne gruppe er allerede tilføjet til produktet");
+        setShowAddGroup(false);
+        setNewGroupName("");
+        setNewGroupLabel("");
+        setNewGroupDescription("");
+        return;
+      }
+
+      // 4. Assign to this product
+      const { error: assignError } = await supabase
+        .from('product_option_group_assignments')
+        .insert({
+          product_id: productId,
+          option_group_id: groupToAssign.id,
+          sort_order: groups.length
+        });
+
+      if (assignError) {
+        toast.error("Fejl ved tildeling: " + assignError.message);
+        return;
       }
     }
 
-    // Auto-assign to this product
-    const { error: assignError } = await supabase
-      .from('product_option_group_assignments')
-      .insert({
-        product_id: productId,
-        option_group_id: newGroup.id,
-        sort_order: groups.length
-      });
-
-    if (assignError) {
-      toast.error("Fejl ved tildeling: " + assignError.message);
-      return;
-    }
 
     toast.success("Gruppe oprettet og tilføjet");
     setNewGroupName("");
@@ -196,29 +242,29 @@ export function OptionGroupManager({ productId }: OptionGroupManagerProps) {
       name: `option_${Date.now()}`,
       label: "Ny valgmulighed",
       extra_price: 0,
-      sort_order: (options[groupId]?.length || 0)
+      sort_order: (options[groupId]?.length || 0),
+      tenant_id: tenantId
     };
 
-    const payload = { ...baseOption, price_mode: "fixed" as const };
+    const payload = { ...baseOption, price_mode: "fixed" as const } as any;
 
-    const { data, error } = await supabase
-      .from('product_options')
+    const { data, error } = await (supabase.from('product_options') as any)
       .insert(payload)
       .select()
       .single();
 
     if (error) {
-      toast.error("Fejl: " + error.message + (error.message?.toLowerCase().includes("price_mode") ? " (kør NOTIFY pgrst, 'reload schema')" : ""));
+      toast.error("Fejl ved oprettelse: " + error.message);
       return;
     }
 
     if (data) {
       setOptions(prev => ({
         ...prev,
-        [groupId]: [...(prev[groupId] || []), data]
+        [groupId]: [...(prev[groupId] || []), data as ProductOption]
       }));
       setEditingOption(data.id);
-      setEditingOptionData(data);
+      setEditingOptionData(data as ProductOption);
     }
   }
 

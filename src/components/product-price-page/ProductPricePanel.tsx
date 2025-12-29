@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -7,6 +8,8 @@ import { Download } from "lucide-react";
 import jsPDF from "jspdf";
 
 type ProductPricePanelProps = {
+  productId: string;
+  quantity: number;
   productPrice: number;
   extraPrice?: number;
   onShippingChange?: (type: string | null, cost: number) => void;
@@ -14,9 +17,24 @@ type ProductPricePanelProps = {
   optionSelections?: Record<string, { optionId: string; name: string; extraPrice: number; priceMode: "fixed" | "per_quantity" | "per_area" }>;
   selectedVariant?: string;
   productName?: string;
+  productSlug: string;
+  selectedFormat?: string;
 };
 
-export function ProductPricePanel({ productPrice, extraPrice = 0, onShippingChange, summary, optionSelections, selectedVariant, productName }: ProductPricePanelProps) {
+export function ProductPricePanel({
+  productId,
+  quantity,
+  productPrice,
+  extraPrice = 0,
+  onShippingChange,
+  summary,
+  optionSelections,
+  selectedVariant,
+  productName,
+  productSlug,
+  selectedFormat
+}: ProductPricePanelProps) {
+  const navigate = useNavigate();
   const [shippingSelected, setShippingSelected] = useState<string>("standard");
 
   const baseTotal = productPrice + extraPrice;
@@ -42,7 +60,7 @@ export function ProductPricePanel({ productPrice, extraPrice = 0, onShippingChan
     const darkGray = [34, 43, 54]; // Dark text
 
     // Header with blue background
-    doc.setFillColor(...primaryBlue);
+    doc.setFillColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
     doc.rect(0, 0, 210, 40, 'F');
 
     // Logo/Company name
@@ -60,21 +78,21 @@ export function ProductPricePanel({ productPrice, extraPrice = 0, onShippingChan
     doc.text(`Dato: ${new Date().toLocaleDateString('da-DK')}`, 150, 35);
 
     // Reset text color
-    doc.setTextColor(...darkGray);
+    doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
 
     let yPos = 55;
 
     // Title
     doc.setFontSize(18);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...primaryBlue);
+    doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
     doc.text('TILBUD', 20, yPos);
     yPos += 15;
 
-    doc.setTextColor(...darkGray);
+    doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
 
     // Product info box
-    doc.setFillColor(...lightBlue);
+    doc.setFillColor(lightBlue[0], lightBlue[1], lightBlue[2]);
     doc.roundedRect(15, yPos - 5, 180, productName ? 15 : 10, 2, 2, 'F');
 
     if (productName) {
@@ -90,13 +108,13 @@ export function ProductPricePanel({ productPrice, extraPrice = 0, onShippingChan
     if (summary) {
       doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(...primaryBlue);
+      doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
       doc.text('Konfiguration', 20, yPos);
       yPos += 6;
 
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(...darkGray);
+      doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
       const summaryLines = doc.splitTextToSize(summary, 170);
       summaryLines.forEach((line: string) => {
         doc.text(line, 20, yPos);
@@ -119,13 +137,13 @@ export function ProductPricePanel({ productPrice, extraPrice = 0, onShippingChan
     if (optionSelections && Object.keys(optionSelections).length > 0) {
       doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(...primaryBlue);
+      doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
       doc.text('Tilvalg', 20, yPos);
       yPos += 6;
 
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(...darkGray);
+      doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
       Object.values(optionSelections).forEach((option) => {
         doc.text(`✓ ${option.name}`, 25, yPos);
         doc.text(`${option.extraPrice} kr`, 180, yPos, { align: 'right' });
@@ -135,18 +153,18 @@ export function ProductPricePanel({ productPrice, extraPrice = 0, onShippingChan
     }
 
     // Price breakdown box
-    doc.setFillColor(...lightBlue);
+    doc.setFillColor(lightBlue[0], lightBlue[1], lightBlue[2]);
     doc.roundedRect(15, yPos - 3, 180, 40 + (extraPrice > 0 ? 5 : 0), 2, 2, 'F');
 
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...primaryBlue);
+    doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
     doc.text('Priser (ex. moms)', 20, yPos + 5);
     yPos += 12;
 
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...darkGray);
+    doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
     doc.text('Produktpris:', 20, yPos);
     doc.text(`${productPrice} kr`, 180, yPos, { align: 'right' });
     yPos += 6;
@@ -162,7 +180,7 @@ export function ProductPricePanel({ productPrice, extraPrice = 0, onShippingChan
     yPos += 12;
 
     // Total in box
-    doc.setFillColor(...primaryBlue);
+    doc.setFillColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
     doc.roundedRect(15, yPos - 3, 180, 12, 2, 2, 'F');
 
     doc.setFontSize(14);
@@ -175,12 +193,12 @@ export function ProductPricePanel({ productPrice, extraPrice = 0, onShippingChan
 
     // VAT info
     doc.setFontSize(9);
-    doc.setTextColor(...darkGray);
+    doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
     doc.setFont('helvetica', 'italic');
     doc.text(`Pris inkl. 25% moms: ${Math.round(totalPrice * 1.25)} kr`, 20, yPos);
 
     // Footer
-    doc.setDrawColor(...primaryBlue);
+    doc.setDrawColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
     doc.setLineWidth(0.5);
     doc.line(20, 270, 190, 270);
 
@@ -192,6 +210,26 @@ export function ProductPricePanel({ productPrice, extraPrice = 0, onShippingChan
 
     // Download
     doc.save(`tilbud-${productName || 'webprinter'}-${new Date().getTime()}.pdf`);
+  };
+
+  const handleOrderClick = () => {
+    navigate('/checkout/konfigurer', {
+      state: {
+        productId,
+        quantity,
+        productPrice,
+        extraPrice,
+        totalPrice,
+        summary,
+        optionSelections,
+        selectedVariant,
+        productName,
+        productSlug,
+        selectedFormat,
+        shippingSelected,
+        shippingCost: shippingSelected === "standard" ? standardCost : expressCost
+      }
+    });
   };
 
   return (
@@ -238,8 +276,34 @@ export function ProductPricePanel({ productPrice, extraPrice = 0, onShippingChan
             </p>
           </div>
           {baseTotal > 0 && (
-            <Button size="lg" className="px-6 py-6 text-lg font-semibold">
+            <Button
+              size="lg"
+              className="px-6 py-6 text-lg font-semibold"
+              onClick={handleOrderClick}
+            >
               Bestil nu!
+            </Button>
+          )}
+
+          {/* Design Online Button */}
+          {baseTotal > 0 && (
+            <Button
+              variant="outline"
+              size="lg"
+              className="w-full gap-2 py-5 border-dashed border-2"
+              onClick={() => {
+                const params = new URLSearchParams();
+                params.set('productId', productId);
+                if (selectedFormat) params.set('format', selectedFormat);
+                if (selectedVariant) params.set('variant', selectedVariant);
+                navigate(`/designer?${params.toString()}`);
+              }}
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M3 9h18M9 21V9" />
+              </svg>
+              Design online
             </Button>
           )}
         </div>

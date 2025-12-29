@@ -184,6 +184,41 @@ export async function getProductDisplayPrice(product: Product): Promise<string> 
       }
     }
 
+    // Generic/Machine Pricing Add-On (MPA) support
+    if (product.pricing_type === 'MACHINE_PRICED') {
+      const { data: mpaCfg } = await supabase
+        .from('product_pricing_configs' as any)
+        .select('*')
+        .eq('product_id', product.id)
+        .maybeSingle();
+
+      if (mpaCfg) {
+        const config = mpaCfg as any;
+        // Try to get a price for default settings
+        const qty = product.default_quantity || config.quantities?.[0] || 100;
+        const matId = config.material_ids?.[0] || "";
+        const width = 210; // Default A4-ish
+        const height = 297;
+
+        if (matId) {
+          const { data: priceData, error: priceErr } = await supabase.functions.invoke('calculate-machine-price', {
+            body: {
+              productId: product.id,
+              quantity: qty,
+              width,
+              height,
+              material_id: matId,
+              sides: '4+0'
+            }
+          });
+
+          if (priceData?.totalPrice) {
+            return `Fra ${Math.round(priceData.totalPrice)} kr`;
+          }
+        }
+      }
+    }
+
     // Messeudstyr - Default: Rollup, 1 quantity
     if (product.slug === "messeudstyr") {
       return "595 kr";

@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from "react";
-import { Package, Plus, FolderOpen, Globe, Search, ChevronDown, ChevronRight, Users, MessageCircle, ShoppingCart, Building2, Palette, CreditCard, Settings, LayoutGrid, UploadCloud, FileText } from "lucide-react";
+import { Package, Plus, FolderOpen, Globe, Search, ChevronDown, ChevronRight, Users, MessageCircle, ShoppingCart, Building2, Palette, CreditCard, Settings, LayoutGrid, UploadCloud, FileText, Calculator, Cpu, Paintbrush } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
 import { supabase } from "@/integrations/supabase/client";
@@ -291,6 +291,41 @@ export function AdminSidebar() {
                     </AdminNavLink>
                   </SidebarMenuItem>
 
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/prismoduler">
+                      <Calculator className="h-4 w-4" />
+                      {!collapsed && <span>Prismoduler</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/machine-pricing">
+                      <Cpu className="h-4 w-4" />
+                      {!collapsed && <span>Maskin-beregning</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/designer-templates">
+                      <Paintbrush className="h-4 w-4" />
+                      {!collapsed && <span>Print Designer</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/ressourcer/designs">
+                      <LayoutGrid className="h-4 w-4" />
+                      {!collapsed && <span>Design Bibliotek</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/farveprofiler">
+                      <Palette className="h-4 w-4" />
+                      {!collapsed && <span>Farveprofiler</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+
                   {products.map((product) => (
                     <SidebarMenuItem key={product.id}>
                       <AdminNavLink to={`/admin/product/${product.slug}`} isSubItem>
@@ -466,6 +501,12 @@ export function AdminSidebar() {
                       <AdminNavLink to="/admin/resources">
                         <FolderOpen className="h-4 w-4" />
                         {!collapsed && <span>Ressourcer</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/ressourcer/designs">
+                        <LayoutGrid className="h-4 w-4" />
+                        {!collapsed && <span>Design Bibliotek</span>}
                       </AdminNavLink>
                     </SidebarMenuItem>
                     <SidebarMenuItem>

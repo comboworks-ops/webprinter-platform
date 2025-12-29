@@ -21,12 +21,17 @@ import MasterBrandingTemplate from '@/components/admin/MasterBrandingTemplate';
 import SubscriptionSettings from '@/components/admin/SubscriptionSettings';
 import ShopSettings from '@/components/admin/ShopSettings';
 import { TenantOverview } from '@/components/admin/TenantOverview';
+import { PricingModules } from '@/components/admin/PricingModules';
+import { MachinePricingManager } from '@/components/admin/MachinePricingManager';
 import { AdminUpdates } from '@/components/admin/AdminUpdates';
 import { TenantUpdates } from '@/components/admin/TenantUpdates';
 import AssetsLibrary from '@/components/admin/AssetsLibrary';
 import MasterResources from '@/components/admin/MasterResources';
+import DesignResources from '@/components/admin/DesignResources';
 import MasterTemplatesPage from '@/pages/admin/MasterTemplatesPage';
 import TenantTemplatesPage from '@/pages/admin/TenantTemplatesPage';
+import DesignerTemplateManager from '@/components/admin/DesignerTemplateManager';
+import ColorProfilesManager from '@/components/admin/ColorProfilesManager';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { supabase } from '@/integrations/supabase/client';
@@ -79,6 +84,10 @@ export default function Admin() {
               <Routes>
                 <Route path="/" element={<Dashboard />} /> {/* Changed to Dashboard */}
                 <Route path="/products" element={<ProductOverview />} /> {/* Moved ProductOverview to /products */}
+                <Route path="/prismoduler" element={<PricingModules />} />
+                <Route path="/machine-pricing" element={<MachinePricingManager />} />
+                <Route path="/designer-templates" element={<DesignerTemplateManager />} />
+                <Route path="/farveprofiler" element={<ColorProfilesManager />} />
                 <Route path="/product/:slug" element={<ProductPriceManager />} />
                 <Route path="/create-product" element={<ProductCreator />} />
                 <Route path="/seo" element={<SeoManager />} />
@@ -96,6 +105,7 @@ export default function Admin() {
                 <Route path="/tenant-updates" element={<TenantUpdates />} />
                 <Route path="/assets" element={<AssetsLibrary />} />
                 <Route path="/resources" element={<MasterResources />} />
+                <Route path="/ressourcer/designs" element={<DesignResources />} />
                 <Route path="/branding-template" element={<MasterBrandingTemplate />} />
                 <Route path="/master-skabeloner" element={<MasterTemplatesPage />} />
                 <Route path="/skabeloner" element={<TenantTemplatesPage />} />
