@@ -55,7 +55,10 @@ import {
     ShoppingCart,
     Palette,
     Copy,
-    LayoutGrid
+    LayoutGrid,
+    Ruler,
+    GripHorizontal,
+    GripVertical
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -367,6 +370,14 @@ export function Designer() {
                 editorRef.current?.addLine();
                 setSelectedTool('select');
                 break;
+            case 'guide-h':
+                editorRef.current?.addHorizontalGuide();
+                setSelectedTool('select');
+                break;
+            case 'guide-v':
+                editorRef.current?.addVerticalGuide();
+                setSelectedTool('select');
+                break;
             case 'image':
                 fileInputRef.current?.click();
                 break;
@@ -675,6 +686,8 @@ export function Designer() {
         { id: "rectangle", icon: Square, label: "Rektangel (R)" },
         { id: "circle", icon: Circle, label: "Cirkel (C)" },
         { id: "line", icon: Minus, label: "Linje (L)" },
+        { id: "guide-h", icon: GripHorizontal, label: "Horisontal guide (G) - Fold/beskæring" },
+        { id: "guide-v", icon: GripVertical, label: "Vertikal guide (Shift+G) - Fold/beskæring" },
     ];
 
     // Total warnings count
@@ -700,6 +713,15 @@ export function Designer() {
                     // If meta/ctrl is pressed, we let the browser handle the standard Copy action
                     break;
                 case 'l': if (!hasModifier) handleToolClick('line'); break;
+                case 'g':
+                    if (!hasModifier) {
+                        if (e.shiftKey) {
+                            handleToolClick('guide-v');
+                        } else {
+                            handleToolClick('guide-h');
+                        }
+                    }
+                    break;
                 case 'delete':
                 case 'backspace':
                     if (hasSelection) editorRef.current?.deleteSelected();

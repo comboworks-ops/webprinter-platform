@@ -83,6 +83,8 @@ export interface EditorCanvasRef {
     addRectangle: (options?: Partial<fabric.IRectOptions>) => void;
     addCircle: (options?: Partial<fabric.ICircleOptions>) => void;
     addLine: () => void;
+    addHorizontalGuide: () => void;
+    addVerticalGuide: () => void;
     deleteSelected: () => void;
     duplicateSelected: () => void;
     undo: () => void;
@@ -629,6 +631,153 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             canvas.renderAll();
         },
 
+        // Horizontal ruler/guide line (for folds, etc.) - non-printing
+        addHorizontalGuide: () => {
+            const canvas = fabricRef.current;
+            if (!canvas) return;
+
+            // Create the guide line spanning the document width
+            const guideY = canvasHeight / 2;
+            const line = new fabric.Line([
+                pasteboardPadding,           // Start at document left edge
+                guideY,
+                pasteboardPadding + docWidth, // End at document right edge
+                guideY,
+            ], {
+                stroke: '#ff00ff',           // Magenta for visibility (overprint color)
+                strokeWidth: 1,
+                strokeDashArray: [8, 4],     // Dashed line
+                selectable: true,
+                evented: true,
+                lockRotation: true,          // Can't rotate
+                lockScalingX: true,          // Can't scale
+                lockScalingY: true,
+                lockMovementX: true,         // Can only move vertically
+                hasControls: false,          // No resize handles
+                hasBorders: true,
+                excludeFromExport: true,     // Non-printing!
+            });
+
+            // Mark as guide line
+            (line as any).__isGuide = true;
+            (line as any).__guideType = 'horizontal';
+
+            // Create measurement label
+            const distanceFromBottom = docHeight - (guideY - pasteboardPadding);
+            const distanceMM = Math.round(distanceFromBottom / (DISPLAY_DPI / 25.4) * 10) / 10;
+            const label = new fabric.Text(`${distanceMM} mm`, {
+                fontSize: 10,
+                fill: '#ff00ff',
+                fontFamily: 'Arial, sans-serif',
+                left: pasteboardPadding + 5,
+                top: guideY - 14,
+                selectable: false,
+                evented: false,
+                excludeFromExport: true,
+            });
+            (label as any).__isGuideLabel = true;
+            (label as any).__parentGuide = (line as any).__layerId;
+
+            // Group line and label
+            const group = new fabric.Group([line, label], {
+                lockRotation: true,
+                lockScalingX: true,
+                lockScalingY: true,
+                lockMovementX: true,
+                hasControls: false,
+                hasBorders: true,
+                excludeFromExport: true,
+            });
+            (group as any).__isGuide = true;
+            (group as any).__guideType = 'horizontal';
+
+            canvas.add(group);
+            canvas.setActiveObject(group);
+            canvas.renderAll();
+
+            // Update label on move
+            group.on('moving', () => {
+                const newY = group.top! + group.height! / 2;
+                const newDistFromBottom = docHeight - (newY - pasteboardPadding);
+                const newDistMM = Math.round(newDistFromBottom / (DISPLAY_DPI / 25.4) * 10) / 10;
+                label.set('text', `${newDistMM} mm`);
+                canvas.renderAll();
+            });
+        },
+
+        // Vertical ruler/guide line (for folds, etc.) - non-printing
+        addVerticalGuide: () => {
+            const canvas = fabricRef.current;
+            if (!canvas) return;
+
+            // Create the guide line spanning the document height
+            const guideX = canvasWidth / 2;
+            const line = new fabric.Line([
+                guideX,
+                pasteboardPadding,            // Start at document top edge
+                guideX,
+                pasteboardPadding + docHeight, // End at document bottom edge
+            ], {
+                stroke: '#ff00ff',            // Magenta for visibility
+                strokeWidth: 1,
+                strokeDashArray: [8, 4],      // Dashed line
+                selectable: true,
+                evented: true,
+                lockRotation: true,
+                lockScalingX: true,
+                lockScalingY: true,
+                lockMovementY: true,          // Can only move horizontally
+                hasControls: false,
+                hasBorders: true,
+                excludeFromExport: true,      // Non-printing!
+            });
+
+            (line as any).__isGuide = true;
+            (line as any).__guideType = 'vertical';
+
+            // Create measurement label
+            const distanceFromLeft = guideX - pasteboardPadding;
+            const distanceMM = Math.round(distanceFromLeft / (DISPLAY_DPI / 25.4) * 10) / 10;
+            const label = new fabric.Text(`${distanceMM} mm`, {
+                fontSize: 10,
+                fill: '#ff00ff',
+                fontFamily: 'Arial, sans-serif',
+                left: guideX + 5,
+                top: pasteboardPadding + 5,
+                selectable: false,
+                evented: false,
+                excludeFromExport: true,
+                angle: 0,
+            });
+            (label as any).__isGuideLabel = true;
+
+            // Group line and label
+            const group = new fabric.Group([line, label], {
+                lockRotation: true,
+                lockScalingX: true,
+                lockScalingY: true,
+                lockMovementY: true,
+                hasControls: false,
+                hasBorders: true,
+                excludeFromExport: true,
+            });
+            (group as any).__isGuide = true;
+            (group as any).__guideType = 'vertical';
+
+            canvas.add(group);
+            canvas.setActiveObject(group);
+            canvas.renderAll();
+
+            // Update label on move
+            group.on('moving', () => {
+                const newX = group.left! + group.width! / 2;
+                const newDistFromLeft = newX - pasteboardPadding;
+                const newDistMM = Math.round(newDistFromLeft / (DISPLAY_DPI / 25.4) * 10) / 10;
+                label.set('text', `${newDistMM} mm`);
+                canvas.renderAll();
+            });
+        },
+
         deleteSelected: () => {
             const canvas = fabricRef.current;
             if (!canvas) return;
@@ -1010,9 +1159,9 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 }}
             />
 
-            {/* Bleed guide - marks the edge of the document including bleed */}
+            {/* Trim line - outer document edge where paper will be cut (blue) */}
             <div
-                className="absolute pointer-events-none border-2 border-dashed border-red-400/80"
+                className="absolute pointer-events-none border-2 border-blue-500"
                 style={{
                     top: pasteboardPadding,
                     left: pasteboardPadding,
@@ -1022,9 +1171,9 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 }}
             />
 
-            {/* Trim line - where the paper will be cut */}
+            {/* Bleed line - 3mm inside trim, content should extend beyond this (red dashed) */}
             <div
-                className="absolute pointer-events-none border-2 border-blue-500"
+                className="absolute pointer-events-none border-2 border-dashed border-red-400/80"
                 style={{
                     top: pasteboardPadding + bleedPx,
                     left: pasteboardPadding + bleedPx,
@@ -1034,7 +1183,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 }}
             />
 
-            {/* Safe area - content should stay inside this */}
+            {/* Safe area - content should stay inside this (green dashed) */}
             <div
                 className="absolute pointer-events-none border border-dashed border-green-500/60"
                 style={{
@@ -1046,21 +1195,22 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 }}
             />
 
-            {/* Legend */}
+            {/* Legend - positioned outside artwork in pasteboard area */}
             <div
-                className="absolute text-xs bg-white/90 rounded px-2 py-1 flex gap-3 pointer-events-none shadow-sm z-10"
+                className="absolute text-xs bg-white/90 rounded px-2 py-1 flex gap-3 pointer-events-none shadow-sm"
                 style={{
-                    bottom: pasteboardPadding + 8,
-                    right: pasteboardPadding + 8,
+                    bottom: 8,
+                    right: 8,
+                    zIndex: 25,
                 }}
             >
                 <span className="flex items-center gap-1">
-                    <span className="w-3 h-0.5 bg-red-400"></span>
-                    Bleed
-                </span>
-                <span className="flex items-center gap-1">
                     <span className="w-3 h-0.5 bg-blue-500"></span>
                     Trim
+                </span>
+                <span className="flex items-center gap-1">
+                    <span className="w-3 h-0.5 bg-red-400"></span>
+                    Bleed
                 </span>
                 <span className="flex items-center gap-1">
                     <span className="w-3 h-0.5 bg-green-500"></span>
