@@ -36,6 +36,10 @@ interface UseColorProofingOptions {
     overlayCanvasRef: React.RefObject<HTMLCanvasElement>;
     canvasWidth: number;
     canvasHeight: number;
+    // Document area dimensions (excluding pasteboard)
+    docWidth: number;
+    docHeight: number;
+    pasteboardOffset: number;  // Offset from canvas edge to document area
     // Optional: Custom ICC profile data (per-product)
     customProfileId?: string;
     customProfileName?: string;
@@ -63,6 +67,9 @@ export function useColorProofing({
     overlayCanvasRef,
     canvasWidth,
     canvasHeight,
+    docWidth,
+    docHeight,
+    pasteboardOffset,
     customProfileId,
     customProfileName,
     customProfileBytes,
@@ -118,16 +125,17 @@ export function useColorProofing({
                         const overlay = overlayCanvasRef.current;
                         const ctx = overlay.getContext('2d');
                         if (ctx) {
-                            overlay.width = canvasWidth;
-                            overlay.height = canvasHeight;
+                            // Overlay now covers only document area
+                            overlay.width = docWidth;
+                            overlay.height = docHeight;
                             const tempCanvas = document.createElement('canvas');
                             tempCanvas.width = msg.imageData.width;
                             tempCanvas.height = msg.imageData.height;
                             const tempCtx = tempCanvas.getContext('2d');
                             if (tempCtx) {
                                 tempCtx.putImageData(msg.imageData, 0, 0);
-                                ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-                                ctx.drawImage(tempCanvas, 0, 0, canvasWidth, canvasHeight);
+                                ctx.clearRect(0, 0, docWidth, docHeight);
+                                ctx.drawImage(tempCanvas, 0, 0, docWidth, docHeight);
 
                                 if (msg.gamutMask) {
                                     const gamutCanvas = document.createElement('canvas');
@@ -136,7 +144,7 @@ export function useColorProofing({
                                     const gamutCtx = gamutCanvas.getContext('2d');
                                     if (gamutCtx) {
                                         gamutCtx.putImageData(msg.gamutMask, 0, 0);
-                                        ctx.drawImage(gamutCanvas, 0, 0, canvasWidth, canvasHeight);
+                                        ctx.drawImage(gamutCanvas, 0, 0, docWidth, docHeight);
                                     }
                                 }
                             }
@@ -204,7 +212,7 @@ export function useColorProofing({
         if (worker) initWorkerProfiles();
     }, [settings.outputProfileId, SRGB_PROFILE_URL, worker]);
 
-    // Capture and process canvas
+    // Capture and process canvas - only the document area (excluding pasteboard)
     const processCanvas = useCallback(() => {
         if (!fabricCanvas || !workerRef.current || !settings.enabled || !isWorkerReady) {
             if (overlayCanvasRef.current) {
@@ -216,21 +224,32 @@ export function useColorProofing({
         try {
             // @ts-ignore
             const sourceCanvas = fabricCanvas.lowerCanvasEl || fabricCanvas.getElement();
-            const sourceWidth = sourceCanvas.width;
-            const sourceHeight = sourceCanvas.height;
-            let width = sourceWidth;
-            let height = sourceHeight;
+
+            // Calculate the document area to capture (excluding pasteboard)
+            // The document starts at pasteboardOffset from canvas edge
+            const srcX = pasteboardOffset;
+            const srcY = pasteboardOffset;
+            const srcWidth = docWidth;
+            const srcHeight = docHeight;
+
+            // Scale down if too large for performance
+            let width = srcWidth;
+            let height = srcHeight;
             if (width > MAX_PREVIEW_DIMENSION || height > MAX_PREVIEW_DIMENSION) {
                 const scale = MAX_PREVIEW_DIMENSION / Math.max(width, height);
                 width = Math.round(width * scale);
                 height = Math.round(height * scale);
             }
+
             const offscreen = document.createElement('canvas');
             offscreen.width = width;
             offscreen.height = height;
             const ctx = offscreen.getContext('2d');
             if (!ctx) throw new Error('Could not get canvas context');
-            ctx.drawImage(sourceCanvas, 0, 0, width, height);
+
+            // Crop to document area only (excluding pasteboard)
+            ctx.drawImage(sourceCanvas, srcX, srcY, srcWidth, srcHeight, 0, 0, width, height);
+
             const imageData = ctx.getImageData(0, 0, width, height);
             const id = `transform-${++messageIdRef.current}`;
             lastProcessedRef.current = id;
@@ -247,7 +266,7 @@ export function useColorProofing({
             setIsProcessing(false);
             setError(err instanceof Error ? err.message : 'Processing failed');
         }
-    }, [fabricCanvas, settings, overlayCanvasRef, isWorkerReady]);
+    }, [fabricCanvas, settings, overlayCanvasRef, isWorkerReady, docWidth, docHeight, pasteboardOffset]);
 
     const refreshProof = useCallback(() => {
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);

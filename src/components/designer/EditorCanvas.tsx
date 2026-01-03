@@ -39,6 +39,13 @@ export interface SelectedObjectProps {
     // Image specific
     scaleX?: number;
     scaleY?: number;
+    // Bounding Box (Canvas coordinates)
+    boundingRect?: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+    };
     // Rectangle specific
     rx?: number;
     ry?: number;
@@ -72,7 +79,7 @@ export interface EditorCanvasRef {
     importJSON: (json: any) => void;
     importSVG: (svgString: string) => void;
     addText: (text?: string, options?: Partial<fabric.ITextOptions>) => void;
-    addImage: (url: string) => Promise<void>;
+    addImage: (url: string, sourceDpi?: number) => Promise<void>;
     addRectangle: (options?: Partial<fabric.IRectOptions>) => void;
     addCircle: (options?: Partial<fabric.ICircleOptions>) => void;
     addLine: () => void;
@@ -155,6 +162,14 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             stroke: obj.stroke || undefined,
             strokeWidth: obj.strokeWidth,
             blendMode: (obj.globalCompositeOperation as string) || 'source-over',
+        };
+
+        const rect = obj.getBoundingRect();
+        props.boundingRect = {
+            left: Math.round(rect.left),
+            top: Math.round(rect.top),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
         };
 
         // Shadow extraction
@@ -282,6 +297,23 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 onSelectionChange?.(true, getSelectedProps(obj));
             }
         });
+        // Live updates during interaction
+        canvas.on('object:scaling', (e) => {
+            if (e.target) {
+                onSelectionChange?.(true, getSelectedProps(e.target));
+            }
+        });
+        canvas.on('object:moving', (e) => {
+            if (e.target) {
+                onSelectionChange?.(true, getSelectedProps(e.target));
+            }
+        });
+        canvas.on('object:rotating', (e) => {
+            if (e.target) {
+                onSelectionChange?.(true, getSelectedProps(e.target));
+            }
+        });
+
         canvas.on('selection:cleared', () => {
             onSelectionChange?.(false);
         });
@@ -440,9 +472,17 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             fabric.loadSVGFromString(svgString, (objects, options) => {
                 const obj = fabric.util.groupSVGElements(objects, options);
 
-                const maxWidth = docWidth * 0.8;
-                const maxHeight = docHeight * 0.8;
-                const scale = Math.min(maxWidth / (obj.width || 1), maxHeight / (obj.height || 1), 1);
+                // SVGs are typically 96 DPI. Scale to our DISPLAY_DPI (50.8)
+                const physicalScale = DISPLAY_DPI / 96;
+                let scale = physicalScale;
+
+                // Safety: If SVG is larger than 90% of the document, scale it down to fit
+                const maxWidth = docWidth * 0.9;
+                const maxHeight = docHeight * 0.9;
+                if ((obj.width || 0) * scale > maxWidth || (obj.height || 0) * scale > maxHeight) {
+                    scale = Math.min(maxWidth / (obj.width || 1), maxHeight / (obj.height || 1));
+                    console.log(`[Editor] SVG too large, downscaling to fit.`);
+                }
 
                 obj.set({
                     left: canvasWidth / 2,
@@ -482,18 +522,30 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             canvas.renderAll();
         },
 
-        addImage: async (url: string) => {
+        addImage: async (url: string, sourceDpi?: number) => {
             const canvas = fabricRef.current;
             if (!canvas) return;
 
             return new Promise((resolve) => {
                 fabric.Image.fromURL(url, (img) => {
-                    const maxWidth = canvasWidth * 0.8;
-                    const maxHeight = canvasHeight * 0.8;
-
                     if (img.width && img.height) {
-                        const scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
-                        img.scale(scale);
+                        if (sourceDpi) {
+                            // Calculate scale to maintain physical size
+                            // Internal canvas is at DISPLAY_DPI
+                            const scale = DISPLAY_DPI / sourceDpi;
+                            img.scale(scale);
+                            console.log(`[Editor] Scaling image physically: ${sourceDpi} DPI -> ${DISPLAY_DPI} DPI (Scale: ${scale.toFixed(4)})`);
+                        } else {
+                            // Fallback: Use document DPI to determine physical size
+                            const scale = DISPLAY_DPI / dpi;
+                            img.scale(scale);
+
+                            // Safety: If image is still larger than document, cap it to 80%
+                            if (img.width * scale > docWidth || img.height * scale > docHeight) {
+                                const fitScale = Math.min((docWidth * 0.8) / img.width, (docHeight * 0.8) / img.height);
+                                img.scale(fitScale);
+                            }
+                        }
                     }
 
                     img.set({

@@ -810,6 +810,9 @@ export function Designer() {
         overlayCanvasRef: proofingOverlayRef,
         canvasWidth,
         canvasHeight,
+        docWidth,
+        docHeight,
+        pasteboardOffset: PASTEBOARD_PADDING,
         customProfileId: productProfile.id || undefined,
         customProfileName: productProfile.name || undefined,
         customProfileBytes: productProfile.profileBytes,
@@ -1050,16 +1053,18 @@ export function Designer() {
                                 onCanvasChange={() => setHasChanges(true)}
                                 onLayersChange={handleLayersChange}
                             />
-                            {/* Soft proofing overlay */}
+                            {/* Soft proofing overlay - positioned over document area only */}
                             {colorProofing.settings.enabled && (
                                 <canvas
                                     ref={proofingOverlayRef}
-                                    className="absolute inset-0 pointer-events-none"
+                                    className="absolute pointer-events-none"
                                     style={{
-                                        width: canvasWidth,
-                                        height: canvasHeight,
+                                        left: PASTEBOARD_PADDING,
+                                        top: PASTEBOARD_PADDING,
+                                        width: docWidth,
+                                        height: docHeight,
                                         mixBlendMode: 'normal',
-                                        zIndex: 50,  // Ensure overlay is on top of Fabric canvas
+                                        zIndex: 10,  // Below guide lines (z-index 20+) but above Fabric canvas
                                     }}
                                 />
                             )}
