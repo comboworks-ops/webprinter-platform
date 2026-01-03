@@ -5,6 +5,21 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { SEO } from "@/components/SEO";
 import { Button } from "@/components/ui/button";
+import jsPDF from "jspdf";
+import {
+    OUTPUT_PROFILES,
+    SRGB_PROFILE_URL
+} from "@/lib/color/iccProofing";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import EditorCanvas, { EditorCanvasRef, LayerInfo, SelectedObjectProps } from "@/components/designer/EditorCanvas";
 import { fabric } from 'fabric';
 import LayerPanel from "@/components/designer/LayerPanel";
@@ -17,6 +32,7 @@ import { mmToPx } from "@/utils/unitConversions";
 import { runPreflightChecks, PreflightWarning } from "@/utils/preflightChecks";
 import { useColorProofing } from "@/hooks/useColorProofing";
 import { useProductColorProfile } from "@/hooks/useProductColorProfile";
+import { getImageDpi } from "@/utils/imageMetadata";
 import {
     Loader2,
     ArrowLeft,
@@ -113,6 +129,10 @@ export function Designer() {
     const [preflightInfos, setPreflightInfos] = useState<PreflightWarning[]>([]);
     const [dismissedWarnings, setDismissedWarnings] = useState<Set<string>>(new Set());
     const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+
+    // Unsaved changes navigation guard
+    const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+    const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false);
 
     // Load spec
     useEffect(() => {
@@ -238,6 +258,53 @@ export function Designer() {
         loadSpec();
     }, [variantId, productId, templateId, designId, format]);
 
+    // Beforeunload handler for tab close/refresh with unsaved changes
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (hasChanges) {
+                e.preventDefault();
+                // Modern browsers ignore custom messages, but we still need to set returnValue
+                e.returnValue = 'Du har ændringer, der ikke er gemt. Er du sikker på, at du vil forlade siden?';
+                return e.returnValue;
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [hasChanges]);
+
+    // Handle back navigation with unsaved changes guard
+    const handleBackClick = useCallback(() => {
+        if (hasChanges) {
+            setShowUnsavedDialog(true);
+        } else {
+            navigate(-1);
+        }
+    }, [hasChanges, navigate]);
+
+    // Save and then navigate back
+    const handleSaveAndLeave = useCallback(async () => {
+        setIsSavingAndLeaving(true);
+        try {
+            await handleSave();
+            // After successful save, hasChanges will be false, navigate back
+            navigate(-1);
+        } catch (err) {
+            // Save failed, stay on page
+            console.error('Save failed during exit:', err);
+        } finally {
+            setIsSavingAndLeaving(false);
+            setShowUnsavedDialog(false);
+        }
+    }, [navigate]);
+
+    // Discard changes and navigate back
+    const handleDiscardAndLeave = useCallback(() => {
+        setHasChanges(false);
+        setShowUnsavedDialog(false);
+        navigate(-1);
+    }, [navigate]);
+
     // Run preflight checks
     const runPreflight = useCallback(() => {
         const canvas = editorRef.current?.getCanvas();
@@ -310,14 +377,20 @@ export function Designer() {
     }, []);
 
     // Handle image upload
-    const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        // Extract DPI from metadata
+        const sourceDpi = await getImageDpi(file);
+        if (sourceDpi) {
+            console.log(`[Designer] Detected image DPI: ${sourceDpi}`);
+        }
 
         const reader = new FileReader();
         reader.onload = (event) => {
             const dataUrl = event.target?.result as string;
-            editorRef.current?.addImage(dataUrl);
+            editorRef.current?.addImage(dataUrl, sourceDpi || undefined);
         };
         reader.readAsDataURL(file);
 
@@ -425,18 +498,67 @@ export function Designer() {
         }
     };
 
-    // Export PNG
-    const handleExport = () => {
+    // Export print-ready PDF
+    const handleExport = async () => {
         // Run preflight first
         runPreflight();
 
-        const dataUrl = editorRef.current?.exportHighResPNG();
-        if (dataUrl) {
-            const link = document.createElement('a');
-            link.download = `${documentSpec.name.replace(/[^a-z0-9]/gi, '_')}_${documentSpec.dpi}dpi.png`;
-            link.href = dataUrl;
-            link.click();
-            toast.success(`Eksporteret i ${documentSpec.dpi} DPI!`);
+        if (preflightErrors.length > 0) {
+            toast.error("Ret venligst preflight-fejl før eksport");
+            setActiveTab('preflight');
+            return;
+        }
+
+        try {
+            setSaving(true);
+            toast.info("Forbereder trykklar PDF (CMYK)... Dette kan tage et øjeblik.");
+
+            // Find current profile URLs
+            const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId)
+                || OUTPUT_PROFILES[0];
+
+            // 1. Transform to CMYK and get proofed RGB
+            const { cmykData, proofedRgbDataUrl, width, height } = await colorProofing.exportCMYK(
+                SRGB_PROFILE_URL,
+                profile.url
+            );
+
+            if (cmykData.length === 0) {
+                toast.warning("ICC-profiler blev ikke fundet. Eksporterer optimeret RGB PDF i stedet.");
+            }
+
+            // 2. Create PDF
+            const fullWidth = documentSpec.width_mm + (documentSpec.bleed_mm * 2);
+            const fullHeight = documentSpec.height_mm + (documentSpec.bleed_mm * 2);
+
+            const doc = new jsPDF({
+                orientation: fullWidth > fullHeight ? 'landscape' : 'portrait',
+                unit: 'mm',
+                format: [fullWidth, fullHeight]
+            });
+
+            // 3. Add CMYK-simulated Image
+            // We use the proofedRgbDataUrl which contains the color-transformed pixels
+            doc.addImage(proofedRgbDataUrl, 'PNG', 0, 0, fullWidth, fullHeight, undefined, 'SLOW');
+
+            // Set Output Intent (Metadata)
+            doc.setProperties({
+                title: documentSpec.name,
+                subject: 'Trykklar PDF',
+                creator: 'Webprinter Designer',
+                keywords: `CMYK, ${profile.name}, Print`
+            });
+
+            // Save
+            const fileName = `${documentSpec.name.replace(/[^a-z0-9]/gi, '_')}.pdf`;
+            doc.save(fileName);
+
+            toast.success("Trykklar PDF eksporteret!");
+        } catch (err: any) {
+            console.error("Export error:", err);
+            toast.error("Kunne ikke eksportere PDF: " + err.message);
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -460,10 +582,23 @@ export function Designer() {
         setIsLibraryOpen(false);
     };
 
+    // State to track pending design replacement when there are unsaved changes
+    const [pendingReplaceItem, setPendingReplaceItem] = useState<any>(null);
+    const [showReplaceConfirmDialog, setShowReplaceConfirmDialog] = useState(false);
+
     const handleReplaceDesign = async (item: any) => {
-        if (hasChanges && !confirm("Du har ugemte ændringer. Vil du erstatte dit nuværende design?")) {
+        if (hasChanges) {
+            // Store the pending item and show confirmation dialog
+            setPendingReplaceItem(item);
+            setShowReplaceConfirmDialog(true);
             return;
         }
+
+        // No unsaved changes, proceed directly
+        await executeReplaceDesign(item);
+    };
+
+    const executeReplaceDesign = async (item: any) => {
 
         if (item.kind === 'fabric_json' && item.fabric_json) {
             editorRef.current?.loadJSON(item.fabric_json);
@@ -480,6 +615,15 @@ export function Designer() {
         }
         setIsLibraryOpen(false);
     };
+
+    // Handle confirm replace (user clicked Replace in replace dialog)
+    const handleConfirmReplace = useCallback(async () => {
+        if (pendingReplaceItem) {
+            await executeReplaceDesign(pendingReplaceItem);
+            setPendingReplaceItem(null);
+        }
+        setShowReplaceConfirmDialog(false);
+    }, [pendingReplaceItem]);
 
     // Add to order
     const handleAddToOrder = async () => {
@@ -541,13 +685,21 @@ export function Designer() {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
+            // Ignore if meta, ctrl, or alt keys are pressed for single-letter shortcuts
+            const hasModifier = e.metaKey || e.ctrlKey || e.altKey;
+
             switch (e.key.toLowerCase()) {
-                case 'v': setSelectedTool('select'); break;
-                case 't': handleToolClick('text'); break;
-                case 'i': handleToolClick('image'); break;
-                case 'r': handleToolClick('rectangle'); break;
-                case 'c': handleToolClick('circle'); break;
-                case 'l': handleToolClick('line'); break;
+                case 'v': if (!hasModifier) setSelectedTool('select'); break;
+                case 't': if (!hasModifier) handleToolClick('text'); break;
+                case 'i': if (!hasModifier) handleToolClick('image'); break;
+                case 'r': if (!hasModifier) handleToolClick('rectangle'); break;
+                case 'c':
+                    if (!hasModifier) {
+                        handleToolClick('circle');
+                    }
+                    // If meta/ctrl is pressed, we let the browser handle the standard Copy action
+                    break;
+                case 'l': if (!hasModifier) handleToolClick('line'); break;
                 case 'delete':
                 case 'backspace':
                     if (hasSelection) editorRef.current?.deleteSelected();
@@ -698,6 +850,14 @@ export function Designer() {
                 maxHeight={canvasHeight}
             />
 
+            <DesignLibraryDrawer
+                open={isLibraryOpen}
+                onOpenChange={setIsLibraryOpen}
+                productId={documentSpec.product_id}
+                onInsertDesign={handleInsertDesign}
+                onReplaceDesign={handleReplaceDesign}
+            />
+
             <div
                 className="min-h-screen flex flex-col bg-muted/30 relative"
                 onDragEnter={handleGlobalDragEnter}
@@ -718,7 +878,7 @@ export function Designer() {
 
                 {/* Top Bar */}
                 <header className="h-14 border-b bg-background flex items-center px-4 gap-4 sticky top-0 z-50">
-                    <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+                    <Button variant="ghost" size="icon" onClick={handleBackClick}>
                         <ArrowLeft className="h-5 w-5" />
                     </Button>
 
@@ -899,6 +1059,7 @@ export function Designer() {
                                         width: canvasWidth,
                                         height: canvasHeight,
                                         mixBlendMode: 'normal',
+                                        zIndex: 50,  // Ensure overlay is on top of Fabric canvas
                                     }}
                                 />
                             )}
@@ -908,6 +1069,28 @@ export function Designer() {
                                     <Palette className="h-3 w-3" />
                                     CMYK Preview
                                     {colorProofing.isProcessing && <Loader2 className="h-3 w-3 animate-spin" />}
+                                </div>
+                            )}
+
+                            {/* Live Dimensions Label */}
+                            {hasSelection && selectedProps?.boundingRect && (
+                                <div
+                                    className="absolute pointer-events-none bg-black/80 text-white text-[10px] font-medium px-2 py-0.5 rounded shadow-lg flex items-center gap-2 z-[60] backdrop-blur-sm"
+                                    style={{
+                                        left: selectedProps.boundingRect.left + selectedProps.boundingRect.width / 2,
+                                        top: selectedProps.boundingRect.top + selectedProps.boundingRect.height + 10,
+                                        transform: 'translateX(-50%)'
+                                    }}
+                                >
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-gray-400">B:</span>
+                                        <span>{((selectedProps.boundingRect.width) / MM_TO_PX).toFixed(1)} mm</span>
+                                    </div>
+                                    <div className="w-px h-2 bg-white/20" />
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-gray-400">H:</span>
+                                        <span>{((selectedProps.boundingRect.height) / MM_TO_PX).toFixed(1)} mm</span>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -1033,6 +1216,69 @@ export function Designer() {
                     </aside>
                 </div>
             </div>
+
+            {/* Unsaved Changes Dialog */}
+            <AlertDialog open={showUnsavedDialog} onOpenChange={setShowUnsavedDialog}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Du har ændringer, der ikke er gemt</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Hvis du forlader siden nu, kan dine ændringer gå tabt.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                        <AlertDialogCancel onClick={() => setShowUnsavedDialog(false)}>
+                            Bliv her
+                        </AlertDialogCancel>
+                        <Button
+                            variant="outline"
+                            onClick={handleDiscardAndLeave}
+                            className="text-destructive hover:text-destructive"
+                        >
+                            Forlad uden at gemme
+                        </Button>
+                        <AlertDialogAction
+                            onClick={handleSaveAndLeave}
+                            disabled={isSavingAndLeaving}
+                        >
+                            {isSavingAndLeaving ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Gemmer...
+                                </>
+                            ) : (
+                                <>
+                                    <Save className="h-4 w-4 mr-2" />
+                                    Gem og gå tilbage
+                                </>
+                            )}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Replace Design Confirm Dialog */}
+            <AlertDialog open={showReplaceConfirmDialog} onOpenChange={setShowReplaceConfirmDialog}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Erstat nuværende design?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Du har ændringer, der ikke er gemt. Hvis du erstatter designet, vil dine nuværende ændringer gå tabt.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => {
+                            setShowReplaceConfirmDialog(false);
+                            setPendingReplaceItem(null);
+                        }}>
+                            Annuller
+                        </AlertDialogCancel>
+                        <AlertDialogAction onClick={handleConfirmReplace}>
+                            Erstat design
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 }

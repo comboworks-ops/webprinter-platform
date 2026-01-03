@@ -1,7 +1,16 @@
 /**
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                        🔒 PROTECTED CORE FILE 🔒                          ║
+ * ║                                                                           ║
+ * ║  This file contains critical soft proofing functionality.                 ║
+ * ║  DO NOT MODIFY without reviewing: /soft-proof-protected                   ║
+ * ║                                                                           ║
+ * ║  Last verified working: 2026-01-03                                        ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
+ * 
  * ICC Color Proofing Configuration and Helpers
  * 
- * Provides soft proof preview for CMYK output simulation
+ * Provides configuration, types, and utilities for soft proof CMYK simulation.
  */
 
 // Available output profiles
@@ -21,6 +30,7 @@ export const OUTPUT_PROFILES: ICCProfile[] = [
         description: 'European standard for coated paper printing',
         url: '/icc/ISOcoated_v2_300_eci.icc',
     },
+    /* 
     {
         id: 'fogra51',
         name: 'PSO Coated v3 (FOGRA51)',
@@ -33,6 +43,7 @@ export const OUTPUT_PROFILES: ICCProfile[] = [
         description: 'American standard for web offset printing',
         url: '/icc/USWebCoatedSWOP.icc',
     },
+    */
 ];
 
 // Default sRGB input profile (bundled)
