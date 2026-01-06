@@ -533,6 +533,12 @@ export function AdminSidebar() {
                         {!collapsed && <span>Skabeloner</span>}
                       </AdminNavLink>
                     </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/platform-seo">
+                        <Globe className="h-4 w-4" />
+                        {!collapsed && <span>Platform SEO</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
                   </SidebarMenu>
                 </SidebarGroupContent>
               )}

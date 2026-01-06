@@ -7,8 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 import { z } from 'zod';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
+import PlatformHeader from '@/components/platform/PlatformHeader';
+import PlatformFooter from '@/components/platform/PlatformFooter';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 const authSchema = z.object({
@@ -103,8 +103,8 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Header />
-      <div className="flex-1 flex items-center justify-center bg-gradient-to-b from-background to-muted/20 px-4 py-12">
+      <PlatformHeader />
+      <div className="flex-1 flex items-center justify-center bg-gradient-to-b from-background to-muted/20 px-4 py-12 pt-32">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>{isLogin ? t("signIn") : t("signUp")}</CardTitle>
@@ -165,7 +165,7 @@ export default function Auth() {
           </CardContent>
         </Card>
       </div>
-      <Footer />
+      <PlatformFooter />
     </div>
   );
 }

@@ -7,8 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { toast } from 'sonner';
 import { Loader2, Store, Mail, Lock, CheckCircle } from 'lucide-react';
 import { z } from 'zod';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
+import PlatformHeader from '@/components/platform/PlatformHeader';
+import PlatformFooter from '@/components/platform/PlatformFooter';
 
 const signupSchema = z.object({
     shopName: z.string().min(2, 'Shopnavn skal være mindst 2 tegn').max(100),
@@ -109,7 +109,7 @@ export default function TenantSignup() {
     if (step === 'success') {
         return (
             <div className="min-h-screen flex flex-col">
-                <Header />
+                <PlatformHeader />
                 <div className="flex-1 flex items-center justify-center bg-gradient-to-b from-background to-muted/20 px-4 py-12">
                     <Card className="w-full max-w-md text-center">
                         <CardHeader>
@@ -129,14 +129,14 @@ export default function TenantSignup() {
                         </CardContent>
                     </Card>
                 </div>
-                <Footer />
+                <PlatformFooter />
             </div>
         );
     }
 
     return (
         <div className="min-h-screen flex flex-col">
-            <Header />
+            <PlatformHeader />
             <div className="flex-1 flex items-center justify-center bg-gradient-to-b from-background to-muted/20 px-4 py-12">
                 <Card className="w-full max-w-md">
                     <CardHeader>
@@ -226,7 +226,7 @@ export default function TenantSignup() {
                     </CardContent>
                 </Card>
             </div>
-            <Footer />
+            <PlatformFooter />
         </div>
     );
 }

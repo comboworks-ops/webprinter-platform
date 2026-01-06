@@ -4,6 +4,20 @@ import { useShopSettings } from "@/hooks/useShopSettings";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { DEFAULT_FOOTER } from "@/hooks/useBrandingDraft";
 import type { FooterSettings } from "@/hooks/useBrandingDraft";
+import { useCookieConsent } from "@/components/consent";
+
+// Small link component to open cookie settings
+const CookieSettingsLink = ({ className }: { className?: string }) => {
+  const { openSettings } = useCookieConsent();
+  return (
+    <button
+      onClick={openSettings}
+      className={`hover:underline text-xs ${className || ''}`}
+    >
+      Cookieindstillinger
+    </button>
+  );
+};
 
 const Footer = () => {
   const { data: settings } = useShopSettings();
@@ -250,7 +264,8 @@ const Footer = () => {
         {/* Copyright */}
         {footerSettings.showCopyright && (
           <div className={`border-t ${borderClass} pt-8 text-center text-sm ${mutedTextClass}`}>
-            <p>{getCopyrightText()}</p>
+            <p className="mb-1">{getCopyrightText()}</p>
+            <CookieSettingsLink className={mutedTextClass} />
           </div>
         )}
       </div>

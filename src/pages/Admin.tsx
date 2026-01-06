@@ -36,6 +36,8 @@ import AdminCompanyHub from '@/pages/admin/AdminCompanyHub';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { supabase } from '@/integrations/supabase/client';
+import { PlatformSeoAdmin } from '@/components/admin/platform-seo';
+import { SearchConsoleCallback } from '@/components/admin/platform-seo/SearchConsoleCallback';
 
 
 export default function Admin() {
@@ -111,6 +113,8 @@ export default function Admin() {
                 <Route path="/branding-template" element={<MasterBrandingTemplate />} />
                 <Route path="/master-skabeloner" element={<MasterTemplatesPage />} />
                 <Route path="/skabeloner" element={<TenantTemplatesPage />} />
+                <Route path="/platform-seo" element={<PlatformSeoAdmin />} />
+                <Route path="/platform-seo/callback" element={<SearchConsoleCallback />} />
               </Routes>
             </div>
           </main>

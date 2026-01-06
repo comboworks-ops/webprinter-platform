@@ -30,64 +30,98 @@ import Designer from "./pages/Designer";
 import CompanyHub from "./pages/CompanyHub";
 import NotFound from "./pages/NotFound";
 
+// Platform-only pages
+import PlatformPriser from "./pages/platform/PlatformPriser";
+import PlatformWhiteLabel from "./pages/platform/PlatformWhiteLabel";
+import PlatformBeregning from "./pages/platform/PlatformBeregning";
+import PlatformOrderFlow from "./pages/platform/PlatformOrderFlow";
+import PlatformOnlineDesigner from "./pages/platform/PlatformOnlineDesigner";
+import PlatformPrivacyPolicy from "./pages/platform/PlatformPrivacyPolicy";
+import PlatformHandelsbetingelser from "./pages/platform/PlatformHandelsbetingelser";
+import PlatformKontakt from "./pages/platform/PlatformKontakt";
+
 import { PreviewInteractionManager } from "@/components/preview/PreviewInteractionManager";
+
+// Cookie consent
+import { CookieConsentProvider, CookieBanner, CookieSettingsDialog } from "@/components/consent";
+import Cookiepolitik from "./pages/platform/Cookiepolitik";
+
+// Platform SEO head injection (platform pages only)
+import { PlatformSeoHead } from "@/components/platform-seo/PlatformSeoHead";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <LanguageProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <PreviewInteractionManager />
-          <PageTracker />
-          <Routes>
-            {/* Local Dev Route for Tenant View */}
-            <Route path="/local-tenant" element={<Shop />} />
+      <CookieConsentProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <CookieBanner />
+            <CookieSettingsDialog />
+            <PreviewInteractionManager />
+            <PageTracker />
+            <PlatformSeoHead />
+            <Routes>
+              {/* Local Dev Route for Tenant View */}
+              <Route path="/local-tenant" element={<Shop />} />
 
-            {/* Platform Marketing Page - accessible via /platform during development */}
-            <Route path="/platform" element={<Index />} />
+              {/* Platform Marketing Page - accessible via /platform during development */}
+              <Route path="/platform" element={<Index />} />
 
-            {/* Dynamic Root: Shop on localhost (dev), Landing Page on main domain, Shop on subdomains */}
-            <Route path="/" element={<SubdomainRouter />} />
+              {/* Platform Feature Pages */}
+              <Route path="/priser" element={<PlatformPriser />} />
+              <Route path="/white-label" element={<PlatformWhiteLabel />} />
+              <Route path="/beregning" element={<PlatformBeregning />} />
+              <Route path="/order-flow" element={<PlatformOrderFlow />} />
+              <Route path="/online-designer" element={<PlatformOnlineDesigner />} />
 
-            <Route path="/om-os" element={<About />} />
-            <Route path="/kontakt" element={<Contact />} />
-            <Route path="/betingelser" element={<Terms />} />
-            <Route path="/produkter" element={<Shop />} />
-            <Route path="/shop" element={<Shop />} />
-            <Route path="/prisberegner" element={<Shop />} />
-            <Route path="/produkt/:slug" element={<ProductPrice />} />
-            <Route path="/checkout/konfigurer" element={<FileUploadConfiguration />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/opret-shop" element={<TenantSignup />} />
-            <Route path="/profil" element={<Profile />} />
-            <Route path="/company" element={<CompanyHub />} />
-            <Route path="/mine-ordrer" element={<MyOrders />} />
-            <Route path="/min-konto" element={<MyAccount />} />
-            <Route path="/min-konto/ordrer" element={<MyOrders />} />
-            <Route path="/min-konto/adresser" element={<MyAddresses />} />
-            <Route path="/min-konto/indstillinger" element={<MySettings />} />
-            <Route path="/admin/login" element={<AdminLogin />} />
-            <Route path="/admin/*" element={<Admin />} />
-            <Route path="/admin/*" element={<Admin />} />
-            <Route path="/sitemap.xml" element={<Sitemap />} />
-            <Route path="/preview" element={<PreviewStorefront />} />
-            <Route path="/preview-shop" element={<PreviewShop />} />
-            <Route path="/grafisk-vejledning" element={<GrafiskVejledning />} />
-            {/* Print Product Designer */}
-            <Route path="/designer" element={<Designer />} />
-            <Route path="/designer/:variantId" element={<Designer />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+              {/* Platform Legal Pages */}
+              <Route path="/privacy-policy" element={<PlatformPrivacyPolicy />} />
+              <Route path="/handelsbetingelser" element={<PlatformHandelsbetingelser />} />
+              <Route path="/cookiepolitik" element={<Cookiepolitik />} />
+
+              {/* Platform Contact (platform-only) */}
+              <Route path="/kontakt" element={<PlatformKontakt />} />
+
+              {/* Dynamic Root: Shop on localhost (dev), Landing Page on main domain, Shop on subdomains */}
+              <Route path="/" element={<SubdomainRouter />} />
+
+              <Route path="/om-os" element={<About />} />
+              <Route path="/betingelser" element={<Terms />} />
+              <Route path="/produkter" element={<Shop />} />
+              <Route path="/shop" element={<Shop />} />
+              <Route path="/prisberegner" element={<Shop />} />
+              <Route path="/produkt/:slug" element={<ProductPrice />} />
+              <Route path="/checkout/konfigurer" element={<FileUploadConfiguration />} />
+              <Route path="/auth" element={<Auth />} />
+              <Route path="/opret-shop" element={<TenantSignup />} />
+              <Route path="/profil" element={<Profile />} />
+              <Route path="/company" element={<CompanyHub />} />
+              <Route path="/mine-ordrer" element={<MyOrders />} />
+              <Route path="/min-konto" element={<MyAccount />} />
+              <Route path="/min-konto/ordrer" element={<MyOrders />} />
+              <Route path="/min-konto/adresser" element={<MyAddresses />} />
+              <Route path="/min-konto/indstillinger" element={<MySettings />} />
+              <Route path="/admin/login" element={<AdminLogin />} />
+              <Route path="/admin/*" element={<Admin />} />
+              <Route path="/sitemap.xml" element={<Sitemap />} />
+              <Route path="/preview" element={<PreviewStorefront />} />
+              <Route path="/preview-shop" element={<PreviewShop />} />
+              <Route path="/grafisk-vejledning" element={<GrafiskVejledning />} />
+              {/* Print Product Designer */}
+              <Route path="/designer" element={<Designer />} />
+              <Route path="/designer/:variantId" element={<Designer />} />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </CookieConsentProvider>
     </LanguageProvider>
   </QueryClientProvider>
 );
 
 export default App;
-

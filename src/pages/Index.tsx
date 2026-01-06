@@ -1,23 +1,69 @@
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
-import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, BarChart, Globe } from "lucide-react";
-import { Link } from "react-router-dom";
+/**
+ * Platform Index Page (Landing Page)
+ * 
+ * Marketing landing page for webprinter.dk / www.webprinter.dk
+ * Uses platform-specific header, footer, and slider.
+ * Independent of demo shop and tenant data.
+ */
 
+import { Link } from "react-router-dom";
+import { ArrowRight, BarChart, Check, Globe, Layers, Package, PenTool, Users } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import PlatformHeader from "@/components/platform/PlatformHeader";
+import PlatformFooter from "@/components/platform/PlatformFooter";
+import { PlatformSlider } from "@/components/platform/PlatformSlider";
 import { SEO } from "@/components/SEO";
 import { OrganizationSchema } from "@/components/ProductSchema";
-import { ProductMarquee } from "@/components/ProductMarquee";
 
+// Feature boxes linking to platform pages
+const FEATURES = [
+  {
+    icon: Globe,
+    title: "White Label Webshop",
+    desc: "Dit brand, dit domæne. Fuldt tilpasselig kundevendt webshop.",
+    href: "/white-label",
+  },
+  {
+    icon: BarChart,
+    title: "Smart Prisberegning",
+    desc: "Komplekse matrix-beregninger for flyers, bannere og specialprodukter.",
+    href: "/beregning",
+  },
+  {
+    icon: Package,
+    title: "Ordre Workflow",
+    desc: "Strømlinet dashboard fra filtjek til produktion og forsendelse.",
+    href: "/order-flow",
+  },
+  {
+    icon: PenTool,
+    title: "Online Designer",
+    desc: "Professionel canvas-editor med soft proof og PDF-eksport.",
+    href: "/online-designer",
+  },
+  {
+    icon: Users,
+    title: "CompanyHub (B2B)",
+    desc: "Dedikeret portal til erhvervskunder med nem genbestilling.",
+    href: "/online-designer",
+  },
+  {
+    icon: Layers,
+    title: "Skabeloner",
+    desc: "Premade designs og skabeloner dine kunder kan tilpasse.",
+    href: "/online-designer",
+  },
+];
 
 const Index = () => {
   return (
     <div className="min-h-screen flex flex-col font-sans">
       <SEO />
       <OrganizationSchema />
-      <Header />
+      <PlatformHeader />
 
-      {/* Hero Section - negative margin to slide under transparent header */}
-      <section className="relative flex-1 flex items-center justify-center bg-gradient-to-br from-primary/5 to-secondary/10 pt-16 pb-12 overflow-hidden" style={{ marginTop: '-80px', paddingTop: '120px' }}>
+      {/* Hero Section */}
+      <section className="relative flex-1 flex items-center justify-center bg-gradient-to-br from-primary/5 to-secondary/10 pt-16 pb-12 overflow-hidden" style={{ marginTop: '0', paddingTop: '120px' }}>
         <div className="container px-4 mx-auto text-center z-10">
           <span className="inline-block py-1 px-3 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4">
             Den komplette løsning til dit trykkeri
@@ -35,15 +81,15 @@ const Index = () => {
                 Start gratis prøveperiode <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
-            <Link to="/prisberegner">
+            <Link to="/priser">
               <Button size="lg" variant="outline" className="h-12 px-8 text-lg">
-                Se prisberegnere
+                Se priser
               </Button>
             </Link>
           </div>
 
           <div className="mt-12">
-            <ProductMarquee />
+            <PlatformSlider />
           </div>
         </div>
 
@@ -55,44 +101,68 @@ const Index = () => {
       </section>
 
       {/* Features Grid */}
-      <section className="py-24 bg-white">
+      <section className="py-24 bg-white" id="funktioner">
         <div className="container px-4 mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold mb-4">Alt hvad du behøver for at drive dit trykkeri</h2>
             <p className="text-muted-foreground">Professionelle værktøjer bygget til trykkeribranchen.</p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                icon: <Globe className="w-6 h-6 text-primary" />,
-                title: "Whitelabel Webshop",
-                desc: "Dit brand, dit domæne. Fuldt tilpasselig kundevendt webshop."
-              },
-              {
-                icon: <BarChart className="w-6 h-6 text-primary" />,
-                title: "Smart Prisberegning",
-                desc: "Komplekse matrix-beregninger for flyers, bannere og specialprodukter."
-              },
-              {
-                icon: <Check className="w-6 h-6 text-primary" />,
-                title: "Ordre Workflow",
-                desc: "Strømlinet dashboard fra filtjek til produktion og forsendelse."
-              }
-            ].map((feature, i) => (
-              <div key={i} className="p-6 rounded-2xl border bg-card hover:shadow-lg transition-shadow">
-                <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
-                  {feature.icon}
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
+            {FEATURES.map((feature, i) => (
+              <Link
+                key={i}
+                to={feature.href}
+                className="p-6 rounded-2xl border bg-card hover:shadow-lg transition-shadow group"
+              >
+                <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/20 transition-colors">
+                  <feature.icon className="w-6 h-6 text-primary" />
                 </div>
-                <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>
+                <h3 className="text-xl font-semibold mb-2 group-hover:text-primary transition-colors">{feature.title}</h3>
                 <p className="text-muted-foreground">{feature.desc}</p>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
       </section>
 
-      <Footer />
+      {/* Social Proof Section */}
+      <section className="py-16 bg-gray-50">
+        <div className="container px-4 mx-auto text-center">
+          <h2 className="text-2xl font-bold mb-8">Tillid fra trykkerier i hele Danmark</h2>
+          <div className="flex flex-wrap justify-center gap-8 opacity-60">
+            {/* Placeholder for logos */}
+            <div className="w-32 h-12 bg-gray-300 rounded animate-pulse" />
+            <div className="w-32 h-12 bg-gray-300 rounded animate-pulse" />
+            <div className="w-32 h-12 bg-gray-300 rounded animate-pulse" />
+            <div className="w-32 h-12 bg-gray-300 rounded animate-pulse" />
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Section */}
+      <section className="py-16 bg-primary text-white">
+        <div className="container px-4 mx-auto text-center">
+          <h2 className="text-3xl font-bold mb-4">Klar til at starte?</h2>
+          <p className="text-lg opacity-90 mb-8 max-w-xl mx-auto">
+            Prøv Webprinter Platform gratis i 14 dage. Ingen kreditkort nødvendigt.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link to="/opret-shop">
+              <Button size="lg" variant="secondary" className="gap-2">
+                Start gratis prøveperiode <ArrowRight className="w-4 h-4" />
+              </Button>
+            </Link>
+            <Link to="/kontakt">
+              <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white/10">
+                Kontakt os
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <PlatformFooter />
     </div>
   );
 };
