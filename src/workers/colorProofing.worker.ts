@@ -24,23 +24,37 @@ let inputProfile: any = null;
 let outputProfile: any = null;
 let proofTransform: any = null;
 
+let isInitializingLcms = false;
+
 // Initialize lcms-wasm module
 async function initLcms(): Promise<void> {
-    if (!lcmsModule) {
-        try {
-            // @ts-ignore - lcms-wasm's types might not show the Emscripten options
-            lcmsModule = await lcms({
-                locateFile: (path: string) => {
-                    if (path.endsWith('.wasm')) {
-                        return '/lcms.wasm';
-                    }
-                    return path;
-                }
-            });
-        } catch (err) {
-            console.error('Failed to initialize LCMS in worker:', err);
-            throw err;
+    if (lcmsModule) return;
+    if (isInitializingLcms) {
+        // Wait for existing initialization
+        while (isInitializingLcms) {
+            await new Promise(r => setTimeout(r, 50));
         }
+        return;
+    }
+
+    isInitializingLcms = true;
+    try {
+        console.log('[Worker] Initializing LCMS WASM...');
+        // @ts-ignore - lcms-wasm's types might not show the Emscripten options
+        lcmsModule = await lcms({
+            locateFile: (path: string) => {
+                if (path.endsWith('.wasm')) {
+                    return '/lcms.wasm';
+                }
+                return path;
+            }
+        });
+        console.log('[Worker] LCMS WASM initialized successfully');
+    } catch (err) {
+        console.error('Failed to initialize LCMS in worker:', err);
+        throw err;
+    } finally {
+        isInitializingLcms = false;
     }
 }
 
@@ -63,13 +77,21 @@ async function createTransform(
     const inputBytes = new Uint8Array(inputProfileData);
     const outputBytes = new Uint8Array(outputProfileData);
 
-    console.log(`[Worker] Profile data sizes: sRGB=${inputBytes.length} bytes, Target=${outputBytes.length} bytes`);
+    console.log(`[Worker] Received binary data: sRGB=${inputBytes.length} bytes, Target=${outputBytes.length} bytes`);
+
+    if (inputBytes.length === 0 || outputBytes.length === 0) {
+        throw new Error(`Invalid binary data: Empty profile (sRGB: ${inputBytes.length}, Target: ${outputBytes.length})`);
+    }
 
     inputProfile = lcmsModule.cmsOpenProfileFromMem(inputBytes, inputBytes.length);
     outputProfile = lcmsModule.cmsOpenProfileFromMem(outputBytes, outputBytes.length);
 
     if (!inputProfile || !outputProfile) {
-        throw new Error('Failed to create ICC profiles (invalid binary data)');
+        const getHeader = (arr: Uint8Array) => Array.from(arr.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+        const inHead = getHeader(inputBytes);
+        const outHead = getHeader(outputBytes);
+        console.error(`[Worker] Failed. Headers: Input=[${inHead}] Output=[${outHead}]`);
+        throw new Error(`Invalid ICC Data. InputHeader: ${inHead.slice(0, 12)}... OutputHeader: ${outHead.slice(0, 12)}...`);
     }
 
     // Create proofing transform: RGB -> RGB (with CMYK gamut simulation)

@@ -1,3 +1,7 @@
+// EditorCanvas - Core Drawing and Guide Logic
+// PROTECTED - See .agent/workflows/preflight-protected.md for boundary rules
+// PROTECTED - See .agent/workflows/soft-proof-protected.md for Proofing Overlay rules
+
 import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { fabric } from 'fabric';
 import { mmToPx, calculateCanvasDimensions, calculateDisplayScale } from '@/utils/unitConversions';
@@ -118,6 +122,12 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
 }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const fabricRef = useRef<fabric.Canvas | null>(null);
+    const activeToolRef = useRef(selectedTool);
+
+    // Keep ref in sync for event handlers
+    useEffect(() => {
+        activeToolRef.current = selectedTool;
+    }, [selectedTool]);
 
     // Use refs for history to avoid stale closures in undo/redo
     const historyRef = useRef<string[]>([]);
@@ -228,7 +238,13 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         if (!canvas) return;
 
         const objects = canvas.getObjects();
-        const layers: LayerInfo[] = objects.map((obj, index) => {
+        // Filter out system objects (background, guides)
+        const userObjects = objects.filter(obj =>
+            !(obj as any).__isDocumentBackground &&
+            !(obj as any).__isGuide
+        );
+
+        const layers: LayerInfo[] = userObjects.map((obj, index) => {
             let name = obj.type || 'Object';
             if (obj.type === 'i-text' || obj.type === 'text') {
                 const text = (obj as fabric.IText).text || '';
@@ -268,21 +284,87 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             preserveObjectStacking: true,
         });
 
-        // Draw the white document area on top of gray background
-        const documentRect = new fabric.Rect({
+        // Canvas setup
+        canvas.setBackgroundColor('#525252', canvas.renderAll.bind(canvas)); // Darker grey pasteboard match
+
+        // Let's calculate `bleedPx` inside `useEffect`.
+        const bleedPx = Math.round(mmToPx(bleed, DISPLAY_DPI));
+        const safePx = Math.round(mmToPx(3, DISPLAY_DPI)); // 3mm safe zone
+
+        // docWidth and docHeight from calculateCanvasDimensions ALREADY include bleed
+        // (they represent the full bleed box dimensions)
+        const fullWidth = docWidth;   // Already includes bleed from calculateCanvasDimensions
+        const fullHeight = docHeight; // Already includes bleed from calculateCanvasDimensions
+
+        // White Background (The Paper) - this is the full bleed box
+        // Centered in pasteboard. 
+        // Current `pasteboardPadding` separates "Canvas Edge" from "Document".
+        // Let's keep `left: pasteboardPadding` as the start of the White Box.
+        const bgRect = new fabric.Rect({
             left: pasteboardPadding,
             top: pasteboardPadding,
-            width: docWidth,
-            height: docHeight,
+            width: fullWidth,   // Full bleed box width
+            height: fullHeight, // Full bleed box height
             fill: '#ffffff',
             selectable: false,
             evented: false,
-            excludeFromExport: false,
+            stroke: '#e5e5e5', // Subtle border
+            strokeWidth: 1,
+            excludeFromExport: true,
+            hoverCursor: 'default'
         });
-        // Add custom property to identify this as the document background
-        (documentRect as any).__isDocumentBackground = true;
-        canvas.add(documentRect);
-        canvas.sendToBack(documentRect);
+        (bgRect as any).__isDocumentBackground = true;
+        canvas.add(bgRect);
+
+        // Calculate trim dimensions (document WITHOUT bleed)
+        // docWidth/docHeight from calculateCanvasDimensions INCLUDE bleed, so subtract it
+        const trimWidth = fullWidth - (bleedPx * 2);
+        const trimHeight = fullHeight - (bleedPx * 2);
+
+        // Trim Line (Red dashed line where the cut happens)
+        // Inset by bleedPx from the bleed box edge
+        const trimRect = new fabric.Rect({
+            left: pasteboardPadding + bleedPx,
+            top: pasteboardPadding + bleedPx,
+            width: trimWidth,
+            height: trimHeight,
+            fill: 'transparent',
+            stroke: '#ff0000', // Red for trim/cut
+            strokeDashArray: [5, 5],
+            strokeWidth: 1,
+            selectable: false,
+            evented: false,
+            excludeFromExport: true
+        });
+        (trimRect as any).__isGuide = true;
+        canvas.add(trimRect);
+
+        // Safe Zone (Green dashed line, stay inside this for important content)
+        // Inset by safePx (3mm) from the trim line
+        const safeRect = new fabric.Rect({
+            left: pasteboardPadding + bleedPx + safePx,
+            top: pasteboardPadding + bleedPx + safePx,
+            width: trimWidth - (safePx * 2),
+            height: trimHeight - (safePx * 2),
+            fill: 'transparent',
+            stroke: '#00ff00', // Green for safe
+            strokeDashArray: [2, 2],
+            strokeWidth: 1,
+            opacity: 0.5,
+            selectable: false,
+            evented: false,
+            excludeFromExport: true
+        });
+        (safeRect as any).__isGuide = true;
+        canvas.add(safeRect);
+
+        // Send guides to back (reverse order of addition essentially, or explicit)
+        canvas.sendToBack(safeRect);
+        canvas.sendToBack(trimRect);
+        canvas.sendToBack(bgRect);
+
+        // Pasteboard gray overlay is now handled via CSS overlays in the JSX return
+        // This ensures they are completely non-interactive (no Fabric selection at all)
 
         fabricRef.current = canvas;
 
@@ -338,6 +420,14 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             if (e.target && !(e.target as any).__layerId) {
                 (e.target as any).__layerId = `layer-${objectCounter.current++}`;
             }
+
+            // Keep guide lines on top after any object is added
+            canvas.getObjects().forEach(obj => {
+                if ((obj as any).__isGuide) {
+                    obj.bringToFront();
+                }
+            });
+
             if (!isUndoRedo.current) {
                 saveHistory();
             }
@@ -387,7 +477,9 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         forceUpdate(n => n + 1);
     }, []);
 
-    // Handle tool changes
+
+
+    // Handle tool changes and interactions
     useEffect(() => {
         const canvas = fabricRef.current;
         if (!canvas) return;
@@ -395,9 +487,12 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         canvas.isDrawingMode = false;
         canvas.defaultCursor = 'default';
 
+        // Config based on tool
         switch (selectedTool) {
             case 'select':
+                canvas.defaultCursor = 'default';
                 canvas.selection = true;
+                canvas.skipTargetFind = false;
                 break;
             case 'text':
                 canvas.defaultCursor = 'text';
@@ -412,6 +507,18 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             default:
                 canvas.selection = true;
         }
+
+        // Apply selectable state to objects
+        const isInteractive = selectedTool === 'select';
+        canvas.forEachObject(obj => {
+            // Document background and guides should remain unselectable/unevented unless specific logic exists
+            const isSystemObj = (obj as any).__isDocumentBackground || (obj as any).__isGuide;
+            if (!isSystemObj) {
+                obj.selectable = isInteractive;
+                obj.evented = isInteractive;
+            }
+        });
+
     }, [selectedTool]);
 
     // Expose methods via ref
@@ -911,7 +1018,13 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             if (!canvas) return [];
 
             const objects = canvas.getObjects();
-            return objects.map((obj, index) => {
+            // Filter out system objects (background, guides, pasteboard masks)
+            const userObjects = objects.filter(obj =>
+                !(obj as any).__isDocumentBackground &&
+                !(obj as any).__isGuide
+            );
+
+            return userObjects.map((obj, index) => {
                 let name = obj.type || 'Object';
                 if (obj.type === 'i-text' || obj.type === 'text') {
                     const text = (obj as fabric.IText).text || '';
@@ -1078,122 +1191,48 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             onCanvasChange?.();
 
             // Emit updated props
-            onSelectionChange?.(true, getSelectedProps(activeObj));
+            // Re-fetch active object to ensure props are current
+            const currentActive = canvas.getActiveObject();
+            if (currentActive) {
+                onSelectionChange?.(true, getSelectedProps(currentActive));
+            }
         },
 
         bringToFront: () => {
             const canvas = fabricRef.current;
-            if (!canvas) return;
-
-            const activeObj = canvas.getActiveObject();
-            if (activeObj) {
-                canvas.bringToFront(activeObj);
-                canvas.renderAll();
-                emitLayersUpdate();
+            const activeObject = canvas?.getActiveObject();
+            if (activeObject) {
+                activeObject.bringToFront();
+                // Keep guide lines on top
+                canvas?.getObjects().forEach(obj => {
+                    if ((obj as any).__isGuide) obj.bringToFront();
+                });
+                canvas?.requestRenderAll();
             }
         },
 
         sendToBack: () => {
             const canvas = fabricRef.current;
-            if (!canvas) return;
-
-            const activeObj = canvas.getActiveObject();
-            if (activeObj) {
-                canvas.sendToBack(activeObj);
-                canvas.renderAll();
-                emitLayersUpdate();
+            const activeObject = canvas?.getActiveObject();
+            if (activeObject) {
+                activeObject.sendToBack();
+                // Document background should stay at back
+                const bg = canvas?.getObjects().find(obj => (obj as any).__isDocumentBackground);
+                if (bg) bg.sendToBack();
+                // Keep guide lines on top
+                canvas?.getObjects().forEach(obj => {
+                    if ((obj as any).__isGuide) obj.bringToFront();
+                });
+                canvas?.requestRenderAll();
             }
-        },
+        }
     }));
     // bleedPx, safeAreaPx, and pasteboardPadding are already calculated at the top of the component
 
     return (
-        <div className="relative inline-block">
-            {/* Fabric canvas (includes pasteboard + document area) */}
+        <div className="relative inline-block bg-neutral-800">
+            {/* Fabric canvas */}
             <canvas ref={canvasRef} />
-
-            {/* Dimming overlay - covers pasteboard area to gray out overflow content */}
-            {/* These 4 divs create a "frame" around the document that dims content in the pasteboard */}
-            {/* Top overlay */}
-            <div
-                className="absolute pointer-events-none bg-neutral-500/50"
-                style={{
-                    top: 0,
-                    left: 0,
-                    width: canvasWidth,
-                    height: pasteboardPadding,
-                    zIndex: 10,
-                }}
-            />
-            {/* Bottom overlay */}
-            <div
-                className="absolute pointer-events-none bg-neutral-500/50"
-                style={{
-                    bottom: 0,
-                    left: 0,
-                    width: canvasWidth,
-                    height: pasteboardPadding,
-                    zIndex: 10,
-                }}
-            />
-            {/* Left overlay */}
-            <div
-                className="absolute pointer-events-none bg-neutral-500/50"
-                style={{
-                    top: pasteboardPadding,
-                    left: 0,
-                    width: pasteboardPadding,
-                    height: docHeight,
-                    zIndex: 10,
-                }}
-            />
-            {/* Right overlay */}
-            <div
-                className="absolute pointer-events-none bg-neutral-500/50"
-                style={{
-                    top: pasteboardPadding,
-                    right: 0,
-                    width: pasteboardPadding,
-                    height: docHeight,
-                    zIndex: 10,
-                }}
-            />
-
-            {/* Trim line - outer document edge where paper will be cut (blue) */}
-            <div
-                className="absolute pointer-events-none border-2 border-blue-500"
-                style={{
-                    top: pasteboardPadding,
-                    left: pasteboardPadding,
-                    width: docWidth,
-                    height: docHeight,
-                    zIndex: 20,
-                }}
-            />
-
-            {/* Bleed line - 3mm inside trim, content should extend beyond this (red dashed) */}
-            <div
-                className="absolute pointer-events-none border-2 border-dashed border-red-400/80"
-                style={{
-                    top: pasteboardPadding + bleedPx,
-                    left: pasteboardPadding + bleedPx,
-                    width: docWidth - bleedPx * 2,
-                    height: docHeight - bleedPx * 2,
-                    zIndex: 20,
-                }}
-            />
-
-            {/* Safe area - content should stay inside this (green dashed) */}
-            <div
-                className="absolute pointer-events-none border border-dashed border-green-500/60"
-                style={{
-                    top: pasteboardPadding + bleedPx + safeAreaPx,
-                    left: pasteboardPadding + bleedPx + safeAreaPx,
-                    width: docWidth - (bleedPx + safeAreaPx) * 2,
-                    height: docHeight - (bleedPx + safeAreaPx) * 2,
-                    zIndex: 20,
-                }}
-            />
 
             {/* Legend - positioned outside artwork in pasteboard area */}
             <div
@@ -1214,7 +1253,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 </span>
                 <span className="flex items-center gap-1">
                     <span className="w-3 h-0.5 bg-green-500"></span>
-                    Safe
+                    Safe Zone
                 </span>
             </div>
 
@@ -1227,7 +1266,31 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                     zIndex: 20,
                 }}
             >
-                ↑ Overflow (vil blive skåret væk)
+                Overfill (vil blive skåret væk) - Zoom in if needed
+            </div>
+
+            {/* CSS Pasteboard Overlays - Completely non-interactive */}
+            <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 15 }}>
+                {/* Top mask */}
+                <div
+                    className="absolute bg-[#525252]/85"
+                    style={{ left: 0, top: 0, width: '100%', height: pasteboardPadding }}
+                />
+                {/* Bottom mask */}
+                <div
+                    className="absolute bg-[#525252]/85"
+                    style={{ left: 0, top: pasteboardPadding + docHeight, width: '100%', height: pasteboardPadding }}
+                />
+                {/* Left mask */}
+                <div
+                    className="absolute bg-[#525252]/85"
+                    style={{ left: 0, top: pasteboardPadding, width: pasteboardPadding, height: docHeight }}
+                />
+                {/* Right mask */}
+                <div
+                    className="absolute bg-[#525252]/85"
+                    style={{ left: pasteboardPadding + docWidth, top: pasteboardPadding, width: pasteboardPadding, height: docHeight }}
+                />
             </div>
         </div>
     );

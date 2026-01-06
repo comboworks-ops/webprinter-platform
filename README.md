@@ -36,6 +36,12 @@ The **Machine Pricing Add-on** enables precise, real-time cost calculation:
 *   **Full Customization**: Typography, color palettes, hero sections, and advanced header/footer controls.
 *   **Draft & Publish**: Robust workflow for testing branding changes before going live.
 
+### 6. B2B Company Hub (Reorder Portal)
+*   **Whitelabel Client Portals**: Create dedicated spaces for business clients.
+*   **Whitelisted Users**: Manage access by email/name within the tenant.
+*   **Pinned Products**: Quick access to custom-designed products for reordering.
+*   **Logo Management**: Customize the portal with the client's own logo.
+
 ---
 
 ## 🏗️ Project Structure
@@ -116,6 +122,7 @@ The application will be available at `http://localhost:8080`.
 *   Integrated **Color Profile Soft-Proofing** in the Designer.
 *   Launched **Machine Pricing (MPA)** for dynamic large-format and offset pricing.
 *   Upgraded **Unified Branding V2** with real-time preview and click-to-edit.
+*   Launched **Company Hub (B2B Portal)** for client-specific product reordering.
 *   Standardized **Multi-tenant RLS** across the entire database.
 
 ---
@@ -127,4 +134,4 @@ Developed with ❤️ for the next generation of print entrepreneurs.
 *   **Project Overview**: See `docs/PROJECT_OVERVIEW.md` for deep technical details.
 
 ---
-*Last Edited: January 29, 2026 (Live Development)*
+*Last Edited: January 6, 2026 (Live Development)*

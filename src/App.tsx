@@ -27,6 +27,7 @@ import PreviewShop from "./pages/PreviewShop";
 import FileUploadConfiguration from "./pages/FileUploadConfiguration";
 import GrafiskVejledning from "./pages/GrafiskVejledning";
 import Designer from "./pages/Designer";
+import CompanyHub from "./pages/CompanyHub";
 import NotFound from "./pages/NotFound";
 
 import { PreviewInteractionManager } from "@/components/preview/PreviewInteractionManager";
@@ -63,6 +64,7 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/opret-shop" element={<TenantSignup />} />
             <Route path="/profil" element={<Profile />} />
+            <Route path="/company" element={<CompanyHub />} />
             <Route path="/mine-ordrer" element={<MyOrders />} />
             <Route path="/min-konto" element={<MyAccount />} />
             <Route path="/min-konto/ordrer" element={<MyOrders />} />

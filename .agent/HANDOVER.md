@@ -1,6 +1,6 @@
 # Webprinter Print Designer - Agent Handover Document
 
-**Last Updated**: 2026-01-03  
+**Last Updated**: 2026-01-06  
 **Project Path**: `/Users/cookabelly/Documents/Antigravity stuff/printmaker-web-craft-main`
 
 ---
@@ -101,6 +101,26 @@ See: `.agent/workflows/physical-scaling-import.md`
 
 ---
 
+### 5. Company Hub (B2B Reorder Portal) ✅
+
+**Purpose**: Provide a dedicated portal for business clients to reorder previously designed products.
+
+**Key Files**:
+| File | Purpose |
+|------|---------|
+| `src/hooks/useCompanyHub.ts` | Main hook for CRUD and portal fetching |
+| `src/pages/CompanyHub.tsx` | User-facing portal page (`/company`) |
+| `src/components/companyhub/AdminCompanyHubManager.tsx` | Admin management UI |
+| `supabase/migrations/20260130000000_company_hub.sql` | DB Schema |
+
+**Highlights**:
+- **Member Management**: Whitelist users by email or name.
+- **Product Pinning**: Admins can pin specific products with default options and linked designs.
+- **Direct Portal Link**: Admin panel includes a "Besøg Portal" link for quick access.
+- **Email Sync**: Database trigger syncs `auth.users.email` to `public.profiles.email` for easy member identification.
+
+---
+
 ## Important Constants
 
 | Constant | Value | Location |
@@ -181,7 +201,9 @@ The dev server is typically running on `http://localhost:5173`
 
 3. **Fabric.js canvas**: The internal canvas is at `DISPLAY_DPI` (50.8), not screen DPI (96) or print DPI (300). All scaling calculations must account for this.
 
-4. **Danish UI**: All user-facing strings are in Danish (Gem = Save, Eksporter = Export, etc.)
+4. **Company Hub RLS**: The Company Hub uses strict RLS. Ensure you are testing with a user that has been added as a member of a company, or is a `master_admin` to see cross-tenant data.
+
+5. **Danish UI**: All user-facing strings are in Danish (Gem = Save, Eksporter = Export, etc.)
 
 ---
 

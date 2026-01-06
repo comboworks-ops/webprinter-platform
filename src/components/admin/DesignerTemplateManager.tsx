@@ -24,7 +24,16 @@ import {
     FileText,
     Newspaper,
     Loader2,
-    ExternalLink
+    ExternalLink,
+    Palette,
+    AlertTriangle,
+    Type,
+    Download,
+    Image as ImageIcon,
+    MousePointer2,
+    ChevronDown,
+    ChevronUp,
+    Settings
 } from "lucide-react";
 
 interface DesignerTemplate {
@@ -99,6 +108,7 @@ export function DesignerTemplateManager() {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingTemplate, setEditingTemplate] = useState<Partial<DesignerTemplate> | null>(null);
     const [saving, setSaving] = useState(false);
+    const [showTemplates, setShowTemplates] = useState(false);
 
     const fetchTemplates = async () => {
         try {
@@ -204,118 +214,263 @@ export function DesignerTemplateManager() {
     }
 
     return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div className="flex justify-between items-end">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-                        <Paintbrush className="h-8 w-8 text-primary" />
-                        Print Designer Skabeloner
-                    </h1>
-                    <p className="text-muted-foreground mt-1">
-                        Administrer skabeloner til online print designeren
-                    </p>
-                </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => window.open('/designer', '_blank')}>
-                        <ExternalLink className="h-4 w-4 mr-2" />
-                        Åbn Designer
-                    </Button>
-                    <Button onClick={openCreate}>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Ny Skabelon
-                    </Button>
-                </div>
+        <div className="space-y-8 -m-6">
+            {/* Full Landing Page Content */}
+            <div className="bg-gradient-to-b from-slate-50 to-white">
+                {/* Hero Section */}
+                <section className="py-16 px-6">
+                    <div className="max-w-4xl mx-auto text-center">
+                        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6">
+                            <Paintbrush className="h-4 w-4" />
+                            Professionelt Designværktøj
+                        </div>
+                        <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6 leading-tight">
+                            Print Designer
+                        </h1>
+                        <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
+                            Giv dine kunder mulighed for at skabe trykkeklare designs direkte i browseren.
+                            Med CMYK-farver, bleed-områder og høj opløsning – alt sammen uden at installere
+                            noget software.
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                            <Button size="lg" onClick={() => window.open('/designer?format=A4', '_blank')} className="gap-2">
+                                <MousePointer2 className="h-5 w-5" />
+                                Åbn Print Designer
+                            </Button>
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-4">
+                            <span className="text-green-600 font-medium">✓ Inkluderet gratis</span> på denne konto
+                        </p>
+                    </div>
+                </section>
+
+                {/* Feature Image Placeholder */}
+                <section className="px-6 pb-12">
+                    <div className="max-w-5xl mx-auto">
+                        <div className="aspect-video bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center">
+                            <div className="text-center text-muted-foreground">
+                                <ImageIcon className="h-16 w-16 mx-auto mb-4 opacity-30" />
+                                <p className="text-lg font-medium">Designer preview billede</p>
+                                <p className="text-sm">Tilføj et screenshot af designeren her</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Features Grid */}
+                <section className="py-16 px-6 bg-white border-t">
+                    <div className="max-w-6xl mx-auto">
+                        <div className="text-center mb-12">
+                            <h2 className="text-3xl font-bold text-gray-900 mb-4">Alt hvad du har brug for</h2>
+                            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+                                Print Designer er fyldt med professionelle funktioner der gør det nemt at skabe
+                                trykkeklare designs.
+                            </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {/* Feature 1 */}
+                            <div className="bg-slate-50 rounded-xl p-6 border">
+                                <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center mb-4">
+                                    <Square className="h-6 w-6 text-blue-600" />
+                                </div>
+                                <h3 className="text-lg font-semibold mb-2">Professionelt Canvas</h3>
+                                <p className="text-muted-foreground text-sm">
+                                    Lag-baseret editor med bleed, trim og sikkerhedszoner.
+                                    Præcis placering af alle elementer.
+                                </p>
+                            </div>
+
+                            {/* Feature 2 */}
+                            <div className="bg-slate-50 rounded-xl p-6 border">
+                                <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center mb-4">
+                                    <FileUp className="h-6 w-6 text-green-600" />
+                                </div>
+                                <h3 className="text-lg font-semibold mb-2">PDF Import</h3>
+                                <p className="text-muted-foreground text-sm">
+                                    Upload eksisterende PDF-filer og brug dem som udgangspunkt.
+                                    Vælg enkeltside fra flersidede dokumenter.
+                                </p>
+                            </div>
+
+                            {/* Feature 3 */}
+                            <div className="bg-slate-50 rounded-xl p-6 border">
+                                <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center mb-4">
+                                    <AlertTriangle className="h-6 w-6 text-amber-600" />
+                                </div>
+                                <h3 className="text-lg font-semibold mb-2">Preflight Tjek</h3>
+                                <p className="text-muted-foreground text-sm">
+                                    Automatisk validering af opløsning, tekststørrelse og marginer.
+                                    Få advarsler før du bestiller.
+                                </p>
+                            </div>
+
+                            {/* Feature 4 */}
+                            <div className="bg-slate-50 rounded-xl p-6 border">
+                                <div className="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center mb-4">
+                                    <Palette className="h-6 w-6 text-purple-600" />
+                                </div>
+                                <h3 className="text-lg font-semibold mb-2">CMYK Soft Proofing</h3>
+                                <p className="text-muted-foreground text-sm">
+                                    Se hvordan dine farver vil se ud på tryk med vores ICC-baserede
+                                    farvekonvertering og gamut-advarsel.
+                                </p>
+                            </div>
+
+                            {/* Feature 5 */}
+                            <div className="bg-slate-50 rounded-xl p-6 border">
+                                <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center mb-4">
+                                    <Type className="h-6 w-6 text-red-600" />
+                                </div>
+                                <h3 className="text-lg font-semibold mb-2">Tekst & Typografi</h3>
+                                <p className="text-muted-foreground text-sm">
+                                    Bred vifte af fonte med fuld kontrol over størrelse, farve,
+                                    linjeafstand og tekstformatering.
+                                </p>
+                            </div>
+
+                            {/* Feature 6 */}
+                            <div className="bg-slate-50 rounded-xl p-6 border">
+                                <div className="w-12 h-12 rounded-lg bg-indigo-100 flex items-center justify-center mb-4">
+                                    <Download className="h-6 w-6 text-indigo-600" />
+                                </div>
+                                <h3 className="text-lg font-semibold mb-2">Print-klar Eksport</h3>
+                                <p className="text-muted-foreground text-sm">
+                                    Eksporter dit design som højopløselig PDF klar til professionelt tryk
+                                    med korrekte farver.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* CTA Section */}
+                <section className="py-16 px-6 bg-gradient-to-r from-primary/5 to-primary/10 border-t">
+                    <div className="max-w-4xl mx-auto text-center">
+                        <h2 className="text-3xl font-bold text-gray-900 mb-4">Klar til at komme i gang?</h2>
+                        <p className="text-lg text-muted-foreground mb-8">
+                            Start med at designe dit første trykkeklare artwork i dag.
+                        </p>
+                        <Button size="lg" onClick={() => window.open('/designer?format=A4', '_blank')} className="gap-2">
+                            <MousePointer2 className="h-5 w-5" />
+                            Åbn Print Designer
+                        </Button>
+                    </div>
+                </section>
             </div>
 
-            {/* Templates Table */}
-            <Card>
-                <CardHeader>
-                    <CardTitle>Alle Skabeloner ({templates.length})</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead className="w-12"></TableHead>
-                                <TableHead>Navn</TableHead>
-                                <TableHead>Type</TableHead>
-                                <TableHead>Kategori</TableHead>
-                                <TableHead>Størrelse</TableHead>
-                                <TableHead>DPI</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead className="text-right">Handlinger</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {templates.map((template) => {
-                                const IconComponent = getIconComponent(template.icon_name);
-                                const category = CATEGORIES.find(c => c.value === template.category);
+            {/* Templates Section - Collapsible */}
+            {showTemplates && (
+                <div className="px-6 pb-8 bg-white border-t">
+                    <div className="max-w-6xl mx-auto pt-8">
+                        {/* Templates Header */}
+                        <div className="flex justify-between items-end mb-6">
+                            <div>
+                                <h2 className="text-2xl font-bold tracking-tight flex items-center gap-3">
+                                    <Layout className="h-6 w-6 text-primary" />
+                                    Format Skabeloner
+                                </h2>
+                                <p className="text-muted-foreground mt-1">
+                                    Administrer format-skabeloner der vises i Design Biblioteket
+                                </p>
+                            </div>
+                            <Button onClick={openCreate}>
+                                <Plus className="h-4 w-4 mr-2" />
+                                Ny Skabelon
+                            </Button>
+                        </div>
 
-                                return (
-                                    <TableRow key={template.id}>
-                                        <TableCell>
-                                            <div className="p-2 rounded bg-primary/10 text-primary w-fit">
-                                                <IconComponent className="h-5 w-5" />
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="font-medium">
-                                            {template.name}
-                                            {template.description && (
-                                                <p className="text-xs text-muted-foreground">{template.description}</p>
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            <code className="text-xs bg-muted px-2 py-1 rounded">
-                                                {template.template_type}
-                                            </code>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Badge variant="secondary">{category?.label || template.category}</Badge>
-                                        </TableCell>
-                                        <TableCell>
-                                            <span className="font-mono text-sm">
-                                                {template.width_mm}×{template.height_mm} mm
-                                            </span>
-                                            <span className="text-xs text-muted-foreground ml-1">
-                                                (+{template.bleed_mm}mm bleed)
-                                            </span>
-                                        </TableCell>
-                                        <TableCell>{template.dpi_default}</TableCell>
-                                        <TableCell>
-                                            <div className="flex gap-1">
-                                                {template.is_active ? (
-                                                    <Badge className="bg-green-500">Aktiv</Badge>
-                                                ) : (
-                                                    <Badge variant="secondary">Inaktiv</Badge>
-                                                )}
-                                                {template.supports_cut_contour && (
-                                                    <Badge variant="outline" className="text-xs">Kontur</Badge>
-                                                )}
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <Button variant="ghost" size="icon" onClick={() => openEdit(template)}>
-                                                <Pencil className="h-4 w-4" />
-                                            </Button>
-                                            <Button variant="ghost" size="icon" className="text-red-500" onClick={() => handleDelete(template.id)}>
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
-                                        </TableCell>
-                                    </TableRow>
-                                );
-                            })}
-                            {templates.length === 0 && (
-                                <TableRow>
-                                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                                        Ingen skabeloner endnu. Klik "Ny Skabelon" for at oprette den første.
-                                    </TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
-                </CardContent>
-            </Card>
+                        {/* Templates Table */}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Alle Skabeloner ({templates.length})</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="w-12"></TableHead>
+                                            <TableHead>Navn</TableHead>
+                                            <TableHead>Type</TableHead>
+                                            <TableHead>Kategori</TableHead>
+                                            <TableHead>Størrelse</TableHead>
+                                            <TableHead>DPI</TableHead>
+                                            <TableHead>Status</TableHead>
+                                            <TableHead className="text-right">Handlinger</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {templates.map((template) => {
+                                            const IconComponent = getIconComponent(template.icon_name);
+                                            const category = CATEGORIES.find(c => c.value === template.category);
+
+                                            return (
+                                                <TableRow key={template.id}>
+                                                    <TableCell>
+                                                        <div className="p-2 rounded bg-primary/10 text-primary w-fit">
+                                                            <IconComponent className="h-5 w-5" />
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="font-medium">
+                                                        {template.name}
+                                                        {template.description && (
+                                                            <p className="text-xs text-muted-foreground">{template.description}</p>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <code className="text-xs bg-muted px-2 py-1 rounded">
+                                                            {template.template_type}
+                                                        </code>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="secondary">{category?.label || template.category}</Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <span className="font-mono text-sm">
+                                                            {template.width_mm}×{template.height_mm} mm
+                                                        </span>
+                                                        <span className="text-xs text-muted-foreground ml-1">
+                                                            (+{template.bleed_mm}mm bleed)
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell>{template.dpi_default}</TableCell>
+                                                    <TableCell>
+                                                        <div className="flex gap-1">
+                                                            {template.is_active ? (
+                                                                <Badge className="bg-green-500">Aktiv</Badge>
+                                                            ) : (
+                                                                <Badge variant="secondary">Inaktiv</Badge>
+                                                            )}
+                                                            {template.supports_cut_contour && (
+                                                                <Badge variant="outline" className="text-xs">Kontur</Badge>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button variant="ghost" size="icon" onClick={() => openEdit(template)}>
+                                                            <Pencil className="h-4 w-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="icon" className="text-red-500" onClick={() => handleDelete(template.id)}>
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
+                                        {templates.length === 0 && (
+                                            <TableRow>
+                                                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                                                    Ingen skabeloner endnu. Klik "Ny Skabelon" for at oprette den første.
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </CardContent>
+                        </Card>
+                    </div>
+                </div>
+            )}
 
             {/* Edit/Create Dialog */}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

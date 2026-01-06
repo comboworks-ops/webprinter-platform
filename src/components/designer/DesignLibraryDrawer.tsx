@@ -52,7 +52,9 @@ export function DesignLibraryDrawer({
     const getPreviewUrl = (path: string | null) => {
         if (!path) return null;
         if (path.startsWith('http')) return path;
-        const bucket = activeTab === 'mine' ? 'design-saves' : 'design-library';
+
+        // Try product-images bucket as it's verified to exist
+        const bucket = path.includes('previews/') ? 'product-images' : 'design-library';
         const { data } = supabase.storage.from(bucket).getPublicUrl(path);
         return data.publicUrl;
     };
@@ -114,12 +116,19 @@ export function DesignLibraryDrawer({
                                         className="group relative border rounded-lg overflow-hidden bg-muted/30 hover:border-primary transition-all flex flex-col"
                                     >
                                         <div className="aspect-[4/3] relative bg-white flex items-center justify-center overflow-hidden border-b">
-                                            {item.preview_path ? (
+                                            {(item.preview_thumbnail_url || item.preview_path) ? (
                                                 <img
-                                                    src={getPreviewUrl(item.preview_path)!}
+                                                    src={getPreviewUrl(item.preview_thumbnail_url || item.preview_path!)!}
                                                     alt={item.name}
                                                     className="w-full h-full object-contain"
                                                 />
+                                            ) : item.kind === 'template' ? (
+                                                <div className="flex flex-col items-center text-muted-foreground/50">
+                                                    <LayoutGrid className="h-10 w-10 mb-2" />
+                                                    <span className="text-xs font-mono">
+                                                        {item.width_mm}×{item.height_mm} mm
+                                                    </span>
+                                                </div>
                                             ) : (
                                                 <div className="flex flex-col items-center text-muted-foreground/30">
                                                     {item.kind === 'fabric_json' ? <FileJson className="h-10 w-10" /> :
@@ -132,17 +141,25 @@ export function DesignLibraryDrawer({
                                                 <Button size="sm" variant="secondary" onClick={() => onReplaceDesign(item)}>
                                                     Åbn
                                                 </Button>
-                                                <Button size="sm" onClick={() => onInsertDesign(item)}>
-                                                    Indsæt
-                                                </Button>
+                                                {item.kind !== 'template' && (
+                                                    <Button size="sm" onClick={() => onInsertDesign(item)}>
+                                                        Indsæt
+                                                    </Button>
+                                                )}
                                             </div>
                                         </div>
                                         <div className="p-3">
                                             <p className="text-sm font-medium truncate" title={item.name}>{item.name}</p>
                                             <div className="flex items-center gap-1 mt-1">
                                                 <Badge variant="outline" className="text-[10px] uppercase py-0 px-1">
-                                                    {item.kind === 'fabric_json' ? 'Editérbar' : item.kind}
+                                                    {item.kind === 'template' ? 'Format' :
+                                                        item.kind === 'fabric_json' ? 'Editérbar' : item.kind}
                                                 </Badge>
+                                                {item.kind === 'template' && item.width_mm && item.height_mm && (
+                                                    <Badge variant="secondary" className="text-[10px] py-0 px-1 font-mono">
+                                                        {item.width_mm}×{item.height_mm}
+                                                    </Badge>
+                                                )}
                                                 {item.visibility === 'public' && (
                                                     <Badge variant="secondary" className="text-[10px] py-0 px-1">Public</Badge>
                                                 )}

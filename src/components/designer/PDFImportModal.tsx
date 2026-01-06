@@ -19,22 +19,26 @@ export interface PDFImportData {
     // Rendered raster dimensions in pixels
     renderedWidth: number;
     renderedHeight: number;
+    // Original PDF data for vector preservation (optional)
+    originalPdfBytes?: ArrayBuffer;
+    originalPdfStoragePath?: string;
+    originalFileName?: string;
 }
 
 interface PDFImportModalProps {
     open: boolean;
-    onClose: () => void;
+    onOpenChange: (open: boolean) => void;
     onImport: (data: PDFImportData) => void;
-    maxWidth: number;  // Canvas width in px (display resolution)
-    maxHeight: number; // Canvas height in px (display resolution)
+    allowedWidthMm: number;
+    allowedHeightMm: number;
 }
 
 export function PDFImportModal({
     open,
-    onClose,
+    onOpenChange,
     onImport,
-    maxWidth,
-    maxHeight
+    allowedWidthMm,
+    allowedHeightMm
 }: PDFImportModalProps) {
     const [loading, setLoading] = useState(false);
     const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
@@ -45,6 +49,8 @@ export function PDFImportModal({
     const [isDragActive, setIsDragActive] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    // Store original PDF bytes for vector preservation
+    const pdfBytesRef = useRef<ArrayBuffer | null>(null);
 
 
     // Render page preview
@@ -95,6 +101,9 @@ export function PDFImportModal({
 
         try {
             const arrayBuffer = await file.arrayBuffer();
+            // Store original bytes for vector preservation
+            pdfBytesRef.current = arrayBuffer.slice(0); // Clone the buffer
+
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
             setPdfDoc(pdf);
@@ -105,6 +114,7 @@ export function PDFImportModal({
         } catch (err) {
             console.error('Error loading PDF:', err);
             toast.error('Kunne ikke indlæse PDF-fil');
+            pdfBytesRef.current = null;
         } finally {
             setLoading(false);
         }
@@ -234,7 +244,7 @@ export function PDFImportModal({
 
             const imageDataUrl = offscreenCanvas.toDataURL('image/png', 1.0);
 
-            // Pass physical dimensions so Designer can scale correctly
+            // Pass physical dimensions and original PDF bytes for vector preservation
             onImport({
                 imageDataUrl,
                 pageNumber: currentPage,
@@ -243,8 +253,11 @@ export function PDFImportModal({
                 heightMm,
                 renderedWidth: offscreenCanvas.width,
                 renderedHeight: offscreenCanvas.height,
+                // Include original PDF for vector preservation
+                originalPdfBytes: pdfBytesRef.current || undefined,
+                originalFileName: fileName,
             });
-            onClose();
+            onOpenChange(false);
             toast.success(`Side ${currentPage} importeret (${Math.round(widthMm)}×${Math.round(heightMm)} mm)`);
         } catch (err) {
             console.error('Error importing PDF page:', err);
@@ -252,10 +265,10 @@ export function PDFImportModal({
         } finally {
             setLoading(false);
         }
-    }, [pdfDoc, currentPage, totalPages, onImport, onClose]);
+    }, [pdfDoc, currentPage, totalPages, fileName, onImport, onOpenChange]);
 
     return (
-        <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+        <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-lg">
                 <DialogHeader>
                     <DialogTitle>Importer PDF</DialogTitle>

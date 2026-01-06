@@ -27,23 +27,9 @@ export const OUTPUT_PROFILES: ICCProfile[] = [
     {
         id: 'fogra39',
         name: 'ISO Coated v2 (FOGRA39)',
-        description: 'European standard for coated paper printing',
+        description: 'Standard coated paper (European)',
         url: '/icc/ISOcoated_v2_300_eci.icc',
     },
-    /* 
-    {
-        id: 'fogra51',
-        name: 'PSO Coated v3 (FOGRA51)',
-        description: 'Modern European coated paper standard',
-        url: '/icc/PSOcoated_v3.icc',
-    },
-    {
-        id: 'swop',
-        name: 'US Web Coated (SWOP) v2',
-        description: 'American standard for web offset printing',
-        url: '/icc/USWebCoatedSWOP.icc',
-    },
-    */
 ];
 
 // Default sRGB input profile (bundled)
@@ -77,7 +63,14 @@ export function loadProofingSettings(): ProofingSettings {
     try {
         const stored = localStorage.getItem('designer_proofing_settings');
         if (stored) {
-            return { ...DEFAULT_PROOFING_SETTINGS, ...JSON.parse(stored) };
+            const parsed = JSON.parse(stored);
+            // CRITICAL: Always strip customProfileBytes from storage as they can't be serialized safely
+            // and might be corrupted residuals from previous versions.
+            return {
+                ...DEFAULT_PROOFING_SETTINGS,
+                ...parsed,
+                customProfileBytes: null
+            };
         }
     } catch (e) {
         console.warn('Failed to load proofing settings:', e);
@@ -85,10 +78,12 @@ export function loadProofingSettings(): ProofingSettings {
     return DEFAULT_PROOFING_SETTINGS;
 }
 
-// Save proofing settings to localStorage
+// Save proofing settings to localStorage (excludes binary data)
 export function saveProofingSettings(settings: ProofingSettings): void {
     try {
-        localStorage.setItem('designer_proofing_settings', JSON.stringify(settings));
+        // Create a copy without the large binary bytes
+        const { customProfileBytes: _, ...persistable } = settings;
+        localStorage.setItem('designer_proofing_settings', JSON.stringify(persistable));
     } catch (e) {
         console.warn('Failed to save proofing settings:', e);
     }

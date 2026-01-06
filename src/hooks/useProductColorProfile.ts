@@ -97,6 +97,22 @@ export function useProductColorProfile({
             // Convert Blob to ArrayBuffer
             const arrayBuffer = await fileData.arrayBuffer();
 
+            // Validate ICC Signature ('acsp' at offset 36)
+            if (arrayBuffer.byteLength < 128) {
+                console.warn('Downloaded ICC profile is too small:', arrayBuffer.byteLength);
+                throw new Error('Ugyldig farveprofil (filen er for lille)');
+            }
+
+            const view = new DataView(arrayBuffer);
+            const signature = view.getUint32(36, false); // Big endian
+            // 0x61637370 = 'acsp'
+            if (signature !== 0x61637370) {
+                console.warn('Invalid ICC signature:', signature.toString(16));
+                const text = new TextDecoder().decode(arrayBuffer.slice(0, 100)); // Peek content
+                console.warn('Content preview:', text);
+                throw new Error('Ugyldig farveprofil (forkert format)');
+            }
+
             setProfile({
                 id: (colorProfile as any).id,
                 name: (colorProfile as any).name,

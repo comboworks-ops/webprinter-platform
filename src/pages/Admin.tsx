@@ -32,6 +32,7 @@ import MasterTemplatesPage from '@/pages/admin/MasterTemplatesPage';
 import TenantTemplatesPage from '@/pages/admin/TenantTemplatesPage';
 import DesignerTemplateManager from '@/components/admin/DesignerTemplateManager';
 import ColorProfilesManager from '@/components/admin/ColorProfilesManager';
+import AdminCompanyHub from '@/pages/admin/AdminCompanyHub';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { supabase } from '@/integrations/supabase/client';
@@ -92,6 +93,7 @@ export default function Admin() {
                 <Route path="/create-product" element={<ProductCreator />} />
                 <Route path="/seo" element={<SeoManager />} />
                 <Route path="/kunder" element={<OrderManager />} />
+                <Route path="/companyhub" element={<AdminCompanyHub />} />
                 <Route path="/beskeder" element={<AdminMessages />} />
                 {/* Min Konto routes */}
                 <Route path="/domaene" element={<DomainSettings />} />

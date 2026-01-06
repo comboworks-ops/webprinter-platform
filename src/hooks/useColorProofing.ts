@@ -58,7 +58,9 @@ interface UseColorProofingReturn {
     hasCustomProfile: boolean;
     exportCMYK: (
         inputProfileUrl: string,
-        outputProfileUrl: string
+        outputProfileUrl: string,
+        outputProfileBytes?: ArrayBuffer | null,
+        cropRect?: { left: number; top: number; width: number; height: number }
     ) => Promise<{ cmykData: Uint8Array; proofedRgbDataUrl: string; width: number; height: number }>;
 }
 
@@ -76,15 +78,12 @@ export function useColorProofing({
 }: UseColorProofingOptions): UseColorProofingReturn {
     const [settings, setSettings] = useState<ProofingSettings>(() => {
         const base = loadProofingSettings();
-        if (customProfileId && customProfileBytes) {
-            return {
-                ...base,
-                customProfileId,
-                customProfileName,
-                customProfileBytes,
-            };
-        }
-        return base;
+        return {
+            ...base,
+            customProfileId: undefined,
+            customProfileName: undefined,
+            customProfileBytes: null,
+        };
     });
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -97,6 +96,22 @@ export function useColorProofing({
     const lastProcessedRef = useRef<string>('');
 
     const [worker, setWorker] = useState<Worker | null>(null);
+
+    // Sync props to settings
+    useEffect(() => {
+        if (customProfileId && customProfileBytes) {
+            setSettings(prev => ({
+                ...prev,
+                customProfileId,
+                customProfileName,
+                customProfileBytes,
+                // If the current profile is 'product' or matches this ID, ensure it's selected
+                outputProfileId: (prev.outputProfileId === 'product' || prev.outputProfileId === customProfileId)
+                    ? customProfileId
+                    : prev.outputProfileId
+            }));
+        }
+    }, [customProfileId, customProfileName, customProfileBytes]);
 
     // Create worker
     useEffect(() => {
@@ -125,7 +140,6 @@ export function useColorProofing({
                         const overlay = overlayCanvasRef.current;
                         const ctx = overlay.getContext('2d');
                         if (ctx) {
-                            // Overlay now covers only document area
                             overlay.width = docWidth;
                             overlay.height = docHeight;
                             const tempCanvas = document.createElement('canvas');
@@ -175,7 +189,7 @@ export function useColorProofing({
             console.error('Failed to create worker:', err);
             setError('Could not initialize color proofing');
         }
-    }, [canvasWidth, canvasHeight, overlayCanvasRef]);
+    }, [canvasWidth, canvasHeight, overlayCanvasRef, docWidth, docHeight]);
 
     // Initialize worker profiles
     useEffect(() => {
@@ -194,8 +208,16 @@ export function useColorProofing({
                 if (!outputRes.ok) throw new Error(`Kunne ikke hente output profil`);
                 const [inputBytes, outputBytes] = await Promise.all([
                     inputRes.arrayBuffer(),
-                    outputRes.arrayBuffer()
+                    (settings.customProfileId && settings.outputProfileId === settings.customProfileId && settings.customProfileBytes)
+                        ? Promise.resolve(settings.customProfileBytes.slice(0))
+                        : outputRes.arrayBuffer()
                 ]);
+
+                console.log(`[Hook] Profiles loaded: sRGB=${inputBytes.byteLength} bytes, Output=${outputBytes.byteLength} bytes`);
+                if (inputBytes.byteLength === 0 || outputBytes.byteLength === 0) {
+                    throw new Error(`Loaded profile is empty (sRGB: ${inputBytes.byteLength}, Output: ${outputBytes.byteLength})`);
+                }
+
                 worker.postMessage({
                     type: 'init',
                     id: 'init-profiles',
@@ -210,10 +232,22 @@ export function useColorProofing({
             }
         };
         if (worker) initWorkerProfiles();
-    }, [settings.outputProfileId, SRGB_PROFILE_URL, worker]);
+    }, [settings.outputProfileId, settings.customProfileBytes, SRGB_PROFILE_URL, worker]);
+
+    // Proof object reference to track the Fabric image on canvas
+    const proofObjectRef = useRef<fabric.Image | null>(null);
+
+    // Clean up proof object when unmounting or disabling
+    const clearProofObject = useCallback(() => {
+        if (fabricCanvas && proofObjectRef.current) {
+            fabricCanvas.remove(proofObjectRef.current);
+            proofObjectRef.current = null;
+            fabricCanvas.requestRenderAll();
+        }
+    }, [fabricCanvas]);
 
     // Capture and process canvas - only the document area (excluding pasteboard)
-    const processCanvas = useCallback(() => {
+    const processCanvas = useCallback(async () => {
         if (!fabricCanvas || !workerRef.current || !settings.enabled || !isWorkerReady) {
             if (overlayCanvasRef.current) {
                 const ctx = overlayCanvasRef.current.getContext('2d');
@@ -221,20 +255,30 @@ export function useColorProofing({
             }
             return;
         }
+
         try {
-            // @ts-ignore
-            const sourceCanvas = fabricCanvas.lowerCanvasEl || fabricCanvas.getElement();
+            // Use toDataURL to get a consistent snapshot of the document area, ignoring current viewport transform/zoom
+            const dataUrl = fabricCanvas.toDataURL({
+                format: 'png',
+                left: pasteboardOffset,
+                top: pasteboardOffset,
+                width: docWidth,
+                height: docHeight,
+                multiplier: 1,
+                withoutTransform: true
+            });
 
-            // Calculate the document area to capture (excluding pasteboard)
-            // The document starts at pasteboardOffset from canvas edge
-            const srcX = pasteboardOffset;
-            const srcY = pasteboardOffset;
-            const srcWidth = docWidth;
-            const srcHeight = docHeight;
+            // Load into an image for processing
+            const img = new Image();
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+                img.src = dataUrl;
+            });
 
-            // Scale down if too large for performance
-            let width = srcWidth;
-            let height = srcHeight;
+            // Scale down if too large for preview performance
+            let width = img.width;
+            let height = img.height;
             if (width > MAX_PREVIEW_DIMENSION || height > MAX_PREVIEW_DIMENSION) {
                 const scale = MAX_PREVIEW_DIMENSION / Math.max(width, height);
                 width = Math.round(width * scale);
@@ -247,13 +291,14 @@ export function useColorProofing({
             const ctx = offscreen.getContext('2d');
             if (!ctx) throw new Error('Could not get canvas context');
 
-            // Crop to document area only (excluding pasteboard)
-            ctx.drawImage(sourceCanvas, srcX, srcY, srcWidth, srcHeight, 0, 0, width, height);
+            // Draw the captured document image
+            ctx.drawImage(img, 0, 0, width, height);
 
             const imageData = ctx.getImageData(0, 0, width, height);
             const id = `transform-${++messageIdRef.current}`;
             lastProcessedRef.current = id;
             setIsProcessing(true);
+
             workerRef.current.postMessage({
                 type: 'transform',
                 id,
@@ -261,10 +306,10 @@ export function useColorProofing({
                 showGamutWarning: settings.showGamutWarning,
                 gamutWarningColor: '#00ff00',
             }, [imageData.data.buffer]);
+
         } catch (err) {
             console.error('Failed to process canvas:', err);
             setIsProcessing(false);
-            setError(err instanceof Error ? err.message : 'Processing failed');
         }
     }, [fabricCanvas, settings, overlayCanvasRef, isWorkerReady, docWidth, docHeight, pasteboardOffset]);
 
@@ -337,6 +382,14 @@ export function useColorProofing({
         saveProofingSettings(newSettings);
     }, [settings]);
 
+    // Migration: Reset removed profiles (fogra51, swop) to default
+    useEffect(() => {
+        if (settings.outputProfileId === 'fogra51' || settings.outputProfileId === 'swop') {
+            console.log('[Hook] Migrating from removed profile to default (fogra39)');
+            setOutputProfile('fogra39');
+        }
+    }, [settings.outputProfileId, setOutputProfile]);
+
     const setShowGamutWarning = useCallback((show: boolean) => {
         const newSettings = { ...settings, showGamutWarning: show };
         setSettings(newSettings);
@@ -344,15 +397,16 @@ export function useColorProofing({
     }, [settings]);
 
     const setCustomProfile = useCallback((id: string | undefined, name: string | undefined, bytes: ArrayBuffer | null) => {
-        const newSettings = { ...settings, customProfileId: id, customProfileName: name, customProfileBytes: bytes };
-        setSettings(newSettings);
-    }, [settings]);
+        setSettings(prev => ({ ...prev, customProfileId: id, customProfileName: name, customProfileBytes: bytes }));
+    }, []);
 
     const hasCustomProfile = Boolean(settings.customProfileId && settings.customProfileBytes);
 
     const exportCMYK = useCallback(async (
         inputProfileUrl: string,
-        outputProfileUrl: string
+        outputProfileUrl: string,
+        outputProfileBytes?: ArrayBuffer | null,
+        cropRect?: { left: number; top: number; width: number; height: number }
     ): Promise<{ cmykData: Uint8Array; proofedRgbDataUrl: string; width: number; height: number }> => {
         if (!fabricCanvas || !workerRef.current) throw new Error('Designer not ready');
 
@@ -363,11 +417,16 @@ export function useColorProofing({
         if (maxDocDimMm > 2000) targetDPI = 100;
         else if (maxDocDimMm > 1000) targetDPI = 150;
         let multiplier = targetDPI / 96;
-        const MAX_EXPORT_PIXELS = 8000;
+        const MAX_EXPORT_PIXELS = 10000;
         if (sourceCanvas.width * multiplier > MAX_EXPORT_PIXELS) multiplier = MAX_EXPORT_PIXELS / sourceCanvas.width;
         if (sourceCanvas.height * multiplier > MAX_EXPORT_PIXELS) multiplier = MAX_EXPORT_PIXELS / sourceCanvas.height;
 
-        const dataUrl = fabricCanvas.toDataURL({ multiplier, format: 'png' });
+        const dataUrl = fabricCanvas.toDataURL({
+            multiplier,
+            format: 'png',
+            ...(cropRect || {})
+        });
+
         const img = new Image();
         await new Promise((resolve) => { img.onload = resolve; img.src = dataUrl; });
         const canvas = document.createElement('canvas');
@@ -379,10 +438,18 @@ export function useColorProofing({
 
         let inputBytes: ArrayBuffer, outputBytes: ArrayBuffer;
         try {
-            [inputBytes, outputBytes] = await Promise.all([
-                fetch(inputProfileUrl).then(r => r.ok ? r.arrayBuffer() : Promise.reject('Input missing')),
-                fetch(outputProfileUrl).then(r => r.ok ? r.arrayBuffer() : Promise.reject('Output missing'))
-            ]);
+            const inputPromise = fetch(inputProfileUrl).then(r => r.ok ? r.arrayBuffer() : Promise.reject('Input missing'));
+
+            // Correct logic for choosing custom bytes in export
+            const isCustom = outputProfileBytes &&
+                settings.customProfileId &&
+                (settings.outputProfileId === settings.customProfileId);
+
+            const outputPromise = isCustom
+                ? Promise.resolve(outputProfileBytes!.slice(0))
+                : fetch(outputProfileUrl).then(r => r.ok ? r.arrayBuffer() : Promise.reject('Output missing'));
+
+            [inputBytes, outputBytes] = await Promise.all([inputPromise, outputPromise]);
         } catch (err) {
             console.warn('ICC Profiles missing, falling back to RGB export:', err);
             return { cmykData: new Uint8Array(0), proofedRgbDataUrl: dataUrl, width: img.width, height: img.height };
@@ -411,7 +478,7 @@ export function useColorProofing({
                 id, imageData, inputProfileData: inputBytes, outputProfileData: outputBytes
             }, [imageData.data.buffer, inputBytes, outputBytes]);
         });
-    }, [fabricCanvas, canvasWidth, canvasHeight]);
+    }, [fabricCanvas, canvasWidth, canvasHeight, settings.customProfileId, settings.outputProfileId]);
 
     return {
         settings, isProcessing, error, setEnabled, setOutputProfile, setShowGamutWarning,
