@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Upload, AlertCircle, CheckCircle2, FileText, ArrowRight, Download, Info, Zap, Sparkles, Package } from "lucide-react";
+import { Loader2, Upload, AlertCircle, CheckCircle2, FileText, ArrowRight, Download, Info, Zap, Sparkles, Package, X } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { PreflightGuide } from "@/components/product-price-page/PreflightGuide";
+import { StripePaymentForm } from "@/components/checkout/StripePaymentForm";
 import {
     getFlyerMatrixDataFromDB,
     getFolderMatrixDataFromDB,
@@ -89,6 +90,11 @@ const FileUploadConfiguration = () => {
     const [matrix, setMatrix] = useState<{ rows: string[], columns: number[], cells: any } | null>(null);
     const [upsellOptions, setUpsellOptions] = useState<{ quantity: number, price: number, savingPercent: number }[]>([]);
 
+    // Stripe payment state
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null);
+    const [paymentSuccess, setPaymentSuccess] = useState(false);
+
     const fileInputRef = useRef<HTMLInputElement>(null);
     const handleBackToConfiguration = () => {
         if (window.history.length > 1) {
@@ -122,6 +128,7 @@ const FileUploadConfiguration = () => {
                     metadata: {
                         product_id: state?.productId || "",
                         product_slug: state?.productSlug || "",
+                        uploaded_file: uploadedFile?.path || "",
                     },
                 },
             });
@@ -129,7 +136,8 @@ const FileUploadConfiguration = () => {
             if (error) throw error;
 
             if (data?.client_secret) {
-                toast.success("Betaling klargjort.");
+                setPaymentClientSecret(data.client_secret);
+                setShowPaymentModal(true);
             } else {
                 toast.error("Kunne ikke oprette betaling.");
             }
@@ -139,6 +147,19 @@ const FileUploadConfiguration = () => {
         } finally {
             setPaymentLoading(false);
         }
+    };
+
+    const handlePaymentSuccess = (paymentIntentId: string) => {
+        setPaymentSuccess(true);
+        setShowPaymentModal(false);
+        toast.success("Din ordre er modtaget! Vi sender en bekræftelse på email.");
+        // TODO: Create order record in database
+        console.log("Payment successful:", paymentIntentId);
+    };
+
+    const handlePaymentCancel = () => {
+        setShowPaymentModal(false);
+        setPaymentClientSecret(null);
     };
 
     // Resolve specs: prefer standard lookup if state.selectedFormat exists, otherwise use product metadata
@@ -794,6 +815,51 @@ const FileUploadConfiguration = () => {
                 </div>
             </main>
             <Footer />
+
+            {/* Payment Modal Overlay */}
+            {showPaymentModal && paymentClientSecret && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <div className="relative w-full max-w-md animate-in fade-in zoom-in duration-200">
+                        <button
+                            onClick={handlePaymentCancel}
+                            className="absolute -top-12 right-0 text-white hover:text-white/80 transition-colors"
+                        >
+                            <X className="h-6 w-6" />
+                        </button>
+                        <StripePaymentForm
+                            clientSecret={paymentClientSecret}
+                            amount={orderPrice + (state?.shippingCost || 0)}
+                            currency="dkk"
+                            onSuccess={handlePaymentSuccess}
+                            onCancel={handlePaymentCancel}
+                            connectedAccountId={tenantPaymentStatus?.stripe_account_id}
+                        />
+                    </div>
+                </div>
+            )}
+
+            {/* Payment Success Overlay */}
+            {paymentSuccess && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <Card className="w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <CardContent className="pt-8 pb-8 text-center">
+                            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <CheckCircle2 className="w-12 h-12 text-green-600" />
+                            </div>
+                            <h2 className="text-2xl font-bold text-green-800 mb-2">
+                                Tak for din ordre!
+                            </h2>
+                            <p className="text-muted-foreground mb-6">
+                                Vi har modtaget din betaling og begynder at behandle din ordre.
+                                Du modtager snart en bekræftelse på email.
+                            </p>
+                            <Button onClick={() => navigate("/")} className="w-full">
+                                Tilbage til forsiden
+                            </Button>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
         </div>
     );
 };
