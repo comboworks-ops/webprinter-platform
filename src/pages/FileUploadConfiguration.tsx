@@ -754,6 +754,7 @@ const FileUploadConfiguration = () => {
                                     </div>
 
                                     {paymentStatusLoaded &&
+                                        !shopSettings.data?.is_platform_owned &&
                                         (!tenantPaymentStatus ||
                                             !tenantPaymentStatus.stripe_account_id ||
                                             !tenantPaymentStatus.charges_enabled ||

@@ -43,7 +43,8 @@ function normalizeSettings(tenant: any): any {
         _rawBranding: settings.branding,
         tenant_name: tenant?.name,
         id: tenant?.id,
-        subdomain: tenant?.subdomain
+        subdomain: tenant?.subdomain,
+        is_platform_owned: tenant?.is_platform_owned ?? false
     };
 }
 
