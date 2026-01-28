@@ -2519,6 +2519,7 @@ export function ProductPriceManager() {
 
         <TabsContent value="tooltips" className="space-y-6">
           <VisualTooltipDesigner
+            productId={product.id}
             productName={editedName || product.name}
             productImage={product.image_url || undefined}
             tooltips={(product.banner_config as any)?.visual_tooltips || []}

@@ -2,30 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Info, MousePointer2 } from "lucide-react";
-import { ProductPagePreview, type TooltipConfig, ANCHOR_ZONES } from "./ProductPagePreview";
+import { ProductPagePreview, type TooltipConfig, type AnchorZone, ANCHOR_ZONES } from "./ProductPagePreview";
 import { TooltipEditor } from "./TooltipEditor";
 
 interface VisualTooltipDesignerProps {
+    productId: string;
     productName?: string;
     productImage?: string;
     tooltips: TooltipConfig[];
     onTooltipsChange: (tooltips: TooltipConfig[]) => void;
-    formats?: { id: string; label: string }[];
-    materials?: { id: string; label: string }[];
-    quantities?: number[];
 }
 
 export function VisualTooltipDesigner({
+    productId,
     productName,
     productImage,
     tooltips,
     onTooltipsChange,
-    formats,
-    materials,
-    quantities
 }: VisualTooltipDesignerProps) {
     const [selectedAnchor, setSelectedAnchor] = useState<string | null>(null);
     const [hoveredAnchor, setHoveredAnchor] = useState<string | null>(null);
+    const [availableAnchors, setAvailableAnchors] = useState<AnchorZone[]>(ANCHOR_ZONES);
 
     const handleAnchorClick = (anchorId: string) => {
         setSelectedAnchor(anchorId);
@@ -85,17 +82,16 @@ export function VisualTooltipDesigner({
                         Hover over områder for at se anchor-punkter
                     </div>
                     <ProductPagePreview
+                        productId={productId}
                         productName={productName}
                         productImage={productImage}
-                        formats={formats}
-                        materials={materials}
-                        quantities={quantities}
                         tooltips={tooltips}
                         selectedAnchor={selectedAnchor}
                         hoveredAnchor={hoveredAnchor}
                         onAnchorClick={handleAnchorClick}
                         onAnchorHover={setHoveredAnchor}
                         isEditMode={true}
+                        onAnchorsLoaded={setAvailableAnchors}
                     />
                 </div>
 
@@ -127,7 +123,7 @@ export function VisualTooltipDesigner({
                     <CardContent>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                             {tooltips.map((tooltip) => {
-                                const zone = ANCHOR_ZONES.find(z => z.id === tooltip.anchor);
+                                const zone = availableAnchors.find(z => z.id === tooltip.anchor);
                                 return (
                                     <div
                                         key={tooltip.anchor}
