@@ -23,6 +23,8 @@ import { BulkCSVImport } from "./BulkCSVImport";
 import { BulkCSVExport } from "./BulkCSVExport";
 import { BulkCSVTools } from "./BulkCSVTools";
 import { ProductTooltipEditor } from "./ProductTooltipEditor";
+import { VisualTooltipDesigner } from "./VisualTooltipDesigner";
+import { type TooltipConfig } from "./ProductPagePreview";
 import { PriceHierarchyFilter } from "./PriceHierarchyFilter";
 import { OptionGroupManager } from "./OptionGroupManager";
 import { resolveAdminTenant } from "@/lib/adminTenant";
@@ -2516,13 +2518,34 @@ export function ProductPriceManager() {
         </TabsContent>
 
         <TabsContent value="tooltips" className="space-y-6">
-          <ProductTooltipEditor
-            productId={product.id}
-            tooltipProduct={product.tooltip_product}
-            tooltipPrice={product.tooltip_price}
-            tooltipQuickTilbud={product.tooltip_quick_tilbud}
-            onUpdate={fetchProduct}
+          <VisualTooltipDesigner
+            productName={editedName || product.name}
+            productImage={product.image_url || undefined}
+            tooltips={(product.banner_config as any)?.visual_tooltips || []}
+            onTooltipsChange={(tooltips: TooltipConfig[]) => {
+              // Save tooltips to banner_config
+              const currentConfig = (product.banner_config as any) || {};
+              const newConfig = { ...currentConfig, visual_tooltips: tooltips };
+              supabase
+                .from('products' as any)
+                .update({ banner_config: newConfig })
+                .eq('id', product.id)
+                .then(() => {
+                  fetchProduct();
+                  toast.success("Tooltips gemt");
+                });
+            }}
           />
+          <div className="border-t pt-6 mt-6">
+            <h4 className="text-sm font-medium mb-4 text-muted-foreground">Legacy Tooltips (Tekst)</h4>
+            <ProductTooltipEditor
+              productId={product.id}
+              tooltipProduct={product.tooltip_product}
+              tooltipPrice={product.tooltip_price}
+              tooltipQuickTilbud={product.tooltip_quick_tilbud}
+              onUpdate={fetchProduct}
+            />
+          </div>
         </TabsContent>
 
         <TabsContent value="about">
