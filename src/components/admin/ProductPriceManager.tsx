@@ -285,6 +285,9 @@ export function ProductPriceManager() {
   const [activeConfigSection, setActiveConfigSection] = useState<"format" | "storformat" | "machine" | null>(null);
 
   const [editedPriceFrom, setEditedPriceFrom] = useState("");
+  const [editedPromoPrice, setEditedPromoPrice] = useState("");
+  const [editedOriginalPrice, setEditedOriginalPrice] = useState("");
+  const [editedShowSavingsBadge, setEditedShowSavingsBadge] = useState(false);
   const [editedWidth, setEditedWidth] = useState("");
   const [editedHeight, setEditedHeight] = useState("");
   const [editedBleed, setEditedBleed] = useState("3");
@@ -510,6 +513,9 @@ export function ProductPriceManager() {
       setEditedPriceFont(bc.price_font || "inherit");
       setEditedHoverImageUrl(bc.hover_image_url || null);
       setEditedSpecialBadge(bc.special_badge || undefined);
+      setEditedPromoPrice(bc.promo_price?.toString() || "");
+      setEditedOriginalPrice(bc.original_price?.toString() || "");
+      setEditedShowSavingsBadge(bc.show_savings_badge || false);
       const sectionThumbs = (bc.config_section_thumbs as any) || {};
       setConfigSectionThumbs({
         format: sectionThumbs.format || null,
@@ -847,6 +853,9 @@ export function ProductPriceManager() {
         banner_config: {
           ...currentConfig,
           price_from: parseFloat(editedPriceFrom) || null,
+          promo_price: parseFloat(editedPromoPrice) || null,
+          original_price: parseFloat(editedOriginalPrice) || null,
+          show_savings_badge: editedShowSavingsBadge,
           price_color: editedPriceColor,
           price_bg_color: editedPriceBgColor,
           price_bg_enabled: editedPriceBgEnabled,
@@ -2550,241 +2559,299 @@ export function ProductPriceManager() {
             </Card>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-            {/* Sektion 1 (Was Section 2): Forside Information */}
-            <div className="space-y-3">
-              <Card>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-md font-medium flex items-center gap-2">
-                      <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span>
-                      Forside Produkter
-                    </CardTitle>
-                    {/* Preset Info Badge */}
-                    {(product as any).preset_key && (product as any).preset_key !== 'custom' && (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded">
-                        <span>Skabelon:</span>
-                        <span className="font-medium text-foreground">
-                          {getPresetLabel((product as any).preset_key)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
-                    {/* Left Column: Inputs */}
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                          <Label htmlFor="product-icon-text" className="text-xs">Ikon-tekst (forside)</Label>
-                          <Input
-                            id="product-icon-text"
-                            value={editedIconText}
-                            onChange={(e) => handleProductIconTextChange(e.target.value)}
-                            placeholder="Kort navn til produktkort"
-                            className="h-9"
-                          />
-                          <p className="text-[10px] text-muted-foreground">Vises på produktkort i oversigter.</p>
+              {/* Sektion 1 (Was Section 2): Forside Information */}
+              <div className="space-y-3">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-md font-medium flex items-center gap-2">
+                        <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span>
+                        Forside Produkter
+                      </CardTitle>
+                      {/* Preset Info Badge */}
+                      {(product as any).preset_key && (product as any).preset_key !== 'custom' && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded">
+                          <span>Skabelon:</span>
+                          <span className="font-medium text-foreground">
+                            {getPresetLabel((product as any).preset_key)}
+                          </span>
                         </div>
-
-                        <div className="space-y-1.5">
-                          <Label htmlFor="product-price-from" className="text-xs">Fra-pris & Udseende</Label>
-                          <div className="flex gap-2 items-center">
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                      {/* Left Column: Inputs */}
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <Label htmlFor="product-icon-text" className="text-xs">Ikon-tekst (forside)</Label>
                             <Input
-                              id="product-price-from"
-                              type="number"
-                              value={editedPriceFrom}
-                              onChange={(e) => {
-                                setEditedPriceFrom(e.target.value);
-                                setHasProductEdits(true);
-                              }}
-                              placeholder="395"
-                              className="h-9 w-32"
+                              id="product-icon-text"
+                              value={editedIconText}
+                              onChange={(e) => handleProductIconTextChange(e.target.value)}
+                              placeholder="Kort navn til produktkort"
+                              className="h-9"
                             />
+                            <p className="text-[10px] text-muted-foreground">Vises på produktkort i oversigter.</p>
+                          </div>
 
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" title="Tilpas Udseende">
-                                  <Palette className="h-4 w-4" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-80" align="start">
-                                <div className="space-y-4">
-                                  <h4 className="font-medium text-sm border-b pb-2">Pris-udseende & Farver</h4>
-                                  <div className="space-y-3">
-                                    {/* Font Family Selection */}
-                                    <FontSelector
-                                      label="Skrifttype"
-                                      value={editedPriceFont}
-                                      onChange={(val) => {
-                                        setEditedPriceFont(val);
-                                        setHasProductEdits(true);
-                                      }}
-                                      inline
-                                    />
+                          <div className="space-y-1.5">
+                            <Label htmlFor="product-price-from" className="text-xs">Fra-pris & Udseende</Label>
+                            <div className="flex gap-2 items-center">
+                              <Input
+                                id="product-price-from"
+                                type="number"
+                                value={editedPriceFrom}
+                                onChange={(e) => {
+                                  setEditedPriceFrom(e.target.value);
+                                  setHasProductEdits(true);
+                                }}
+                                placeholder="395"
+                                className="h-9 w-32"
+                              />
 
-                                    <div className="h-px bg-border/50 my-2" />
-
-                                    {/* Text Color */}
-                                    <ColorPickerWithSwatches
-                                      label="Tekstfarve (Pris)"
-                                      value={editedPriceColor}
-                                      onChange={(c) => {
-                                        setEditedPriceColor(c);
-                                        setHasProductEdits(true);
-                                      }}
-                                      inline
-                                    />
-
-                                    <div className="h-px bg-border/50 my-2" />
-
-                                    {/* Background Toggle & Color */}
-                                    <div className="flex items-center justify-between">
-                                      <Label htmlFor="bg-toggle" className="text-xs font-medium cursor-pointer">Vis farvet boks</Label>
-                                      <Switch
-                                        id="bg-toggle"
-                                        checked={editedPriceBgEnabled}
-                                        onCheckedChange={(checked) => {
-                                          setEditedPriceBgEnabled(checked);
-                                          setHasProductEdits(true);
-                                        }}
-                                      />
-                                    </div>
-
-                                    {editedPriceBgEnabled && (
-                                      <ColorPickerWithSwatches
-                                        label="Baggrundsfarve"
-                                        value={editedPriceBgColor}
-                                        onChange={(c) => {
-                                          setEditedPriceBgColor(c);
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" title="Tilpas Udseende">
+                                    <Palette className="h-4 w-4" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-80" align="start">
+                                  <div className="space-y-4">
+                                    <h4 className="font-medium text-sm border-b pb-2">Pris-udseende & Farver</h4>
+                                    <div className="space-y-3">
+                                      {/* Font Family Selection */}
+                                      <FontSelector
+                                        label="Skrifttype"
+                                        value={editedPriceFont}
+                                        onChange={(val) => {
+                                          setEditedPriceFont(val);
                                           setHasProductEdits(true);
                                         }}
                                         inline
                                       />
-                                    )}
+
+                                      <div className="h-px bg-border/50 my-2" />
+
+                                      {/* Text Color */}
+                                      <ColorPickerWithSwatches
+                                        label="Tekstfarve (Pris)"
+                                        value={editedPriceColor}
+                                        onChange={(c) => {
+                                          setEditedPriceColor(c);
+                                          setHasProductEdits(true);
+                                        }}
+                                        inline
+                                      />
+
+                                      <div className="h-px bg-border/50 my-2" />
+
+                                      {/* Background Toggle & Color */}
+                                      <div className="flex items-center justify-between">
+                                        <Label htmlFor="bg-toggle" className="text-xs font-medium cursor-pointer">Vis farvet boks</Label>
+                                        <Switch
+                                          id="bg-toggle"
+                                          checked={editedPriceBgEnabled}
+                                          onCheckedChange={(checked) => {
+                                            setEditedPriceBgEnabled(checked);
+                                            setHasProductEdits(true);
+                                          }}
+                                        />
+                                      </div>
+
+                                      {editedPriceBgEnabled && (
+                                        <ColorPickerWithSwatches
+                                          label="Baggrundsfarve"
+                                          value={editedPriceBgColor}
+                                          onChange={(c) => {
+                                            setEditedPriceBgColor(c);
+                                            setHasProductEdits(true);
+                                          }}
+                                          inline
+                                        />
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                              </PopoverContent>
-                            </Popover>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">Vises som "Fra X,-"</p>
                           </div>
-                          <p className="text-[10px] text-muted-foreground">Vises som "Fra X,-"</p>
                         </div>
-                      </div>
 
-                      {/* Description */}
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between items-center">
-                          <Label htmlFor="product-description" className="text-xs">Kort beskrivelse (Max 50 tegn anbefales)</Label>
-                          <span className={`text-[10px] ${editedDescription.length > 60 ? 'text-red-500 font-bold' : 'text-muted-foreground'}`}>
-                            {editedDescription.length} tegn
-                          </span>
+                        {/* Promotional Pricing Section */}
+                        <div className="space-y-1.5 pt-3 border-t">
+                          <Label className="text-xs font-medium">Kampagnepris</Label>
+                          <p className="text-[10px] text-muted-foreground mb-2">Vis tilbudspris med overstreget originalpris og besparelse.</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label htmlFor="original-price" className="text-[10px] text-muted-foreground">Original pris (kr)</Label>
+                              <Input
+                                id="original-price"
+                                type="number"
+                                value={editedOriginalPrice}
+                                onChange={(e) => {
+                                  setEditedOriginalPrice(e.target.value);
+                                  setHasProductEdits(true);
+                                }}
+                                placeholder="399"
+                                className="h-9"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor="promo-price" className="text-[10px] text-muted-foreground">Kampagnepris (kr)</Label>
+                              <Input
+                                id="promo-price"
+                                type="number"
+                                value={editedPromoPrice}
+                                onChange={(e) => {
+                                  setEditedPromoPrice(e.target.value);
+                                  setHasProductEdits(true);
+                                }}
+                                placeholder="199"
+                                className="h-9"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between pt-2">
+                            <Label htmlFor="savings-badge" className="text-xs cursor-pointer">Vis "SPAR X%" badge</Label>
+                            <Switch
+                              id="savings-badge"
+                              checked={editedShowSavingsBadge}
+                              onCheckedChange={(checked) => {
+                                setEditedShowSavingsBadge(checked);
+                                setHasProductEdits(true);
+                              }}
+                            />
+                          </div>
+                          {editedPromoPrice && editedOriginalPrice && parseFloat(editedOriginalPrice) > parseFloat(editedPromoPrice) && (
+                            <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-950/30 rounded-md mt-2">
+                              <span className="text-sm text-muted-foreground line-through">{editedOriginalPrice} kr</span>
+                              <span className="text-sm font-bold text-green-600 dark:text-green-400">{editedPromoPrice} kr</span>
+                              {editedShowSavingsBadge && (
+                                <span className="text-xs font-bold text-white bg-green-500 px-2 py-0.5 rounded-full">
+                                  SPAR {Math.round((1 - parseFloat(editedPromoPrice) / parseFloat(editedOriginalPrice)) * 100)}%
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <Textarea
-                          id="product-description"
-                          value={editedDescription}
-                          onChange={(e) => handleProductDescriptionChange(e.target.value)}
-                          placeholder="Kort tekst til produktoversigter..."
-                          className="min-h-[80px] text-sm resize-none"
-                          rows={3}
+
+                        {/* Description */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between items-center">
+                            <Label htmlFor="product-description" className="text-xs">Kort beskrivelse (Max 50 tegn anbefales)</Label>
+                            <span className={`text-[10px] ${editedDescription.length > 60 ? 'text-red-500 font-bold' : 'text-muted-foreground'}`}>
+                              {editedDescription.length} tegn
+                            </span>
+                          </div>
+                          <Textarea
+                            id="product-description"
+                            value={editedDescription}
+                            onChange={(e) => handleProductDescriptionChange(e.target.value)}
+                            placeholder="Kort tekst til produktoversigter..."
+                            className="min-h-[80px] text-sm resize-none"
+                            rows={3}
+                          />
+                          {editedDescription.length > 60 && (
+                            <p className="text-[10px] text-red-500 animate-pulse">
+                              Beskrivelsen er lidt lang. Hold den kort for bedste visning.
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Image Uploads */}
+                        <div className="bg-muted/10 p-3 rounded-md border space-y-4">
+                          <div>
+                            <ProductImageUpload
+                              productId={product.id}
+                              currentImageUrl={product.image_url}
+                              onImageUpdate={handleImageUpdate}
+                              label="Forside Ikon / Billede"
+                            />
+                          </div>
+                          <div className="pt-2 border-t">
+                            <ProductImageUpload
+                              productId={product.id}
+                              currentImageUrl={editedHoverImageUrl}
+                              onImageUpdate={(url) => setEditedHoverImageUrl(url)}
+                              onUploadComplete={handleHoverImageUpdate}
+                              label="Mouseover Billede (Brugereffekt)"
+                            />
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Vises når musen holdes over produktkortet. Valgfrit.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Special Badge Editor */}
+                        <SpecialBadgeEditor
+                          value={editedSpecialBadge}
+                          onChange={(config) => {
+                            setEditedSpecialBadge(config);
+                            setHasProductEdits(true);
+                          }}
                         />
-                        {editedDescription.length > 60 && (
-                          <p className="text-[10px] text-red-500 animate-pulse">
-                            Beskrivelsen er lidt lang. Hold den kort for bedste visning.
-                          </p>
-                        )}
+
                       </div>
 
-                      {/* Image Uploads */}
-                      <div className="bg-muted/10 p-3 rounded-md border space-y-4">
-                        <div>
-                          <ProductImageUpload
-                            productId={product.id}
-                            currentImageUrl={product.image_url}
-                            onImageUpdate={handleImageUpdate}
-                            label="Forside Ikon / Billede"
-                          />
+                      {/* Right Column: Preview */}
+                      <div className="bg-gray-50/50 p-6 rounded-xl border border-dashed flex flex-col items-center justify-center min-h-[300px]">
+                        <ProductPreviewCard
+                          name={editedIconText || editedName}
+                          priceFrom={editedPriceFrom}
+                          description={editedDescription}
+                          imageUrl={product.image_url}
+                          priceColor={editedPriceColor}
+                          priceBgColor={editedPriceBgColor}
+                          priceBgEnabled={editedPriceBgEnabled}
+                          priceFont={editedPriceFont}
+                          hoverImageUrl={editedHoverImageUrl}
+                          specialBadge={editedSpecialBadge}
+                        />
+                        <div className="pt-4 w-full">
+                          <Button
+                            onClick={() => handleSaveProductDetails()}
+                            size="sm"
+                            disabled={!hasProductEdits || saving}
+                            className="w-full"
+                          >
+                            {saving ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Save className="mr-2 h-3 w-3" />}
+                            Gem Forside Info
+                          </Button>
                         </div>
-                        <div className="pt-2 border-t">
-                          <ProductImageUpload
-                            productId={product.id}
-                            currentImageUrl={editedHoverImageUrl}
-                            onImageUpdate={(url) => setEditedHoverImageUrl(url)}
-                            onUploadComplete={handleHoverImageUpdate}
-                            label="Mouseover Billede (Brugereffekt)"
-                          />
-                          <p className="text-[10px] text-muted-foreground mt-1">
-                            Vises når musen holdes over produktkortet. Valgfrit.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Special Badge Editor */}
-                      <SpecialBadgeEditor
-                        value={editedSpecialBadge}
-                        onChange={(config) => {
-                          setEditedSpecialBadge(config);
-                          setHasProductEdits(true);
-                        }}
-                      />
-
-                    </div>
-
-                    {/* Right Column: Preview */}
-                    <div className="bg-gray-50/50 p-6 rounded-xl border border-dashed flex flex-col items-center justify-center min-h-[300px]">
-                      <ProductPreviewCard
-                        name={editedIconText || editedName}
-                        priceFrom={editedPriceFrom}
-                        description={editedDescription}
-                        imageUrl={product.image_url}
-                        priceColor={editedPriceColor}
-                        priceBgColor={editedPriceBgColor}
-                        priceBgEnabled={editedPriceBgEnabled}
-                        priceFont={editedPriceFont}
-                        hoverImageUrl={editedHoverImageUrl}
-                        specialBadge={editedSpecialBadge}
-                      />
-                      <div className="pt-4 w-full">
-                        <Button
-                          onClick={() => handleSaveProductDetails()}
-                          size="sm"
-                          disabled={!hasProductEdits || saving}
-                          className="w-full"
-                        >
-                          {saving ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Save className="mr-2 h-3 w-3" />}
-                          Gem Forside Info
-                        </Button>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                  </CardContent>
+                </Card>
+              </div>
 
-            {/* Sektion 2 (Was Section 1): Produktside Information */}
-            <div className="space-y-3">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-md font-medium flex items-center gap-2">
-                    <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">2</span>
-                    Produktside Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ProductAboutSection
-                    productId={product.id}
-                    productSlug={product.slug}
-                    aboutTitle={product.about_title}
-                    aboutDescription={product.about_description}
-                    aboutImageUrl={product.about_image_url}
-                    templateFiles={product.template_files}
-                    technicalSpecs={product.technical_specs}
-                    onUpdate={fetchProduct}
-                  />
-                </CardContent>
-              </Card>
+              {/* Sektion 2 (Was Section 1): Produktside Information */}
+              <div className="space-y-3">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-md font-medium flex items-center gap-2">
+                      <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">2</span>
+                      Produktside Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ProductAboutSection
+                      productId={product.id}
+                      productSlug={product.slug}
+                      aboutTitle={product.about_title}
+                      aboutDescription={product.about_description}
+                      aboutImageUrl={product.about_image_url}
+                      templateFiles={product.template_files}
+                      technicalSpecs={product.technical_specs}
+                      onUpdate={fetchProduct}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           </div>
-        </div>
         </TabsContent>
 
         <TabsContent value="machine" className="space-y-6">

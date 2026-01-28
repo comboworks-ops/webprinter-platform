@@ -262,24 +262,57 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
                     </CardHeader>
                     <CardContent className={cn("px-4 pb-3", isSlimLayout && "pt-0 px-5 pb-3")}>
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {(() => {
                             const priceColor = (product.banner_config as any)?.price_color || 'var(--pricing-text)';
                             const priceBgColor = (product.banner_config as any)?.price_bg_color;
                             const bgEnabled = (product.banner_config as any)?.price_bg_enabled;
                             const priceFont = (product.banner_config as any)?.price_font || 'inherit';
+                            const promoPrice = (product.banner_config as any)?.promo_price;
+                            const originalPrice = (product.banner_config as any)?.original_price;
+                            const showSavingsBadge = (product.banner_config as any)?.show_savings_badge;
+                            const hasPromo = promoPrice && originalPrice && originalPrice > promoPrice;
+                            const savingsPercent = hasPromo ? Math.round((1 - promoPrice / originalPrice) * 100) : 0;
 
                             return (
-                              <p
-                                className={`text-2xl font-extrabold ${bgEnabled ? 'px-2 py-1 rounded-md' : ''}`}
-                                style={{
-                                  color: priceColor,
-                                  backgroundColor: bgEnabled ? priceBgColor : 'transparent',
-                                  fontFamily: priceFont !== 'inherit' ? priceFont : undefined
-                                }}
-                              >
-                                {product.displayPrice || "Se priser"}
-                              </p>
+                              <>
+                                {hasPromo ? (
+                                  <>
+                                    {/* Original price with strikethrough */}
+                                    <span className="text-base text-muted-foreground line-through">
+                                      {originalPrice} kr
+                                    </span>
+                                    {/* Promo price */}
+                                    <p
+                                      className={`text-2xl font-extrabold ${bgEnabled ? 'px-2 py-1 rounded-md' : ''}`}
+                                      style={{
+                                        color: priceColor,
+                                        backgroundColor: bgEnabled ? priceBgColor : 'transparent',
+                                        fontFamily: priceFont !== 'inherit' ? priceFont : undefined
+                                      }}
+                                    >
+                                      {promoPrice} kr
+                                    </p>
+                                    {/* Savings badge */}
+                                    {showSavingsBadge && (
+                                      <span className="text-xs font-bold text-white bg-green-500 px-2 py-1 rounded-full animate-pulse">
+                                        SPAR {savingsPercent}%
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <p
+                                    className={`text-2xl font-extrabold ${bgEnabled ? 'px-2 py-1 rounded-md' : ''}`}
+                                    style={{
+                                      color: priceColor,
+                                      backgroundColor: bgEnabled ? priceBgColor : 'transparent',
+                                      fontFamily: priceFont !== 'inherit' ? priceFont : undefined
+                                    }}
+                                  >
+                                    {product.displayPrice || "Se priser"}
+                                  </p>
+                                )}
+                              </>
                             );
                           })()}
                           {product.tooltip_price && (
@@ -295,45 +328,45 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
                       </div>
                     </CardContent>
                     {effectiveButtonStyle !== "hidden" && (
-                    <CardFooter
-                      className={cn(
-                        "gap-2",
-                        effectiveButtonStyle === "bar"
-                          ? "px-0 pb-0 mt-auto w-full overflow-hidden rounded-b-lg"
-                          : isSlimLayout
-                            ? "px-5 pb-3 mt-auto"
-                            : "px-4 pb-4 mt-auto",
-                        isSlimLayout
-                          ? "justify-end"
-                          : effectiveButtonStyle === "center"
-                            ? "justify-center mt-auto"
-                            : "justify-end"
-                      )}
-                    >
-                      <Button
-                        size={effectiveButtonStyle === "center" ? "lg" : "sm"}
-                        variant="ghost"
+                      <CardFooter
                         className={cn(
-                          "transition-all font-semibold",
-                          "bg-[var(--btn-bg)] text-[var(--btn-text)] hover:bg-[var(--btn-hover-bg)] hover:text-[var(--btn-hover-text)]",
-                          effectiveButtonStyle === "bar" ? "w-full rounded-none py-5" : "px-4",
-                          effectiveButtonStyle === "center" ? "min-w-[220px] py-5" : "",
-                          isSlimLayout ? "h-8 px-3 text-xs" : "",
-                          buttonAnimationClass
+                          "gap-2",
+                          effectiveButtonStyle === "bar"
+                            ? "px-0 pb-0 mt-auto w-full overflow-hidden rounded-b-lg"
+                            : isSlimLayout
+                              ? "px-5 pb-3 mt-auto"
+                              : "px-4 pb-4 mt-auto",
+                          isSlimLayout
+                            ? "justify-end"
+                            : effectiveButtonStyle === "center"
+                              ? "justify-center mt-auto"
+                              : "justify-end"
                         )}
-                        style={{
-                          ["--btn-bg" as any]: buttonStyles.bgColor,
-                          ["--btn-hover-bg" as any]: buttonStyles.hoverBgColor,
-                          ["--btn-text" as any]: buttonStyles.textColor,
-                          ["--btn-hover-text" as any]: buttonStyles.hoverTextColor,
-                          fontFamily: `'${buttonStyles.font}', sans-serif`,
-                        }}
-                        asChild
                       >
-                        <Link to={`/produkt/${product.slug}`}>Priser</Link>
-                      </Button>
-                    </CardFooter>
-                  )}
+                        <Button
+                          size={effectiveButtonStyle === "center" ? "lg" : "sm"}
+                          variant="ghost"
+                          className={cn(
+                            "transition-all font-semibold",
+                            "bg-[var(--btn-bg)] text-[var(--btn-text)] hover:bg-[var(--btn-hover-bg)] hover:text-[var(--btn-hover-text)]",
+                            effectiveButtonStyle === "bar" ? "w-full rounded-none py-5" : "px-4",
+                            effectiveButtonStyle === "center" ? "min-w-[220px] py-5" : "",
+                            isSlimLayout ? "h-8 px-3 text-xs" : "",
+                            buttonAnimationClass
+                          )}
+                          style={{
+                            ["--btn-bg" as any]: buttonStyles.bgColor,
+                            ["--btn-hover-bg" as any]: buttonStyles.hoverBgColor,
+                            ["--btn-text" as any]: buttonStyles.textColor,
+                            ["--btn-hover-text" as any]: buttonStyles.hoverTextColor,
+                            fontFamily: `'${buttonStyles.font}', sans-serif`,
+                          }}
+                          asChild
+                        >
+                          <Link to={`/produkt/${product.slug}`}>Priser</Link>
+                        </Button>
+                      </CardFooter>
+                    )}
 
                   </Card>
                 </TooltipTrigger>
