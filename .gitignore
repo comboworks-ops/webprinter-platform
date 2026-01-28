@@ -41,6 +41,9 @@ dist-ssr
 !tsconfig.app.json
 !tsconfig.node.json
 !postcss.config.js
+!vercel.json
+!components.json
+!eslint.config.js
 !supabase/migrations/*.sql
 !supabase/functions/**
 !docs/*.md
