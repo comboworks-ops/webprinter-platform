@@ -11,9 +11,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, CreditCard, Lock, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
-const stripePromise = loadStripe(
-    import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || ""
-);
+// Lazy load Stripe only when needed to avoid crashing if env var is missing
+let stripePromise: ReturnType<typeof loadStripe> | null = null;
+function getStripePromise() {
+    const key = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+    if (!key) {
+        console.warn("Stripe publishable key not configured");
+        return null;
+    }
+    if (!stripePromise) {
+        stripePromise = loadStripe(key);
+    }
+    return stripePromise;
+}
 
 interface PaymentFormProps {
     clientSecret: string;
@@ -147,6 +157,21 @@ export function StripePaymentForm({
     onCancel,
     connectedAccountId,
 }: PaymentFormProps) {
+    const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+
+    // If no Stripe key is configured, show a message instead of crashing
+    if (!stripeKey) {
+        return (
+            <Card className="w-full max-w-md mx-auto shadow-xl border-2">
+                <CardContent className="py-8 text-center">
+                    <p className="text-muted-foreground">
+                        Betaling er ikke konfigureret endnu.
+                    </p>
+                </CardContent>
+            </Card>
+        );
+    }
+
     const options: StripeElementsOptions = {
         clientSecret,
         appearance: {
@@ -163,10 +188,10 @@ export function StripePaymentForm({
         locale: "da",
     };
 
-    // For connected accounts, we need to pass the account ID
-    const stripeOptions = connectedAccountId
-        ? { stripeAccount: connectedAccountId }
-        : undefined;
+    // Get stripe instance - for connected accounts, create with stripeAccount option
+    const stripeInstance = connectedAccountId
+        ? loadStripe(stripeKey, { stripeAccount: connectedAccountId })
+        : getStripePromise();
 
     return (
         <Card className="w-full max-w-md mx-auto shadow-xl border-2">
@@ -184,16 +209,7 @@ export function StripePaymentForm({
                 </div>
             </CardHeader>
             <CardContent>
-                <Elements
-                    stripe={
-                        connectedAccountId
-                            ? loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "", {
-                                stripeAccount: connectedAccountId,
-                            })
-                            : stripePromise
-                    }
-                    options={options}
-                >
+                <Elements stripe={stripeInstance} options={options}>
                     <CheckoutForm
                         amount={amount}
                         onSuccess={onSuccess}
