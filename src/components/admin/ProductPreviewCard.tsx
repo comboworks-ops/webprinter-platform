@@ -15,6 +15,9 @@ interface ProductPreviewCardProps {
     priceFont?: string;
     hoverImageUrl?: string | null;
     specialBadge?: ProductBadgeConfig;
+    promoPrice?: string;
+    originalPrice?: string;
+    showSavingsBadge?: boolean;
 }
 
 export function ProductPreviewCard({
@@ -27,7 +30,10 @@ export function ProductPreviewCard({
     priceBgEnabled = false,
     priceFont = "inherit",
     hoverImageUrl,
-    specialBadge
+    specialBadge,
+    promoPrice,
+    originalPrice,
+    showSavingsBadge
 }: ProductPreviewCardProps) {
     const fontUrl = priceFont && priceFont !== 'inherit' ? getGoogleFontsUrl([priceFont]) : '';
 
@@ -76,17 +82,48 @@ export function ProductPreviewCard({
                     </CardHeader>
                     <CardContent className="px-4 pb-3">
                         <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                                <p
-                                    className={`text-2xl font-extrabold ${priceBgEnabled ? 'px-2 py-1 rounded-md' : ''}`}
-                                    style={{
-                                        color: priceColor,
-                                        backgroundColor: priceBgEnabled ? priceBgColor : 'transparent',
-                                        fontFamily: priceFont !== 'inherit' ? priceFont : undefined
-                                    }}
-                                >
-                                    {priceFrom ? `Fra ${priceFrom},-` : "Se priser"}
-                                </p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {(() => {
+                                    const hasPromo = promoPrice && originalPrice && parseFloat(originalPrice) > parseFloat(promoPrice);
+                                    const savingsPercent = hasPromo ? Math.round((1 - parseFloat(promoPrice) / parseFloat(originalPrice)) * 100) : 0;
+
+                                    return hasPromo ? (
+                                        <>
+                                            {/* Original price with strikethrough */}
+                                            <span className="text-base text-muted-foreground line-through">
+                                                {originalPrice} kr
+                                            </span>
+                                            {/* Promo price */}
+                                            <p
+                                                className={`text-2xl font-extrabold ${priceBgEnabled ? 'px-2 py-1 rounded-md' : ''}`}
+                                                style={{
+                                                    color: priceColor,
+                                                    backgroundColor: priceBgEnabled ? priceBgColor : 'transparent',
+                                                    fontFamily: priceFont !== 'inherit' ? priceFont : undefined
+                                                }}
+                                            >
+                                                {promoPrice} kr
+                                            </p>
+                                            {/* Savings badge */}
+                                            {showSavingsBadge && (
+                                                <span className="text-xs font-bold text-white bg-green-500 px-2 py-1 rounded-full animate-pulse">
+                                                    SPAR {savingsPercent}%
+                                                </span>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <p
+                                            className={`text-2xl font-extrabold ${priceBgEnabled ? 'px-2 py-1 rounded-md' : ''}`}
+                                            style={{
+                                                color: priceColor,
+                                                backgroundColor: priceBgEnabled ? priceBgColor : 'transparent',
+                                                fontFamily: priceFont !== 'inherit' ? priceFont : undefined
+                                            }}
+                                        >
+                                            {priceFrom ? `Fra ${priceFrom},-` : "Se priser"}
+                                        </p>
+                                    );
+                                })()}
                             </div>
                         </div>
 

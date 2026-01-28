@@ -2809,6 +2809,9 @@ export function ProductPriceManager() {
                           priceFont={editedPriceFont}
                           hoverImageUrl={editedHoverImageUrl}
                           specialBadge={editedSpecialBadge}
+                          promoPrice={editedPromoPrice}
+                          originalPrice={editedOriginalPrice}
+                          showSavingsBadge={editedShowSavingsBadge}
                         />
                         <div className="pt-4 w-full">
                           <Button
