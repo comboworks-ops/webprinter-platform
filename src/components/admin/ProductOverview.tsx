@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
 
 import { useNavigate, Link } from "react-router-dom";
-import { Package, Trash2, Copy, Search, X, ImageIcon } from "lucide-react";
+import { Package, Trash2, Copy, Search, X, ImageIcon, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -35,6 +35,20 @@ type Product = {
   image_url?: string | null;
 };
 
+type CompanyAccount = {
+  id: string;
+  name: string;
+  logo_url?: string | null;
+};
+
+type CompanyHubItem = {
+  id: string;
+  company_id: string;
+  product_id: string;
+  title: string;
+  sort_order: number;
+};
+
 export function ProductOverview() {
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
@@ -46,6 +60,8 @@ export function ProductOverview() {
   const [selectedCategory, setSelectedCategory] = useState<string>("Alle");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [companyAccounts, setCompanyAccounts] = useState<CompanyAccount[]>([]);
+  const [companyHubItems, setCompanyHubItems] = useState<CompanyHubItem[]>([]);
 
   const fetchUnreadMessages = async () => {
     try {
@@ -70,6 +86,7 @@ export function ProductOverview() {
   useEffect(() => {
     checkMasterAdmin();
     fetchProducts();
+    fetchCompanyHubs();
   }, [roleIsMasterAdmin]);
 
   useEffect(() => {
@@ -117,6 +134,23 @@ export function ProductOverview() {
     }
   };
 
+  const fetchCompanyHubs = async () => {
+    try {
+      const { tenantId } = await resolveAdminTenant();
+      if (!tenantId) return;
+
+      const [{ data: accounts }, { data: items }] = await Promise.all([
+        supabase.from('company_accounts' as any).select('id, name, logo_url').eq('tenant_id', tenantId),
+        supabase.from('company_hub_items' as any).select('id, company_id, product_id, title, sort_order').eq('tenant_id', tenantId).order('sort_order')
+      ]);
+
+      setCompanyAccounts(accounts || []);
+      setCompanyHubItems(items || []);
+    } catch (error) {
+      console.error('Error fetching company hubs:', error);
+    }
+  };
+
   const toggleAvailableToTenants = async (id: string, currentStatus: boolean) => {
     try {
       const { error } = await supabase
@@ -153,6 +187,25 @@ export function ProductOverview() {
 
   const deleteProduct = async (id: string, name: string) => {
     try {
+      // Delete related data first to avoid foreign key constraints
+      // 1. Delete generic prices
+      await supabase.from('generic_product_prices').delete().eq('product_id', id);
+
+      // 2. Delete product attribute values
+      const { data: groups } = await supabase.from('product_attribute_groups' as any).select('id').eq('product_id', id);
+      if (groups && groups.length > 0) {
+        const groupIds = groups.map((g: any) => g.id);
+        await supabase.from('product_attribute_values' as any).delete().in('group_id', groupIds);
+        await supabase.from('product_attribute_groups' as any).delete().eq('product_id', id);
+      }
+
+      // 3. Delete product pricing configs
+      await supabase.from('product_pricing_configs' as any).delete().eq('product_id', id);
+
+      // 4. Delete company hub items
+      await supabase.from('company_hub_items' as any).delete().eq('product_id', id);
+
+      // 4. Now delete the product itself
       const { error } = await supabase
         .from('products')
         .delete()
@@ -162,9 +215,9 @@ export function ProductOverview() {
 
       toast.success(`Produkt "${name}" slettet`);
       fetchProducts();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting product:', error);
-      toast.error('Kunne ikke slette produkt');
+      toast.error(`Kunne ikke slette produkt: ${error.message || 'Ukendt fejl'}`);
     }
   };
 
@@ -515,6 +568,116 @@ export function ProductOverview() {
                   </div>
                 </details>
               ))}
+            </CardContent>
+          </Card>
+
+          {/* Company Hub Section */}
+          <Card className="overflow-hidden">
+            <div className="bg-gradient-to-r from-blue-500/10 to-blue-500/5 px-6 py-4 border-b">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Building2 className="h-5 w-5" />
+                Company Hub
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  ({companyAccounts.length} virksomheder)
+                </span>
+              </h2>
+              <p className="text-sm text-muted-foreground">Produkter tilknyttet virksomheder</p>
+            </div>
+            <CardContent className="p-0">
+              {companyAccounts.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground">
+                  <Building2 className="h-12 w-12 mx-auto mb-4 opacity-30" />
+                  <p>Ingen virksomheder oprettet endnu.</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-4"
+                    onClick={() => navigate("/admin/companyhub")}
+                  >
+                    Opret ny virksomhed
+                  </Button>
+                </div>
+              ) : (
+                companyAccounts.map((company) => {
+                  const hubItems = companyHubItems.filter(item => item.company_id === company.id);
+                  const hubProducts = hubItems
+                    .map(item => products.find(p => p.id === item.product_id))
+                    .filter((p): p is Product => p !== undefined);
+
+                  return (
+                    <details key={company.id} className="group">
+                      <summary className="cursor-pointer px-6 py-3 bg-muted/30 border-b hover:bg-muted/50 transition-colors flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {company.logo_url ? (
+                            <img src={company.logo_url} alt={company.name} className="h-8 w-8 rounded object-cover" />
+                          ) : (
+                            <div className="h-8 w-8 rounded bg-blue-100 flex items-center justify-center">
+                              <Building2 className="h-4 w-4 text-blue-600" />
+                            </div>
+                          )}
+                          <span className="font-semibold">{company.name}</span>
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                            {hubProducts.length} produkter
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate("/admin/companyhub");
+                            }}
+                          >
+                            Administrer
+                          </Button>
+                          <span className="text-muted-foreground text-sm group-open:rotate-180 transition-transform">▼</span>
+                        </div>
+                      </summary>
+                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                        {hubProducts.length === 0 ? (
+                          <div className="col-span-full text-center text-muted-foreground py-4">
+                            Ingen produkter tilknyttet denne virksomhed endnu.
+                          </div>
+                        ) : (
+                          hubProducts.map((product) => (
+                            <Card
+                              key={product.id}
+                              className="hover:border-blue-500 transition-colors overflow-hidden cursor-pointer"
+                              onClick={() => navigate(`/admin/product/${product.slug}`)}
+                            >
+                              <CardContent className="p-0">
+                                <div className="flex items-center gap-3 p-3">
+                                  <div className="w-10 h-10 rounded bg-muted flex-shrink-0 flex items-center justify-center overflow-hidden">
+                                    {product.image_url ? (
+                                      <img
+                                        src={product.image_url}
+                                        alt={product.name}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    ) : (
+                                      <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-medium truncate" title={product.name}>
+                                      {product.name}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground truncate">
+                                      {getPricingTypeLabel(product.pricing_type)}
+                                    </p>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))
+                        )}
+                      </div>
+                    </details>
+                  );
+                })
+              )}
             </CardContent>
           </Card>
         </div>

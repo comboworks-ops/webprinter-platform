@@ -296,6 +296,8 @@ export function ProductPriceManager() {
   const [editedMinDpi, setEditedMinDpi] = useState("300");
   const [editedIsFreeForm, setEditedIsFreeForm] = useState(false);
   const [editedStandardFormat, setEditedStandardFormat] = useState("");
+  const [editedPodPreflightEnabled, setEditedPodPreflightEnabled] = useState(false);
+  const [editedPodPreflightAutoFix, setEditedPodPreflightAutoFix] = useState(true);
   const [hasProductEdits, setHasProductEdits] = useState(false);
   const [hasSpecEdits, setHasSpecEdits] = useState(false);
   const [editedOutputColorProfileId, setEditedOutputColorProfileId] = useState<string | null>(null);
@@ -532,6 +534,8 @@ export function ProductPriceManager() {
       setEditedMinDpi(specs.min_dpi?.toString() || "300");
       setEditedIsFreeForm(specs.is_free_form || false);
       setEditedStandardFormat(specs.standard_format || "");
+      setEditedPodPreflightEnabled(Boolean(specs.pod_preflight_enabled));
+      setEditedPodPreflightAutoFix(specs.pod_preflight_auto_fix ?? true);
       setHasProductEdits(false);
       setHasSpecEdits(false);
       setHasMachineEdits(false);
@@ -922,18 +926,27 @@ export function ProductPriceManager() {
 
     setSaving(true);
     try {
+      const existingSpecs = (product.technical_specs as any) || {};
+      const isPodProduct = Boolean(existingSpecs.is_pod || existingSpecs.is_pod_v2);
+      const nextSpecs: any = {
+        ...existingSpecs,
+        width_mm: parseFloat(editedWidth) || null,
+        height_mm: parseFloat(editedHeight) || null,
+        bleed_mm: parseFloat(editedBleed) || null,
+        min_dpi: parseInt(editedMinDpi) || null,
+        is_free_form: editedIsFreeForm,
+        standard_format: editedStandardFormat
+      };
+      if (isPodProduct) {
+        nextSpecs.pod_preflight_enabled = editedPodPreflightEnabled;
+        nextSpecs.pod_preflight_auto_fix = editedPodPreflightAutoFix;
+      }
+
       const { error } = await supabase
         .from('products')
         .update({
           output_color_profile_id: editedOutputColorProfileId,
-          technical_specs: {
-            width_mm: parseFloat(editedWidth) || null,
-            height_mm: parseFloat(editedHeight) || null,
-            bleed_mm: parseFloat(editedBleed) || null,
-            min_dpi: parseInt(editedMinDpi) || null,
-            is_free_form: editedIsFreeForm,
-            standard_format: editedStandardFormat
-          }
+          technical_specs: nextSpecs
         })
         .eq('id', product.id);
 
@@ -2877,6 +2890,68 @@ export function ProductPriceManager() {
                   </CardContent>
                 </Card>
               </div>
+
+              {(product?.technical_specs?.is_pod || product?.technical_specs?.is_pod_v2) && (
+                <div className="space-y-3">
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-md font-medium flex items-center gap-2">
+                        <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">3</span>
+                        Print.com PDF Preflight (POD)
+                      </CardTitle>
+                      <CardDescription>
+                        Valider og auto-fix kundens PDF ved upload. Gælder kun Print.com POD-produkter.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium">Aktiver preflight ved upload</p>
+                          <p className="text-xs text-muted-foreground">
+                            Kører Print.com preflight, kontrollerer format/bleed og viser fejl.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={editedPodPreflightEnabled}
+                          onCheckedChange={(checked) => {
+                            setEditedPodPreflightEnabled(checked);
+                            if (!checked) setEditedPodPreflightAutoFix(false);
+                            setHasSpecEdits(true);
+                          }}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium">Auto-fix PDF når muligt</p>
+                          <p className="text-xs text-muted-foreground">
+                            Hvis Print.com kan rette filen, bruges den rettede version til ordren.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={editedPodPreflightAutoFix}
+                          onCheckedChange={(checked) => {
+                            setEditedPodPreflightAutoFix(checked);
+                            setHasSpecEdits(true);
+                          }}
+                          disabled={!editedPodPreflightEnabled}
+                        />
+                      </div>
+
+                      <div className="flex justify-end pt-2">
+                        <Button
+                          onClick={handleSaveTechnicalSpecs}
+                          size="sm"
+                          disabled={!hasSpecEdits || saving}
+                        >
+                          {saving ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Save className="mr-2 h-3 w-3" />}
+                          Gem preflight-indstillinger
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
             </div>
           </div>
         </TabsContent>

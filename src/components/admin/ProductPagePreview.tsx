@@ -1,19 +1,22 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, Truck, ShoppingCart, Clock, Package, Info, HelpCircle, Lightbulb, Star } from "lucide-react";
+import { ChevronDown, Truck, ShoppingCart, Clock, Package } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
-// Anchor zone definition
+// Define anchor zones that can have tooltips - now includes dynamic IDs
 export interface AnchorZone {
     id: string;
     label: string;
     labelDa: string;
 }
 
-// Base anchor zones (always available)
+// Base anchor zones
 export const BASE_ANCHOR_ZONES: AnchorZone[] = [
     { id: 'product_title', label: 'Product Title', labelDa: 'Produktnavn' },
+    { id: 'format_selector', label: 'Format Selector', labelDa: 'Format/Størrelse' },
+    { id: 'material_selector', label: 'Material Selector', labelDa: 'Materiale' },
+    { id: 'quantity_row', label: 'Quantity Row', labelDa: 'Antal-række' },
     { id: 'price_matrix', label: 'Price Matrix', labelDa: 'Prismatrix' },
     { id: 'price_display', label: 'Price Calculator', labelDa: 'Prisberegner' },
     { id: 'delivery_section', label: 'Delivery Options', labelDa: 'Leveringsmuligheder' },
@@ -29,55 +32,17 @@ export interface TooltipConfig {
     link?: string;
 }
 
-// Types from pricing_structure
-interface VerticalAxisConfig {
-    sectionId: string;
-    sectionType: string;
-    groupId: string;
-    valueIds: string[];
-    title?: string;
-}
-
-interface LayoutColumn {
-    id: string;
-    sectionType: string;
-    groupId: string;
-    valueIds: string[];
-    ui_mode: string;
-    title?: string;
-}
-
-interface LayoutRow {
-    id: string;
-    title?: string;
-    columns: LayoutColumn[];
-}
-
-interface PricingStructure {
-    mode: string;
-    vertical_axis?: VerticalAxisConfig;
-    layout_rows?: LayoutRow[];
-    quantities?: number[];
-}
-
-interface AttributeValue {
-    id: string;
-    name: string;
-    enabled: boolean;
-}
-
-interface AttributeGroup {
-    id: string;
-    name: string;
-    kind: string;
-    values: AttributeValue[];
-}
-
 interface DeliveryOption {
     id: string;
     name: string;
     price: number;
     lead_time_days?: number;
+}
+
+interface PriceMatrixRow {
+    id: string;
+    name: string;
+    prices: { qty: number; price: number }[];
 }
 
 interface ProductPagePreviewProps {
@@ -105,8 +70,11 @@ export function ProductPagePreview({
     isEditMode = true,
     onAnchorsLoaded
 }: ProductPagePreviewProps) {
-    const [pricingStructure, setPricingStructure] = useState<PricingStructure | null>(null);
-    const [attributeGroups, setAttributeGroups] = useState<AttributeGroup[]>([]);
+    // State for loaded product data
+    const [formats, setFormats] = useState<{ id: string; label: string }[]>([]);
+    const [materials, setMaterials] = useState<{ id: string; label: string }[]>([]);
+    const [quantities, setQuantities] = useState<number[]>([100, 250, 500, 1000]);
+    const [priceMatrix, setPriceMatrix] = useState<PriceMatrixRow[]>([]);
     const [deliveryOptions, setDeliveryOptions] = useState<DeliveryOption[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -121,31 +89,59 @@ export function ProductPagePreview({
                 // Load product with pricing structure
                 const { data: product } = await supabase
                     .from('products' as any)
-                    .select('*')
+                    .select('*, banner_config')
                     .eq('id', productId)
                     .single();
 
-                if (!product) {
-                    setLoading(false);
-                    return;
-                }
+                if (!product) return;
 
-                // Set pricing structure
-                const ps = (product as any).pricing_structure;
-                if (ps?.mode === 'matrix_layout_v1') {
-                    setPricingStructure(ps);
-                }
-
-                // Load attribute groups with values
-                const { data: groups } = await supabase
-                    .from('product_attribute_groups' as any)
+                // Load attribute values (formats, materials)
+                const { data: attributes } = await supabase
+                    .from('product_attributes' as any)
                     .select('*, values:product_attribute_values(*)')
                     .eq('product_id', productId)
-                    .order('sort_order');
+                    .order('display_order');
 
-                if (groups) {
-                    setAttributeGroups(groups as unknown as AttributeGroup[]);
+                const loadedFormats: { id: string; label: string }[] = [];
+                const loadedMaterials: { id: string; label: string }[] = [];
+
+                (attributes || []).forEach((attr: any) => {
+                    const typeLower = attr.type?.toLowerCase() || '';
+                    const values = (attr.values || []).map((v: any) => ({ id: v.id, label: v.name }));
+
+                    if (typeLower.includes('format') || typeLower.includes('size')) {
+                        loadedFormats.push(...values);
+                    } else if (typeLower.includes('material') || typeLower.includes('papir')) {
+                        loadedMaterials.push(...values);
+                    }
+                });
+
+                setFormats(loadedFormats.length > 0 ? loadedFormats : [
+                    { id: 'A4', label: 'A4' },
+                    { id: 'A5', label: 'A5' },
+                    { id: 'A6', label: 'A6' }
+                ]);
+                setMaterials(loadedMaterials.length > 0 ? loadedMaterials : [
+                    { id: 'silk', label: '170g Silk' },
+                    { id: 'matt', label: '170g Mat' }
+                ]);
+
+                // Load pricing structure for quantities
+                const pricingStructure = (product as any).pricing_structure;
+                if (pricingStructure?.quantities) {
+                    setQuantities(pricingStructure.quantities);
                 }
+
+                // Build price matrix
+                const matrixRows: PriceMatrixRow[] = loadedMaterials.slice(0, 5).map(m => ({
+                    id: m.id,
+                    name: m.label,
+                    prices: (pricingStructure?.quantities || [100, 250, 500, 1000]).slice(0, 5).map((qty: number) => ({
+                        qty,
+                        price: Math.round(qty * 0.5 + 100 + Math.random() * 50)
+                    }))
+                }));
+                setPriceMatrix(matrixRows);
 
                 // Load delivery options
                 const orderDeliveryConfig = (product as any).order_delivery_config;
@@ -156,7 +152,8 @@ export function ProductPagePreview({
                     price: m.price || 0,
                     lead_time_days: m.lead_time_days
                 })) : [
-                    { id: 'standard', name: 'Standard levering', price: 49, lead_time_days: 5 }
+                    { id: 'standard', name: 'Standard levering', price: 49, lead_time_days: 5 },
+                    { id: 'express', name: 'Express levering', price: 99, lead_time_days: 2 }
                 ]);
 
             } catch (error) {
@@ -169,113 +166,47 @@ export function ProductPagePreview({
         loadProductData();
     }, [productId]);
 
-    // Get value name by ID
-    const getValueName = useCallback((valueId: string): string => {
-        for (const group of attributeGroups) {
-            const val = group.values?.find(v => v.id === valueId);
-            if (val) return val.name;
-        }
-        return valueId;
-    }, [attributeGroups]);
-
-    // Get values for a section by groupId and valueIds
-    const getSectionValues = useCallback((groupId: string, valueIds: string[]): AttributeValue[] => {
-        if (!valueIds || valueIds.length === 0) return [];
-        const group = attributeGroups.find(g => g.id === groupId);
-        if (group) {
-            return group.values
-                .filter(v => valueIds.includes(v.id) && v.enabled !== false)
-                .sort((a, b) => valueIds.indexOf(a.id) - valueIds.indexOf(b.id));
-        }
-        return [];
-    }, [attributeGroups]);
-
-    // Compute all available anchor zones
+    // Compute all available anchor zones (base + dynamic)
     const allAnchorZones = useMemo(() => {
-        const zones: AnchorZone[] = [...BASE_ANCHOR_ZONES];
+        const zones = [...BASE_ANCHOR_ZONES];
 
-        if (!pricingStructure) return zones;
-
-        // Add layout_rows columns as anchor zones
-        pricingStructure.layout_rows?.forEach((row, rowIdx) => {
-            row.columns.forEach((col, colIdx) => {
-                const sectionLabel = col.title || getSectionTypeLabel(col.sectionType);
-                zones.push({
-                    id: `section_${col.id}`,
-                    label: `Section: ${sectionLabel}`,
-                    labelDa: `Sektion: ${sectionLabel}`
-                });
-
-                // Add individual values as anchor zones
-                const values = getSectionValues(col.groupId, col.valueIds);
-                values.forEach(val => {
-                    zones.push({
-                        id: `value_${val.id}`,
-                        label: `Value: ${val.name}`,
-                        labelDa: `Værdi: ${val.name}`
-                    });
-                });
-            });
+        // Add material-specific anchors
+        materials.forEach(m => {
+            zones.push({ id: `material_${m.id}`, label: `Material: ${m.label}`, labelDa: `Materiale: ${m.label}` });
         });
 
-        // Add vertical axis values (materials)
-        if (pricingStructure.vertical_axis) {
-            const vertTitle = pricingStructure.vertical_axis.title || getSectionTypeLabel(pricingStructure.vertical_axis.sectionType);
-            zones.push({
-                id: `vertical_axis`,
-                label: `Vertical Axis: ${vertTitle}`,
-                labelDa: `Y-akse: ${vertTitle}`
-            });
+        // Add format-specific anchors
+        formats.forEach(f => {
+            zones.push({ id: `format_${f.id}`, label: `Format: ${f.label}`, labelDa: `Format: ${f.label}` });
+        });
 
-            pricingStructure.vertical_axis.valueIds.forEach(valId => {
-                const name = getValueName(valId);
-                zones.push({
-                    id: `vertical_${valId}`,
-                    label: `Material: ${name}`,
-                    labelDa: `Materiale: ${name}`
-                });
-            });
-        }
-
-        // Add delivery options
-        deliveryOptions.forEach(opt => {
-            zones.push({
-                id: `delivery_${opt.id}`,
-                label: `Delivery: ${opt.name}`,
-                labelDa: `Levering: ${opt.name}`
-            });
+        // Add delivery-specific anchors
+        deliveryOptions.forEach(d => {
+            zones.push({ id: `delivery_${d.id}`, label: `Delivery: ${d.name}`, labelDa: `Levering: ${d.name}` });
         });
 
         return zones;
-    }, [pricingStructure, attributeGroups, deliveryOptions, getValueName, getSectionValues]);
+    }, [materials, formats, deliveryOptions]);
 
     // Report anchors to parent
     useEffect(() => {
         onAnchorsLoaded?.(allAnchorZones);
     }, [allAnchorZones, onAnchorsLoaded]);
 
-    // Section type label helper
-    function getSectionTypeLabel(sectionType: string): string {
-        switch (sectionType) {
-            case 'formats': return 'Format';
-            case 'materials': return 'Materiale';
-            case 'finishes': return 'Efterbehandling';
-            case 'products': return 'Produkt';
-            default: return 'Valgmulighed';
-        }
-    }
-
-    // Tooltip helpers
+    // Helper to check if an anchor has a tooltip
     const getTooltipForAnchor = (anchorId: string) => tooltips.find(t => t.anchor === anchorId);
 
+    // Helper to get tooltip icon
     const getTooltipIcon = (config: TooltipConfig) => {
-        const Icon = config.icon === 'question' ? HelpCircle :
-            config.icon === 'lightbulb' ? Lightbulb :
-                config.icon === 'star' ? Star : Info;
-        return <Icon className="w-3 h-3" />;
+        switch (config.icon) {
+            case 'question': return '?';
+            case 'lightbulb': return '💡';
+            case 'star': return '★';
+            default: return 'i';
+        }
     };
 
-    // Anchor zone wrapper component
+    // Render anchor zone wrapper
     const AnchorZone: React.FC<{
         anchorId: string;
         children: React.ReactNode;
@@ -301,6 +232,7 @@ export function ProductPagePreview({
                 onMouseEnter={() => isEditMode && onAnchorHover?.(anchorId)}
                 onMouseLeave={() => isEditMode && onAnchorHover?.(null)}
             >
+                {/* Highlight overlay */}
                 {isEditMode && (isHovered || isSelected) && (
                     <span
                         className={`absolute inset-0 rounded border-2 pointer-events-none z-10 transition-all ${isSelected ? 'border-primary bg-primary/20' : 'border-primary/50 bg-primary/10'
@@ -308,15 +240,17 @@ export function ProductPagePreview({
                     />
                 )}
 
+                {/* Anchor label on hover */}
                 {isEditMode && isHovered && (
-                    <span className="absolute -top-5 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap z-30 shadow-lg">
+                    <span className="absolute -top-6 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap z-30 shadow-lg">
                         {zone?.labelDa || anchorId}
                     </span>
                 )}
 
+                {/* Tooltip indicator */}
                 {tooltip && (
                     <span
-                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-white z-20 shadow"
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold z-20 shadow text-white"
                         style={{ backgroundColor: tooltip.color }}
                     >
                         {getTooltipIcon(tooltip)}
@@ -330,20 +264,11 @@ export function ProductPagePreview({
 
     if (loading) {
         return (
-            <div className="w-full bg-white dark:bg-gray-900 rounded-xl border shadow-lg p-8 flex items-center justify-center min-h-[400px]">
+            <div className="w-full bg-white dark:bg-gray-900 rounded-xl border shadow-lg p-8 flex items-center justify-center">
                 <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full" />
             </div>
         );
     }
-
-    const vertAxis = pricingStructure?.vertical_axis;
-    const layoutRows = pricingStructure?.layout_rows || [];
-    const quantities = pricingStructure?.quantities || [100, 250, 500, 1000];
-
-    // Get vertical axis values (material rows)
-    const verticalValues = vertAxis
-        ? getSectionValues(vertAxis.groupId, vertAxis.valueIds)
-        : [];
 
     return (
         <div className="w-full bg-white dark:bg-gray-900 rounded-xl border shadow-lg overflow-hidden">
@@ -373,125 +298,74 @@ export function ProductPagePreview({
                         </div>
                     </AnchorZone>
 
-                    {/* Render layout_rows - these are the selectable sections */}
-                    {layoutRows.map((row, rowIdx) => {
-                        // Filter out columns that match vertical axis type (shown in matrix)
-                        const visibleColumns = row.columns.filter(
-                            col => !vertAxis || col.sectionType !== vertAxis.sectionType
-                        );
-
-                        if (visibleColumns.length === 0) return null;
-
-                        return (
-                            <div key={row.id} className="space-y-2 border-b pb-3 last:border-b-0">
-                                {row.title && (
-                                    <div className="text-[10px] font-medium text-muted-foreground">{row.title}</div>
-                                )}
-                                <div className="space-y-2">
-                                    {visibleColumns.map((col, colIdx) => {
-                                        const values = getSectionValues(col.groupId, col.valueIds);
-                                        if (values.length === 0) return null;
-
-                                        const sectionLabel = col.title || getSectionTypeLabel(col.sectionType);
-                                        const uiMode = col.ui_mode || 'buttons';
-
-                                        return (
-                                            <AnchorZone key={col.id} anchorId={`section_${col.id}`}>
-                                                <div className="space-y-1 p-2 bg-muted/20 rounded">
-                                                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                                                        {sectionLabel}
-                                                    </label>
-
-                                                    {/* Render values based on ui_mode */}
-                                                    {uiMode === 'dropdown' ? (
-                                                        <div className="flex items-center gap-2 border rounded px-2 py-1.5 bg-gray-50 dark:bg-gray-800 text-[10px]">
-                                                            <span className="flex-1">{values[0]?.name || 'Vælg...'}</span>
-                                                            <ChevronDown className="w-3 h-3 text-muted-foreground" />
-                                                        </div>
-                                                    ) : (
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {values.map((val, valIdx) => (
-                                                                <AnchorZone key={val.id} anchorId={`value_${val.id}`} inline>
-                                                                    <span
-                                                                        className={`px-2 py-1 text-[10px] rounded border transition-colors ${valIdx === 0
-                                                                                ? 'bg-primary text-primary-foreground border-primary'
-                                                                                : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
-                                                                            }`}
-                                                                    >
-                                                                        {val.name}
-                                                                    </span>
-                                                                </AnchorZone>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </AnchorZone>
-                                        );
-                                    })}
-                                </div>
+                    {/* Format Selector */}
+                    <AnchorZone anchorId="format_selector">
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-medium text-muted-foreground">FORMAT</label>
+                            <div className="flex gap-1 flex-wrap">
+                                {formats.slice(0, 6).map((f, i) => (
+                                    <AnchorZone key={f.id} anchorId={`format_${f.id}`} inline>
+                                        <span
+                                            className={`px-2 py-1 text-[10px] rounded border transition-colors ${i === 0
+                                                ? 'bg-primary text-primary-foreground border-primary'
+                                                : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-primary/50'
+                                                }`}
+                                        >
+                                            {f.label}
+                                        </span>
+                                    </AnchorZone>
+                                ))}
                             </div>
-                        );
-                    })}
+                        </div>
+                    </AnchorZone>
 
-                    {/* Price Matrix with Vertical Axis (Materials) */}
-                    {verticalValues.length > 0 && (
-                        <AnchorZone anchorId="price_matrix">
-                            <div className="space-y-1">
-                                <AnchorZone anchorId="vertical_axis">
-                                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                                        {vertAxis?.title || getSectionTypeLabel(vertAxis?.sectionType || 'materials')} / Pris
-                                    </label>
-                                </AnchorZone>
-                                <div className="border rounded-lg overflow-hidden">
-                                    {/* Header Row - Quantities */}
-                                    <div
-                                        className="grid bg-gray-50 dark:bg-gray-800 border-b"
-                                        style={{ gridTemplateColumns: `120px repeat(${Math.min(quantities.length, 5)}, 1fr)` }}
-                                    >
-                                        <div className="px-2 py-1 text-[9px] font-medium text-muted-foreground">
-                                            {vertAxis?.title || 'Materiale'}
-                                        </div>
+                    {/* Price Matrix with Materials */}
+                    <AnchorZone anchorId="price_matrix">
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-medium text-muted-foreground">PRISMATRIX</label>
+                            <div className="border rounded-lg overflow-hidden">
+                                {/* Header Row - Quantities */}
+                                <AnchorZone anchorId="quantity_row">
+                                    <div className="grid bg-gray-50 dark:bg-gray-800 border-b" style={{ gridTemplateColumns: `100px repeat(${Math.min(quantities.length, 5)}, 1fr)` }}>
+                                        <div className="px-2 py-1 text-[9px] font-medium text-muted-foreground">Materiale</div>
                                         {quantities.slice(0, 5).map(qty => (
                                             <div key={qty} className="px-1 py-1 text-center text-[9px] font-medium text-muted-foreground border-l">
                                                 {qty} stk
                                             </div>
                                         ))}
                                     </div>
+                                </AnchorZone>
 
-                                    {/* Material Rows */}
-                                    {verticalValues.map((val, rowIdx) => (
-                                        <AnchorZone key={val.id} anchorId={`vertical_${val.id}`}>
-                                            <div
-                                                className={`grid border-b last:border-b-0 ${rowIdx === 0 ? 'bg-primary/5' : ''}`}
-                                                style={{ gridTemplateColumns: `120px repeat(${Math.min(quantities.length, 5)}, 1fr)` }}
-                                            >
-                                                <div className="px-2 py-1.5 text-[10px] font-medium truncate">{val.name}</div>
-                                                {quantities.slice(0, 5).map((qty, colIdx) => {
-                                                    const mockPrice = Math.round(qty * 0.4 + 80 + rowIdx * 20);
-                                                    return (
-                                                        <div
-                                                            key={qty}
-                                                            className={`px-1 py-1.5 text-center text-[10px] border-l ${rowIdx === 0 && colIdx === 1 ? 'bg-primary text-primary-foreground font-bold' : ''
-                                                                }`}
-                                                        >
-                                                            {mockPrice} kr
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </AnchorZone>
-                                    ))}
-                                </div>
+                                {/* Material Rows */}
+                                {priceMatrix.map((row, rowIdx) => (
+                                    <AnchorZone key={row.id} anchorId={`material_${row.id}`}>
+                                        <div
+                                            className={`grid border-b last:border-b-0 ${rowIdx === 0 ? 'bg-primary/5' : ''}`}
+                                            style={{ gridTemplateColumns: `100px repeat(${Math.min(quantities.length, 5)}, 1fr)` }}
+                                        >
+                                            <div className="px-2 py-1.5 text-[10px] font-medium truncate">{row.name}</div>
+                                            {row.prices.slice(0, 5).map((p, i) => (
+                                                <div
+                                                    key={p.qty}
+                                                    className={`px-1 py-1.5 text-center text-[10px] border-l ${rowIdx === 0 && i === 1 ? 'bg-primary text-primary-foreground font-bold' : ''
+                                                        }`}
+                                                >
+                                                    {p.price} kr
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </AnchorZone>
+                                ))}
                             </div>
-                        </AnchorZone>
-                    )}
+                        </div>
+                    </AnchorZone>
 
                     {/* Delivery Options */}
                     <AnchorZone anchorId="delivery_section">
                         <div className="space-y-1">
-                            <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1 uppercase tracking-wide">
+                            <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
                                 <Truck className="w-3 h-3" />
-                                Levering
+                                LEVERING
                             </label>
                             <div className="space-y-1">
                                 {deliveryOptions.map((opt, i) => (

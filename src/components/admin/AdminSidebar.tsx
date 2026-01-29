@@ -670,6 +670,12 @@ export function AdminSidebar() {
                         {!collapsed && <span>Print on Demand</span>}
                       </AdminNavLink>
                     </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/pod2">
+                        <Printer className="h-4 w-4" />
+                        {!collapsed && <span>Print on Demand v2</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
                   </SidebarMenu>
                 </SidebarGroupContent>
               )}
