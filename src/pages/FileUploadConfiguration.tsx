@@ -82,6 +82,16 @@ const FileUploadConfiguration = () => {
         dpiOk: boolean;
         issues: string[];
     } | null>(null);
+    const [platformPreflight, setPlatformPreflight] = useState<{
+        status: "PROCESSING" | "PROCESSED" | "FAILED";
+        errors: string[];
+        warnings: string[];
+        fixes: string[];
+        jobId?: string;
+        updatedFileUrl?: string;
+        message?: string;
+    } | null>(null);
+    const [platformPreflightLoading, setPlatformPreflightLoading] = useState(false);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
     // Local Order Configuration (to allow for Best Deal upgrades)
@@ -175,6 +185,16 @@ const FileUploadConfiguration = () => {
         // Very fallback for common products if nothing found
         return null;
     };
+
+    const isPodProduct = Boolean(product?.technical_specs?.is_pod || product?.technical_specs?.is_pod_v2);
+    const podPreflightEnabled = Boolean(product?.technical_specs?.pod_preflight_enabled);
+    const podPreflightAutoFix = (product?.technical_specs as any)?.pod_preflight_auto_fix ?? true;
+    const platformPreflightBlocking = isPodProduct
+        && podPreflightEnabled
+        && (platformPreflightLoading
+            || platformPreflight?.status === "PROCESSING"
+            || platformPreflight?.status === "FAILED"
+            || (platformPreflight?.errors?.length ?? 0) > 0);
 
     // If no state, redirect back to home or a generic products page
     useEffect(() => {
@@ -375,6 +395,8 @@ const FileUploadConfiguration = () => {
 
         setUploading(true);
         setUploadProgress(0);
+        setPreflightResults(null);
+        setPlatformPreflight(null);
 
         try {
             const fileExt = file.name.split('.').pop();
@@ -395,7 +417,7 @@ const FileUploadConfiguration = () => {
             setUploadedFile({ name: file.name, url: publicUrl, path: filePath });
             setPreviewUrl(URL.createObjectURL(file));
 
-            await runPreflight(file);
+            await runPreflight(file, { filePath, publicUrl });
 
             toast.success("Fil uploadet og tjekket");
         } catch (err) {
@@ -406,7 +428,7 @@ const FileUploadConfiguration = () => {
         }
     };
 
-    const runPreflight = async (file: File) => {
+    const runPreflight = async (file: File, uploadInfo?: { filePath: string; publicUrl: string }) => {
         const specs = getResolvedSpecs();
         if (!specs) return;
 
@@ -444,7 +466,17 @@ const FileUploadConfiguration = () => {
                 issues.push("Størrelsesforholdet matcher ikke produktet. Filen kan blive beskåret uhensigtsmæssigt.");
             }
         } else if (file.type === 'application/pdf') {
-            issues.push("PDF preflight er begrænset i browseren. Vi tjekker formatet manuelt ved modtagelse.");
+            if (isPodProduct && podPreflightEnabled && uploadInfo?.publicUrl && product?.id) {
+                await runPlatformPreflight({
+                    productId: product.id,
+                    pdfUrl: uploadInfo.publicUrl,
+                    filePath: uploadInfo.filePath,
+                    specs,
+                    autoFix: podPreflightAutoFix,
+                });
+            } else {
+                issues.push("PDF preflight er begrænset i browseren. Vi tjekker formatet manuelt ved modtagelse.");
+            }
         }
 
         setPreflightResults({
@@ -455,6 +487,56 @@ const FileUploadConfiguration = () => {
             dpiOk,
             issues
         });
+    };
+
+    const runPlatformPreflight = async (params: {
+        productId: string;
+        pdfUrl: string;
+        filePath: string;
+        specs: TechnicalSpecs;
+        autoFix: boolean;
+    }) => {
+        setPlatformPreflightLoading(true);
+        try {
+            const { data, error } = await supabase.functions.invoke("pod2-pdf-preflight", {
+                body: {
+                    productId: params.productId,
+                    pdfUrl: params.pdfUrl,
+                    filePath: params.filePath,
+                    specs: params.specs,
+                    autoFix: params.autoFix,
+                },
+            });
+
+            if (error) throw error;
+            if (data?.error) throw new Error(data.error);
+
+            const result = {
+                status: data.status as "PROCESSING" | "PROCESSED" | "FAILED",
+                errors: data.errors || [],
+                warnings: data.warnings || [],
+                fixes: data.fixes || [],
+                jobId: data.jobId,
+                updatedFileUrl: data.updatedFileUrl,
+                message: data.message,
+            };
+
+            setPlatformPreflight(result);
+
+            if (data.updatedFileUrl) {
+                setUploadedFile((prev) => prev ? { ...prev, url: data.updatedFileUrl } : prev);
+            }
+        } catch (err: any) {
+            console.error("Platform preflight error:", err);
+            setPlatformPreflight({
+                status: "FAILED",
+                errors: [err?.message || "Platform preflight fejlede"],
+                warnings: [],
+                fixes: [],
+            });
+        } finally {
+            setPlatformPreflightLoading(false);
+        }
     };
 
     if (loading || !state) {
@@ -619,6 +701,60 @@ const FileUploadConfiguration = () => {
                                                             <Button className="flex-1">
                                                                 Fortsæt alligevel
                                                             </Button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {(platformPreflightLoading || platformPreflight) && (
+                                                <div className={`p-6 rounded-xl border-2 ${platformPreflight?.status === 'FAILED' || (platformPreflight?.errors?.length ?? 0) > 0 ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
+                                                    <div className="flex items-center gap-2 mb-4">
+                                                        {platformPreflightLoading || platformPreflight?.status === 'PROCESSING' ? (
+                                                            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                                                        ) : platformPreflight?.errors?.length ? (
+                                                            <AlertCircle className="h-5 w-5 text-red-600" />
+                                                        ) : (
+                                                            <CheckCircle2 className="h-5 w-5 text-green-600" />
+                                                        )}
+                                                        <h3 className="font-bold text-base">
+                                                            {platformPreflightLoading || platformPreflight?.status === 'PROCESSING'
+                                                                ? 'Print.com preflight kører...'
+                                                                : platformPreflight?.errors?.length
+                                                                    ? 'Print.com preflight fandt fejl'
+                                                                    : 'Print.com preflight gennemført'}
+                                                        </h3>
+                                                    </div>
+
+                                                    {platformPreflight?.errors?.length > 0 && (
+                                                        <div className="mb-3">
+                                                            <p className="text-xs font-semibold text-red-700 uppercase tracking-wide">Fejl</p>
+                                                            <ul className="space-y-1 mt-1">
+                                                                {platformPreflight.errors.map((issue, idx) => (
+                                                                    <li key={`pf-error-${idx}`} className="text-sm text-red-900">• {issue}</li>
+                                                                ))}
+                                                            </ul>
+                                                        </div>
+                                                    )}
+
+                                                    {platformPreflight?.warnings?.length > 0 && (
+                                                        <div className="mb-3">
+                                                            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Advarsler</p>
+                                                            <ul className="space-y-1 mt-1">
+                                                                {platformPreflight.warnings.map((issue, idx) => (
+                                                                    <li key={`pf-warn-${idx}`} className="text-sm text-amber-900">• {issue}</li>
+                                                                ))}
+                                                            </ul>
+                                                        </div>
+                                                    )}
+
+                                                    {platformPreflight?.fixes?.length > 0 && (
+                                                        <div>
+                                                            <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Auto-fix</p>
+                                                            <ul className="space-y-1 mt-1">
+                                                                {platformPreflight.fixes.map((fix, idx) => (
+                                                                    <li key={`pf-fix-${idx}`} className="text-sm text-green-900">• {fix}</li>
+                                                                ))}
+                                                            </ul>
                                                         </div>
                                                     )}
                                                 </div>
@@ -791,10 +927,22 @@ const FileUploadConfiguration = () => {
                                             </div>
                                         )}
 
+                                    {platformPreflightBlocking && (
+                                        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 flex items-start gap-2">
+                                            <AlertCircle className="h-4 w-4 mt-0.5" />
+                                            <div>
+                                                <p className="font-medium">Print.com preflight mangler</p>
+                                                <p className="text-xs text-red-700">
+                                                    Filen skal godkendes eller fixes før betaling kan fortsætte.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <Button
                                         className="w-full h-12 text-lg font-bold mt-4 group shadow-md"
                                         onClick={handleProceedToPayment}
-                                        disabled={!uploadedFile || paymentLoading}
+                                        disabled={!uploadedFile || paymentLoading || platformPreflightBlocking}
                                     >
                                         {paymentLoading ? (
                                             <>

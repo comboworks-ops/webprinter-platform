@@ -4,6 +4,11 @@ A comprehensive, multi-tenant SaaS e-commerce platform for print shops. Built wi
 
 ---
 
+## 📌 High Priority Docs
+*   `POD2_README.md` — POD v2 system rules, safeguards, and workflows.
+
+---
+
 ## 🚀 Key Modules & Features
 
 ### 1. Multi-Tenant SaaS Architecture
