@@ -1,18 +1,16 @@
 
-import { useState, useEffect, useRef } from "react";
+import { useRef, useEffect } from "react";
 import { Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { BrandingEditorV2 } from "@/components/admin/BrandingEditorV2";
 import { useSidebar } from "@/components/ui/sidebar";
 import {
     createTenantAdapter,
     TENANT_CAPABILITIES,
 } from "@/lib/branding";
+import { useShopSettings } from "@/hooks/useShopSettings";
 
 export function TenantBrandingSettingsV2() {
-    const [tenantId, setTenantId] = useState<string | null>(null);
-    const [tenantName, setTenantName] = useState("Min Shop");
-    const [isLoading, setIsLoading] = useState(true);
+    const { data: tenant, isLoading } = useShopSettings();
     const { setOpen } = useSidebar();
     const hasOpenedSidebarRef = useRef(false);
 
@@ -25,38 +23,6 @@ export function TenantBrandingSettingsV2() {
         hasOpenedSidebarRef.current = true;
     }, [setOpen]);
 
-    // Load tenant info
-    useEffect(() => {
-        async function loadTenantInfo() {
-            try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user) {
-                    setIsLoading(false);
-                    return;
-                }
-
-                if (user) {
-                    const { data } = await (supabase
-                        .from('tenants' as any))
-                        .select('id, name')
-                        .eq('owner_id', user.id)
-                        .maybeSingle();
-
-                    if (data) {
-                        const tenant = data as { id: string; name: string };
-                        setTenantId(tenant.id);
-                        setTenantName(tenant.name || 'Min Shop');
-                    }
-                }
-            } catch (error) {
-                console.error('Error loading tenant:', error);
-            } finally {
-                setIsLoading(false);
-            }
-        }
-        loadTenantInfo();
-    }, []);
-
     if (isLoading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
@@ -65,7 +31,7 @@ export function TenantBrandingSettingsV2() {
         );
     }
 
-    if (!tenantId) {
+    if (!tenant?.id) {
         return (
             <div className="text-center p-8">
                 <p className="text-muted-foreground">
@@ -75,7 +41,7 @@ export function TenantBrandingSettingsV2() {
         );
     }
 
-    const adapter = createTenantAdapter(tenantId, tenantName);
+    const adapter = createTenantAdapter(tenant.id, tenant.tenant_name || 'Min Shop');
 
     return (
         <BrandingEditorV2

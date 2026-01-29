@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
 
 import { useNavigate, Link } from "react-router-dom";
-import { Package, Trash2, Copy, Search, X, ImageIcon, Building2 } from "lucide-react";
+import { Package, Trash2, Copy, Search, X, ImageIcon, Building2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -21,7 +21,16 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Checkbox } from "@/components/ui/checkbox";
 import { resolveAdminTenant } from "@/lib/adminTenant";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type Product = {
   id: string;
@@ -49,6 +58,28 @@ type CompanyHubItem = {
   sort_order: number;
 };
 
+type TenantOption = {
+  id: string;
+  name: string;
+  domain?: string | null;
+};
+
+type DeliveryMode = "price_list" | "pod_price_list";
+
+const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
+const DELIVERY_MODES: { id: DeliveryMode; label: string; description: string }[] = [
+  {
+    id: "price_list",
+    label: "Standard pris",
+    description: "Tenanten kan opdatere priser og priseresultater normalt.",
+  },
+  {
+    id: "pod_price_list",
+    label: "POD-pris",
+    description: "Priser er låst (kun margen kan justeres); ordren håndteres gennem master.",
+  },
+];
+
 export function ProductOverview() {
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
@@ -62,6 +93,14 @@ export function ProductOverview() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [companyAccounts, setCompanyAccounts] = useState<CompanyAccount[]>([]);
   const [companyHubItems, setCompanyHubItems] = useState<CompanyHubItem[]>([]);
+  const [tenants, setTenants] = useState<TenantOption[]>([]);
+  const [tenantLoading, setTenantLoading] = useState(false);
+  const [sendDialogOpen, setSendDialogOpen] = useState(false);
+  const [dialogProduct, setDialogProduct] = useState<Product | null>(null);
+  const [selectedTenantIds, setSelectedTenantIds] = useState<string[]>([]);
+  const [tenantFilter, setTenantFilter] = useState("");
+  const [sending, setSending] = useState(false);
+  const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("price_list");
 
   const fetchUnreadMessages = async () => {
     try {
@@ -87,7 +126,14 @@ export function ProductOverview() {
     checkMasterAdmin();
     fetchProducts();
     fetchCompanyHubs();
+    fetchTenantsForRelease();
   }, [roleIsMasterAdmin]);
+
+  useEffect(() => {
+    if (isMasterAdmin) {
+      fetchTenantsForRelease();
+    }
+  }, [isMasterAdmin]);
 
   useEffect(() => {
     fetchUnreadMessages();
@@ -148,6 +194,26 @@ export function ProductOverview() {
       setCompanyHubItems(items || []);
     } catch (error) {
       console.error('Error fetching company hubs:', error);
+    }
+  };
+
+  const fetchTenantsForRelease = async () => {
+    if (!isMasterAdmin) return;
+    setTenantLoading(true);
+
+    try {
+      const { data, error } = await supabase
+        .from('tenants' as any)
+        .select("id, name, domain")
+        .neq("id", MASTER_TENANT_ID)
+        .order('name');
+
+      if (error) throw error;
+      setTenants((data as TenantOption[]) || []);
+    } catch (error) {
+      console.error("Error fetching tenants:", error);
+    } finally {
+      setTenantLoading(false);
     }
   };
 
@@ -273,6 +339,54 @@ export function ProductOverview() {
     }
   };
 
+  const openSendDialog = (product: Product) => {
+    setDialogProduct(product);
+    setSelectedTenantIds([]);
+    setTenantFilter("");
+    setSendDialogOpen(true);
+  };
+
+  const closeSendDialog = () => {
+    setSendDialogOpen(false);
+    setDialogProduct(null);
+    setSelectedTenantIds([]);
+    setTenantFilter("");
+  };
+
+  const handleTenantToggle = (tenantId: string) => {
+    setSelectedTenantIds((prev) =>
+      prev.includes(tenantId) ? prev.filter((id) => id !== tenantId) : [...prev, tenantId],
+    );
+  };
+
+  const handleSendToTenants = async () => {
+    if (!dialogProduct) return;
+    if (selectedTenantIds.length === 0) {
+      toast.error("Vælg mindst én lejer.");
+      return;
+    }
+
+    setSending(true);
+    try {
+      const { error, data } = await supabase.rpc("send_product_to_tenants" as any, {
+        master_product_id: dialogProduct.id,
+        tenant_ids: selectedTenantIds,
+        delivery_mode: deliveryMode,
+      });
+
+      if (error) throw error;
+
+      const count = (data as any)?.sent ?? selectedTenantIds.length;
+      toast.success(`${count} notifikationer sendt til lejere.`);
+      closeSendDialog();
+    } catch (error) {
+      console.error("Error sending product notifications:", error);
+      toast.error("Kunne ikke sende produkt til lejere.");
+    } finally {
+      setSending(false);
+    }
+  };
+
   // Extract unique categories for filter chips
   const categories = ["Alle", ...Array.from(new Set(products.map(p => p.category || "Øvrige")))];
 
@@ -295,6 +409,16 @@ export function ProductOverview() {
     acc[category].push(product);
     return acc;
   }, {} as Record<string, Product[]>);
+
+  const filteredTenants = tenants.filter((tenant) => {
+    const search = tenantFilter.trim().toLowerCase();
+    if (!search) return true;
+    return (
+      tenant.name.toLowerCase().includes(search) ||
+      (tenant.domain || "").toLowerCase().includes(search)
+    );
+  });
+  const tenantCount = tenants.length;
 
   // Handle search open/close
   const handleSearchToggle = () => {
@@ -541,26 +665,44 @@ export function ProductOverview() {
 
                           {/* Release to Tenants Toggle (Master only) */}
                           {isMasterAdmin && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="flex items-center justify-between px-3 py-2 border-t border-dashed bg-blue-50/50">
-                                  <span className="text-xs font-medium text-blue-600">
-                                    {product.is_available_to_tenants ? 'Frigivet' : 'Privat'}
-                                  </span>
-                                  <Switch
-                                    className="data-[state=checked]:bg-blue-600 scale-90"
-                                    checked={!!product.is_available_to_tenants}
-                                    onCheckedChange={() => toggleAvailableToTenants(product.id, !!product.is_available_to_tenants)}
-                                  />
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {product.is_available_to_tenants
-                                  ? "Frigivet til lejere"
-                                  : "Kun synlig for Master"
-                                }
-                              </TooltipContent>
-                            </Tooltip>
+                            <div className="border-t border-dashed bg-blue-50/30 px-3 py-2 space-y-2">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-medium text-blue-600">
+                                      {product.is_available_to_tenants ? "Frigivet" : "Privat"}
+                                    </span>
+                                    <Switch
+                                      className="data-[state=checked]:bg-blue-600 scale-90"
+                                      checked={!!product.is_available_to_tenants}
+                                      onCheckedChange={() =>
+                                        toggleAvailableToTenants(
+                                          product.id,
+                                          !!product.is_available_to_tenants,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {product.is_available_to_tenants
+                                    ? "Frigivet til lejere"
+                                    : "Kun synlig for Master"}
+                                </TooltipContent>
+                              </Tooltip>
+                              <Button
+                                variant="outline"
+                                className="w-full justify-center gap-2 text-xs"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openSendDialog(product);
+                                }}
+                                disabled={tenantLoading || tenantCount === 0}
+                              >
+                                <Building2 className="h-3.5 w-3.5" />
+                                Send til lejere
+                              </Button>
+                            </div>
                           )}
                         </CardContent>
                       </Card>
@@ -682,6 +824,100 @@ export function ProductOverview() {
           </Card>
         </div>
       )}
+      <Dialog open={sendDialogOpen} onOpenChange={(open) => !open && closeSendDialog()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Send{" "}
+              <span className="font-semibold">
+                {dialogProduct ? `"${dialogProduct.name}"` : "produkt"}
+              </span>{" "}
+              til lejere
+            </DialogTitle>
+            <DialogDescription>
+              Vælg de lejere, der skal modtage produktet som en systemopdatering.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <Input
+              placeholder="Søg efter lejer..."
+              value={tenantFilter}
+              onChange={(event) => setTenantFilter(event.target.value)}
+              disabled={tenantLoading || tenantCount === 0}
+            />
+
+            <div className="border rounded-lg border-input/60 bg-background/80 p-3 space-y-2">
+              <p className="text-sm font-semibold">Leverings-type</p>
+              <div className="flex flex-wrap gap-2">
+                {DELIVERY_MODES.map((mode) => (
+                  <Button
+                    key={mode.id}
+                    variant={deliveryMode === mode.id ? "secondary" : "outline"}
+                    size="sm"
+                    onClick={() => setDeliveryMode(mode.id)}
+                    className="gap-2 rounded-lg"
+                  >
+                    <span className="text-xs font-semibold leading-none">{mode.label}</span>
+                  </Button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {DELIVERY_MODES.find((mode) => mode.id === deliveryMode)?.description}
+              </p>
+            </div>
+
+            {tenantLoading ? (
+              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Henter lejere...
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+                {filteredTenants.map((tenant) => {
+                  const isChecked = selectedTenantIds.includes(tenant.id);
+                  return (
+                    <label
+                      key={tenant.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm hover:border-primary transition-colors"
+                    >
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={() => handleTenantToggle(tenant.id)}
+                        className="h-4 w-4"
+                      />
+                      <div className="flex-1">
+                        <p className="font-medium leading-none">{tenant.name}</p>
+                        {tenant.domain && (
+                          <p className="text-xs text-muted-foreground">{tenant.domain}</p>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
+                {!filteredTenants.length && (
+                  <p className="text-sm text-muted-foreground">
+                    {tenantFilter ? "Ingen lejere matcher din søgning." : "Ingen lejere fundet."}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeSendDialog} disabled={sending}>
+              Annuller
+            </Button>
+            <Button
+              onClick={handleSendToTenants}
+              disabled={sending || selectedTenantIds.length === 0 || tenantLoading}
+            >
+              {sending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Send til {selectedTenantIds.length} {selectedTenantIds.length === 1 ? "lejer" : "lejere"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

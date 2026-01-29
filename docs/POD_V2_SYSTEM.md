@@ -138,6 +138,8 @@ The existing **tenant update flow** remains unchanged:
 
 No changes were made to that system.
 
+To give the master admin more control, the product overview UI now calls a new RPC (`send_product_to_tenants(master_product_id, tenant_ids, delivery_mode)`) that inserts `tenant_notifications` for a selectable tenant list instead of broadcasting to every tenant. The dialog lets the master tag each distributor as either a normal price list or a locked POD price list, and that mode flows through inside `tenant_notifications.data.delivery_mode`. Existing triggers still fire for a global release / `is_available_to_tenants` toggle.
+
 ---
 
 ## ERP Support (Optional Module)
@@ -167,4 +169,3 @@ ERP Support can be enabled later to allow catalog selection inside Print.com UI:
 - POD v1 tables, functions, and UI were **not modified**.
 - POD v2 uses separate `pod2_*` tables and `pod2-*` functions.
 - Shared systems (pricing, product configuration, tenant sync) are **read‑only integrations**.
-

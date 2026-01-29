@@ -130,9 +130,12 @@ export function TenantUpdates() {
                         </div>
                     </Card>
                 ) : (
-                    notifications.map((notification) => (
-                        <Card key={notification.id} className={`transition-all ${!notification.is_read ? 'border-primary/50 bg-primary/5' : ''}`}>
-                            <CardHeader className="flex flex-row items-start justify-between pb-2 space-y-0">
+                    notifications.map((notification) => {
+                        const deliveryModeLabel = notification.data?.delivery_mode === 'pod_price_list' ? 'POD-pris' : 'Standard pris';
+                        const showDeliveryMode = notification.type === 'product_update' && notification.data?.delivery_mode;
+                        return (
+                            <Card key={notification.id} className={`transition-all ${!notification.is_read ? 'border-primary/50 bg-primary/5' : ''}`}>
+                                <CardHeader className="flex flex-row items-start justify-between pb-2 space-y-0">
                                 <div className="flex items-start gap-3">
                                     <div className={`p-2 rounded-full ${notification.type === 'product_update' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
                                         {notification.type === 'product_update' ? <Box className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
@@ -157,6 +160,13 @@ export function TenantUpdates() {
                                 </Button>
                             </CardHeader>
                             <CardContent>
+                                {showDeliveryMode && (
+                                  <div className="mb-2">
+                                    <Badge variant="outline" className="text-xs">
+                                      {deliveryModeLabel}
+                                    </Badge>
+                                  </div>
+                                )}
                                 <p className="text-sm text-foreground/80 whitespace-pre-wrap">{notification.content}</p>
                             </CardContent>
                             {notification.type === 'product_update' && notification.status !== 'accepted' && (
@@ -178,15 +188,16 @@ export function TenantUpdates() {
                                     </Button>
                                 </CardFooter>
                             )}
-                            {notification.status === 'accepted' && (
-                                <CardFooter className="pt-0 p-4">
-                                    <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                                        <CheckCircle className="w-3 h-3 mr-1" /> Importeret
-                                    </Badge>
-                                </CardFooter>
-                            )}
-                        </Card>
-                    ))
+                                {notification.status === 'accepted' && (
+                                    <CardFooter className="pt-0 p-4">
+                                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                            <CheckCircle className="w-3 h-3 mr-1" /> Importeret
+                                        </Badge>
+                                    </CardFooter>
+                                )}
+                            </Card>
+                        );
+                    })
                 )}
             </div>
         </div>

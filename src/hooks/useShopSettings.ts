@@ -44,6 +44,7 @@ function normalizeSettings(tenant: any): any {
         tenant_name: tenant?.name,
         id: tenant?.id,
         subdomain: tenant?.subdomain,
+        domain: tenant?.domain,
         is_platform_owned: tenant?.is_platform_owned ?? false
     };
 }
@@ -106,10 +107,15 @@ export function useShopSettings() {
             if (!isEffectiveLocalhost && !marketingDomains.includes(effectiveHostname)) {
 
                 // A. Custom Domain Match (e.g. tryk.dk)
+                // Normalize: Check both with and without 'www.' prefix to handle user input variations
+                const normalizedHost = effectiveHostname.replace(/^www\./, '');
+                const possibleDomains = [effectiveHostname, normalizedHost, `www.${normalizedHost}`];
+
+                // Use 'in' operator equivalent for Supabase
                 const { data: tenantByDomain } = await supabase
                     .from('tenants' as any)
                     .select('*')
-                    .eq('domain', effectiveHostname)
+                    .in('domain', possibleDomains)
                     .maybeSingle();
 
                 if (tenantByDomain) {
@@ -143,13 +149,15 @@ export function useShopSettings() {
             // This allows you to see YOUR shop when logged into localhost or the master domain
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                const { data: tenantByUser } = await supabase
+                const { data: tenantsByUser } = await supabase
                     .from('tenants' as any)
                     .select('*')
-                    .eq('owner_id', user.id)
-                    .maybeSingle();
+                    .eq('owner_id', user.id);
 
-                if (tenantByUser) {
+                if (tenantsByUser && (tenantsByUser as any[]).length > 0) {
+                    const list = tenantsByUser as any[];
+                    // Prioritize Master Tenant if owned by user
+                    const tenantByUser = list.find(t => t.id === MASTER_TENANT_ID) || list[0];
                     return normalizeSettings(tenantByUser);
                 }
             }

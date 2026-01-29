@@ -14,12 +14,12 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useShopSettings } from "@/hooks/useShopSettings";
 
 const ADMIN_DARK_MODE_KEY = 'admin_dark_mode';
 
 export function AdminHeader() {
-    const [tenantName, setTenantName] = useState("Virksomhed");
-    const [tenantDomain, setTenantDomain] = useState("");
+    const { data: tenant } = useShopSettings();
     const [userEmail, setUserEmail] = useState("");
     const [unreadCount, setUnreadCount] = useState(0);
     const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -47,12 +47,50 @@ export function AdminHeader() {
         setIsDarkMode(prev => !prev);
     };
 
+    // Load user email
     useEffect(() => {
-        fetchTenantInfo();
+        const loadUser = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                setUserEmail(user.email || "");
+            }
+        };
+        loadUser();
+    }, []);
+
+    // Fetch messages logic
+    useEffect(() => {
+        if (!tenant?.id) return;
+
+        const fetchMessages = async () => {
+            try {
+                // 1. Customer Messages (Unread)
+                const { count: customerCount } = await supabase
+                    .from('order_messages' as any)
+                    .select('*', { count: 'exact', head: true })
+                    .eq('is_read', false)
+                    .eq('sender_type', 'customer');
+
+                // 2. Support Messages (Unread)
+                const isMaster = tenant.id === '00000000-0000-0000-0000-000000000000';
+
+                const { count: supportCount } = await supabase
+                    .from('platform_messages' as any)
+                    .select('*', { count: 'exact', head: true })
+                    .eq('is_read', false)
+                    .eq('sender_role', isMaster ? 'tenant' : 'master');
+
+                const total = (customerCount || 0) + (supportCount || 0);
+                setUnreadCount(total);
+            } catch (e) {
+                console.error("Error fetching messages", e);
+            }
+        };
+
         fetchMessages();
         const interval = setInterval(fetchMessages, 30000); // Poll every 30s
         return () => clearInterval(interval);
-    }, []);
+    }, [tenant?.id]);
 
     // Notify on new messages
     useEffect(() => {
@@ -69,66 +107,6 @@ export function AdminHeader() {
         previousCountRef.current = unreadCount;
     }, [unreadCount, navigate]);
 
-    const fetchMessages = async () => {
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
-
-            // 1. Customer Messages (Unread)
-            const { count: customerCount } = await supabase
-                .from('order_messages' as any)
-                .select('*', { count: 'exact', head: true })
-                .eq('is_read', false)
-                .eq('sender_type', 'customer');
-
-            // 2. Support Messages (Unread)
-            // If I am Tenant: Count messages from 'master'
-            // If I am Master: Count messages from 'tenant'
-
-            // Check if master (quick check)
-            const { data: masterTenant } = await supabase
-                .from('tenants' as any)
-                .select('id')
-                .eq('id', '00000000-0000-0000-0000-000000000000')
-                .eq('owner_id', user.id)
-                .maybeSingle();
-
-            const isMaster = !!masterTenant;
-
-            const { count: supportCount } = await supabase
-                .from('platform_messages' as any)
-                .select('*', { count: 'exact', head: true })
-                .eq('is_read', false)
-                .eq('sender_role', isMaster ? 'tenant' : 'master');
-
-            const total = (customerCount || 0) + (supportCount || 0);
-            setUnreadCount(total);
-        } catch (e) {
-            console.error("Error fetching messages", e);
-        }
-    };
-
-    const fetchTenantInfo = async () => {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            setUserEmail(user.email || "");
-
-            const { data: tenant } = await supabase
-                .from('tenants' as any)
-                .select('name, domain, settings')
-                .eq('owner_id', user.id)
-                .maybeSingle();
-
-            if (tenant) {
-                // Prefer company name from settings, fallback to tenant name
-                const settings = (tenant as any).settings;
-                const companyName = settings?.company?.name;
-                setTenantName(companyName || (tenant as any).name || "Virksomhed");
-                setTenantDomain((tenant as any).domain || "");
-            }
-        }
-    };
-
     const handleLogout = async () => {
         await supabase.auth.signOut();
         navigate("/");
@@ -138,12 +116,16 @@ export function AdminHeader() {
     const handleVisitShop = () => {
         const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
-        if (tenantDomain && !isLocalhost) {
-            window.open(`https://${tenantDomain}`, '_blank');
+        // Use domain from settings hook
+        if (tenant?.domain && !isLocalhost) {
+            window.open(`https://${tenant.domain}`, '_blank');
         } else {
             window.open(`${window.location.origin}/shop`, '_blank');
         }
     };
+
+    // Determine display name
+    const displayTenantName = tenant?.company?.name || tenant?.tenant_name || "Virksomhed";
 
     return (
         <header className="sticky top-0 z-30 flex h-16 items-center border-b bg-background px-6 shadow-sm">
@@ -151,7 +133,7 @@ export function AdminHeader() {
                 <Button variant="ghost" size="icon" onClick={toggleSidebar} className="md:hidden">
                     <Menu className="h-5 w-5" />
                 </Button>
-                <h1 className="text-3xl font-bold text-foreground">{tenantName} Panel</h1>
+                <h1 className="text-3xl font-bold text-foreground">{displayTenantName} Panel</h1>
                 <VisitorStatsWidget />
             </div>
 

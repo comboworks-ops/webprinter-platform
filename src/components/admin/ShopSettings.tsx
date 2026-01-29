@@ -8,8 +8,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Mail, Bell, Shield, Globe, Loader2, Save } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useShopSettings } from "@/hooks/useShopSettings";
 
 export function ShopSettings() {
+    const { data: tenant, isLoading } = useShopSettings();
+
     // Company Info
     const [companyName, setCompanyName] = useState("");
     const [email, setEmail] = useState("");
@@ -28,74 +31,44 @@ export function ShopSettings() {
     const [currency, setCurrency] = useState("DKK");
     const [timezone, setTimezone] = useState("Europe/Copenhagen");
 
-    const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        fetchSettings();
-    }, []);
+        if (tenant?.settings) {
+            const s = tenant.settings as any;
 
-    const fetchSettings = async () => {
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
-
-            const { data: tenant } = await supabase
-                .from('tenants' as any)
-                .select('settings')
-                .eq('owner_id', user.id)
-                .maybeSingle();
-
-            if (tenant && (tenant as any).settings) {
-                const s = (tenant as any).settings;
-
-                // Company
-                if (s.company) {
-                    setCompanyName(s.company.name || "");
-                    setEmail(s.company.email || "");
-                    setPhone(s.company.phone || "");
-                    setAddress(s.company.address || "");
-                    setCvr(s.company.cvr || "");
-                    setAdminName(s.company.admin_name || "");
-                }
-
-                // Notifications
-                if (s.notifications) {
-                    setEmailNotifications(s.notifications.new_orders ?? true);
-                    setOrderConfirmations(s.notifications.order_confirmations ?? true);
-                    setMarketingEmails(s.notifications.marketing ?? false);
-                }
-
-                // Regional
-                if (s.regional) {
-                    setLanguage(s.regional.language || "da");
-                    setCurrency(s.regional.currency || "DKK");
-                    setTimezone(s.regional.timezone || "Europe/Copenhagen");
-                }
+            // Company
+            if (s.company) {
+                setCompanyName(s.company.name || "");
+                setEmail(s.company.email || "");
+                setPhone(s.company.phone || "");
+                setAddress(s.company.address || "");
+                setCvr(s.company.cvr || "");
+                setAdminName(s.company.admin_name || "");
             }
-        } catch (error) {
-            console.error("Error fetching settings:", error);
-        } finally {
-            setLoading(false);
+
+            // Notifications
+            if (s.notifications) {
+                setEmailNotifications(s.notifications.new_orders ?? true);
+                setOrderConfirmations(s.notifications.order_confirmations ?? true);
+                setMarketingEmails(s.notifications.marketing ?? false);
+            }
+
+            // Regional
+            if (s.regional) {
+                setLanguage(s.regional.language || "da");
+                setCurrency(s.regional.currency || "DKK");
+                setTimezone(s.regional.timezone || "Europe/Copenhagen");
+            }
         }
-    };
+    }, [tenant]);
 
     const handleSave = async () => {
+        if (!tenant) return;
+
         setSaving(true);
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
-
-            // Get current to merge (branding etc)
-            const { data: tenant } = await supabase
-                .from('tenants' as any)
-                .select('id, settings')
-                .eq('owner_id', user.id)
-                .single();
-
-            if (!tenant) throw new Error("Tenant not found");
-
-            const current = (tenant as any).settings || {};
+            const current = (tenant.settings as any) || {};
 
             const newSettings = {
                 ...current,
@@ -122,7 +95,7 @@ export function ShopSettings() {
             const { error } = await supabase
                 .from('tenants' as any)
                 .update({ settings: newSettings })
-                .eq('id', (tenant as any).id);
+                .eq('id', tenant.id);
 
             if (error) throw error;
 
@@ -130,7 +103,7 @@ export function ShopSettings() {
             await supabase
                 .from('tenants' as any)
                 .update({ name: companyName.trim() || null })
-                .eq('id', (tenant as any).id);
+                .eq('id', tenant.id);
 
             toast.success('Indstillinger gemt');
         } catch (error) {
@@ -141,7 +114,7 @@ export function ShopSettings() {
         }
     };
 
-    if (loading) return <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>;
+    if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>;
 
     return (
         <div className="space-y-6 max-w-4xl mx-auto">
