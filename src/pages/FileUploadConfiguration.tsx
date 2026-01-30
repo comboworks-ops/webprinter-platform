@@ -103,6 +103,7 @@ const FileUploadConfiguration = () => {
     // Stripe payment state
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null);
+    const [paymentConnectedAccountId, setPaymentConnectedAccountId] = useState<string | null>(null);
     const [paymentSuccess, setPaymentSuccess] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -147,6 +148,14 @@ const FileUploadConfiguration = () => {
 
             if (data?.client_secret) {
                 setPaymentClientSecret(data.client_secret);
+                // Synchronize frontend "Connect" mode with Backend "Connect" mode
+                // If backend used "connected": true, we MUST use stripe_account_id options.
+                // If backend used "connected": false, we MUST NOT use stripe_account_id options.
+                if (data.connected && tenantPaymentStatus?.stripe_account_id) {
+                    setPaymentConnectedAccountId(tenantPaymentStatus.stripe_account_id);
+                } else {
+                    setPaymentConnectedAccountId(null);
+                }
                 setShowPaymentModal(true);
             } else {
                 toast.error("Kunne ikke oprette betaling.");
@@ -980,7 +989,7 @@ const FileUploadConfiguration = () => {
                             currency="dkk"
                             onSuccess={handlePaymentSuccess}
                             onCancel={handlePaymentCancel}
-                            connectedAccountId={tenantPaymentStatus?.stripe_account_id}
+                            connectedAccountId={paymentConnectedAccountId}
                         />
                     </div>
                 </div>
