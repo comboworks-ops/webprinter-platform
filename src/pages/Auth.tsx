@@ -9,7 +9,10 @@ import { Loader2 } from 'lucide-react';
 import { z } from 'zod';
 import PlatformHeader from '@/components/platform/PlatformHeader';
 import PlatformFooter from '@/components/platform/PlatformFooter';
+import Header from '@/components/Header';
+import Footer from '@/components/Footer';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useShopSettings } from '@/hooks/useShopSettings';
 
 const authSchema = z.object({
   email: z.string().email('Invalid email address').max(255),
@@ -19,28 +22,46 @@ const authSchema = z.object({
 export default function Auth() {
   const navigate = useNavigate();
   const { t } = useLanguage();
+  // Fetch tenant settings to decide context
+  const { data: tenant, isLoading } = useShopSettings();
+
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  // Determine if we are in "Platform Mode" or "Tenant Mode"
+  // If tenant ID is the Master ID or undefined (marking domains), we are in Platform Mode.
+  const isPlatformMode = !tenant || tenant.id === '00000000-0000-0000-0000-000000000000';
+
   useEffect(() => {
     const checkUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        navigate('/admin');
+        // Redirect logic: Tenants -> Shop Home, Platform -> Admin
+        if (isPlatformMode) {
+          navigate('/admin');
+        } else {
+          navigate('/');
+        }
       }
     };
-    checkUser();
+    if (!isLoading) {
+      checkUser();
+    }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        navigate('/admin');
+        if (isPlatformMode) {
+          navigate('/admin');
+        } else {
+          navigate('/');
+        }
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [navigate]);
+  }, [navigate, isLoading, isPlatformMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,7 +124,9 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <PlatformHeader />
+      {/* Conditionally Render Header */}
+      {isPlatformMode ? <PlatformHeader /> : <Header />}
+
       <div className="flex-1 flex items-center justify-center bg-gradient-to-b from-background to-muted/20 px-4 py-12 pt-32">
         <Card className="w-full max-w-md">
           <CardHeader>
@@ -165,7 +188,9 @@ export default function Auth() {
           </CardContent>
         </Card>
       </div>
-      <PlatformFooter />
+
+      {/* Conditionally Render Footer */}
+      {isPlatformMode ? <PlatformFooter /> : <Footer />}
     </div>
   );
 }

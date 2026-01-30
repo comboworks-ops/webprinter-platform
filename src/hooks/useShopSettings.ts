@@ -149,6 +149,30 @@ export function useShopSettings() {
             // This allows you to see YOUR shop when logged into localhost or the master domain
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
+                // 2a. Check for Master Admin Role first
+                // If user is a master_admin, they should see the Platform Admin context (Master Tenant)
+                // instead of their own personal shop when on localhost/generic domains.
+                const { data: roles } = await supabase
+                    .from('user_roles' as any)
+                    .select('role')
+                    .eq('user_id', user.id)
+                    .eq('role', 'master_admin');
+
+                if (roles && roles.length > 0) {
+                    const { data: master } = await supabase
+                        .from('tenants' as any)
+                        .select('*')
+                        .eq('id', MASTER_TENANT_ID)
+                        .maybeSingle();
+
+                    if (master) {
+                        const normalized = normalizeSettings(master);
+                        // Explicitly set subdomain to master to match other master logic
+                        return { ...normalized, subdomain: 'master' };
+                    }
+                }
+
+                // 2b. If not master admin, show owned tenant
                 const { data: tenantsByUser } = await supabase
                     .from('tenants' as any)
                     .select('*')
