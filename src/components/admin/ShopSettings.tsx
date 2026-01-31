@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { useShopSettings } from "@/hooks/useShopSettings";
 
 export function ShopSettings() {
     const { data: tenant, isLoading } = useShopSettings();
+    const queryClient = useQueryClient();
 
     // Company Info
     const [companyName, setCompanyName] = useState("");
@@ -106,6 +108,9 @@ export function ShopSettings() {
                 .eq('id', tenant.id);
 
             toast.success('Indstillinger gemt');
+
+            // Invalidate query to force refresh
+            queryClient.invalidateQueries({ queryKey: ["shop-settings"] });
         } catch (error) {
             console.error("Error saving settings:", error);
             toast.error("Kunne ikke gemme indstillinger");

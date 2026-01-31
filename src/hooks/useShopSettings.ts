@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 // Define the root domain for subdomain parsing
@@ -56,8 +57,26 @@ export function useShopSettings() {
     const forceTenantId = searchParams.get('tenantId') || searchParams.get('tenant_id');
     const hostname = window.location.hostname;
 
+    // Track session state to invalidate query on login/logout
+    const [userId, setUserId] = useState<string | null>(null);
+
+    useEffect(() => {
+        // Get initial session
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setUserId(session?.user?.id || null);
+        });
+
+        // Listen for changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setUserId(session?.user?.id || null);
+        });
+
+        return () => subscription.unsubscribe();
+    }, []);
+
     return useQuery({
-        queryKey: ["shop-settings", hostname, forceDomain, forceSubdomain, forceTenantId],
+        // Include userId in query key to force refetch on login/logout
+        queryKey: ["shop-settings", hostname, forceDomain, forceSubdomain, forceTenantId, userId],
         queryFn: async () => {
             const isVercel = hostname.endsWith('.vercel.app');
             const marketingDomains = [ROOT_DOMAIN, `www.${ROOT_DOMAIN}`];
@@ -88,15 +107,10 @@ export function useShopSettings() {
             // 0. Direct Tenant Lookup by Subdomain (for local dev)
             // Usage: /local-tenant?tenant_subdomain=demo
             if (forceSubdomain) {
-                const { data: tenantBySub } = await supabase
-                    .from('tenants' as any)
-                    .select('*')
-                    .eq('subdomain', forceSubdomain)
-                    .maybeSingle();
-
-                if (tenantBySub) {
-                    return normalizeSettings(tenantBySub);
-                }
+                // Since subdomain column doesn't exist, we must rely on domain or assume subdomain is part of settings?
+                // For now, let's skip direct subdomain lookup against the table if column missing.
+                // Or if we fixed it, we'd use it. But based on inspection, column is missing.
+                console.warn("Subdomain lookup requested but column missing in DB.");
             }
 
             // If forcing a domain OR on /local-tenant, treat as a production tenant lookup
@@ -133,29 +147,32 @@ export function useShopSettings() {
                 }
 
                 if (subdomain && subdomain !== 'www' && subdomain !== '') {
-                    const { data: tenantBySub } = await supabase
+                    // Try to find by domain constructed from subdomain
+                    const constructedDomain = `${subdomain}.${ROOT_DOMAIN}`;
+                    const { data: tenantByDomain } = await supabase
                         .from('tenants' as any)
                         .select('*')
-                        .eq('subdomain', subdomain)
+                        .eq('domain', constructedDomain)
                         .maybeSingle();
 
-                    if (tenantBySub) {
-                        return normalizeSettings(tenantBySub);
+                    if (tenantByDomain) {
+                        return normalizeSettings(tenantByDomain);
                     }
                 }
             }
 
             // 2. Dev / Preview: Check Logged In User's Tenant
             // This allows you to see YOUR shop when logged into localhost or the master domain
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
+            // Use the userId from state to ensure we have the latest session
+            if (userId) {
                 // 2a. Check for Master Admin Role first
-                // If user is a master_admin, they should see the Platform Admin context (Master Tenant)
-                // instead of their own personal shop when on localhost/generic domains.
+                // FIX: Commented out to prevent Master Admins (who also own shops like Salgsmapper)
+                // from being forced into the Master Tenant context on localhost.
+                /*
                 const { data: roles } = await supabase
                     .from('user_roles' as any)
                     .select('role')
-                    .eq('user_id', user.id)
+                    .eq('user_id', userId)
                     .eq('role', 'master_admin');
 
                 if (roles && roles.length > 0) {
@@ -171,18 +188,32 @@ export function useShopSettings() {
                         return { ...normalized, subdomain: 'master' };
                     }
                 }
+                */
 
                 // 2b. If not master admin, show owned tenant
                 const { data: tenantsByUser } = await supabase
                     .from('tenants' as any)
                     .select('*')
-                    .eq('owner_id', user.id);
+                    .eq('owner_id', userId);
 
                 if (tenantsByUser && (tenantsByUser as any[]).length > 0) {
                     const list = tenantsByUser as any[];
-                    // Prioritize Master Tenant if owned by user
-                    const tenantByUser = list.find(t => t.id === MASTER_TENANT_ID) || list[0];
-                    return normalizeSettings(tenantByUser);
+
+                    // Fix: Filter OUT Master Tenant from automatic selection (Localhost/Dev).
+                    // This ensures we default to the user's actual shop (e.g. "Online Tryksager")
+                    // instead of the Platform/Master tenant.
+                    // NOTE: We allow is_platform_owned tenants (like Salgsmapper) as long as they are not the Master ID.
+                    const realShops = list.filter(t => t.id !== MASTER_TENANT_ID);
+
+                    console.log("[useShopSettings] Found owned tenants:", list.map(t => ({ id: t.id, name: t.name, is_platform_owned: t.is_platform_owned })));
+                    console.log("[useShopSettings] Filtered real shops (Fix Applied):", realShops.map(t => t.name));
+
+                    if (realShops.length > 0) {
+                        return normalizeSettings(realShops[0]);
+                    }
+
+                    // Fallback: If they ONLY own Master (weird, but possible), show master.
+                    return normalizeSettings(list[0]);
                 }
             }
 
@@ -205,3 +236,4 @@ export function useShopSettings() {
         retry: 1
     });
 }
+

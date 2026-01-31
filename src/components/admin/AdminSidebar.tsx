@@ -119,34 +119,22 @@ export function AdminSidebar() {
 
   useEffect(() => {
     async function checkMasterStatus() {
-      // If hook says yes, we are good
-      if (roleIsMasterAdmin) {
+      // FIX: Only show Master Admin UI if we are actually in the Master Tenant context.
+      // Even if the user HAS the role, they shouldn't see Platform tools when managing a sub-tenant (Salgsmapper).
+
+      const { tenantId, isMasterAdmin: resolvedMasterStatus } = await resolveAdminTenant();
+
+      // We only toggle the UI mode if we are effectively acting as Master Admin on the Master Tenant
+      if (resolvedMasterStatus && tenantId === '00000000-0000-0000-0000-000000000000') {
         setIsMasterAdmin(true);
-        return;
-      }
-
-      // Fallback: Check ownership of master tenant
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        const { data } = await supabase
-          .from('tenants' as any)
-          .select('id')
-          .eq('id', '00000000-0000-0000-0000-000000000000')
-          .eq('owner_id', user.id)
-          .maybeSingle();
-
-        if (data) {
-          setIsMasterAdmin(true);
-          setPlatformOpen(true); // Open platform menu by default for master admin
-        }
-      } catch (e) {
-        console.error('Could not check master admin status', e);
+        setPlatformOpen(true);
+      } else {
+        setIsMasterAdmin(false);
+        setPlatformOpen(false);
       }
     }
     checkMasterStatus();
-  }, [roleIsMasterAdmin]);
+  }, [roleIsMasterAdmin, location.pathname]); // Re-run on route change in case context switches
   useEffect(() => {
     async function fetchProducts() {
       const { tenantId } = await resolveAdminTenant();

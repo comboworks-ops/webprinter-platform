@@ -1,14 +1,17 @@
-import { useEffect, useState, useRef } from "react";
+
+import { useState, useEffect, useRef } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { Package, Trash2, Copy, Search, X, ImageIcon, Building2, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useUserRole } from "@/hooks/useUserRole";
+import { resolveAdminTenant } from "@/lib/adminTenant";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/integrations/supabase/client";
-import { useUserRole } from "@/hooks/useUserRole";
-
-import { useNavigate, Link } from "react-router-dom";
-import { Package, Trash2, Copy, Search, X, ImageIcon, Building2, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,9 +23,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Checkbox } from "@/components/ui/checkbox";
-import { resolveAdminTenant } from "@/lib/adminTenant";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ProductCloneDialog } from "./ProductCloneDialog";
 
 type Product = {
   id: string;
@@ -102,6 +103,10 @@ export function ProductOverview() {
   const [sending, setSending] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("price_list");
 
+  // Clone Dialog State
+  const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
+  const [cloneProduct, setCloneProduct] = useState<Product | null>(null);
+
   const fetchUnreadMessages = async () => {
     try {
       const { count } = await supabase
@@ -152,7 +157,7 @@ export function ProductOverview() {
       const { data } = await supabase
         .from('tenants' as any)
         .select('id')
-        .eq('id', '00000000-0000-0000-0000-000000000000')
+        .eq('id', '00000000-0000-0000-0000-000000000000') // Master ID
         .eq('owner_id', user.id)
         .maybeSingle();
       if (data) setIsMasterAdmin(true);
@@ -353,6 +358,11 @@ export function ProductOverview() {
     setTenantFilter("");
   };
 
+  const openCloneDialog = (product: Product) => {
+    setCloneProduct(product);
+    setCloneDialogOpen(true);
+  };
+
   const handleTenantToggle = (tenantId: string) => {
     setSelectedTenantIds((prev) =>
       prev.includes(tenantId) ? prev.filter((id) => id !== tenantId) : [...prev, tenantId],
@@ -440,6 +450,12 @@ export function ProductOverview() {
 
   return (
     <div className="space-y-6">
+      <ProductCloneDialog
+        isOpen={cloneDialogOpen}
+        onClose={() => setCloneDialogOpen(false)}
+        product={cloneProduct}
+      />
+
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold">Produktoversigt</h1>
@@ -625,6 +641,26 @@ export function ProductOverview() {
                                 </TooltipTrigger>
                                 <TooltipContent>Duplikér produkt</TooltipContent>
                               </Tooltip>
+
+                              {/* Clone to Tenant (Master Only) */}
+                              {isMasterAdmin && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openCloneDialog(product);
+                                      }}
+                                    >
+                                      <Building2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Kopier til Lejer</TooltipContent>
+                                </Tooltip>
+                              )}
 
                               <AlertDialog>
                                 <Tooltip>

@@ -455,12 +455,21 @@ export function MatrixLayoutV1Renderer({
                             ? extra.variantValueIds
                             : [];
 
+                    // FIX: If the DB explicitly maps Format or Material in selectionMap,
+                    // we must NOT expect them to appear in the variantValueIds list.
+                    // We filter them out of our LOCAL selection list before comparing.
+                    let effectiveSelectedIds = selectedVariantValueIds;
+                    if (selectionMap.format) {
+                        effectiveSelectedIds = effectiveSelectedIds.filter(id => id !== selectedFormatId);
+                    }
+                    if (selectionMap.material) {
+                        effectiveSelectedIds = effectiveSelectedIds.filter(id => id !== selectedMaterialId);
+                    }
+
                     const matchesSelectionMap =
                         (selectionMap.format ? selectionMap.format === selectedFormatId : true) &&
                         (selectionMap.material ? selectionMap.material === selectedMaterialId : true) &&
-                        (variantValueIds.length > 0
-                            ? normalizeVariantKey(variantValueIds.join('|')) === normalizeVariantKey(selectedVariantValueIds.join('|'))
-                            : selectedVariantValueIds.length === 0);
+                        (normalizeVariantKey(variantValueIds.join('|')) === normalizeVariantKey(effectiveSelectedIds.join('|')));
 
                     const matchesVariant =
                         selectedVariantKey === 'none' ? (p.variant_name === 'none' || !p.variant_name) :

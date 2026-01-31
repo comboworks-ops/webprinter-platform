@@ -1245,13 +1245,14 @@ export function ProductAttributeBuilder({
 
         const loadStructure = async () => {
             const { data } = await supabase
-                .from('products' as any)
-                .select('pricing_structure')
+                .from('products')
+                .select('pricing_structure' as any)
                 .eq('id', productId)
                 .maybeSingle();
 
-            if (data?.pricing_structure?.mode === 'matrix_layout_v1') {
-                applyPricingStructure(data.pricing_structure);
+            const structure = (data as any)?.pricing_structure;
+            if (structure?.mode === 'matrix_layout_v1') {
+                applyPricingStructure(structure);
             }
             hasLoadedStructureRef.current = true;
         };
@@ -1930,9 +1931,13 @@ export function ProductAttributeBuilder({
             }
 
             // 2. Update product with pricing_structure
+            // We use 'as any' because pricing_structure is missing from the Supabase types
             const { error: productError } = await supabase
                 .from('products')
-                .update({ pricing_structure: pricingStructure, pricing_type: 'matrix' } as any)
+                .update({
+                    pricing_structure: pricingStructure,
+                    pricing_type: 'matrix'
+                } as any)
                 .eq('id', productId);
 
             if (productError) throw productError;
@@ -2138,7 +2143,7 @@ export function ProductAttributeBuilder({
                 if (['antal', 'stk', 'oplag', 'quantity', 'qty', 'count', 'pieces', 'pcs'].includes(n)) return 'qty';
 
                 // 5. Price (Explicit)
-                if (['price', 'pris', 'beløb', 'amount', 'netto', 'brutto', 'kostpris', 'salgspris'].includes(n)) return 'price';
+                if (['price', 'pris', 'beløb', 'amount', 'netto', 'brutto', 'kostpris', 'salgspris'].includes(n)) return null;
 
                 // 6. Ignore (Rest of ignores)
                 if (['kommentar', 'note', 'description', 'tags', 'tag', 'sort', 'sorting', 'sortering', 'order', 'tax', 'moms', 'vat', 'currency', 'valuta'].includes(n)) return 'ignore';
@@ -3249,31 +3254,89 @@ export function ProductAttributeBuilder({
             return;
         }
 
+        // Helper to Identify Unique Combinations {Format, Material, Variant}
+        // from the keys available in sourcePrices (Anchors)
+        const uniqueCombinations = new Set<string>();
         sourceKeys.forEach(key => {
             const parts = key.split('::');
-            let formatId = '';
-            let materialId = '';
-            let variantId = 'none';
-            let qtyStr = '';
-
-            if (parts.length === 4) {
-                [formatId, materialId, variantId, qtyStr] = parts;
-            } else if (parts.length === 3) {
-                [formatId, materialId, qtyStr] = parts;
-            } else {
-                return;
+            if (parts.length >= 3) {
+                // Reconstruct the combo key formatId::materialId::variantId
+                let formatId, materialId, variantId, qtyStr;
+                if (parts.length === 4) {
+                    [formatId, materialId, variantId] = parts;
+                } else {
+                    [formatId, materialId] = parts;
+                    variantId = 'none';
+                }
+                uniqueCombinations.add(`${formatId}::${materialId}::${variantId}`);
             }
+        });
 
-            const data = sourcePrices[key] || {};
-            const basePrice = typeof data === 'number' ? data : data.price;
-            if (!basePrice || basePrice <= 0) return;
+        // Generate Price for each Combination + Oplag using Interpolation
 
-            const markupKey = `${formatId}::${materialId}${variantId !== 'none' ? `::${variantId}` : ''}`;
-            const prodMarkup = productMarkups[markupKey] || 0;
-            const localMarkup = typeof data === 'number' ? 0 : (data.markup || 0);
+        uniqueCombinations.forEach(comboKey => {
+            const [formatId, materialId, variantId] = comboKey.split('::');
 
-            const finalPrice = Math.round(basePrice * (1 + localMarkup / 100) * (1 + prodMarkup / 100) * (1 + masterMarkup / 100) / genRounding) * genRounding;
-            allPrices[key] = finalPrice;
+            // 1. Get Anchors for this specific combo
+            // We need to fetch them from sourcePrices directly as `getAnchorsForContext` relies on state selection
+
+            // Filter source keys that match this combo
+            const comboAnchors: { quantity: number; price: number; markup?: number }[] = [];
+            sourceKeys.forEach(key => {
+                if (key.startsWith(comboKey + "::") || (variantId === 'none' && key.startsWith(`${formatId}::${materialId}::`) && key.split('::').length === 3)) {
+                    const parts = key.split('::');
+                    const qty = parseInt(parts[parts.length - 1]);
+                    const data = sourcePrices[key];
+                    if (data && typeof (data) !== 'number' && data.isLocked && data.price > 0 && !data.excludeFromCurve) {
+                        comboAnchors.push({
+                            quantity: qty,
+                            price: data.price,
+                            markup: data.markup || 0
+                        });
+                    } else if (typeof (data) === 'number' && data > 0) {
+                        // Fallback for flat number prices (legacy/imported) - treat as anchor if valid
+                        comboAnchors.push({ quantity: qty, price: data, markup: 0 });
+                    }
+                }
+            });
+
+            // Use ALL effective oplag steps for this row
+            effectiveOplag.forEach(qty => {
+                const fullKey = getGenPriceKey(formatId, materialId, variantId, qty);
+                const existingData = sourcePrices[fullKey];
+
+                // If explicit Locked/Manual price exists, use it. Otherwise Interpolate.
+                // We prefer explicit values to honour manual overrides that might be "off-curve"
+                let basePriceWithLocalMarkup = 0;
+
+                if (existingData && typeof existingData !== 'number' && existingData.isLocked && existingData.price > 0) {
+                    // Use explicit locked price
+                    basePriceWithLocalMarkup = existingData.price * (1 + (existingData.markup || 0) / 100);
+                } else if (typeof existingData === 'number' && existingData > 0) {
+                    // Use explicit legacy price
+                    basePriceWithLocalMarkup = existingData;
+                } else {
+                    // Interpolate from anchors
+                    basePriceWithLocalMarkup = interpolatePrice(qty, comboAnchors);
+
+                    // Apply local markup from the interpolated point if any (this mimics the previous logic, though typically interpolation includes markup)
+                    // In the reverted code, interpolatePrice returns "priceWithMarkup".
+                    // So specific local markup application again might be double-counting if interpolatePrice already does it.
+                    // IMPORTANT: The reverted interpolatePrice function ALREADY applies (1+markup/100).
+                    // So we do NOT need to apply local markup again here.
+                }
+
+                if (basePriceWithLocalMarkup <= 0) return;
+
+                // Apply Product & Master Markup
+                const prodMarkupKey = `${formatId}::${materialId}${variantId !== 'none' ? `::${variantId}` : ''}`;
+                const prodMarkup = productMarkups[prodMarkupKey] || 0;
+
+                // Final Price Calculation
+                const finalPrice = Math.round(basePriceWithLocalMarkup * (1 + prodMarkup / 100) * (1 + masterMarkup / 100) / genRounding) * genRounding;
+
+                allPrices[fullKey] = finalPrice;
+            });
         });
 
         if (Object.keys(allPrices).length === 0) {
@@ -3806,7 +3869,7 @@ export function ProductAttributeBuilder({
                                                 setLayoutRows(prev => prev.map(r => ({
                                                     ...r,
                                                     sections: r.sections.map(s => s.id === selectedTarget.id
-                                                        ? { ...s, valueIds: [...(s.valueIds || []), addedValue.id], groupIds: [...(s.groupIds || []), targetGroup!.id] }
+                                                        ? { ...s, valueIds: [...(s.valueIds || []), addedValue.id], groupId: targetGroup!.id }
                                                         : s
                                                     )
                                                 })));
@@ -3883,7 +3946,7 @@ export function ProductAttributeBuilder({
                                                 setLayoutRows(prev => prev.map(r => ({
                                                     ...r,
                                                     sections: r.sections.map(s => s.id === selectedTarget.id
-                                                        ? { ...s, valueIds: [...(s.valueIds || []), addedValue.id], groupIds: [...(s.groupIds || []), targetGroupId] }
+                                                        ? { ...s, valueIds: [...(s.valueIds || []), addedValue.id], groupId: targetGroupId }
                                                         : s
                                                     )
                                                 })));
@@ -4552,92 +4615,100 @@ export function ProductAttributeBuilder({
                                                     visibleSections.length >= 3 && "grid-cols-1 md:grid-cols-3"
                                                 )}>
                                                     {visibleSections.map((section) => {
-                                                    const values = (productAttrs.groups || [])
-                                                        .flatMap(g => (g.values || []))
-                                                        .filter(v => section.valueIds?.includes(v.id));
-                                                    const selectedValue = selectedSectionValues[section.id] || values[0]?.id || '';
-                                                    const setSelectedValue = (val: string) => {
-                                                        setSelectedSectionValues(prev => ({ ...prev, [section.id]: val }));
-                                                    };
+                                                        const values = (productAttrs.groups || [])
+                                                            .flatMap(g => (g.values || []))
+                                                            .filter(v => section.valueIds?.includes(v.id));
+                                                        const selectedValue = selectedSectionValues[section.id] || values[0]?.id || '';
+                                                        const setSelectedValue = (val: string) => {
+                                                            setSelectedSectionValues(prev => ({ ...prev, [section.id]: val }));
+                                                        };
 
-                                                    const displayMode = section.ui_mode || 'buttons';
+                                                        const displayMode = section.ui_mode || 'buttons';
 
-                                                    if (values.length === 0) return null;
+                                                        if (values.length === 0) return null;
 
-                                                    return (
-                                                        <div key={section.id} className="space-y-1.5">
-                                                            <Label className="text-sm font-medium">
-                                                                {section.sectionType === 'formats' ? 'Format' : section.sectionType === 'materials' ? 'Materiale' : section.sectionType === 'finishes' ? 'Efterbehandling' : 'Produkt'}
-                                                            </Label>
+                                                        return (
+                                                            <div key={section.id} className="space-y-1.5">
+                                                                <Label className="text-sm font-medium">
+                                                                    {section.sectionType === 'formats' ? 'Format' : section.sectionType === 'materials' ? 'Materiale' : section.sectionType === 'finishes' ? 'Efterbehandling' : 'Produkt'}
+                                                                </Label>
 
-                                                            {displayMode === 'dropdown' ? (
-                                                                <Select value={selectedValue} onValueChange={setSelectedValue}>
-                                                                    <SelectTrigger className="w-full">
-                                                                        <SelectValue placeholder="Vælg..." />
-                                                                    </SelectTrigger>
-                                                                    <SelectContent>
+                                                                {displayMode === 'dropdown' ? (
+                                                                    <Select value={selectedValue} onValueChange={setSelectedValue}>
+                                                                        <SelectTrigger className="w-full">
+                                                                            <SelectValue placeholder="Vælg..." />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            {values.map(v => {
+                                                                                const settings = section.valueSettings?.[v.id];
+                                                                                return (
+                                                                                    <SelectItem key={v.id} value={v.id}>
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            {settings?.showThumbnail && settings.customImage && (
+                                                                                                <img src={settings.customImage} className="w-6 h-6 object-cover rounded" />
+                                                                                            )}
+                                                                                            {v.name}
+                                                                                        </div>
+                                                                                    </SelectItem>
+                                                                                );
+                                                                            })}
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                ) : (
+                                                                    <div className="flex flex-wrap gap-2">
                                                                         {values.map(v => {
+                                                                            const isSelected = selectedValue === v.id;
                                                                             const settings = section.valueSettings?.[v.id];
-                                                                            return (
-                                                                                <SelectItem key={v.id} value={v.id}>
-                                                                                    <div className="flex items-center gap-2">
-                                                                                        {settings?.showThumbnail && settings.customImage && (
-                                                                                            <img src={settings.customImage} className="w-6 h-6 object-cover rounded" />
-                                                                                        )}
-                                                                                        {v.name}
+
+                                                                            if (displayMode === 'checkboxes') {
+                                                                                return (
+                                                                                    <div key={v.id} className="flex items-center space-x-2 border p-2 rounded cursor-pointer hover:bg-muted/50" onClick={() => setSelectedValue(v.id)}>
+                                                                                        <Checkbox checked={isSelected} onCheckedChange={() => setSelectedValue(v.id)} />
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            {settings?.showThumbnail && settings.customImage && (
+                                                                                                <img src={settings.customImage} className="w-6 h-6 object-cover rounded" />
+                                                                                            )}
+                                                                                            <span className="text-sm">{v.name}</span>
+                                                                                        </div>
                                                                                     </div>
-                                                                                </SelectItem>
+                                                                                );
+                                                                            }
+
+                                                                            return (
+                                                                                <button
+                                                                                    key={v.id}
+                                                                                    onClick={() => setSelectedValue(v.id)}
+                                                                                    className={cn(
+                                                                                        "h-10 px-4 rounded-md text-sm font-medium transition-all flex items-center gap-2 border",
+                                                                                        isSelected
+                                                                                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                                                                            : "bg-background hover:bg-muted text-foreground border-input"
+                                                                                    )}
+                                                                                >
+                                                                                    {settings?.showThumbnail && settings.customImage && (
+                                                                                        <img src={settings.customImage} className="w-5 h-5 object-cover rounded" />
+                                                                                    )}
+                                                                                    {v.name}
+                                                                                </button>
                                                                             );
                                                                         })}
-                                                                    </SelectContent>
-                                                                </Select>
-                                                            ) : (
-                                                                <div className="flex flex-wrap gap-2">
-                                                                    {values.map(v => {
-                                                                        const isSelected = selectedValue === v.id;
-                                                                        const settings = section.valueSettings?.[v.id];
-
-                                                                        if (displayMode === 'checkboxes') {
-                                                                            return (
-                                                                                <div key={v.id} className="flex items-center space-x-2 border p-2 rounded cursor-pointer hover:bg-muted/50" onClick={() => setSelectedValue(v.id)}>
-                                                                                    <Checkbox checked={isSelected} onCheckedChange={() => setSelectedValue(v.id)} />
-                                                                                    <div className="flex items-center gap-2">
-                                                                                        {settings?.showThumbnail && settings.customImage && (
-                                                                                            <img src={settings.customImage} className="w-6 h-6 object-cover rounded" />
-                                                                                        )}
-                                                                                        <span className="text-sm">{v.name}</span>
-                                                                                    </div>
-                                                                                </div>
-                                                                            );
-                                                                        }
-
-                                                                        return (
-                                                                            <button
-                                                                                key={v.id}
-                                                                                onClick={() => setSelectedValue(v.id)}
-                                                                                className={cn(
-                                                                                    "h-10 px-4 rounded-md text-sm font-medium transition-all flex items-center gap-2 border",
-                                                                                    isSelected
-                                                                                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                                                                                        : "bg-background hover:bg-muted text-foreground border-input"
-                                                                                )}
-                                                                            >
-                                                                                {settings?.showThumbnail && settings.customImage && (
-                                                                                    <img src={settings.customImage} className="w-5 h-5 object-cover rounded" />
-                                                                                )}
-                                                                                {v.name}
-                                                                            </button>
-                                                                        );
-                                                                    })}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
                                                     })}
                                                 </div>
                                             );
                                         })}
                                     </div>
+                                    {(verticalAxisConfig.valueIds?.length === 0 || !verticalAxisConfig.valueIds) && layoutRows.every(r => r.sections.every(s => !s.valueIds || s.valueIds.length === 0)) && (
+                                        <div className="p-8 text-center bg-muted/20 rounded-lg border border-dashed">
+                                            <p className="text-muted-foreground mb-2">Ingen konfiguration tilgængelig</p>
+                                            <p className="text-xs text-muted-foreground">
+                                                Tilføj formater, materialer eller andre attributter i layout-sektionerne ovenfor for at bruge prisgeneratoren.
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             {/* Variant selection (if active pricing group) - always shown */}
@@ -4941,7 +5012,7 @@ export function ProductAttributeBuilder({
 
                 {/* ============ FRONTEND-STYLE PRICE LIST PREVIEW ============ */}
                 {
-                    (sizeMode === 'format' && formatGroups.some(g => (g.values || []).length > 0) && materialGroups.some(g => (g.values || []).length > 0) && selectedOplag.length > 0) && (<>
+                    (sizeMode === 'format') && (<>
                         <Card>
                             <CardHeader className="pb-3">
                                 <div className="flex items-center justify-between gap-4">
@@ -4989,216 +5060,216 @@ export function ProductAttributeBuilder({
                                     if (visibleSections.length === 0) return null;
 
                                     return (
-                                    <div key={row.id} className="space-y-2 pb-3 border-b last:border-b-0">
-                                        <div className="flex items-center gap-2">
-                                            <GripVertical className="h-3 w-3 text-muted-foreground cursor-move" />
-                                            <Label className="text-xs text-muted-foreground">Række {rowIndex + 1}</Label>
-                                        </div>
-                                        <div className={cn(
-                                            "grid gap-3",
-                                            visibleSections.length === 1 && "grid-cols-1",
-                                            visibleSections.length === 2 && "grid-cols-2",
-                                            visibleSections.length === 3 && "grid-cols-3"
-                                        )}>
-                                            {visibleSections.map((section, sectionIndex) => (
-                                                <div
-                                                    key={section.id}
-                                                    className={cn(
-                                                        "space-y-1.5 p-2 rounded bg-muted/20",
-                                                        sectionIndex > 0 && "border-l-2 border-primary/20 pl-3"
-                                                    )}
-                                                >
-                                                    <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
-                                                        {section.sectionType === 'formats' ? 'Formater' :
-                                                            section.sectionType === 'materials' ? 'Materialer' :
-                                                                section.sectionType === 'finishes' ? 'Efterbehandling' : 'Produkter'}
-                                                    </span>
+                                        <div key={row.id} className="space-y-2 pb-3 border-b last:border-b-0">
+                                            <div className="flex items-center gap-2">
+                                                <GripVertical className="h-3 w-3 text-muted-foreground cursor-move" />
+                                                <Label className="text-xs text-muted-foreground">Række {rowIndex + 1}</Label>
+                                            </div>
+                                            <div className={cn(
+                                                "grid gap-3",
+                                                visibleSections.length === 1 && "grid-cols-1",
+                                                visibleSections.length === 2 && "grid-cols-2",
+                                                visibleSections.length === 3 && "grid-cols-3"
+                                            )}>
+                                                {visibleSections.map((section, sectionIndex) => (
+                                                    <div
+                                                        key={section.id}
+                                                        className={cn(
+                                                            "space-y-1.5 p-2 rounded bg-muted/20",
+                                                            sectionIndex > 0 && "border-l-2 border-primary/20 pl-3"
+                                                        )}
+                                                    >
+                                                        <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+                                                            {section.sectionType === 'formats' ? 'Formater' :
+                                                                section.sectionType === 'materials' ? 'Materialer' :
+                                                                    section.sectionType === 'finishes' ? 'Efterbehandling' : 'Produkter'}
+                                                        </span>
 
-                                                    {section.sectionType === 'formats' ? (
-                                                        // Format rendering based on section.valueIds whitelist
-                                                        <>
-                                                            {(() => {
-                                                                // Only show formats that are in this section's valueIds whitelist
-                                                                const sectionFormats = formatGroups
-                                                                    .flatMap(g => g.values || [])
-                                                                    .filter(v => section.valueIds?.includes(v.id));
+                                                        {section.sectionType === 'formats' ? (
+                                                            // Format rendering based on section.valueIds whitelist
+                                                            <>
+                                                                {(() => {
+                                                                    // Only show formats that are in this section's valueIds whitelist
+                                                                    const sectionFormats = formatGroups
+                                                                        .flatMap(g => g.values || [])
+                                                                        .filter(v => section.valueIds?.includes(v.id));
 
-                                                                const uiMode = section.ui_mode || formatDisplayMode || 'buttons';
+                                                                    const uiMode = section.ui_mode || formatDisplayMode || 'buttons';
 
-                                                                // If no formats added to this section, show empty state
-                                                                if (sectionFormats.length === 0) {
-                                                                    return <span className="text-[10px] text-muted-foreground italic">Ingen formater tilføjet</span>;
-                                                                }
+                                                                    // If no formats added to this section, show empty state
+                                                                    if (sectionFormats.length === 0) {
+                                                                        return <span className="text-[10px] text-muted-foreground italic">Ingen formater tilføjet</span>;
+                                                                    }
 
-                                                                const selectedFormatId = selectedSectionValues[section.id] || sectionFormats[0]?.id;
+                                                                    const selectedFormatId = selectedSectionValues[section.id] || sectionFormats[0]?.id;
 
-                                                                if (uiMode === 'dropdown') {
+                                                                    if (uiMode === 'dropdown') {
+                                                                        return (
+                                                                            <Select
+                                                                                value={selectedFormatId}
+                                                                                onValueChange={(val) => {
+                                                                                    setPreviewSelectedFormat(val);
+                                                                                    setSelectedSectionValues(prev => ({ ...prev, [section.id]: val }));
+                                                                                }}
+                                                                            >
+                                                                                <SelectTrigger className="h-8 text-xs">
+                                                                                    <SelectValue placeholder="Vælg format" />
+                                                                                </SelectTrigger>
+                                                                                <SelectContent>
+                                                                                    {sectionFormats.map(format => (
+                                                                                        <SelectItem key={format.id} value={format.id}>{format.name}</SelectItem>
+                                                                                    ))}
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                        );
+                                                                    }
+
+                                                                    if (uiMode === 'checkboxes') {
+                                                                        return (
+                                                                            <div className="space-y-1">
+                                                                                {sectionFormats.map((format) => {
+                                                                                    const isSelected = selectedFormatId === format.id;
+                                                                                    return (
+                                                                                        <label
+                                                                                            key={format.id}
+                                                                                            className={cn(
+                                                                                                "flex items-center gap-2 p-1.5 rounded border cursor-pointer text-xs transition-all",
+                                                                                                isSelected ? "bg-[#00a8e8]/10 border-[#00a8e8]" : "bg-background border-muted hover:border-muted-foreground/30"
+                                                                                            )}
+                                                                                            onClick={() => {
+                                                                                                setPreviewSelectedFormat(format.id);
+                                                                                                setSelectedSectionValues(prev => ({ ...prev, [section.id]: format.id }));
+                                                                                            }}
+                                                                                        >
+                                                                                            <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
+                                                                                            <span className="font-medium flex-1">{format.name}</span>
+                                                                                            {format.width_mm && format.height_mm && (
+                                                                                                <span className="text-muted-foreground">{format.width_mm}×{format.height_mm}</span>
+                                                                                            )}
+                                                                                        </label>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    // Default: buttons
                                                                     return (
-                                                                        <Select
-                                                                            value={selectedFormatId}
-                                                                            onValueChange={(val) => {
-                                                                                setPreviewSelectedFormat(val);
-                                                                                setSelectedSectionValues(prev => ({ ...prev, [section.id]: val }));
-                                                                            }}
-                                                                        >
-                                                                            <SelectTrigger className="h-8 text-xs">
-                                                                                <SelectValue placeholder="Vælg format" />
-                                                                            </SelectTrigger>
-                                                                            <SelectContent>
-                                                                                {sectionFormats.map(format => (
-                                                                                    <SelectItem key={format.id} value={format.id}>{format.name}</SelectItem>
-                                                                                ))}
-                                                                            </SelectContent>
-                                                                        </Select>
-                                                                    );
-                                                                }
-
-                                                                if (uiMode === 'checkboxes') {
-                                                                    return (
-                                                                        <div className="space-y-1">
+                                                                        <div className="flex flex-wrap gap-1.5">
                                                                             {sectionFormats.map((format) => {
                                                                                 const isSelected = selectedFormatId === format.id;
                                                                                 return (
-                                                                                    <label
+                                                                                    <Button
                                                                                         key={format.id}
-                                                                                        className={cn(
-                                                                                            "flex items-center gap-2 p-1.5 rounded border cursor-pointer text-xs transition-all",
-                                                                                            isSelected ? "bg-[#00a8e8]/10 border-[#00a8e8]" : "bg-background border-muted hover:border-muted-foreground/30"
-                                                                                        )}
+                                                                                        variant={isSelected ? 'default' : 'outline'}
+                                                                                        size="sm"
                                                                                         onClick={() => {
                                                                                             setPreviewSelectedFormat(format.id);
                                                                                             setSelectedSectionValues(prev => ({ ...prev, [section.id]: format.id }));
                                                                                         }}
-                                                                                    >
-                                                                                        <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
-                                                                                        <span className="font-medium flex-1">{format.name}</span>
-                                                                                        {format.width_mm && format.height_mm && (
-                                                                                            <span className="text-muted-foreground">{format.width_mm}×{format.height_mm}</span>
+                                                                                        className={cn(
+                                                                                            "h-7 text-xs",
+                                                                                            isSelected && "bg-[#00a8e8] hover:bg-[#0090c8]"
                                                                                         )}
-                                                                                    </label>
+                                                                                    >
+                                                                                        {format.name}
+                                                                                    </Button>
                                                                                 );
                                                                             })}
                                                                         </div>
                                                                     );
-                                                                }
+                                                                })()}
+                                                            </>
+                                                        ) : (
+                                                            // Section rendering based on type and valueIds whitelist
+                                                            <>
+                                                                {(() => {
+                                                                    // Only show values that are in this section's valueIds whitelist
+                                                                    const sectionValues = (productAttrs.groups || [])
+                                                                        .flatMap(g => (g.values || []))
+                                                                        .filter(v => section.valueIds?.includes(v.id));
+                                                                    const uiMode = section.ui_mode || 'buttons';
 
-                                                                // Default: buttons
-                                                                return (
-                                                                    <div className="flex flex-wrap gap-1.5">
-                                                                        {sectionFormats.map((format) => {
-                                                                            const isSelected = selectedFormatId === format.id;
-                                                                            return (
-                                                                                <Button
-                                                                                    key={format.id}
-                                                                                    variant={isSelected ? 'default' : 'outline'}
-                                                                                    size="sm"
-                                                                                    onClick={() => {
-                                                                                        setPreviewSelectedFormat(format.id);
-                                                                                        setSelectedSectionValues(prev => ({ ...prev, [section.id]: format.id }));
-                                                                                    }}
-                                                                                    className={cn(
-                                                                                        "h-7 text-xs",
-                                                                                        isSelected && "bg-[#00a8e8] hover:bg-[#0090c8]"
-                                                                                    )}
-                                                                                >
-                                                                                    {format.name}
-                                                                                </Button>
-                                                                            );
-                                                                        })}
-                                                                    </div>
-                                                                );
-                                                            })()}
-                                                        </>
-                                                    ) : (
-                                                        // Section rendering based on type and valueIds whitelist
-                                                        <>
-                                                            {(() => {
-                                                                // Only show values that are in this section's valueIds whitelist
-                                                                const sectionValues = (productAttrs.groups || [])
-                                                                    .flatMap(g => (g.values || []))
-                                                                    .filter(v => section.valueIds?.includes(v.id));
-                                                                const uiMode = section.ui_mode || 'buttons';
+                                                                    const selectedValueId = selectedSectionValues[section.id] || sectionValues[0]?.id;
 
-                                                                const selectedValueId = selectedSectionValues[section.id] || sectionValues[0]?.id;
+                                                                    if (sectionValues.length === 0) {
+                                                                        return <span className="text-[10px] text-muted-foreground italic">Ingen værdier tilføjet til denne sektion</span>;
+                                                                    }
 
-                                                                if (sectionValues.length === 0) {
-                                                                    return <span className="text-[10px] text-muted-foreground italic">Ingen værdier tilføjet til denne sektion</span>;
-                                                                }
+                                                                    const handleValueSelect = (valueId: string) => {
+                                                                        setSelectedSectionValues(prev => ({ ...prev, [section.id]: valueId }));
+                                                                    };
 
-                                                                const handleValueSelect = (valueId: string) => {
-                                                                    setSelectedSectionValues(prev => ({ ...prev, [section.id]: valueId }));
-                                                                };
+                                                                    if (uiMode === 'dropdown') {
+                                                                        return (
+                                                                            <Select
+                                                                                value={selectedValueId}
+                                                                                onValueChange={handleValueSelect}
+                                                                            >
+                                                                                <SelectTrigger className="h-8 text-xs">
+                                                                                    <SelectValue placeholder="Vælg værdi" />
+                                                                                </SelectTrigger>
+                                                                                <SelectContent>
+                                                                                    {sectionValues.map((v: any) => (
+                                                                                        <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
+                                                                                    ))}
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                        );
+                                                                    }
 
-                                                                if (uiMode === 'dropdown') {
+                                                                    if (uiMode === 'checkboxes') {
+                                                                        return (
+                                                                            <div className="space-y-1">
+                                                                                {sectionValues.map((v: any) => {
+                                                                                    const isSelected = selectedValueId === v.id;
+                                                                                    return (
+                                                                                        <label
+                                                                                            key={v.id}
+                                                                                            className={cn(
+                                                                                                "flex items-center gap-2 p-1.5 rounded border cursor-pointer text-xs transition-all",
+                                                                                                isSelected ? "bg-primary/10 border-primary" : "bg-background border-muted hover:border-muted-foreground/30"
+                                                                                            )}
+                                                                                            onClick={() => handleValueSelect(v.id)}
+                                                                                        >
+                                                                                            <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
+                                                                                            <span className="font-medium">{v.name}</span>
+                                                                                        </label>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    // Default: buttons - SELECTABLE
                                                                     return (
-                                                                        <Select
-                                                                            value={selectedValueId}
-                                                                            onValueChange={handleValueSelect}
-                                                                        >
-                                                                            <SelectTrigger className="h-8 text-xs">
-                                                                                <SelectValue placeholder="Vælg værdi" />
-                                                                            </SelectTrigger>
-                                                                            <SelectContent>
-                                                                                {sectionValues.map((v: any) => (
-                                                                                    <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
-                                                                                ))}
-                                                                            </SelectContent>
-                                                                        </Select>
-                                                                    );
-                                                                }
-
-                                                                if (uiMode === 'checkboxes') {
-                                                                    return (
-                                                                        <div className="space-y-1">
+                                                                        <div className="flex flex-wrap gap-1.5">
                                                                             {sectionValues.map((v: any) => {
                                                                                 const isSelected = selectedValueId === v.id;
                                                                                 return (
-                                                                                    <label
+                                                                                    <Button
                                                                                         key={v.id}
+                                                                                        variant={isSelected ? 'default' : 'outline'}
+                                                                                        size="sm"
                                                                                         className={cn(
-                                                                                            "flex items-center gap-2 p-1.5 rounded border cursor-pointer text-xs transition-all",
-                                                                                            isSelected ? "bg-primary/10 border-primary" : "bg-background border-muted hover:border-muted-foreground/30"
+                                                                                            "h-7 text-xs",
+                                                                                            isSelected && "bg-primary hover:bg-primary/90"
                                                                                         )}
                                                                                         onClick={() => handleValueSelect(v.id)}
                                                                                     >
-                                                                                        <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
-                                                                                        <span className="font-medium">{v.name}</span>
-                                                                                    </label>
+                                                                                        {v.name}
+                                                                                    </Button>
                                                                                 );
                                                                             })}
                                                                         </div>
                                                                     );
-                                                                }
-
-                                                                // Default: buttons - SELECTABLE
-                                                                return (
-                                                                    <div className="flex flex-wrap gap-1.5">
-                                                                        {sectionValues.map((v: any) => {
-                                                                            const isSelected = selectedValueId === v.id;
-                                                                            return (
-                                                                                <Button
-                                                                                    key={v.id}
-                                                                                    variant={isSelected ? 'default' : 'outline'}
-                                                                                    size="sm"
-                                                                                    className={cn(
-                                                                                        "h-7 text-xs",
-                                                                                        isSelected && "bg-primary hover:bg-primary/90"
-                                                                                    )}
-                                                                                    onClick={() => handleValueSelect(v.id)}
-                                                                                >
-                                                                                    {v.name}
-                                                                                </Button>
-                                                                            );
-                                                                        })}
-                                                                    </div>
-                                                                );
-                                                            })()}
-                                                        </>
-                                                    )}
-                                                </div>
-                                            ))}
+                                                                })()}
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
-                                    </div>
                                     );
                                 })}
 

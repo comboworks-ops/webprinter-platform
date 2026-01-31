@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveAdminTenant, MASTER_TENANT_ID } from '@/lib/adminTenant';
 
 export type UserRole = 'admin' | 'master_admin' | 'moderator' | 'user' | null;
 
@@ -73,6 +74,19 @@ export const useUserRole = () => {
           const userRole = priority.find((p) => roles.includes(p)) || null;
 
           if (userRole) {
+            // Context-Aware Role Masking:
+            // If user is Master Admin, but they are operating in a specific tenant (like Salgsmapper),
+            // we must DOWNGRADE them to effective 'admin' so the UI doesn't show Platform tools.
+            if (userRole === 'master_admin') {
+              const { tenantId } = await resolveAdminTenant();
+              if (tenantId && tenantId !== MASTER_TENANT_ID) {
+                console.log('[useUserRole] Masking Master Admin as Admin for tenant:', tenantId);
+                setRole('admin');
+                setServerVerified(true);
+                return;
+              }
+            }
+
             setRole(userRole);
             setServerVerified(userRole === 'admin' || userRole === 'master_admin');
           } else {

@@ -535,7 +535,7 @@ const DEFAULT_CONTENT_BLOCK: ContentBlock = {
 const DEFAULT_FORSIDE: ForsideSettings = {
     showBanner: true,
     productsSection: {
-        enabled: false,
+        enabled: true,
         columns: 4,
         layoutStyle: 'cards',
         showStorformatTab: true,

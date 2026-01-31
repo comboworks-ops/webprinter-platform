@@ -20,111 +20,14 @@ import {
   type MatrixData
 } from "@/utils/productPricing";
 import {
-  getFlyerMatrixDataFromDB,
-  getFolderMatrixDataFromDB,
-  getVisitkortMatrixDataFromDB,
-  getPosterMatrixDataFromDB,
-  getStickerMatrixDataFromDB,
-  getBookletMatrixDataFromDB,
-  getSalesfolderMatrixDataFromDB,
-  getBeachflagMatrixDataFromDB,
-  getBannerMatrixDataFromDB,
-  getSignMatrixDataFromDB,
-  getFoilMatrixDataFromDB,
   calculateFoilPrice,
   getGenericMatrixDataFromDB
 } from "@/utils/pricingDatabase";
 import { getDimensionsFromVariant } from "@/utils/formatStandards";
 
-// List of products with specific pricing tables
-const specificPricingProducts = ['flyers', 'foldere', 'visitkort', 'plakater', 'klistermærker', 'skilte', 'bannere', 'folie', 'beachflag', 'hæfter', 'salgsmapper'];
+// Legacy product configurations removed on user request (2025-01-30)
+// specificPricingProducts and productConfigs were deleted to unify on the generic pricing system.
 
-// Product configurations
-const productConfigs: Record<string, {
-  formats: { id: string; label: string }[];
-  extraOptions?: { id: string; label: string }[];
-  extraOptionsLabel?: string;
-}> = {
-  flyers: {
-    formats: [
-      { id: "A6", label: "A6" },
-      { id: "M65", label: "M65" },
-      { id: "A5", label: "A5" },
-      { id: "A4", label: "A4" },
-      { id: "A3", label: "A3" },
-    ]
-  },
-  foldere: {
-    formats: [
-      { id: "A5", label: "A5" },
-      { id: "M65", label: "M65" },
-      { id: "A4", label: "A4" },
-    ],
-    extraOptions: [
-      { id: "Midterfalset", label: "Midterfalset" },
-      { id: "Rullefalset", label: "Rullefalset" },
-      { id: "Zigzag", label: "Zigzag" },
-    ],
-    extraOptionsLabel: "Vælg falsetype"
-  },
-  visitkort: {
-    formats: [{ id: "standard", label: "85×55 mm" }]
-  },
-  plakater: {
-    formats: [
-      { id: "A3", label: "A3 (297×420mm)" },
-      { id: "A2", label: "A2 (420×594mm)" },
-      { id: "A1", label: "A1 (594×841mm)" },
-      { id: "A0", label: "A0 (841×1189mm)" },
-    ]
-  },
-  klistermærker: {
-    formats: [
-      { id: "5x5", label: "5×5 cm" },
-      { id: "10x10", label: "10×10 cm" },
-      { id: "15x15", label: "15×15 cm" },
-      { id: "20x20", label: "20×20 cm" },
-    ]
-  },
-  hæfter: {
-    formats: [
-      { id: "A6", label: "A6" },
-      { id: "A5", label: "A5" },
-      { id: "A4", label: "A4" },
-    ],
-    extraOptions: [
-      { id: "8", label: "8 sider" },
-      { id: "16", label: "16 sider" },
-      { id: "24", label: "24 sider" },
-      { id: "32", label: "32 sider" },
-    ],
-    extraOptionsLabel: "Vælg sidetal"
-  },
-  salgsmapper: {
-    formats: [
-      { id: "M65", label: "M65" },
-      { id: "A5", label: "A5" },
-      { id: "A4", label: "A4" },
-    ],
-    extraOptions: [
-      { id: "Kun forside", label: "Kun forside" },
-      { id: "For og bagside", label: "For og bagside" },
-    ],
-    extraOptionsLabel: "Vælg tryk"
-  },
-  beachflag: {
-    formats: [{ id: "all", label: "Alle størrelser" }]
-  },
-  bannere: {
-    formats: [{ id: "preset", label: "Standardstørrelser (m²)" }]
-  },
-  skilte: {
-    formats: [{ id: "preset", label: "Standardstørrelser (m²)" }]
-  },
-  folie: {
-    formats: [{ id: "preset", label: "Standardstørrelser (m²)" }]
-  }
-};
 
 const ProductPrice = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -191,8 +94,10 @@ const ProductPrice = () => {
     image: dbProduct.image_url || '/placeholder.svg'
   } : null), [staticProduct, dbProduct, slug]);
 
-  const config = product && staticProduct ? productConfigs[staticProduct.id] : null;
-  const isGenericPricing = !staticProduct && dbProduct;
+  // No legacy config fallback
+  const config = null;
+  // Always generic if database product exists (unless overridden by specific types below)
+  const isGenericPricing = !!dbProduct;
   const isStorformat = !!dbProduct && dbProduct.pricing_type === "STORFORMAT";
   const isPodProduct = !!dbProduct?.technical_specs?.is_pod;
   const podShippingEnabled = isPodProduct
@@ -206,11 +111,14 @@ const ProductPrice = () => {
       if (!slug) return;
       setLoading(true);
       console.log('[ProductPrice] Fetching product with slug:', slug);
-      const { data, error } = await supabase
+      const result = await supabase
         .from('products')
         .select('id, name, description, image_url, technical_specs, pricing_structure, pricing_type, banner_config' as any)
         .eq('slug', slug)
         .maybeSingle();
+
+      const data = result.data as any;
+      const error = result.error;
 
       console.log('[ProductPrice] Database result:', { data, error });
 
@@ -356,19 +264,6 @@ const ProductPrice = () => {
 
   // Initialize format and extra options
   useEffect(() => {
-    if (config && product) {
-      // Initialize format
-      const formatParam = searchParams.get("format");
-      const initialFormat = formatParam || config.formats[0]?.id || "";
-      setSelectedFormat(initialFormat);
-
-      // Initialize extra option
-      if (config.extraOptions) {
-        const extraParam = searchParams.get("extra");
-        const initialExtra = extraParam || config.extraOptions[0]?.id || "";
-        setSelectedExtraOption(initialExtra);
-      }
-    }
   }, [product?.id]);
 
   // Fetch variant names for generic products
@@ -402,7 +297,7 @@ const ProductPrice = () => {
     const loadMatrixData = async () => {
       let newMatrixData: MatrixData = { rows: [], columns: [], cells: {} };
 
-      if (isGenericPricing && dbProductId && selectedVariantName) {
+      if (dbProductId && selectedVariantName) {
         console.log(`Loading generic matrix for product: ${product.id}, variant: ${selectedVariantName}`);
         const { matrixData } = await getGenericMatrixDataFromDB(dbProductId, selectedVariantName);
         newMatrixData = matrixData;
@@ -413,69 +308,6 @@ const ProductPrice = () => {
             mappedCells[mappedRows[index]] = matrixData.cells[rowId] || {};
           });
           newMatrixData = { ...matrixData, rows: mappedRows, cells: mappedCells };
-        }
-      } else {
-        switch (product.id) {
-          case "flyers":
-            newMatrixData = await getFlyerMatrixDataFromDB(selectedFormat);
-            break;
-          case "foldere":
-            if (selectedExtraOption) {
-              newMatrixData = await getFolderMatrixDataFromDB(selectedFormat, selectedExtraOption);
-            }
-            break;
-          case "visitkort":
-            newMatrixData = await getVisitkortMatrixDataFromDB();
-            break;
-          case "plakater":
-            newMatrixData = await getPosterMatrixDataFromDB(selectedFormat);
-            break;
-          case "klistermærker":
-            newMatrixData = await getStickerMatrixDataFromDB(selectedFormat);
-            break;
-          case "hæfter":
-            if (selectedExtraOption) {
-              newMatrixData = await getBookletMatrixDataFromDB(selectedFormat, selectedExtraOption);
-            }
-            break;
-          case "salgsmapper":
-            if (selectedExtraOption) {
-              newMatrixData = await getSalesfolderMatrixDataFromDB(selectedFormat, selectedExtraOption);
-            }
-            break;
-          case "beachflag":
-            newMatrixData = await getBeachflagMatrixDataFromDB();
-            break;
-          case "bannere":
-            newMatrixData = await getBannerMatrixDataFromDB();
-            if (newMatrixData.rows.length > 0 && newMatrixData.columns.includes(1)) {
-              const prices: Record<string, number> = {};
-              newMatrixData.rows.forEach(row => {
-                prices[row] = newMatrixData.cells[row]?.[1] || 0;
-              });
-              setBasePricePerSqm(prices);
-            }
-            break;
-          case "skilte":
-            newMatrixData = await getSignMatrixDataFromDB();
-            if (newMatrixData.rows.length > 0 && newMatrixData.columns.includes(1)) {
-              const prices: Record<string, number> = {};
-              newMatrixData.rows.forEach(row => {
-                prices[row] = newMatrixData.cells[row]?.[1] || 0;
-              });
-              setBasePricePerSqm(prices);
-            }
-            break;
-          case "folie":
-            newMatrixData = await getFoilMatrixDataFromDB();
-            if (newMatrixData.rows.length > 0 && newMatrixData.columns.includes(1)) {
-              const prices: Record<string, number> = {};
-              newMatrixData.rows.forEach(row => {
-                prices[row] = newMatrixData.cells[row]?.[1] || 0;
-              });
-              setBasePricePerSqm(prices);
-            }
-            break;
         }
       }
 
@@ -498,7 +330,7 @@ const ProductPrice = () => {
       } else if (selectedCell) {
         const { row: previousRow, column: selectedQty } = selectedCell;
         if (newMatrixData.columns.includes(selectedQty)) {
-          let targetRow = newMatrixData.rows.includes(previousRow) ? previousRow : newMatrixData.rows[0];
+          const targetRow = newMatrixData.rows.includes(previousRow) ? previousRow : newMatrixData.rows[0];
           const newPrice = newMatrixData.cells[targetRow]?.[selectedQty] || 0;
           setSelectedCell({ row: targetRow, column: selectedQty });
           setProductPrice(newPrice);
@@ -521,7 +353,7 @@ const ProductPrice = () => {
     };
 
     loadMatrixData();
-  }, [product, selectedFormat, selectedExtraOption, searchParams, dbProductId, selectedVariantName, isGenericPricing, pricingStructure, mpaConfig, valueNameById, isStorformat]);
+  }, [product, selectedFormat, selectedExtraOption, searchParams, dbProductId, selectedVariantName, isGenericPricing, pricingStructure, mpaConfig, valueNameById, isStorformat, selectedCell]);
 
   const computeOptionExtras = useCallback((selections: Record<string, { optionId: string; name: string; extraPrice: number; priceMode: "fixed" | "per_quantity" | "per_area" }>, quantity: number, area: number) => {
     return Object.values(selections).reduce((sum, sel) => {
@@ -588,7 +420,7 @@ const ProductPrice = () => {
     setProductPrice(base);
     const extra = computeOptionExtras(optionSelections, qty, customArea || 1);
     setOptionExtraPrice(extra);
-  }, [selectedCell, customArea, basePricePerSqm, matrixData, product, computeOptionExtras, optionSelections, mpaConfig]);
+  }, [selectedCell, customArea, basePricePerSqm, matrixData, product, computeOptionExtras, optionSelections, mpaConfig, isStorformat, pricingStructure]);
 
   // Memoized handler for MatrixLayoutV1 to avoid conditional hook errors
   const handleMatrixCellClick = useCallback((row: string, column: number, price: number) => {
@@ -1066,6 +898,19 @@ const ProductPrice = () => {
         {renderPricingInterface()}
 
         <StaticProductInfo productId={product.slug || product.id} selectedFormat={selectedFormat} />
+
+        {/* Debug Overlay */}
+        {searchParams.get('debug') === 'true' && (
+          <div className="fixed bottom-4 right-4 bg-black/80 text-white p-4 rounded text-xs z-50 max-w-sm overflow-auto max-h-screen">
+            <h3 className="font-bold border-b border-gray-600 mb-2">Debug Info</h3>
+            <div>Product ID: <span className="font-mono bg-gray-700 px-1">{dbProductId}</span></div>
+            <div>Slug: {slug}</div>
+            <div>Pricing Mode: {pricingStructure?.mode || 'generic'}</div>
+            <div>Generic Variants: {genericVariantNames.length}</div>
+            <div>Matrix Rows: {matrixData.rows.length}</div>
+            <div>Matrix Cols: {matrixData.columns.length}</div>
+          </div>
+        )}
       </main>
       <Footer />
     </div>

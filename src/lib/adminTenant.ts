@@ -18,8 +18,10 @@ interface AdminTenantResolution {
 export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
+        console.warn("[resolveAdminTenant] No authenticated user found.");
         return { tenantId: null, role: null, isMasterAdmin: false };
     }
+    console.log("[resolveAdminTenant] Resolving for user:", user.id);
 
     let role: string | null = null;
     let tenantId: string | null = null;
@@ -31,6 +33,7 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
         .eq('user_id', user.id);
 
     if (Array.isArray(roleRows) && roleRows.length > 0) {
+        console.log("[resolveAdminTenant] Found user_roles:", roleRows);
         const hasMaster = roleRows.some((row: any) => row.role === 'master_admin');
         const preferred = roleRows.find((row: any) => row.tenant_id) || roleRows[0];
         role = hasMaster ? 'master_admin' : preferred?.role || null;
@@ -43,19 +46,38 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
             .from('tenants' as any)
             .select('id')
             .eq('owner_id', user.id)
+            .neq('id', MASTER_TENANT_ID) // FIX: Ignore Master Tenant (even if owned) to find the REAL shop
+            .order('created_at', { ascending: true })
+            .limit(1)
             .maybeSingle();
+
+        console.log("[resolveAdminTenant] Fallback owned tenant:", owned);
+
         if (owned) {
             tenantId = (owned as any).id;
         }
     }
 
-    // Master fallback for master admins
+    // FIX: Only default to Master if we STILL don't have a tenant ID.
+    // If the user owns a shop (like Salgsmapper), `tenantId` is already set above.
+    // We should NOT overwrite it with MASTER_TENANT_ID.
+
+    // Only fall back if completely unresolved
     const isMasterAdmin = role === 'master_admin';
     if (!tenantId && isMasterAdmin) {
         tenantId = MASTER_TENANT_ID;
     }
 
-    return { tenantId, role, isMasterAdmin };
+    // Ensure we don't accidentally return Master ID if we found a specific one
+    if (tenantId && tenantId !== MASTER_TENANT_ID && isMasterAdmin) {
+        // User is a master admin but viewing a specific shop (Salgsmapper)
+        // Keep tenantId as Salgsmapper, but keep role as master_admin (so they have powers)
+        // This is correct.
+    }
+
+    const result = { tenantId, role, isMasterAdmin };
+    console.log("[resolveAdminTenant] Final Resolution:", result);
+    return result;
 }
 
 export { MASTER_TENANT_ID };

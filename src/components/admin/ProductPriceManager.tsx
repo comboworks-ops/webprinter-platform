@@ -567,6 +567,9 @@ export function ProductPriceManager() {
       setActiveConfigSection("machine");
       return;
     }
+    if (product) {
+      setActiveConfigSection("format");
+    }
   }, [product, pricingType, activeConfigSection]);
 
   const fetchMpaConfig = async (productId: string) => {
@@ -709,44 +712,15 @@ export function ProductPriceManager() {
     }
   };
 
-  const getTableName = (slug: string): string => {
-    const tableMap: Record<string, string> = {
-      'foldere': 'folder_prices',
-      'flyers': 'print_flyers',
-      'visitkort': 'visitkort_prices',
-      'plakater': 'poster_prices',
-      'klistermærker': 'sticker_rates',
-      'skilte': 'sign_prices',
-      'bannere': 'banner_prices',
-      'folie': 'foil_prices',
-      'beachflag': 'beachflag_prices',
-      'haefter': 'booklet_rates',
-      'hæfter': 'booklet_rates',
-      'salgsmapper': 'salesfolder_rates'
-    };
-    // Return specific table or fallback to generic
-    return tableMap[slug] || 'generic_product_prices';
-  };
-
-  const isGenericPricing = (slug: string): boolean => {
-    const specificTables = ['foldere', 'flyers', 'visitkort', 'plakater', 'klistermærker', 'skilte', 'bannere', 'folie', 'beachflag', 'hæfter', 'haefter', 'salgsmapper'];
-    return !specificTables.includes(slug);
-  };
-
-  const fetchPrices = async () => {
+  const fetchPrices = useCallback(async () => {
     if (!product) return;
 
     try {
       setLoading(true);
-      const tableName = getTableName(product.slug);
-      const useGeneric = isGenericPricing(product.slug);
+      const tableName = 'generic_product_prices';
 
-      let query = supabase.from(tableName as any).select('*');
-
-      // For generic pricing, filter by product_id
-      if (useGeneric) {
-        query = query.eq('product_id', product.id);
-      }
+      // Always filter by product_id for generic pricing
+      const query = supabase.from(tableName as any).select('*').eq('product_id', product.id);
 
       const { data, error } = await query;
 
@@ -768,7 +742,7 @@ export function ProductPriceManager() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [product]);
 
   const handlePriceChange = (id: string, newPrice: string) => {
     const numPrice = parseFloat(newPrice);
@@ -994,7 +968,7 @@ export function ProductPriceManager() {
     if (!confirm('Er du sikker på, at du vil slette denne pris?')) return;
 
     try {
-      const tableName = getTableName(product!.slug);
+      const tableName = 'generic_product_prices';
       if (!tableName) return;
 
       const { error } = await supabase
@@ -1018,7 +992,7 @@ export function ProductPriceManager() {
 
     setSaving(true);
     try {
-      const tableName = getTableName(product!.slug);
+      const tableName = 'generic_product_prices';
       if (!tableName) return;
 
       const updates: any = {};
@@ -1116,7 +1090,7 @@ export function ProductPriceManager() {
 
     setSaving(true);
     try {
-      const tableName = getTableName(product!.slug);
+      const tableName = 'generic_product_prices';
       if (!tableName) return;
 
       const isRateTable = ['poster_rates', 'sign_prices', 'banner_prices', 'foil_prices'].includes(tableName);
@@ -1374,7 +1348,7 @@ export function ProductPriceManager() {
               productId={product.id}
               tenantId={product.tenant_id}
               productName={product.name}
-              tableName={getTableName(product.slug)}
+              tableName="generic_product_prices"
               productSlug={product.slug}
               onPricesUpdated={fetchPrices}
             />
