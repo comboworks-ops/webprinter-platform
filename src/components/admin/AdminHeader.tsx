@@ -182,7 +182,7 @@ export function AdminHeader() {
                             <User className="h-5 w-5" />
                         </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align="end" className="z-[51]">
                         <DropdownMenuLabel>Min Konto</DropdownMenuLabel>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem disabled className="text-xs text-muted-foreground">

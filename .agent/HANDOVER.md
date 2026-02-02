@@ -254,6 +254,20 @@ git checkout backup/2026-02-02/before-pricing-change -- src/utils/productPricing
 
 5. **Danish UI**: All user-facing strings are in Danish (Gem = Save, Eksporter = Export, etc.)
 
+6. **Dropdown z-index pattern**: All `DropdownMenuContent` components must have z-index higher than their parent header. Radix UI portals dropdowns to `<body>`, so they need explicit z-index to appear above fixed headers:
+   - `Header.tsx` (z-[1000]) → dropdowns need `z-[1001]`
+   - `AdminHeader.tsx` (z-50) → dropdowns need `z-[51]`
+
+7. **Tenant isolation for product fetches**: When fetching products, NEVER use a hardcoded fallback to master tenant ID. Instead:
+   - Wait for `settings.data?.id` to be defined before fetching
+   - Use `enabled: authState.checked` in React Query to prevent premature queries
+   - Check `if (settings.isLoading || !settings.data?.id) return;` before fetching
+
+   **Files that follow this pattern**: `Header.tsx`, `ProductGrid.tsx`, `useShopSettings.ts`
+   - `PlatformHeader.tsx` (z-50) → dropdowns need `z-[51]`
+
+   **When adding new dropdowns in headers, always add the appropriate z-index class.**
+
 ---
 
 ## Contact / Context

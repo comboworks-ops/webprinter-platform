@@ -57,26 +57,31 @@ export function useShopSettings() {
     const forceTenantId = searchParams.get('tenantId') || searchParams.get('tenant_id');
     const hostname = window.location.hostname;
 
-    // Track session state to invalidate query on login/logout
-    const [userId, setUserId] = useState<string | null>(null);
+    // Track auth state - distinguish between "not checked yet" and "checked, no user"
+    const [authState, setAuthState] = useState<{ checked: boolean; userId: string | null }>({
+        checked: false,
+        userId: null
+    });
 
     useEffect(() => {
         // Get initial session
         supabase.auth.getSession().then(({ data: { session } }) => {
-            setUserId(session?.user?.id || null);
+            setAuthState({ checked: true, userId: session?.user?.id || null });
         });
 
         // Listen for changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUserId(session?.user?.id || null);
+            setAuthState({ checked: true, userId: session?.user?.id || null });
         });
 
         return () => subscription.unsubscribe();
     }, []);
 
     return useQuery({
-        // Include userId in query key to force refetch on login/logout
-        queryKey: ["shop-settings", hostname, forceDomain, forceSubdomain, forceTenantId, userId],
+        // Only include userId in query key AFTER auth is checked to prevent key thrashing
+        queryKey: ["shop-settings", hostname, forceDomain, forceSubdomain, forceTenantId, authState.checked ? authState.userId : null],
+        // Don't run query until auth state is determined
+        enabled: authState.checked,
         queryFn: async () => {
             const isVercel = hostname.endsWith('.vercel.app');
             const marketingDomains = [ROOT_DOMAIN, `www.${ROOT_DOMAIN}`];
@@ -164,7 +169,7 @@ export function useShopSettings() {
             // 2. Dev / Preview: Check Logged In User's Tenant
             // This allows you to see YOUR shop when logged into localhost or the master domain
             // Use the userId from state to ensure we have the latest session
-            if (userId) {
+            if (authState.userId) {
                 // 2a. Check for Master Admin Role first
                 // FIX: Commented out to prevent Master Admins (who also own shops like Salgsmapper)
                 // from being forced into the Master Tenant context on localhost.
@@ -194,7 +199,7 @@ export function useShopSettings() {
                 const { data: tenantsByUser } = await supabase
                     .from('tenants' as any)
                     .select('*')
-                    .eq('owner_id', userId);
+                    .eq('owner_id', authState.userId);
 
                 if (tenantsByUser && (tenantsByUser as any[]).length > 0) {
                     const list = tenantsByUser as any[];

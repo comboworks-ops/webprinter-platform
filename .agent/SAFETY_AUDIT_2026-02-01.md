@@ -1,7 +1,7 @@
 # Webprinter Platform - Safety Audit & Development Guidelines
 
 > **Created**: February 1, 2026
-> **Last Updated**: February 1, 2026 (Fixes Applied)
+> **Last Updated**: February 2, 2026 (tenant isolation fix)
 > **Purpose**: Safe development workflow to prevent breaking working systems
 
 ---
@@ -16,6 +16,9 @@
 | Fixed WRONG tenant ID | ✅ Done | `platform-seo/hooks.ts` was using incorrect UUID - now imports correct constant |
 | Build verification | ✅ Passed | `npm run build` succeeds |
 | parseInt radix | ⏳ Deferred | 40+ locations - low priority, no behavior change |
+| Dropdown z-index fix | ✅ Done | All header dropdowns now appear above fixed headers |
+| Restored missing files | ✅ Done | Pod2Admin.tsx, Pod2Katalog.tsx, StripePaymentForm.tsx restored from git |
+| Tenant isolation fix | ✅ Done | Products no longer flicker to master tenant; auth state checked before query runs |
 
 ---
 
@@ -261,6 +264,16 @@ Step 5: Document if needed
 | `PASTEBOARD_PADDING` | 100 | EditorCanvas.tsx |
 | `MM_TO_PX` | ~2.0 | Designer.tsx |
 | `MAX_PREVIEW_DIMENSION` | 1000 | useColorProofing.ts |
+
+### Header z-index Pattern (FOLLOW THIS)
+
+| Component | Header z-index | Dropdown z-index |
+|-----------|----------------|------------------|
+| Header.tsx | z-[1000] | z-[1001] |
+| AdminHeader.tsx | z-50 | z-[51] |
+| PlatformHeader.tsx | z-50 | z-[51] |
+
+**Rule**: Dropdowns must always be 1 higher than their parent header (Radix UI portals to body).
 
 ### Master Tenant UUID
 

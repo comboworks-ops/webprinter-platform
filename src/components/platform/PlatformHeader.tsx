@@ -112,7 +112,7 @@ const PlatformHeader = () => {
                                     <ChevronDown className="h-4 w-4" />
                                 </button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start" className="w-56">
+                            <DropdownMenuContent align="start" className="w-56 z-[51]">
                                 {FUNKTIONER_PAGES.map((page) => (
                                     <DropdownMenuItem key={page.path} asChild>
                                         <Link to={page.path} className="cursor-pointer">
@@ -157,7 +157,7 @@ const PlatformHeader = () => {
                                         <User className="h-5 w-5" />
                                     </Button>
                                 </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuContent align="end" className="w-48 z-[51]">
                                     <DropdownMenuItem asChild>
                                         <Link to="/profil" className="cursor-pointer">
                                             <User className="mr-2 h-4 w-4" />

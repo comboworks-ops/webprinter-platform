@@ -56,7 +56,8 @@ const Header = () => {
   const settings = useShopSettings();
   const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
   const tenantName = settings.data?.tenant_name || "Webprinter.dk";
-  const tenantId = settings.data?.id || '00000000-0000-0000-0000-000000000000'; // Default to Master
+  // Don't fallback to master - wait for settings to resolve the correct tenant
+  const tenantId = settings.data?.id;
 
   // Get header branding settings - prioritize preview branding if in preview mode
   const rawHeader = isPreviewMode && previewBranding?.header
@@ -269,7 +270,8 @@ const Header = () => {
   useEffect(() => {
     // Fetch published products from database based on RESOLVED TENANT ID
     async function fetchProducts() {
-      if (settings.isLoading) return;
+      // Wait for settings to fully load and provide a valid tenant ID
+      if (settings.isLoading || !tenantId) return;
 
       const { data } = await (supabase
         .from('products') as any)
@@ -529,7 +531,7 @@ const Header = () => {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent
                         align="start"
-                        className={`backdrop-blur-sm z-50 ${headerSettings.dropdownShowBorder !== false ? 'border shadow-xl' : 'border-0 shadow-none'} ${(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT')
+                        className={`backdrop-blur-sm z-[1001] ${headerSettings.dropdownShowBorder !== false ? 'border shadow-xl' : 'border-0 shadow-none'} ${(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT')
                           ? 'min-w-[600px] max-w-4xl p-4'
                           : 'min-w-[200px] p-2'
                           } animate-in fade-in-0 slide-in-from-top-2 duration-200`}
@@ -747,7 +749,7 @@ const Header = () => {
 
               {/* Search Results Dropdown */}
               {searchOpen && searchQuery && (
-                <div className="absolute top-full right-0 mt-2 w-72 max-h-80 overflow-y-auto bg-card rounded-lg shadow-lg border border-border z-50">
+                <div className="absolute top-full right-0 mt-2 w-72 max-h-80 overflow-y-auto bg-card rounded-lg shadow-lg border border-border z-[1001]">
                   {filteredProducts.length > 0 ? (
                     <div className="p-2">
                       <p className="text-xs text-muted-foreground px-2 py-1">
@@ -816,7 +818,7 @@ const Header = () => {
                   )}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-36 bg-card z-50">
+              <DropdownMenuContent align="end" className="w-36 bg-card z-[1001]">
                 <DropdownMenuItem
                   onClick={() => setLanguage("da")}
                   className={`flex items-center gap-2 ${language === "da" ? "bg-muted" : ""}`}
@@ -866,7 +868,7 @@ const Header = () => {
                     {user.email}
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 bg-card">
+                <DropdownMenuContent align="end" className="w-56 bg-card z-[1001]">
                   <DropdownMenuItem asChild>
                     <Link to="/min-konto" className="cursor-pointer">
                       <User className="h-4 w-4 mr-2" />

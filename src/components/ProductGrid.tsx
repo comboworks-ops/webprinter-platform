@@ -61,10 +61,10 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
 
   useEffect(() => {
     const fetchAndLoadPrices = async () => {
-      // Wait for settings to load
-      if (settings.isLoading) return;
+      // Wait for settings to fully load with valid tenant ID
+      if (settings.isLoading || !settings.data?.id) return;
 
-      const tenantId = settings.data?.id || '00000000-0000-0000-0000-000000000000'; // Fallback to Master if critical failure
+      const tenantId = settings.data.id;
 
       try {
         const { data, error } = await supabase
