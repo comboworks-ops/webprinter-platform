@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="da">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Machine Pricing Add-On (MPA) Manual</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            color: #1a1a1a;
+            background: #fff;
+        }
+
+        h1 {
+            color: #0f172a;
+            border-bottom: 3px solid #3b82f6;
+            padding-bottom: 10px;
+            margin-top: 0;
+        }
+
+        h2 {
+            color: #1e40af;
+            margin-top: 40px;
+            border-left: 4px solid #3b82f6;
+            padding-left: 15px;
+        }
+
+        h3 {
+            color: #374151;
+            margin-top: 25px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+
+        th,
+        td {
+            border: 1px solid #d1d5db;
+            padding: 10px 12px;
+            text-align: left;
+        }
+
+        th {
+            background: #f3f4f6;
+            font-weight: 600;
+        }
+
+        tr:nth-child(even) {
+            background: #f9fafb;
+        }
+
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+        }
+
+        pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+
+        .note {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .warning {
+            background: #fee2e2;
+            border-left: 4px solid #ef4444;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid #e5e7eb;
+            margin: 40px 0;
+        }
+
+        ul,
+        ol {
+            padding-left: 25px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        @media print {
+            body {
+                padding: 20px;
+            }
+
+            h2 {
+                page-break-before: auto;
+            }
+
+            pre {
+                white-space: pre-wrap;
+                word-wrap: break-word;
+            }
+        }
+
+        .toc {
+            background: #f8fafc;
+            padding: 20px 30px;
+            border-radius: 8px;
+            margin: 30px 0;
+        }
+
+        .toc h3 {
+            margin-top: 0;
+        }
+
+        .toc ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .toc li {
+            margin-bottom: 5px;
+        }
+
+        .toc a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+
+        .toc a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Machine Pricing Add-On (MPA) Manual</h1>
+
+    <div class="toc">
+        <h3>Indholdsfortegnelse</h3>
+        <ul>
+            <li><a href="#overview">1. Oversigt</a></li>
+            <li><a href="#concepts">2. Nøglebegreber</a></li>
+            <li><a href="#tables">3. Database Tabeller</a></li>
+            <li><a href="#setup">4. Opsætning af Machine-Priced Produkt</a></li>
+            <li><a href="#calculation">5. Prisberegning</a></li>
+            <li><a href="#storefront">6. Butiksfremvisning</a></li>
+            <li><a href="#troubleshooting">7. Fejlfinding</a></li>
+            <li><a href="#sql">8. SQL Kommandoer</a></li>
+            <li><a href="#files">9. Fil Reference</a></li>
+        </ul>
+    </div>
+
+    <hr>
+
+    <h2 id="overview">1. Oversigt</h2>
+    <p>Machine Pricing Add-On (MPA) er et valgfrit modul, der muliggør dynamisk, omkostningsbaseret prissætning for
+        tryksager. Det beregner priser baseret på faktiske produktionsomkostninger, herunder maskintid, blæk, materialer
+        og efterbehandling.</p>
+
+    <hr>
+
+    <h2 id="concepts">2. Nøglebegreber</h2>
+
+    <h3>2.1 Maskiner (Machines)</h3>
+    <p>Definér dine trykmaskiner med deres kapaciteter:</p>
+    <ul>
+        <li><strong>Mode</strong>: SHEET (faste arkstørrelser) eller ROLL (kontinuerlig rulle)</li>
+        <li><strong>Dimensioner</strong>: Ark/rulle bredde, marginer</li>
+        <li><strong>Hastighed</strong>: m²/time eller ark/time</li>
+        <li><strong>Omkostninger</strong>: Maskinrate per time</li>
+    </ul>
+
+    <h3>2.2 Blæksæt (Ink Sets)</h3>
+    <p>Definér blækkonfigurationer:</p>
+    <ul>
+        <li><strong>Pris per ml</strong>: Blækomkostning</li>
+        <li><strong>ml per m² ved 100%</strong>: Blækforbrug</li>
+        <li><strong>Dækningsprocent</strong>: Typisk dækning</li>
+        <li><strong>Tolerance %</strong>: Buffer til spild</li>
+    </ul>
+
+    <h3>2.3 Materialer (Materials)</h3>
+    <p>Definér printbare substrater:</p>
+    <ul>
+        <li><strong>Type</strong>: PAPER, FOIL, VINYL, OTHER</li>
+        <li><strong>Prismode</strong>: PER_SHEET eller PER_M2</li>
+        <li><strong>Omkostninger</strong>: Pris per ark eller per m²</li>
+    </ul>
+
+    <h3>2.4 Efterbehandling (Finish Options)</h3>
+    <p>Efterbehandlingsoperationer:</p>
+    <ul>
+        <li><strong>Typer</strong>: Laminering, skæring, foldning, etc.</li>
+        <li><strong>Prismode</strong>: PER_SHEET, PER_M2, PER_UNIT, PER_MIN</li>
+    </ul>
+
+    <h3>2.5 Prisprofiler (Pricing Profiles)</h3>
+    <p>Forbinder en maskine + blæksæt med standardindstillinger:</p>
+    <ul>
+        <li><strong>Maskine</strong>: Hvilken maskine der bruges</li>
+        <li><strong>Blæksæt</strong>: Hvilken blækkonfiguration</li>
+        <li><strong>Bleed/Gap</strong>: Standard beskærings- og mellemrum i mm</li>
+    </ul>
+
+    <h3>2.6 Marginprofiler (Margin Profiles)</h3>
+    <p>Definerer profitmarginer efter antal-trin:</p>
+    <ul>
+        <li><strong>Mode</strong>: TARGET_MARGIN eller MARKUP</li>
+        <li><strong>Trin</strong>: Forskellige marginer for forskellige antal</li>
+        <li>Eksempel: 500% margin for 1-10 enheder, 200% for 100+ enheder</li>
+    </ul>
+
+    <hr>
+
+    <h2 id="tables">3. Database Tabeller</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Tabel</th>
+                <th>Formål</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>machines</code></td>
+                <td>Maskindefinitioner</td>
+            </tr>
+            <tr>
+                <td><code>ink_sets</code></td>
+                <td>Blækkonfigurationer</td>
+            </tr>
+            <tr>
+                <td><code>materials</code></td>
+                <td>Printbare materialer</td>
+            </tr>
+            <tr>
+                <td><code>finish_options</code></td>
+                <td>Efterbehandlingsmuligheder</td>
+            </tr>
+            <tr>
+                <td><code>pricing_profiles</code></td>
+                <td>Maskine + Blæk + Standarder</td>
+            </tr>
+            <tr>
+                <td><code>margin_profiles</code></td>
+                <td>Profitmargin regler</td>
+            </tr>
+            <tr>
+                <td><code>margin_profile_tiers</code></td>
+                <td>Antal-baserede margintrin</td>
+            </tr>
+            <tr>
+                <td><code>product_pricing_configs</code></td>
+                <td>Forbinder produkter til MPA indstillinger</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <hr>
+
+    <h2 id="setup">4. Opsætning af Machine-Priced Produkt</h2>
+
+    <h3>Trin 1: Opret Grunddata (Admin → Prismoduler)</h3>
+
+    <ol>
+        <li><strong>Tilføj en Maskine</strong>
+            <ul>
+                <li>Gå til Admin → Prismoduler → Maskiner</li>
+                <li>Klik "Tilføj maskine"</li>
+                <li>Indtast navn, mode (ROLL/SHEET), dimensioner, hastighed, omkostning</li>
+            </ul>
+        </li>
+        <li><strong>Tilføj et Blæksæt</strong>
+            <ul>
+                <li>Gå til Admin → Prismoduler → Blæksæt</li>
+                <li>Indtast navn, pris per ml, forbrug</li>
+            </ul>
+        </li>
+        <li><strong>Tilføj Materialer</strong>
+            <ul>
+                <li>Gå til Admin → Prismoduler → Materialer</li>
+                <li>Indtast navn, type, prismode, omkostning</li>
+            </ul>
+        </li>
+        <li><strong>Opret en Prisprofil</strong>
+            <ul>
+                <li>Gå til Admin → Prismoduler → Prisprofiler</li>
+                <li>Vælg maskine + blæksæt</li>
+                <li>Sæt standard bleed/gap</li>
+            </ul>
+        </li>
+        <li><strong>Opret en Marginprofil</strong>
+            <ul>
+                <li>Gå til Admin → Prismoduler → Marginprofiler</li>
+                <li>Sæt margin mode og tilføj trin</li>
+            </ul>
+        </li>
+    </ol>
+
+    <h3>Trin 2: Konfigurer Produktet</h3>
+
+    <ol>
+        <li>Gå til Admin → Produkter</li>
+        <li>Vælg eller opret et produkt</li>
+        <li>I "Priser" fanen:
+            <ul>
+                <li>Sæt <strong>Pristype</strong> til "Maskinberegning"</li>
+                <li>Vælg en Prisprofil</li>
+                <li>Vælg en Marginprofil</li>
+                <li>Konfigurer tilladte antal</li>
+                <li>Vælg tilladte materialer</li>
+                <li>Sæt display mode (MATRIX eller SELECTION)</li>
+            </ul>
+        </li>
+    </ol>
+
+    <hr>
+
+    <h2 id="calculation">5. Prisberegning</h2>
+
+    <p>Edge-funktionen <code>calculate-machine-price</code> udfører disse trin:</p>
+
+    <pre><code>1. Hent product_pricing_configs
+2. Hent tilknyttet pricing_profile med machine + ink_set
+3. Beregn imposition (hvor mange emner passer per ark/kørsel)
+4. Beregn omkostninger:
+   - Materiale = areal × pris_per_m2
+   - Blæk = areal × dækning × ml_per_m2 × pris_per_ml
+   - Maskine = tid × rate_per_time
+   - Efterbehandling (hvis nogen)
+5. Sum basisomkostning
+6. Anvend margin fra margin_profile trin
+7. Returnér endelig pris</code></pre>
+
+    <hr>
+
+    <h2 id="storefront">6. Butiksfremvisning</h2>
+
+    <p>For MACHINE_PRICED produkter viser <code>MachineConfigurator</code> komponenten:</p>
+
+    <ol>
+        <li>Henter produktets pricing config</li>
+        <li>Henter tilladte materialer fra databasen</li>
+        <li>Viser valg-UI:
+            <ul>
+                <li>Bredde/Højde inputs (hvis ingen preset størrelser)</li>
+                <li>Materiale dropdown</li>
+                <li>Antal vælger</li>
+                <li>Sider toggle (4+0 / 4+4) hvis tilladt</li>
+            </ul>
+        </li>
+        <li>Kalder edge function ved ændringer</li>
+        <li>Viser beregnet pris</li>
+    </ol>
+
+    <div class="note">
+        <strong>Display Modes:</strong><br>
+        <strong>SELECTION</strong>: Dropdowns for hver mulighed, viser enkelt pris<br>
+        <strong>MATRIX</strong>: Gitter der viser alle antal × materiale kombinationer
+    </div>
+
+    <hr>
+
+    <h2 id="troubleshooting">7. Fejlfinding</h2>
+
+    <h3>"Tom Materiale Dropdown"</h3>
+    <p><strong>Årsag:</strong> Materials tabellen har ingen data eller RLS blokerer adgang</p>
+    <p><strong>Løsning:</strong></p>
+    <ol>
+        <li>Sørg for at materialer findes i databasen med
+            <code>tenant_id = '00000000-0000-0000-0000-000000000000'</code></li>
+        <li>Kør <code>fix_mpa_rls.sql</code> for at aktivere offentlig adgang</li>
+    </ol>
+
+    <h3>"Vælg konfiguration for at se opsætning"</h3>
+    <p><strong>Årsag:</strong> Ingen pris beregnet endnu (manglende materiale valg eller beregningsfejl)</p>
+    <p><strong>Løsning:</strong> Tjek browser konsol for fejl, sørg for at alle nødvendige data findes</p>
+
+    <h3>"Pris viser N/A"</h3>
+    <p><strong>Årsag:</strong> Edge function returnerede fejl eller manglende konfiguration</p>
+    <p><strong>Løsning:</strong> Tjek Supabase edge function logs for fejl</p>
+
+    <hr>
+
+    <h2 id="sql">8. SQL Kommandoer</h2>
+
+    <h3>RLS Fix (Kør i Supabase SQL Editor)</h3>
+    <pre><code>-- Tillad offentlig læsning af MPA tabeller
+CREATE POLICY "Public select materials" ON public.materials FOR SELECT USING (true);
+CREATE POLICY "Public select machines" ON public.machines FOR SELECT USING (true);
+CREATE POLICY "Public select pricing_profiles" ON public.pricing_profiles FOR SELECT USING (true);
+CREATE POLICY "Public select margin_profiles" ON public.margin_profiles FOR SELECT USING (true);
+CREATE POLICY "Public select ink_sets" ON public.ink_sets FOR SELECT USING (true);
+CREATE POLICY "Public select finish_options" ON public.finish_options FOR SELECT USING (true);</code></pre>
+
+    <h3>Tilføj Display Mode Kolonne</h3>
+    <pre><code>ALTER TABLE public.product_pricing_configs 
+ADD COLUMN IF NOT EXISTS display_mode TEXT 
+CHECK (display_mode IN ('MATRIX', 'SELECTION')) 
+DEFAULT 'SELECTION';
+
+UPDATE public.product_pricing_configs 
+SET display_mode = 'SELECTION' 
+WHERE display_mode IS NULL;
+
+NOTIFY pgrst, 'reload schema';</code></pre>
+
+    <hr>
+
+    <h2 id="files">9. Fil Reference</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Fil</th>
+                <th>Formål</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>supabase/functions/calculate-machine-price/index.ts</code></td>
+                <td>Edge function til prisberegning</td>
+            </tr>
+            <tr>
+                <td><code>src/components/product-price-page/MachineConfigurator.tsx</code></td>
+                <td>Butik konfigurator</td>
+            </tr>
+            <tr>
+                <td><code>src/components/admin/ProductPriceManager.tsx</code></td>
+                <td>Admin pris config UI</td>
+            </tr>
+            <tr>
+                <td><code>supabase/setup_machine_pricing.sql</code></td>
+                <td>Tabel skemaer</td>
+            </tr>
+            <tr>
+                <td><code>fix_mpa_rls.sql</code></td>
+                <td>RLS policy rettelser</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <hr>
+
+    <p style="text-align: center; color: #6b7280; font-size: 14px; margin-top: 50px;">
+        Machine Pricing Add-On Manual v1.0<br>
+        Genereret: December 2025
+    </p>
+
+</body>
+
+</html>

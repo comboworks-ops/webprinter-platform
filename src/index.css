@@ -1,0 +1,314 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 220 14% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 199 79% 46%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 199 79% 85%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 199 79% 46%;
+
+    --radius: 0.75rem;
+
+    --text-dark: 222 47% 11%;
+    --text-muted: 220 9% 46%;
+
+    /* Typography-specific colors (can be customized via branding) */
+    --heading-text: #1F2937;
+    --body-text: #4B5563;
+    --pricing-text: #0EA5E9;
+    --link-text: #0EA5E9;
+  }
+
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 0 0% 100%;
+
+    --card: 222 47% 14%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 222 47% 14%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 199 79% 46%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 217 33% 20%;
+    --muted-foreground: 215 20% 70%;
+
+    --accent: 199 79% 85%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 217 33% 25%;
+    --input: 217 33% 25%;
+    --ring: 199 79% 46%;
+
+    /* Typography colors for dark mode */
+    --heading-text: #F9FAFB;
+    --body-text: #E5E7EB;
+    --pricing-text: #38BDF8;
+    --link-text: #38BDF8;
+    --text-dark: 0 0% 96%;
+    --text-muted: 215 20% 70%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    color: var(--body-text, hsl(var(--foreground)));
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-heading font-semibold;
+    color: var(--heading-text, hsl(var(--foreground)));
+  }
+
+  /* Links use the link-text color from branding */
+  a:not(.no-link-color):not([class*="btn"]):not([class*="Button"]) {
+    color: var(--link-text, hsl(var(--primary)));
+  }
+
+  a:not(.no-link-color):not([class*="btn"]):not([class*="Button"]):hover {
+    opacity: 0.85;
+  }
+}
+
+/* Sidebar Panel Styles - Reverted to default */
+
+@layer components {
+
+  /* Branding Sidebar Typography Enforcer */
+  .branding-sidebar h3,
+  .branding-sidebar label,
+  .branding-sidebar .font-bold,
+  .branding-sidebar .font-semibold,
+  .branding-sidebar [class*="card-title"] {
+    font-size: 1rem !important;
+    /* 16px - Bigger */
+    font-weight: 800 !important;
+    /* Extra Bold - Bolder */
+    line-height: 1.25 !important;
+  }
+
+  /* Main Menu Button Specifics - Match Dropdown Style */
+  .branding-sidebar .menu-btn-item {
+    font-size: 0.875rem !important;
+    /* 14px - standard dropdown */
+    font-weight: 600 !important;
+    /* Semi-bold */
+  }
+
+  /* Description & Normal Text */
+  .branding-sidebar p,
+  .branding-sidebar button:not(.menu-btn-item),
+  /* Exclude menu items */
+  .branding-sidebar input,
+  .branding-sidebar select,
+  .branding-sidebar .text-sm,
+  .branding-sidebar .text-base,
+  .branding-sidebar span:not(.text-xs):not(.text-muted-foreground) {
+    font-size: 0.75rem !important;
+    /* 12px */
+    font-weight: 400 !important;
+  }
+
+  /* Small Info */
+  .branding-sidebar .text-xs,
+  .branding-sidebar .text-muted-foreground,
+  .branding-sidebar .text-muted {
+    font-size: 0.6875rem !important;
+    /* 11px */
+  }
+
+  /* Large Titles Override (Værktøjer etc) */
+  .branding-sidebar h2,
+  .branding-sidebar .text-2xl,
+  .branding-sidebar .text-xl {
+    font-size: 1.5rem !important;
+    /* 24px */
+    font-weight: 800 !important;
+    line-height: 1.2 !important;
+  }
+}
+
+/* ================================================
+   PRODUCT BADGE ANIMATIONS
+   Three animation effects for special product badges
+   ================================================ */
+
+/* 1. Bounce Animation - Gentle continuous bounce */
+@keyframes badge-bounce {
+
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+
+  50% {
+    transform: translateY(-8px) scale(1.05);
+  }
+}
+
+.animate-badge-bounce {
+  animation: badge-bounce 1.5s ease-in-out infinite;
+}
+
+/* 2. Spin + Fade In Animation - Rotates and fades in, then stays */
+@keyframes badge-spin-fade {
+  0% {
+    opacity: 0;
+    transform: rotate(-180deg) scale(0.5);
+  }
+
+  100% {
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+.animate-badge-spin-fade {
+  animation: badge-spin-fade 0.8s ease-out forwards;
+}
+
+/* 3. Pulse Animation - Gentle glow/scale pulse */
+@keyframes badge-pulse {
+
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(var(--primary), 0.4);
+  }
+
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 8px rgba(var(--primary), 0);
+  }
+}
+
+.animate-badge-pulse {
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+
+/* ====== DARK MODE OVERRIDES ====== */
+/* Override hard-coded dark text colors in dark mode */
+.dark .text-gray-900,
+.dark .text-gray-800,
+.dark .text-gray-700,
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700,
+.dark .text-zinc-900,
+.dark .text-zinc-800,
+.dark .text-neutral-900,
+.dark .text-neutral-800,
+.dark .text-black {
+  color: #F9FAFB !important;
+}
+
+.dark .text-gray-600,
+.dark .text-gray-500,
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .text-zinc-600,
+.dark .text-zinc-500 {
+  color: #D1D5DB !important;
+}
+
+/* Override common background patterns in dark mode */
+.dark .bg-white {
+  background-color: hsl(222, 47%, 14%) !important;
+}
+
+.dark .bg-gray-50,
+.dark .bg-slate-50,
+.dark .bg-zinc-50 {
+  background-color: hsl(222, 47%, 11%) !important;
+}
+
+.dark .bg-gray-100,
+.dark .bg-slate-100,
+.dark .bg-zinc-100 {
+  background-color: hsl(217, 33%, 17%) !important;
+}
+
+/* Keep borders visible in dark mode */
+.dark .border-gray-200,
+.dark .border-slate-200,
+.dark .border-zinc-200 {
+  border-color: hsl(217, 33%, 25%) !important;
+}
+
+.dark .border-gray-100,
+.dark .border-slate-100 {
+  border-color: hsl(217, 33%, 22%) !important;
+}
+
+/* Divide colors for tables and lists */
+.dark .divide-gray-200>*+*,
+.dark .divide-slate-200>*+* {
+  border-color: hsl(217, 33%, 25%) !important;
+}
+
+/* Card and panel shadows in dark mode */
+.dark .shadow-sm,
+.dark .shadow {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 1px 2px -1px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Input and form backgrounds */
+.dark input,
+.dark textarea,
+.dark select {
+  background-color: hsl(217, 33%, 17%);
+  border-color: hsl(217, 33%, 25%);
+  color: #F9FAFB;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #9CA3AF;
+}
