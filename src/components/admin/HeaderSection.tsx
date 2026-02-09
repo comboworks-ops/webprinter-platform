@@ -19,6 +19,7 @@ import { FontSelector } from "./FontSelector";
 import {
     type HeaderSettings,
     type HeaderDropdownMode,
+    type HeaderDropdownImageSize,
     type HeaderNavItem,
     type HeaderStyleType,
     type HeaderHeightType,
@@ -241,6 +242,8 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                     onRemoveSwatch={onRemoveSwatch}
                                 />
                             </div>
+
+
                         </>
                     )}
                 </div>
@@ -537,6 +540,55 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                             </label>
                         </div>
                     </RadioGroup>
+
+                    {/* Image Size Selector - only show when images are enabled */}
+                    {(safeHeader.dropdownMode === 'IMAGE_ONLY' || safeHeader.dropdownMode === 'IMAGE_AND_TEXT') && (
+                        <>
+                            <Separator />
+                            <div className="space-y-3">
+                                <Label className="text-sm font-medium">Billede størrelse</Label>
+                                <p className="text-xs text-muted-foreground -mt-2">
+                                    Vælg størrelsen på produktbilleder i dropdown-menuen
+                                </p>
+                                <RadioGroup
+                                    value={safeHeader.dropdownImageSize || 'normal'}
+                                    onValueChange={(v) => updateHeader({ dropdownImageSize: v as HeaderDropdownImageSize })}
+                                    className="grid grid-cols-3 gap-4"
+                                >
+                                    <div className="relative">
+                                        <RadioGroupItem value="normal" id="img-size-normal" className="peer sr-only" />
+                                        <label
+                                            htmlFor="img-size-normal"
+                                            className="flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 hover:bg-muted/50"
+                                        >
+                                            <div className="h-8 w-8 bg-muted rounded" />
+                                            <span className="text-xs font-medium">Normal</span>
+                                        </label>
+                                    </div>
+                                    <div className="relative">
+                                        <RadioGroupItem value="large" id="img-size-large" className="peer sr-only" />
+                                        <label
+                                            htmlFor="img-size-large"
+                                            className="flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 hover:bg-muted/50"
+                                        >
+                                            <div className="h-12 w-12 bg-muted rounded" />
+                                            <span className="text-xs font-medium">Stor</span>
+                                        </label>
+                                    </div>
+                                    <div className="relative">
+                                        <RadioGroupItem value="xl" id="img-size-xl" className="peer sr-only" />
+                                        <label
+                                            htmlFor="img-size-xl"
+                                            className="flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 hover:bg-muted/50"
+                                        >
+                                            <div className="h-16 w-16 bg-muted rounded" />
+                                            <span className="text-xs font-medium">XL</span>
+                                        </label>
+                                    </div>
+                                </RadioGroup>
+                            </div>
+                        </>
+                    )}
 
                     <Separator />
 

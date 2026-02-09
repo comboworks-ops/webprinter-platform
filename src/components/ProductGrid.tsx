@@ -38,6 +38,7 @@ interface ProductGridProps {
     hoverTextColor?: string;
     font?: string;
     animation?: "none" | "lift" | "glow" | "pulse";
+
   };
   layoutStyle?: "cards" | "flat" | "grouped" | "slim";
   backgroundConfig?: {
@@ -133,6 +134,7 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
     hoverTextColor: buttonConfig?.hoverTextColor ?? "#FFFFFF",
     font: buttonConfig?.font ?? "Poppins",
     animation: buttonConfig?.animation ?? "none",
+
   };
   const backgroundStyles = {
     type: backgroundConfig?.type ?? "solid",
@@ -149,6 +151,7 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
       : buttonStyles.animation === "pulse"
         ? "hover:scale-[1.02]"
         : "";
+
 
   const toRgba = (hex: string, opacity: number) => {
     if (!hex || typeof hex !== "string") return hex;
@@ -352,7 +355,7 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
                             effectiveButtonStyle === "bar" ? "w-full rounded-none py-5" : "px-4",
                             effectiveButtonStyle === "center" ? "min-w-[220px] py-5" : "",
                             isSlimLayout ? "h-8 px-3 text-xs" : "",
-                            buttonAnimationClass
+
                           )}
                           style={{
                             ["--btn-bg" as any]: buttonStyles.bgColor,

@@ -14,6 +14,7 @@ import { PriceMatrix } from "@/components/product-price-page/PriceMatrix";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
+import { PICTURE_SIZES, type PictureSizeMode } from "@/lib/storformat-pricing/types";
 
 // Types from pricing structure
 interface VerticalAxisConfig {
@@ -664,6 +665,54 @@ export function MatrixLayoutV1Renderer({
             );
         }
 
+        // Picture grid display (small / medium / large / xl)
+        if (['small', 'medium', 'large', 'xl'].includes(uiMode)) {
+            const size = PICTURE_SIZES[uiMode as PictureSizeMode] || PICTURE_SIZES.medium;
+            return (
+                <div className={cn("flex flex-wrap gap-2", !isActive && "opacity-60 pointer-events-none")}>
+                    {values.map(v => {
+                        const isSelected = selectedValue === v.id;
+                        const thumbUrl = valueSettings[v.id]?.customImage;
+                        return (
+                            <button
+                                key={v.id}
+                                onClick={() => handleSectionSelect(sectionId, v.id)}
+                                disabled={!isActive}
+                                className={cn(
+                                    "relative rounded-lg border-2 transition-all flex flex-col items-center overflow-hidden",
+                                    isSelected
+                                        ? "border-transparent shadow-none"
+                                        : "border-transparent",
+                                    !isActive && "cursor-not-allowed"
+                                )}
+                                style={{ width: size.width, minHeight: size.height + (uiMode !== 'small' ? 22 : 0) }}
+                            >
+                                {thumbUrl ? (
+                                    <img src={thumbUrl} alt={v.name} className="w-full object-cover rounded-t-md" style={{ height: size.height }} />
+                                ) : (
+                                    <div
+                                        className={cn(
+                                            "w-full flex items-center justify-center bg-muted text-xs font-semibold text-muted-foreground rounded-t-md",
+                                            isSelected && "bg-accent text-foreground"
+                                        )}
+                                        style={{ height: size.height }}
+                                    >
+                                        {(v.name || '?').slice(0, 3).toUpperCase()}
+                                    </div>
+                                )}
+                                {uiMode !== 'small' && (
+                                    <span className="text-[10px] leading-tight text-center truncate w-full px-1 py-0.5">
+                                        {v.name}
+                                    </span>
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+            );
+        }
+
+        // Default: buttons
         return (
             <div className={cn("flex flex-wrap gap-1.5", !isActive && "opacity-60 pointer-events-none")}>
                 {values.map(v => {

@@ -147,7 +147,7 @@ export function PriceMatrix({
   };
 
   return (
-    <div ref={containerRef} className="space-y-4">
+    <div ref={containerRef} className="space-y-4" style={{ fontFamily: "var(--matrix-font)" }}>
       {/* Navigation buttons */}
       {columns.length > columnsPerPage && (
         <div className="flex items-center justify-between">
@@ -178,11 +178,13 @@ export function PriceMatrix({
       )}
 
       {/* Matrix */}
-      <div className={`overflow-x-auto border rounded-lg bg-card transition-opacity duration-200`}>
+      <div
+        className="overflow-x-auto border rounded-lg bg-[var(--matrix-cell-bg)] transition-opacity duration-200 border-[var(--matrix-border)]"
+      >
         <div role="grid" aria-label="Prismatrix" className="min-w-full">
           {/* Header row */}
-          <div role="row" className="flex border-b bg-muted/50">
-            <div className="w-32 md:w-40 p-3 font-semibold text-sm flex-shrink-0 sticky left-0 bg-muted/50 border-r">
+          <div role="row" className="flex border-b border-[var(--matrix-border)] bg-[var(--matrix-header-bg)] text-[var(--matrix-header-text)]">
+            <div className="w-32 md:w-40 p-3 font-semibold text-sm flex-shrink-0 sticky left-0 bg-[var(--matrix-header-bg)] text-[var(--matrix-header-text)] border-r border-[var(--matrix-border)]">
               {rowHeaderLabel || "Materiale / Antal"}
             </div>
             {visibleColumns.map((col) => (
@@ -198,8 +200,8 @@ export function PriceMatrix({
 
           {/* Data rows */}
           {rows.map((row) => (
-            <div key={row} role="row" className="flex border-b last:border-b-0 hover:bg-muted/30">
-              <div className="w-32 md:w-40 p-3 font-medium text-sm flex-shrink-0 sticky left-0 bg-card border-r">
+            <div key={row} role="row" className="flex border-b last:border-b-0 border-[var(--matrix-border)]">
+              <div className="w-32 md:w-40 p-3 font-medium text-sm flex-shrink-0 sticky left-0 bg-[var(--matrix-row-header-bg)] text-[var(--matrix-row-header-text)] border-r border-[var(--matrix-border)]">
                 {row}
               </div>
               {visibleColumns.map((col) => {
@@ -216,8 +218,8 @@ export function PriceMatrix({
                     onClick={() => onCellClick(row, col, base, display)}
                     onKeyDown={(e) => handleKeyDown(e, row, col)}
                     className={`w-24 p-3 text-sm text-center flex-shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset ${isSelected
-                      ? "bg-primary text-primary-foreground font-semibold"
-                      : "hover:bg-primary/10 cursor-pointer"
+                      ? "bg-[var(--matrix-selected-bg)] text-[var(--matrix-selected-text)] font-semibold"
+                      : "bg-[var(--matrix-cell-bg)] text-[var(--matrix-cell-text)] hover:bg-[var(--matrix-cell-hover-bg)] hover:text-[var(--matrix-cell-hover-text)] cursor-pointer"
                       }`}
                   >
                     {display > 0 ? `${display} kr` : "-"}

@@ -11,10 +11,14 @@ import {
   type StorformatFinish,
   type StorformatMaterial,
   type StorformatProduct,
-  type StorformatFixedPrice,
-  calculateStorformatPrice
+  calculateStorformatM2Price
 } from "@/utils/storformatPricing";
+import type { StorformatFinishPrice, StorformatM2Price, LayoutDisplayMode as LayoutDisplayModeImport, PictureSizeMode } from "@/lib/storformat-pricing/types";
+import { PICTURE_SIZES } from "@/lib/storformat-pricing/types";
 import { cn } from "@/lib/utils";
+import { useShopSettings } from "@/hooks/useShopSettings";
+import { useProductAddons, calculateAddonPrice } from "@/hooks/useProductAddons";
+import type { ResolvedAddonGroup, ResolvedAddonItem } from "@/lib/addon-library/types";
 
 export type StorformatSelection = {
   totalPrice: number;
@@ -42,7 +46,7 @@ type StorformatConfiguratorProps = {
 };
 
 type LayoutSectionType = "materials" | "finishes" | "products";
-type LayoutDisplayMode = "buttons" | "dropdown" | "checkboxes";
+type LayoutDisplayMode = LayoutDisplayModeImport;
 type SelectionMode = "required" | "optional";
 
 type ValueSettings = {
@@ -80,7 +84,8 @@ type VerticalAxisConfig = {
 const defaultConfig: StorformatConfig = {
   rounding_step: 1,
   global_markup_pct: 0,
-  quantities: [1]
+  quantities: [1],
+  pricing_mode: "m2_rates"
 };
 
 export function StorformatConfigurator({
@@ -90,12 +95,21 @@ export function StorformatConfigurator({
   const noneFinishValue = "__none__";
   const [config, setConfig] = useState<StorformatConfig>(defaultConfig);
   const [materials, setMaterials] = useState<StorformatMaterial[]>([]);
+  const [m2Prices, setM2Prices] = useState<StorformatM2Price[]>([]);
   const [finishes, setFinishes] = useState<StorformatFinish[]>([]);
+  const [finishPrices, setFinishPrices] = useState<StorformatFinishPrice[]>([]);
   const [products, setProducts] = useState<StorformatProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isPublished, setIsPublished] = useState(false);
   const [layoutRows, setLayoutRows] = useState<LayoutRow[]>([]);
   const [verticalAxis, setVerticalAxis] = useState<VerticalAxisConfig | null>(null);
   const [selectedSectionValues, setSelectedSectionValues] = useState<Record<string, string | null>>({});
+
+  // Library-imported add-ons
+  const settings = useShopSettings();
+  const tenantId = settings.data?.id || "";
+  const productAddons = useProductAddons({ productId, tenantId });
+  const [librarySelections, setLibrarySelections] = useState<Record<string, string>>({});
 
   const [widthCm, setWidthCm] = useState(100);
   const [heightCm, setHeightCm] = useState(100);
@@ -119,11 +133,13 @@ export function StorformatConfigurator({
             rounding_step: cfg.rounding_step || 1,
             global_markup_pct: cfg.global_markup_pct || 0,
             quantities: cfg.quantities?.length ? cfg.quantities : [1],
+            pricing_mode: "m2_rates",
             layout_rows: cfg.layout_rows || [],
             vertical_axis: cfg.vertical_axis || null
           }
           : defaultConfig;
         setConfig(nextConfig);
+        setIsPublished(cfg?.is_published ?? false);
         setQuantity(nextConfig.quantities?.[0] || 1);
         setLayoutRows(cfg?.layout_rows || []);
         setVerticalAxis(cfg?.vertical_axis ? { ...cfg.vertical_axis, id: cfg.vertical_axis.id || "vertical-axis" } : null);
@@ -134,19 +150,20 @@ export function StorformatConfigurator({
           .eq("product_id", productId)
           .order("sort_order");
 
-        const { data: materialTiers } = await supabase
-          .from("storformat_material_price_tiers" as any)
+        const { data: m2PriceRows } = await supabase
+          .from("storformat_m2_prices" as any)
           .select("*")
           .eq("product_id", productId)
-          .order("sort_order");
+          .order("from_m2");
 
-        const materialsWithTiers = (materialRows || []).map((m: any) => ({
+        const materialsSimple = (materialRows || []).map((m: any) => ({
           ...m,
-          tiers: (materialTiers || []).filter((t: any) => t.material_id === m.id)
+          tiers: []
         }));
-        setMaterials(materialsWithTiers);
-        if (materialsWithTiers.length) {
-          setMaterialId(materialsWithTiers[0].id);
+        setMaterials(materialsSimple);
+        setM2Prices((m2PriceRows || []) as StorformatM2Price[]);
+        if (materialsSimple.length) {
+          setMaterialId(materialsSimple[0].id);
         }
 
         const { data: finishRows } = await supabase
@@ -155,17 +172,17 @@ export function StorformatConfigurator({
           .eq("product_id", productId)
           .order("sort_order");
 
-        const { data: finishTiers } = await supabase
-          .from("storformat_finish_price_tiers" as any)
+        const { data: finishPriceRows } = await supabase
+          .from("storformat_finish_prices" as any)
           .select("*")
-          .eq("product_id", productId)
-          .order("sort_order");
+          .eq("product_id", productId);
 
-        const finishesWithTiers = (finishRows || []).map((f: any) => ({
+        const finishesSimple = (finishRows || []).map((f: any) => ({
           ...f,
-          tiers: (finishTiers || []).filter((t: any) => t.finish_id === f.id)
+          tiers: []
         }));
-        setFinishes(finishesWithTiers);
+        setFinishes(finishesSimple);
+        setFinishPrices((finishPriceRows || []) as StorformatFinishPrice[]);
 
         const { data: productRows } = await supabase
           .from("storformat_products" as any)
@@ -173,26 +190,14 @@ export function StorformatConfigurator({
           .eq("product_id", productId)
           .order("sort_order");
 
-        const { data: productTiers } = await supabase
-          .from("storformat_product_price_tiers" as any)
-          .select("*")
-          .eq("product_id", productId)
-          .order("sort_order");
-
-        const { data: productFixedPrices } = await supabase
-          .from("storformat_product_fixed_prices" as any)
-          .select("*")
-          .eq("product_id", productId)
-          .order("sort_order");
-
-        const productsWithPricing: StorformatProduct[] = (productRows || []).map((p: any) => ({
+        const productsSimple: StorformatProduct[] = (productRows || []).map((p: any) => ({
           ...p,
-          tiers: (productTiers || []).filter((t: any) => t.product_item_id === p.id),
-          fixed_prices: (productFixedPrices || []).filter((fp: any) => fp.product_item_id === p.id)
+          tiers: [],
+          fixed_prices: []
         }));
-        setProducts(productsWithPricing);
-        if (productsWithPricing.length) {
-          setProductIdSelection(productsWithPricing[0].id);
+        setProducts(productsSimple);
+        if (productsSimple.length) {
+          setProductIdSelection(productsSimple[0].id);
         }
       } catch (error) {
         console.error("Storformat fetch error", error);
@@ -203,6 +208,46 @@ export function StorformatConfigurator({
 
     fetchStorformat();
   }, [productId]);
+
+  // Fetch library add-ons when tenant is ready
+  useEffect(() => {
+    if (tenantId && productId) {
+      productAddons.fetchResolvedAddons().then((resolved) => {
+        // Set default selections for library groups
+        const initialLibrarySelections: Record<string, string> = {};
+        for (const group of resolved) {
+          if (group.items.length > 0) {
+            initialLibrarySelections[group.id] = group.items[0].id;
+          }
+        }
+        setLibrarySelections(initialLibrarySelections);
+      });
+    }
+  }, [tenantId, productId]);
+
+  // Handle library item selection
+  const handleLibrarySelect = useCallback((groupId: string, itemId: string) => {
+    setLibrarySelections((prev) => ({ ...prev, [groupId]: itemId }));
+  }, []);
+
+  // Calculate total price from library add-ons
+  const libraryAddonsTotal = useMemo(() => {
+    let total = 0;
+    for (const [groupId, itemId] of Object.entries(librarySelections)) {
+      const group = productAddons.resolvedGroups.find((g) => g.id === groupId);
+      const item = group?.items.find((i) => i.id === itemId);
+      if (item) {
+        const areaM2 = (widthCm * 10 / 1000) * (heightCm * 10 / 1000); // Convert cm to m²
+        const { totalPrice } = calculateAddonPrice({
+          item,
+          quantity,
+          areaM2
+        });
+        total += totalPrice;
+      }
+    }
+    return total;
+  }, [librarySelections, productAddons.resolvedGroups, widthCm, heightCm, quantity]);
 
   const hasLayout = layoutRows.length > 0 || !!verticalAxis;
   const verticalAxisId = verticalAxis?.id || "vertical-axis";
@@ -356,6 +401,16 @@ export function StorformatConfigurator({
     return null;
   }, [getSectionValues, hasLayout, layoutRows, selectedSectionValues, selectionModeById, verticalAxis, verticalAxisId]);
 
+  const getM2PricesForMaterial = useCallback((materialId: string) => {
+    return m2Prices
+      .filter((p) => p.material_id === materialId)
+      .sort((a, b) => a.from_m2 - b.from_m2);
+  }, [m2Prices]);
+
+  const getFinishPrice = useCallback((finishId: string) => {
+    return finishPrices.find((p) => p.finish_id === finishId) || null;
+  }, [finishPrices]);
+
   const selection = useMemo<StorformatSelection | null>(() => {
     const selectedMaterialId = hasLayout ? resolveSelectionForType("materials") : materialId;
     const material = materials.find((m) => m.id === selectedMaterialId);
@@ -368,14 +423,15 @@ export function StorformatConfigurator({
     const selectedProductId = hasLayout ? resolveSelectionForType("products") : (productIdSelection === noneFinishValue ? null : productIdSelection);
     const finish = selectedFinishId ? (finishes.find((f) => f.id === selectedFinishId) || null) : null;
     const product = selectedProductId ? (products.find((p) => p.id === selectedProductId) || null) : null;
-
-    const result = calculateStorformatPrice({
+    const result = calculateStorformatM2Price({
       widthMm,
       heightMm,
       quantity,
       material,
+      materialPrices: getM2PricesForMaterial(material.id!),
       finish,
-      product,
+      finishPrice: finish ? getFinishPrice(finish.id!) : null,
+      product: null,
       config
     });
 
@@ -384,7 +440,7 @@ export function StorformatConfigurator({
     const exceedsMax = Boolean(maxW && widthMm > maxW) || Boolean(maxH && heightMm > maxH);
 
     return {
-      totalPrice: result.totalPrice,
+      totalPrice: result.totalPrice + libraryAddonsTotal,
       areaM2: result.areaM2,
       totalAreaM2: result.totalAreaM2,
       quantity,
@@ -397,7 +453,7 @@ export function StorformatConfigurator({
       exceedsMax,
       allowSplit: material.allow_split ?? true
     };
-  }, [materials, finishes, products, materialId, finishId, productIdSelection, widthCm, heightCm, quantity, config, hasLayout, resolveSelectionForType]);
+  }, [materials, finishes, products, materialId, finishId, productIdSelection, widthCm, heightCm, quantity, config, hasLayout, resolveSelectionForType, libraryAddonsTotal, m2Prices, finishPrices]);
 
   useEffect(() => {
     onSelectionChange(selection);
@@ -439,6 +495,7 @@ export function StorformatConfigurator({
       });
     };
 
+    // Dropdown mode
     if (displayMode === "dropdown") {
       return (
         <Select
@@ -476,6 +533,7 @@ export function StorformatConfigurator({
       );
     }
 
+    // Checkboxes mode
     if (displayMode === "checkboxes") {
       return (
         <div className={cn("space-y-1", !isOptionalEnabled && "opacity-60 pointer-events-none")}>
@@ -512,15 +570,54 @@ export function StorformatConfigurator({
       );
     }
 
+    // Buttons mode
+    if (displayMode === "buttons") {
+      return (
+        <div className={cn("flex flex-wrap gap-1.5", !isOptionalEnabled && "opacity-60 pointer-events-none")}>
+          {values.map((value) => {
+            const isSelected = selectedValue === value.id;
+            return (
+              <Button
+                key={value.id}
+                size="sm"
+                variant={isSelected ? "default" : "outline"}
+                onClick={() => {
+                  if (isOptional && isSelected) {
+                    handleSelect(null);
+                    return;
+                  }
+                  handleSelect(value.id || null);
+                }}
+                className={cn("h-9 px-3 text-sm gap-2", isSelected && "bg-primary hover:bg-primary/90")}
+                disabled={!isOptionalEnabled}
+              >
+                {valueSettings[value.id || ""]?.showThumbnail && (valueSettings[value.id || ""]?.customImage || value.thumbnail_url) && (
+                  <img
+                    src={valueSettings[value.id || ""]?.customImage || value.thumbnail_url}
+                    alt={value.name || ""}
+                    className="h-8 w-8 rounded object-cover"
+                  />
+                )}
+                {value.name || "Unavngivet"}
+              </Button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // Picture grid display (small / medium / large / xl)
+    const pictureSize = PICTURE_SIZES[displayMode as PictureSizeMode] || PICTURE_SIZES.medium;
+
     return (
-      <div className={cn("flex flex-wrap gap-1.5", !isOptionalEnabled && "opacity-60 pointer-events-none")}>
+      <div className={cn("flex flex-wrap gap-2", !isOptionalEnabled && "opacity-60 pointer-events-none")}>
         {values.map((value) => {
           const isSelected = selectedValue === value.id;
+          const settings = valueSettings[value.id || ""];
+          const thumbnailUrl = settings?.customImage || value.thumbnail_url;
           return (
-            <Button
+            <button
               key={value.id}
-              size="sm"
-              variant={isSelected ? "default" : "outline"}
               onClick={() => {
                 if (isOptional && isSelected) {
                   handleSelect(null);
@@ -528,18 +625,40 @@ export function StorformatConfigurator({
                 }
                 handleSelect(value.id || null);
               }}
-              className={cn("h-9 px-3 text-sm gap-2", isSelected && "bg-primary hover:bg-primary/90")}
               disabled={!isOptionalEnabled}
-            >
-              {valueSettings[value.id || ""]?.showThumbnail && (valueSettings[value.id || ""]?.customImage || value.thumbnail_url) && (
-                <img
-                  src={valueSettings[value.id || ""]?.customImage || value.thumbnail_url}
-                  alt={value.name || ""}
-                  className="h-8 w-8 rounded object-cover"
-                />
+              className={cn(
+                "relative rounded-lg border-2 transition-all flex flex-col items-center overflow-hidden",
+                isSelected
+                  ? "border-transparent shadow-none"
+                  : "border-transparent",
+                !isOptionalEnabled && "cursor-not-allowed"
               )}
-              {value.name || "Unavngivet"}
-            </Button>
+              style={{ width: pictureSize.width, minHeight: pictureSize.height + (displayMode !== "small" ? 22 : 0) }}
+            >
+              {thumbnailUrl ? (
+                <img
+                  src={thumbnailUrl}
+                  alt={value.name || ""}
+                  className="w-full object-cover rounded-t-md"
+                  style={{ height: pictureSize.height }}
+                />
+              ) : (
+                <div
+                  className={cn(
+                    "w-full flex items-center justify-center bg-muted text-xs font-semibold text-muted-foreground rounded-t-md",
+                    isSelected && "bg-accent text-foreground"
+                  )}
+                  style={{ height: pictureSize.height }}
+                >
+                  {(value.name || "?").slice(0, 3).toUpperCase()}
+                </div>
+              )}
+              {displayMode !== "small" && (
+                <span className="text-[10px] leading-tight text-center truncate w-full px-1 py-0.5">
+                  {value.name || "Unavngivet"}
+                </span>
+              )}
+            </button>
           );
         })}
       </div>
@@ -591,13 +710,15 @@ export function StorformatConfigurator({
         const product = productIdForRow ? products.find((p) => p.id === productIdForRow) : null;
         if (!material) return;
 
-        const result = calculateStorformatPrice({
+        const result = calculateStorformatM2Price({
           widthMm,
           heightMm,
           quantity: qty,
           material,
+          materialPrices: getM2PricesForMaterial(material.id!),
           finish,
-          product,
+          finishPrice: finish ? getFinishPrice(finish.id!) : null,
+          product: null,
           config
         });
         cells[label][qty] = result.totalPrice;
@@ -611,7 +732,7 @@ export function StorformatConfigurator({
       rowIdByLabel,
       rowLabelById
     };
-  }, [verticalAxis, verticalAxisValues, sortedQuantities, widthCm, heightCm, resolveSelectionForType, materials, finishes, products, config]);
+  }, [verticalAxis, verticalAxisValues, sortedQuantities, widthCm, heightCm, resolveSelectionForType, materials, finishes, products, config, m2Prices, finishPrices]);
 
   const matrixSelectedCell = useMemo(() => {
     if (!verticalAxis) return null;
@@ -629,6 +750,18 @@ export function StorformatConfigurator({
     if (!rowId) return;
     setSelectedSectionValues((prev) => ({ ...prev, [verticalAxisId]: rowId }));
   }, [matrixData.rowIdByLabel, verticalAxis, verticalAxisId]);
+
+  if (loading) {
+    return (
+      <div className="bg-muted/50 border rounded-lg p-6 text-center text-muted-foreground">
+        Indlæser storformat...
+      </div>
+    );
+  }
+
+  if (!isPublished) {
+    return null;
+  }
 
   return (
     <div className="bg-muted/50 border rounded-lg p-6 space-y-4">
@@ -825,6 +958,99 @@ export function StorformatConfigurator({
         <p className="text-xs text-amber-600">
           Overskrider max stoerrelse. Kontakt os hvis du har brug for en specialloesning.
         </p>
+      )}
+
+      {/* Library-imported add-on groups */}
+      {productAddons.resolvedGroups.length > 0 && (
+        <div className="space-y-4 pt-2 border-t">
+          {productAddons.resolvedGroups.map((libGroup) => (
+            <div key={libGroup.id} className="space-y-2">
+              <Label className="text-sm font-medium">{libGroup.display_label}</Label>
+
+              {libGroup.display_type === 'buttons' && (
+                <div className="flex flex-wrap gap-1.5">
+                  {libGroup.items.map((item) => {
+                    const isSelected = librarySelections[libGroup.id] === item.id;
+                    return (
+                      <Button
+                        key={item.id}
+                        size="sm"
+                        variant={isSelected ? "default" : "outline"}
+                        onClick={() => handleLibrarySelect(libGroup.id, item.id)}
+                        className={cn("h-9 px-3 text-sm gap-2", isSelected && "bg-primary hover:bg-primary/90")}
+                      >
+                        {item.icon_url && (
+                          <img src={item.icon_url} alt={item.display_label} className="h-5 w-5 rounded object-cover" />
+                        )}
+                        {item.display_label}
+                      </Button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {libGroup.display_type === 'icon_grid' && (
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                  {libGroup.items.map((item) => {
+                    const isSelected = librarySelections[libGroup.id] === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => handleLibrarySelect(libGroup.id, item.id)}
+                        className={cn(
+                          "flex flex-col items-center gap-2 p-2 rounded-lg border transition-all",
+                          isSelected
+                            ? "bg-primary/10 border-primary ring-1 ring-primary"
+                            : "bg-background border-muted hover:border-muted-foreground/30"
+                        )}
+                      >
+                        {item.icon_url || item.thumbnail_url ? (
+                          <img
+                            src={item.icon_url || item.thumbnail_url || ''}
+                            alt={item.display_label}
+                            className="w-full h-16 object-contain"
+                          />
+                        ) : (
+                          <div className="w-full h-16 bg-muted rounded flex items-center justify-center text-muted-foreground text-xs">
+                            Intet ikon
+                          </div>
+                        )}
+                        <span className="text-xs font-medium text-center">{item.display_label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {libGroup.display_type === 'dropdown' && (
+                <Select
+                  value={librarySelections[libGroup.id] || ""}
+                  onValueChange={(value) => handleLibrarySelect(libGroup.id, value)}
+                >
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Vælg" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {libGroup.items.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        <div className="flex items-center gap-2">
+                          {item.icon_url && (
+                            <img src={item.icon_url} alt="" className="w-4 h-4 rounded" />
+                          )}
+                          {item.display_label}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              {libGroup.description && (
+                <p className="text-xs text-muted-foreground">{libGroup.description}</p>
+              )}
+            </div>
+          ))}
+        </div>
       )}
 
       {verticalAxis && matrixData.rows.length > 0 && matrixData.columns.length > 0 && (

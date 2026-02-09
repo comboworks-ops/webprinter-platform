@@ -39,6 +39,7 @@ export interface HeroButton {
     bgHoverColor?: string;
     /** Background opacity (0-1) */
     bgOpacity?: number;
+
 }
 
 // Text animation types for banner headlines
@@ -238,6 +239,9 @@ const DEFAULT_HERO: HeroSettings = {
 // Dropdown content mode
 export type HeaderDropdownMode = 'TEXT_ONLY' | 'IMAGE_ONLY' | 'IMAGE_AND_TEXT';
 
+// Dropdown image size (for IMAGE_ONLY and IMAGE_AND_TEXT modes)
+export type HeaderDropdownImageSize = 'normal' | 'large' | 'xl';
+
 // Header scroll settings
 export interface HeaderScrollSettings {
     sticky: boolean;           // Fixed to top when scrolling
@@ -257,6 +261,15 @@ export interface HeaderNavItem {
     order: number;
 }
 
+export interface BrandingPage {
+    id: string;
+    title: string;
+    path: string;
+    type: 'page' | 'subpage';
+    parentPath?: string | null;
+    createdAt?: string;
+}
+
 // Header CTA button settings
 export interface HeaderCtaSettings {
     enabled: boolean;
@@ -269,6 +282,7 @@ export interface HeaderCtaSettings {
     textColor?: string;
     /** Custom hover background color for the CTA button */
     hoverBgColor?: string;
+
 }
 
 // Header style settings
@@ -289,6 +303,7 @@ export interface HeaderSettings {
     // Navigation
     navItems: HeaderNavItem[];
     dropdownMode: HeaderDropdownMode;
+    dropdownImageSize: HeaderDropdownImageSize;  // Size of product images in dropdown (normal, large, xl)
 
     // Styling
     fontId: string;
@@ -366,6 +381,7 @@ const DEFAULT_HEADER: HeaderSettings = {
     logoLink: '/',
     navItems: DEFAULT_NAV_ITEMS,
     dropdownMode: 'IMAGE_AND_TEXT',
+    dropdownImageSize: 'normal',     // Default size for product images in dropdown
     fontId: 'Inter',
     bgColor: '#FFFFFF',
     bgOpacity: 0.95,
@@ -421,13 +437,102 @@ export interface FooterSocialSettings {
 
 // Footer layout style
 export type FooterStyleType = 'minimal' | 'columns' | 'centered';
-export type FooterBackgroundType = 'themeDark' | 'themeLight' | 'solid';
+export type FooterBackgroundType = 'themeDark' | 'themeLight' | 'solid' | 'gradient';
+
+// Contact page settings
+export type ContactMapPlacement = 'inline' | 'fullWidth' | 'hidden';
+
+export interface ContactMapSettings {
+    enabled: boolean;
+    imageUrl: string;
+    placement: ContactMapPlacement;
+    boxBackground: string;
+    boxBorderColor: string;
+}
+
+export interface ContactFormBoxSettings {
+    enabled: boolean;
+    backgroundColor: string;
+    borderColor: string;
+}
+
+export interface ContactInfoOverrides {
+    phone: string;
+    email: string;
+    name: string;
+    address: string;
+    cvr: string;
+}
+
+export interface ContactPageSettings {
+    headingFont: string;
+    bodyFont: string;
+    formFont: string;
+    headingColor: string;
+    bodyTextColor: string;
+    formTextColor: string;
+    backgroundEnabled: boolean;
+    backgroundColor: string;
+    infoBoxBackground: string;
+    infoBoxTextColor: string;
+    infoBoxBorderColor: string;
+    formBox: ContactFormBoxSettings;
+    map: ContactMapSettings;
+    formRecipientEmail: string;
+    contactInfo: ContactInfoOverrides;
+}
+
+export type AboutMediaType = 'none' | 'single' | 'gallery';
+export type AboutMediaPosition = 'above' | 'left' | 'right';
+export type AboutGalleryLayout = 'grid' | 'masonry' | 'carousel' | 'stacked';
+export type AboutMediaStyle = 'plain' | 'rounded' | 'shadow' | 'border';
+
+export interface AboutMediaSettings {
+    type: AboutMediaType;
+    position: AboutMediaPosition;
+    imageUrl: string;
+    gallery: string[];
+    galleryLayout: AboutGalleryLayout;
+    imageStyle: AboutMediaStyle;
+}
+
+export interface AboutFeatureItem {
+    id: string;
+    title: string;
+    description: string;
+    iconType: 'icon' | 'image';
+    iconName: string;
+    imageUrl?: string;
+    linkUrl?: string;
+    openInNewTab?: boolean;
+}
+
+export interface AboutFeaturesSettings {
+    enabled: boolean;
+    cardBackground: string;
+    cardTextColor: string;
+    hoverBackground: string;
+    hoverTextColor: string;
+    hoverEffect: 'none' | 'lift' | 'shadow' | 'glow';
+    items: AboutFeatureItem[];
+}
+
+export interface AboutPageSettings {
+    title: string;
+    description: string;
+    textAlign: 'left' | 'center' | 'right';
+    media: AboutMediaSettings;
+    features: AboutFeaturesSettings;
+}
 
 // Complete footer settings
 export interface FooterSettings {
     style: FooterStyleType;
     background: FooterBackgroundType;
     bgColor: string;
+    gradientStart?: string;
+    gradientEnd?: string;
+    gradientAngle?: number;
     text: string;
     copyrightText: string;
     showCopyright: boolean;
@@ -458,12 +563,112 @@ const DEFAULT_FOOTER: FooterSettings = {
     style: 'minimal',
     background: 'themeDark',
     bgColor: '#1F2937',
+    gradientStart: '#1F2937',
+    gradientEnd: '#0F172A',
+    gradientAngle: 135,
     text: 'Din professionelle tryksagspartner.',
     copyrightText: '© {year} {shopName}. Alle rettigheder forbeholdes.',
     showCopyright: true,
     links: DEFAULT_FOOTER_LINKS,
     social: DEFAULT_FOOTER_SOCIAL,
     showSocialIcons: true,
+};
+
+const DEFAULT_CONTACT_PAGE: ContactPageSettings = {
+    headingFont: 'Poppins',
+    bodyFont: 'Inter',
+    formFont: 'Inter',
+    headingColor: '#1F2937',
+    bodyTextColor: '#4B5563',
+    formTextColor: '#1F2937',
+    backgroundEnabled: false,
+    backgroundColor: '#F8FAFC',
+    infoBoxBackground: '#F1F5F9',
+    infoBoxTextColor: '#1F2937',
+    infoBoxBorderColor: '#E2E8F0',
+    formBox: {
+        enabled: false,
+        backgroundColor: '#FFFFFF',
+        borderColor: '#E2E8F0',
+    },
+    map: {
+        enabled: false,
+        imageUrl: '',
+        placement: 'inline',
+        boxBackground: '#F1F5F9',
+        boxBorderColor: '#E2E8F0',
+    },
+    formRecipientEmail: '',
+    contactInfo: {
+        phone: '',
+        email: '',
+        name: '',
+        address: '',
+        cvr: '',
+    },
+};
+
+const DEFAULT_ABOUT_FEATURE_ITEMS: AboutFeatureItem[] = [
+    {
+        id: 'about-feature-1',
+        title: 'Kvalitet',
+        description: 'Topkvalitet i alle vores produkter med moderne printteknik',
+        iconType: 'icon',
+        iconName: 'award',
+        linkUrl: '',
+        openInNewTab: false,
+    },
+    {
+        id: 'about-feature-2',
+        title: 'Personlig rådgivning',
+        description: 'Eksperter der hjælper dig med at vælge den rigtige løsning',
+        iconType: 'icon',
+        iconName: 'users',
+        linkUrl: '',
+        openInNewTab: false,
+    },
+    {
+        id: 'about-feature-3',
+        title: 'Bæredygtighed',
+        description: 'Vi tager ansvar for miljøet i vores produktion',
+        iconType: 'icon',
+        iconName: 'leaf',
+        linkUrl: '',
+        openInNewTab: false,
+    },
+    {
+        id: 'about-feature-4',
+        title: 'Levering til tiden',
+        description: 'Hurtig behandling og præcise leveringstider',
+        iconType: 'icon',
+        iconName: 'clock',
+        linkUrl: '',
+        openInNewTab: false,
+    },
+];
+
+const DEFAULT_ABOUT_PAGE: AboutPageSettings = {
+    title: 'Hvem er Webprinter.dk',
+    description:
+        'Vi er specialister i tryksager – fra visitkort til bannere. Hos Webprinter.dk kombinerer vi moderne produktion med klassisk håndværk og personlig service. Vi leverer til hele Danmark – hurtigt og konkurrencedygtigt.',
+    textAlign: 'center',
+    media: {
+        type: 'none',
+        position: 'above',
+        imageUrl: '',
+        gallery: [],
+        galleryLayout: 'grid',
+        imageStyle: 'rounded',
+    },
+    features: {
+        enabled: true,
+        cardBackground: '#0EA5E9',
+        cardTextColor: '#FFFFFF',
+        hoverBackground: '#0284C7',
+        hoverTextColor: '#FFFFFF',
+        hoverEffect: 'lift',
+        items: DEFAULT_ABOUT_FEATURE_ITEMS,
+    },
 };
 
 // ============================================================================
@@ -481,8 +686,121 @@ export interface ContentBlock {
     textFont?: string;          // Font for body text
     textColor?: string;         // Color for body text
     imageUrl?: string;
+    gallery?: string[];
+    mediaType?: 'single' | 'gallery';
     imagePosition: 'left' | 'right';
     textAlign: 'left' | 'center' | 'right';
+    placement?: 'above_products' | 'below_products';
+    cta?: {
+        enabled: boolean;
+        label: string;
+        href: string;
+        bgColor: string;
+        textColor: string;
+        hoverBgColor: string;
+        hoverTextColor: string;
+        font: string;
+        style: 'solid' | 'outline';
+        size: 'sm' | 'md' | 'lg';
+
+    };
+}
+
+export type Banner2Animation = HeroTextAnimation;
+
+export type Banner2IconType = 'icon' | 'image' | 'none';
+
+export interface Banner2Item {
+    id: string;
+    enabled: boolean;
+    title: string;
+    description: string;
+    titleFont?: string;
+    titleColor?: string;
+    descriptionFont?: string;
+    descriptionColor?: string;
+    iconType: Banner2IconType;
+    iconName?: string;
+    iconUrl?: string;
+    groupAnimation?: Banner2Animation;
+    titleAnimation?: Banner2Animation;
+    descriptionAnimation?: Banner2Animation;
+    iconAnimation?: Banner2Animation;
+}
+
+export interface Banner2Slide {
+    id: string;
+    enabled: boolean;
+    durationSeconds: number;
+    items: Banner2Item[];
+}
+
+export interface Banner2BackgroundSettings {
+    type: 'solid' | 'gradient';
+    color: string;
+    gradientStart: string;
+    gradientEnd: string;
+    gradientAngle: number;
+    animated: boolean;
+    animatedSpeed: 'slow' | 'slower';
+    animatedStart: string;
+    animatedMiddle: string;
+    animatedEnd: string;
+}
+
+export interface Banner2Settings {
+    enabled: boolean;
+    autoPlay: boolean;
+    showArrows: boolean;
+    showDots: boolean;
+    slides: Banner2Slide[];
+    background: Banner2BackgroundSettings;
+}
+
+export type InfoMediaType = 'none' | 'single' | 'gallery';
+export type InfoMediaAlign = 'left' | 'right' | 'center';
+
+export interface LowerInfoItem {
+    id: string;
+    enabled: boolean;
+    title: string;
+    description: string;
+    titleFont?: string;
+    titleColor?: string;
+    descriptionFont?: string;
+    descriptionColor?: string;
+    textAlign?: 'left' | 'center' | 'right';
+    mediaType: InfoMediaType;
+    imageUrl?: string;
+    gallery?: string[];
+    mediaAlign: InfoMediaAlign;
+}
+
+export interface LowerInfoBackgroundSettings {
+    type: 'solid' | 'gradient';
+    color: string;
+    gradientStart: string;
+    gradientEnd: string;
+    gradientAngle: number;
+}
+
+export interface LowerInfoSettings {
+    enabled: boolean;
+    items: LowerInfoItem[];
+    background: LowerInfoBackgroundSettings;
+    layout: 'grid' | 'stacked';
+}
+
+export interface PageExtrasSettings {
+    contentBlocks: ContentBlock[];
+    lowerInfo: LowerInfoSettings;
+}
+
+export interface PageExtrasByPage {
+    about: PageExtrasSettings;
+    contact: PageExtrasSettings;
+    grafisk: PageExtrasSettings;
+    product: PageExtrasSettings;
 }
 
 export interface ForsideProductsSection {
@@ -498,6 +816,7 @@ export interface ForsideProductsSection {
         hoverTextColor: string;
         font: string;
         animation: 'none' | 'lift' | 'glow' | 'pulse';
+
     };
     background: {
         type: 'solid' | 'gradient';
@@ -514,7 +833,90 @@ export interface ForsideSettings {
     showBanner: boolean;
     productsSection: ForsideProductsSection;
     contentBlocks: ContentBlock[];  // max 4
+    banner2: Banner2Settings;
+    lowerInfo: LowerInfoSettings;
 }
+
+export interface ProductPageOrderButtonStyle {
+    bgColor: string;
+    hoverBgColor: string;
+    textColor: string;
+    hoverTextColor: string;
+    borderColor?: string;
+    hoverBorderColor?: string;
+}
+
+export interface ProductPageOrderButtons {
+    font: string;
+    animation: 'none' | 'lift' | 'glow' | 'pulse';
+    primary: ProductPageOrderButtonStyle;
+    secondary: ProductPageOrderButtonStyle;
+    selected: ProductPageOrderButtonStyle;
+}
+
+export interface ProductPageSettings {
+    orderButtons: ProductPageOrderButtons;
+    matrix: {
+        font: string;
+        headerBg: string;
+        headerText: string;
+        rowHeaderBg: string;
+        rowHeaderText: string;
+        cellBg: string;
+        cellText: string;
+        cellHoverBg: string;
+        cellHoverText: string;
+        selectedBg: string;
+        selectedText: string;
+        borderColor: string;
+    };
+}
+
+export interface GrafiskVejledningHeaderSettings {
+    headerLabel: string;
+    title: string;
+    description: string;
+}
+
+export interface GrafiskVejledningChecklistSettings {
+    title: string;
+    items: string[];
+}
+
+export interface GrafiskVejledningTocItem {
+    id: string;
+    label: string;
+    anchor: string;
+    images: string[];
+}
+
+export interface GrafiskVejledningTocSettings {
+    title: string;
+    font: string;
+    boxBackground: string;
+    boxTextColor: string;
+    items: GrafiskVejledningTocItem[];
+}
+
+export interface GrafiskVejledningSettings {
+    header: GrafiskVejledningHeaderSettings;
+    checklist: GrafiskVejledningChecklistSettings;
+    toc: GrafiskVejledningTocSettings;
+}
+
+// Default content block CTA
+const DEFAULT_CONTENT_BLOCK_CTA = {
+    enabled: false,
+    label: '',
+    href: '',
+    bgColor: '#0EA5E9',
+    textColor: '#FFFFFF',
+    hoverBgColor: '#0284C7',
+    hoverTextColor: '#FFFFFF',
+    font: 'Poppins',
+    style: 'solid' as const,
+    size: 'md' as const,
+};
 
 // Default content block
 const DEFAULT_CONTENT_BLOCK: ContentBlock = {
@@ -527,9 +929,149 @@ const DEFAULT_CONTENT_BLOCK: ContentBlock = {
     textFont: 'Inter',
     textColor: '#4B5563',
     imageUrl: undefined,
+    gallery: [],
+    mediaType: 'single',
     imagePosition: 'left',
     textAlign: 'center',
+    placement: 'below_products',
+    cta: DEFAULT_CONTENT_BLOCK_CTA,
 };
+
+const DEFAULT_BANNER2_ITEM_BASE: Banner2Item = {
+    id: 'banner2-item-1',
+    enabled: true,
+    title: '',
+    description: '',
+    titleFont: 'Poppins',
+    titleColor: '#FFFFFF',
+    descriptionFont: 'Inter',
+    descriptionColor: '#E5E7EB',
+    iconType: 'icon',
+    iconName: 'Truck',
+    iconUrl: undefined,
+    groupAnimation: 'none',
+    titleAnimation: 'none',
+    descriptionAnimation: 'none',
+    iconAnimation: 'none',
+};
+
+const DEFAULT_BANNER2_ITEMS: Banner2Item[] = [
+    {
+        ...DEFAULT_BANNER2_ITEM_BASE,
+        id: 'banner2-item-1',
+        title: 'Hurtig levering',
+        description: 'Express-muligheder til hele Danmark',
+        iconName: 'Truck',
+    },
+    {
+        ...DEFAULT_BANNER2_ITEM_BASE,
+        id: 'banner2-item-2',
+        title: 'Kvalitet til skarpe priser',
+        description: '25+ års erfaring med professionelt tryk',
+        iconName: 'Award',
+    },
+    {
+        ...DEFAULT_BANNER2_ITEM_BASE,
+        id: 'banner2-item-3',
+        title: 'Personlig rådgivning',
+        description: 'Tlf: 71 99 11 10',
+        iconName: 'Phone',
+    },
+];
+
+const DEFAULT_BANNER2_SLIDE: Banner2Slide = {
+    id: 'banner2-slide-1',
+    enabled: true,
+    durationSeconds: 5,
+    items: DEFAULT_BANNER2_ITEMS,
+};
+
+const DEFAULT_BANNER2: Banner2Settings = {
+    enabled: true,
+    autoPlay: false,
+    showArrows: true,
+    showDots: true,
+    slides: [DEFAULT_BANNER2_SLIDE],
+    background: {
+        type: 'solid',
+        color: '#0EA5E9',
+        gradientStart: '#0EA5E9',
+        gradientEnd: '#0284C7',
+        gradientAngle: 135,
+        animated: false,
+        animatedSpeed: 'slow',
+        animatedStart: '#0EA5E9',
+        animatedMiddle: '#38BDF8',
+        animatedEnd: '#0284C7',
+    },
+};
+
+const DEFAULT_LOWER_INFO_ITEMS: LowerInfoItem[] = [
+    {
+        id: 'lower-info-1',
+        enabled: true,
+        title: 'Billige tryksager online',
+        description: 'Webprinter.dk gør det nemt at bestille flyers, foldere, visitkort og hæfter i høj kvalitet til lave priser. Beregn din pris direkte online og få levering i hele Danmark.',
+        titleFont: 'Poppins',
+        titleColor: '#1F2937',
+        descriptionFont: 'Inter',
+        descriptionColor: '#4B5563',
+        mediaType: 'none',
+        mediaAlign: 'center',
+        textAlign: 'center',
+        gallery: [],
+    },
+    {
+        id: 'lower-info-2',
+        enabled: true,
+        title: 'Storformat print til enhver opgave',
+        description: 'Fra bannere og beachflag til skilte og tekstilprint – vi producerer storformat i topkvalitet. Alt printes med UV-bestandige farver og professionel finish.',
+        titleFont: 'Poppins',
+        titleColor: '#1F2937',
+        descriptionFont: 'Inter',
+        descriptionColor: '#4B5563',
+        mediaType: 'none',
+        mediaAlign: 'center',
+        textAlign: 'center',
+        gallery: [],
+    },
+    {
+        id: 'lower-info-3',
+        enabled: true,
+        title: 'Dansk trykkeri med hurtig levering',
+        description: 'Vi har over 25 års erfaring og leverer både til erhverv og private. Kontakt os i dag og oplev service, kvalitet og konkurrencedygtige priser.',
+        titleFont: 'Poppins',
+        titleColor: '#1F2937',
+        descriptionFont: 'Inter',
+        descriptionColor: '#4B5563',
+        mediaType: 'none',
+        mediaAlign: 'center',
+        textAlign: 'center',
+        gallery: [],
+    },
+];
+
+const DEFAULT_LOWER_INFO: LowerInfoSettings = {
+    enabled: true,
+    items: DEFAULT_LOWER_INFO_ITEMS,
+    layout: 'grid',
+    background: {
+        type: 'solid',
+        color: '#F8FAFC',
+        gradientStart: '#F8FAFC',
+        gradientEnd: '#E2E8F0',
+        gradientAngle: 135,
+    },
+};
+
+const createPageExtrasDefaults = (): PageExtrasSettings => ({
+    contentBlocks: [],
+    lowerInfo: {
+        ...DEFAULT_LOWER_INFO,
+        enabled: false,
+        items: [],
+    },
+});
 
 // Default forside settings
 const DEFAULT_FORSIDE: ForsideSettings = {
@@ -558,6 +1100,88 @@ const DEFAULT_FORSIDE: ForsideSettings = {
         },
     },
     contentBlocks: [DEFAULT_CONTENT_BLOCK],
+    banner2: DEFAULT_BANNER2,
+    lowerInfo: DEFAULT_LOWER_INFO,
+};
+
+const DEFAULT_PRODUCT_PAGE: ProductPageSettings = {
+    orderButtons: {
+        font: 'Inter',
+        animation: 'none',
+        primary: {
+            bgColor: '#0EA5E9',
+            hoverBgColor: '#0284C7',
+            textColor: '#FFFFFF',
+            hoverTextColor: '#FFFFFF',
+        },
+        secondary: {
+            bgColor: '#FFFFFF',
+            hoverBgColor: '#F1F5F9',
+            textColor: '#1F2937',
+            hoverTextColor: '#1F2937',
+            borderColor: '#E2E8F0',
+            hoverBorderColor: '#CBD5E1',
+        },
+        selected: {
+            bgColor: '#16A34A',
+            hoverBgColor: '#15803D',
+            textColor: '#FFFFFF',
+            hoverTextColor: '#FFFFFF',
+        },
+    },
+    matrix: {
+        font: 'Inter',
+        headerBg: '#F1F5F9',
+        headerText: '#1F2937',
+        rowHeaderBg: '#FFFFFF',
+        rowHeaderText: '#1F2937',
+        cellBg: '#FFFFFF',
+        cellText: '#1F2937',
+        cellHoverBg: '#E2E8F0',
+        cellHoverText: '#1F2937',
+        selectedBg: '#0EA5E9',
+        selectedText: '#FFFFFF',
+        borderColor: '#E2E8F0',
+    },
+};
+
+const DEFAULT_GRAFISK_VEJLEDNING: GrafiskVejledningSettings = {
+    header: {
+        headerLabel: '',
+        title: 'Grafisk Vejledning',
+        description: 'Alt du skal vide for at levere korrekte trykfiler – fra offsettryk til storformat, spotlak, folie og konturskæring.',
+    },
+    checklist: {
+        title: 'Hurtig Tjekliste – Før du sender',
+        items: [
+            'PDF-format (helst PDF/X-4)',
+            'Korrekt færdigt format + beskæring (bleed)',
+            'CMYK farverum (ikke RGB til offsettryk)',
+            'Korrekt opløsning (offset vs storformat)',
+            'Skrifttyper indlejret eller konverteret til kurver',
+            'Billeder indlejret/linket korrekt',
+            'Én fil = ét job med korrekt sideantal',
+            'Filnavn + ordrereference',
+        ],
+    },
+    toc: {
+        title: 'Indholdsfortegnelse',
+        font: 'Inter',
+        boxBackground: '#F1F5F9',
+        boxTextColor: '#1F2937',
+        items: [
+            { id: 'toc-offsettryk', label: 'Offsettryk (flyers, foldere, plakater)', anchor: 'offsettryk', images: [] },
+            { id: 'toc-cmyk-rgb', label: 'CMYK vs RGB + farveforventninger', anchor: 'cmyk-rgb', images: [] },
+            { id: 'toc-storformat', label: 'Storformat / Wide-format', anchor: 'storformat', images: [] },
+            { id: 'toc-efterbehandling', label: 'Efterbehandling af bannere', anchor: 'efterbehandling', images: [] },
+            { id: 'toc-spotlak', label: 'Specielle Effekter (Spotlak, Folie, CutContour, Hvidt Blæk)', anchor: 'spotlak', images: [] },
+            { id: 'toc-trykmetoder', label: 'Silketryk vs Digitaltryk', anchor: 'trykmetoder', images: [] },
+            { id: 'toc-tekstiltryk', label: 'Tekstiltryk: DTG & DTF', anchor: 'tekstiltryk', images: [] },
+            { id: 'toc-pdf-eksport', label: 'PDF-eksport guide', anchor: 'pdf-eksport', images: [] },
+            { id: 'toc-skabeloner', label: 'Skabeloner (PDF)', anchor: 'skabeloner', images: [] },
+            { id: 'toc-kontakt', label: 'Support & Kontakt', anchor: 'kontakt', images: [] },
+        ],
+    },
 };
 
 // ============================================================================
@@ -571,6 +1195,11 @@ const DEFAULT_BRANDING = {
         heading: "Poppins",
         body: "Inter",
         pricing: "Roboto Mono",
+        title: "Poppins",
+        subtitle: "Poppins",
+        description: "Inter",
+        system: "Inter",
+        button: "Inter",
     },
     colors: {
         primary: "#0EA5E9",
@@ -579,20 +1208,47 @@ const DEFAULT_BRANDING = {
         card: "#FFFFFF",
         dropdown: "#FFFFFF",
         hover: "#0284C7",
+        backgroundType: "solid",
+        backgroundGradientType: "linear",
+        backgroundGradientStart: "#F8FAFC",
+        backgroundGradientEnd: "#E2E8F0",
+        backgroundGradientAngle: 135,
+        backgroundGradientUseMiddle: false,
+        backgroundGradientMiddle: "#FFFFFF",
         // Typography colors
+        titleText: "#1F2937",
+        subtitleText: "#1F2937",
         headingText: "#1F2937",
         bodyText: "#4B5563",
         pricingText: "#0EA5E9",
         linkText: "#0EA5E9",
+        systemText: "#1F2937",
+        buttonText: "#FFFFFF",
+        tabInactiveBg: "#F1F5F9",
+        tabInactiveHoverBg: "#E2E8F0",
+        tabActiveHoverBg: "#0284C7",
     },
     // Saved color swatches (max 20)
     savedSwatches: [] as string[],
     hero: DEFAULT_HERO,
     header: DEFAULT_HEADER,
     footer: DEFAULT_FOOTER,
+    contactPage: DEFAULT_CONTACT_PAGE,
+    aboutPage: DEFAULT_ABOUT_PAGE,
     forside: DEFAULT_FORSIDE,
+    productPage: DEFAULT_PRODUCT_PAGE,
+    grafiskVejledning: DEFAULT_GRAFISK_VEJLEDNING,
     navigation: {
         dropdown_images: true,
+    },
+    pageExtras: {
+        about: createPageExtrasDefaults(),
+        contact: createPageExtrasDefaults(),
+        grafisk: createPageExtrasDefaults(),
+        product: createPageExtrasDefaults(),
+    },
+    pages: {
+        items: [] as BrandingPage[],
     },
     // Product Images & Icons
     productImages: {
@@ -608,6 +1264,9 @@ const DEFAULT_BRANDING = {
         presetColor: '#0EA5E9',                  // Color for preset icons
         customUrl: null as string | null,        // URL to custom uploaded .ico file
     },
+    // Theme System
+    themeId: 'classic' as string,                // Selected theme ID
+    themeSettings: {} as Record<string, unknown>, // Theme-specific settings
 };
 
 export type BrandingData = typeof DEFAULT_BRANDING;
@@ -626,9 +1285,114 @@ export {
     DEFAULT_FOOTER,
     DEFAULT_FOOTER_SOCIAL,
     DEFAULT_FOOTER_LINKS,
+    DEFAULT_CONTACT_PAGE,
     DEFAULT_FORSIDE,
 };
 
+
+const normalizeContentBlock = (block: ContentBlock): ContentBlock => {
+    const merged = {
+        ...DEFAULT_CONTENT_BLOCK,
+        ...block,
+        cta: { ...DEFAULT_CONTENT_BLOCK_CTA, ...(block.cta || {}) },
+        gallery: block.gallery || [],
+    };
+
+    const inferredMediaType =
+        merged.mediaType ||
+        (merged.gallery && merged.gallery.length > 0 ? 'gallery' : 'single');
+
+    merged.mediaType = inferredMediaType;
+
+    if (merged.mediaType === 'gallery' && merged.gallery.length === 0 && merged.imageUrl) {
+        merged.gallery = [merged.imageUrl];
+    }
+
+    if (merged.mediaType === 'single' && !merged.imageUrl && merged.gallery.length > 0) {
+        merged.imageUrl = merged.gallery[0];
+    }
+
+    return merged;
+};
+
+const normalizeBanner2Item = (item: Banner2Item): Banner2Item => ({
+    ...DEFAULT_BANNER2_ITEM_BASE,
+    ...item,
+    titleFont: item.titleFont || DEFAULT_BANNER2_ITEM_BASE.titleFont,
+    titleColor: item.titleColor || DEFAULT_BANNER2_ITEM_BASE.titleColor,
+    descriptionFont: item.descriptionFont || DEFAULT_BANNER2_ITEM_BASE.descriptionFont,
+    descriptionColor: item.descriptionColor || DEFAULT_BANNER2_ITEM_BASE.descriptionColor,
+});
+
+const normalizeBanner2Slide = (slide: Banner2Slide): Banner2Slide => ({
+    ...DEFAULT_BANNER2_SLIDE,
+    ...slide,
+    items: (slide.items || DEFAULT_BANNER2_SLIDE.items).map((item) => normalizeBanner2Item(item)),
+});
+
+const normalizeBanner2 = (banner2: Banner2Settings): Banner2Settings => ({
+    ...DEFAULT_BANNER2,
+    ...banner2,
+    background: { ...DEFAULT_BANNER2.background, ...(banner2.background || {}) },
+    slides: (banner2.slides && banner2.slides.length > 0)
+        ? banner2.slides.map((slide) => normalizeBanner2Slide(slide))
+        : DEFAULT_BANNER2.slides.map((slide) => normalizeBanner2Slide(slide)),
+});
+
+const normalizeLowerInfoItem = (item: LowerInfoItem): LowerInfoItem => ({
+    ...item,
+    titleFont: item.titleFont || 'Poppins',
+    titleColor: item.titleColor || '#1F2937',
+    descriptionFont: item.descriptionFont || 'Inter',
+    descriptionColor: item.descriptionColor || '#4B5563',
+    mediaType: item.mediaType || 'none',
+    mediaAlign: item.mediaAlign || 'center',
+    textAlign: item.textAlign || 'center',
+    gallery: item.gallery || [],
+});
+
+const normalizeLowerInfo = (lowerInfo: LowerInfoSettings, options?: { allowEmpty?: boolean }): LowerInfoSettings => {
+    const allowEmpty = options?.allowEmpty ?? false;
+    const hasItems = Array.isArray(lowerInfo.items) && lowerInfo.items.length > 0;
+    const items = hasItems
+        ? lowerInfo.items.map((item) => normalizeLowerInfoItem(item))
+        : allowEmpty
+            ? []
+            : DEFAULT_LOWER_INFO.items.map((item) => normalizeLowerInfoItem(item));
+
+    return {
+        ...DEFAULT_LOWER_INFO,
+        ...lowerInfo,
+        background: { ...DEFAULT_LOWER_INFO.background, ...(lowerInfo.background || {}) },
+        layout: lowerInfo.layout || DEFAULT_LOWER_INFO.layout,
+        items,
+    };
+};
+
+const normalizePageExtras = (extras?: PageExtrasSettings): PageExtrasSettings => {
+    if (!extras) return createPageExtrasDefaults();
+
+    const contentBlocks = Array.isArray(extras.contentBlocks)
+        ? extras.contentBlocks.map((block) => normalizeContentBlock(block))
+        : [];
+
+    const lowerInfo = extras.lowerInfo
+        ? {
+            ...DEFAULT_LOWER_INFO,
+            ...extras.lowerInfo,
+            background: { ...DEFAULT_LOWER_INFO.background, ...(extras.lowerInfo.background || {}) },
+            layout: extras.lowerInfo.layout || DEFAULT_LOWER_INFO.layout,
+            items: Array.isArray(extras.lowerInfo.items)
+                ? extras.lowerInfo.items.map((item) => normalizeLowerInfoItem(item))
+                : [],
+        }
+        : createPageExtrasDefaults().lowerInfo;
+
+    return {
+        contentBlocks,
+        lowerInfo,
+    };
+};
 
 
 // Helper to deep merge branding with defaults
@@ -679,10 +1443,16 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
 
     // Deep merge Forside
     if (data.forside) {
+        const rawBlocks = data.forside.contentBlocks || DEFAULT_BRANDING.forside.contentBlocks;
+        const normalizedBlocks = (rawBlocks || []).map((block: ContentBlock) => normalizeContentBlock(block));
+        const normalizedBanner2 = normalizeBanner2((data.forside.banner2 || DEFAULT_BRANDING.forside.banner2) as Banner2Settings);
+        const normalizedLowerInfo = normalizeLowerInfo((data.forside.lowerInfo || DEFAULT_BRANDING.forside.lowerInfo) as LowerInfoSettings);
         merged.forside = {
             ...DEFAULT_BRANDING.forside,
             ...data.forside,
-            contentBlocks: data.forside.contentBlocks || DEFAULT_BRANDING.forside.contentBlocks,
+            contentBlocks: normalizedBlocks,
+            banner2: normalizedBanner2,
+            lowerInfo: normalizedLowerInfo,
             productsSection: {
                 ...DEFAULT_BRANDING.forside.productsSection,
                 ...(data.forside.productsSection || {}),
@@ -698,10 +1468,131 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
         };
     }
 
+    if (data.productPage) {
+        merged.productPage = {
+            ...DEFAULT_BRANDING.productPage,
+            ...data.productPage,
+            orderButtons: {
+                ...DEFAULT_BRANDING.productPage.orderButtons,
+                ...(data.productPage.orderButtons || {}),
+                primary: {
+                    ...DEFAULT_BRANDING.productPage.orderButtons.primary,
+                    ...(data.productPage.orderButtons?.primary || {}),
+                },
+                secondary: {
+                    ...DEFAULT_BRANDING.productPage.orderButtons.secondary,
+                    ...(data.productPage.orderButtons?.secondary || {}),
+                },
+                selected: {
+                    ...DEFAULT_BRANDING.productPage.orderButtons.selected,
+                    ...(data.productPage.orderButtons?.selected || {}),
+                },
+            },
+            matrix: {
+                ...DEFAULT_BRANDING.productPage.matrix,
+                ...(data.productPage.matrix || {}),
+            },
+        };
+    }
+
+    if (data.contactPage) {
+        merged.contactPage = {
+            ...DEFAULT_BRANDING.contactPage,
+            ...data.contactPage,
+            formBox: {
+                ...DEFAULT_BRANDING.contactPage.formBox,
+                ...(data.contactPage.formBox || {}),
+            },
+            map: {
+                ...DEFAULT_BRANDING.contactPage.map,
+                ...(data.contactPage.map || {}),
+            },
+            contactInfo: {
+                ...DEFAULT_BRANDING.contactPage.contactInfo,
+                ...(data.contactPage.contactInfo || {}),
+            },
+        };
+    }
+
+    if (data.aboutPage) {
+        merged.aboutPage = {
+            ...DEFAULT_BRANDING.aboutPage,
+            ...data.aboutPage,
+            media: {
+                ...DEFAULT_BRANDING.aboutPage.media,
+                ...(data.aboutPage.media || {}),
+            },
+            features: {
+                ...DEFAULT_BRANDING.aboutPage.features,
+                ...(data.aboutPage.features || {}),
+                items: Array.isArray(data.aboutPage.features?.items)
+                    ? data.aboutPage.features.items
+                    : DEFAULT_BRANDING.aboutPage.features.items,
+            },
+        };
+    }
+
+    if (data.pageExtras) {
+        merged.pageExtras = {
+            ...DEFAULT_BRANDING.pageExtras,
+            ...data.pageExtras,
+            about: normalizePageExtras(data.pageExtras.about),
+            contact: normalizePageExtras(data.pageExtras.contact),
+            grafisk: normalizePageExtras(data.pageExtras.grafisk),
+            product: normalizePageExtras(data.pageExtras.product),
+        };
+    }
+
+    if (data.grafiskVejledning) {
+        const tocItems = (data.grafiskVejledning.toc?.items ?? DEFAULT_BRANDING.grafiskVejledning.toc.items)
+            .map((item: GrafiskVejledningTocItem) => ({
+                ...item,
+                images: item.images || [],
+            }));
+        merged.grafiskVejledning = {
+            ...DEFAULT_BRANDING.grafiskVejledning,
+            ...data.grafiskVejledning,
+            header: {
+                ...DEFAULT_BRANDING.grafiskVejledning.header,
+                ...(data.grafiskVejledning.header || {}),
+            },
+            checklist: {
+                ...DEFAULT_BRANDING.grafiskVejledning.checklist,
+                ...(data.grafiskVejledning.checklist || {}),
+                items: data.grafiskVejledning.checklist?.items ?? DEFAULT_BRANDING.grafiskVejledning.checklist.items,
+            },
+            toc: {
+                ...DEFAULT_BRANDING.grafiskVejledning.toc,
+                ...(data.grafiskVejledning.toc || {}),
+                items: tocItems,
+            },
+        };
+    }
+
     // Deep merge nested objects
     if (data.fonts) merged.fonts = { ...DEFAULT_BRANDING.fonts, ...data.fonts };
-    if (data.colors) merged.colors = { ...DEFAULT_BRANDING.colors, ...data.colors };
+    if (data.colors) {
+        const mergedColors = { ...DEFAULT_BRANDING.colors, ...data.colors };
+        const headingFromData = data.colors.headingText;
+        if (!data.colors.titleText && headingFromData) {
+            mergedColors.titleText = headingFromData;
+        }
+        if (!data.colors.subtitleText && headingFromData) {
+            mergedColors.subtitleText = headingFromData;
+        }
+        if (!data.colors.headingText && (data.colors.titleText || data.colors.subtitleText)) {
+            mergedColors.headingText = data.colors.titleText || data.colors.subtitleText;
+        }
+        merged.colors = mergedColors;
+    }
     if (data.navigation) merged.navigation = { ...DEFAULT_BRANDING.navigation, ...data.navigation };
+    if (data.pages) {
+        merged.pages = {
+            ...DEFAULT_BRANDING.pages,
+            ...data.pages,
+            items: data.pages.items || DEFAULT_BRANDING.pages.items,
+        };
+    }
 
     return merged;
 }
@@ -780,6 +1671,12 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
             saveDraftToStorage(draft);
         }
     }, [draft, hasLoadedFromStorage, hasUnsavedChanges]);
+
+    useEffect(() => {
+        if (hasLoadedFromStorage && !hasUnsavedChanges) {
+            clearDraftStorage();
+        }
+    }, [hasLoadedFromStorage, hasUnsavedChanges]);
 
     // Fetch branding from database
     const fetchBranding = useCallback(async () => {
@@ -884,10 +1781,139 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
                 ...prev.forside,
                 ...partial.forside,
                 contentBlocks: partial.forside.contentBlocks ?? prev.forside.contentBlocks,
+                banner2: partial.forside.banner2 ?? prev.forside.banner2,
+                lowerInfo: partial.forside.lowerInfo ?? prev.forside.lowerInfo,
                 productsSection: partial.forside.productsSection
                     ? { ...prev.forside.productsSection, ...partial.forside.productsSection }
                     : prev.forside.productsSection,
             } : prev.forside;
+
+            const newPages = partial.pages ? {
+                ...prev.pages,
+                ...partial.pages,
+                items: partial.pages.items ?? prev.pages.items,
+            } : prev.pages;
+
+            const newProductPage = partial.productPage ? {
+                ...prev.productPage,
+                ...partial.productPage,
+                orderButtons: partial.productPage.orderButtons
+                    ? {
+                        ...prev.productPage.orderButtons,
+                        ...partial.productPage.orderButtons,
+                        primary: {
+                            ...prev.productPage.orderButtons.primary,
+                            ...(partial.productPage.orderButtons.primary || {}),
+                        },
+                        secondary: {
+                            ...prev.productPage.orderButtons.secondary,
+                            ...(partial.productPage.orderButtons.secondary || {}),
+                        },
+                        selected: {
+                            ...prev.productPage.orderButtons.selected,
+                            ...(partial.productPage.orderButtons.selected || {}),
+                        },
+                    }
+                    : prev.productPage.orderButtons,
+                matrix: partial.productPage.matrix
+                    ? {
+                        ...prev.productPage.matrix,
+                        ...partial.productPage.matrix,
+                    }
+                    : prev.productPage.matrix,
+            } : prev.productPage;
+
+            const newGrafiskVejledning = partial.grafiskVejledning ? {
+                ...prev.grafiskVejledning,
+                ...partial.grafiskVejledning,
+                header: partial.grafiskVejledning.header
+                    ? { ...prev.grafiskVejledning.header, ...partial.grafiskVejledning.header }
+                    : prev.grafiskVejledning.header,
+                checklist: partial.grafiskVejledning.checklist
+                    ? {
+                        ...prev.grafiskVejledning.checklist,
+                        ...partial.grafiskVejledning.checklist,
+                        items: partial.grafiskVejledning.checklist.items ?? prev.grafiskVejledning.checklist.items,
+                    }
+                    : prev.grafiskVejledning.checklist,
+                toc: partial.grafiskVejledning.toc
+                    ? {
+                        ...prev.grafiskVejledning.toc,
+                        ...partial.grafiskVejledning.toc,
+                        items: partial.grafiskVejledning.toc.items ?? prev.grafiskVejledning.toc.items,
+                    }
+                    : prev.grafiskVejledning.toc,
+            } : prev.grafiskVejledning;
+
+            const newContactPage = partial.contactPage ? {
+                ...prev.contactPage,
+                ...partial.contactPage,
+                formBox: partial.contactPage.formBox
+                    ? { ...prev.contactPage.formBox, ...partial.contactPage.formBox }
+                    : prev.contactPage.formBox,
+                map: partial.contactPage.map
+                    ? { ...prev.contactPage.map, ...partial.contactPage.map }
+                    : prev.contactPage.map,
+                contactInfo: partial.contactPage.contactInfo
+                    ? { ...prev.contactPage.contactInfo, ...partial.contactPage.contactInfo }
+                    : prev.contactPage.contactInfo,
+            } : prev.contactPage;
+
+            const newAboutPage = partial.aboutPage ? {
+                ...prev.aboutPage,
+                ...partial.aboutPage,
+                media: partial.aboutPage.media
+                    ? { ...prev.aboutPage.media, ...partial.aboutPage.media }
+                    : prev.aboutPage.media,
+                features: partial.aboutPage.features
+                    ? {
+                        ...prev.aboutPage.features,
+                        ...partial.aboutPage.features,
+                        items: partial.aboutPage.features.items ?? prev.aboutPage.features.items,
+                    }
+                    : prev.aboutPage.features,
+            } : prev.aboutPage;
+
+            const mergePageExtrasEntry = (
+                prevEntry: PageExtrasSettings,
+                updates: PageExtrasSettings
+            ): PageExtrasSettings => {
+                const nextLowerInfo = updates.lowerInfo
+                    ? {
+                        ...prevEntry.lowerInfo,
+                        ...updates.lowerInfo,
+                        background: updates.lowerInfo.background
+                            ? { ...prevEntry.lowerInfo.background, ...updates.lowerInfo.background }
+                            : prevEntry.lowerInfo.background,
+                        items: updates.lowerInfo.items ?? prevEntry.lowerInfo.items,
+                        layout: updates.lowerInfo.layout ?? prevEntry.lowerInfo.layout,
+                    }
+                    : prevEntry.lowerInfo;
+
+                return {
+                    ...prevEntry,
+                    ...updates,
+                    contentBlocks: updates.contentBlocks ?? prevEntry.contentBlocks,
+                    lowerInfo: nextLowerInfo,
+                };
+            };
+
+            const newPageExtras = partial.pageExtras ? {
+                ...prev.pageExtras,
+                ...partial.pageExtras,
+                about: partial.pageExtras.about
+                    ? mergePageExtrasEntry(prev.pageExtras.about, partial.pageExtras.about)
+                    : prev.pageExtras.about,
+                contact: partial.pageExtras.contact
+                    ? mergePageExtrasEntry(prev.pageExtras.contact, partial.pageExtras.contact)
+                    : prev.pageExtras.contact,
+                grafisk: partial.pageExtras.grafisk
+                    ? mergePageExtrasEntry(prev.pageExtras.grafisk, partial.pageExtras.grafisk)
+                    : prev.pageExtras.grafisk,
+                product: partial.pageExtras.product
+                    ? mergePageExtrasEntry(prev.pageExtras.product, partial.pageExtras.product)
+                    : prev.pageExtras.product,
+            } : prev.pageExtras;
 
             return {
                 ...prev,
@@ -898,7 +1924,13 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
                 header: newHeader,
                 footer: newFooter,
                 forside: newForside,
+                productPage: newProductPage,
+                grafiskVejledning: newGrafiskVejledning,
+                contactPage: newContactPage,
+                aboutPage: newAboutPage,
                 navigation: { ...prev.navigation, ...(partial.navigation || {}) },
+                pages: newPages,
+                pageExtras: newPageExtras,
             };
         });
     }, []);

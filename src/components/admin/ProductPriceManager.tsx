@@ -825,10 +825,20 @@ export function ProductPriceManager() {
 
       // Determine values (state or override)
       const hoverImg = overrides.hover_image_url !== undefined ? overrides.hover_image_url : editedHoverImageUrl;
+      const trimmedName = editedName.trim();
+      const fallbackName = product.name?.trim() || "";
+      const safeName = trimmedName || fallbackName;
+      if (!safeName) {
+        toast.error("Produktnavn kan ikke være tomt");
+        return;
+      }
+      const trimmedIconText = editedIconText.trim();
+      const fallbackIconText = (product.icon_text || "").trim();
+      const safeIconText = trimmedIconText || fallbackIconText || safeName;
 
       const updates: any = {
-        name: editedName,
-        icon_text: editedIconText,
+        name: safeName,
+        icon_text: safeIconText,
         description: editedDescription,
         banner_config: {
           ...currentConfig,

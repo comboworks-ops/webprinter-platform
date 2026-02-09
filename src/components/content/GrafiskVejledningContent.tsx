@@ -1,5 +1,9 @@
 import { useState } from "react";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
+import { DEFAULT_BRANDING, mergeBrandingWithDefaults } from "@/hooks/useBrandingDraft";
+import { ContentBlocksRenderer } from "@/components/content/ContentBlocksRenderer";
+import { LowerInfoRenderer } from "@/components/content/LowerInfoRenderer";
 import { TemplatesDownloadSection } from "@/components/TemplatesDownloadSection";
 import {
     CheckCircle2,
@@ -107,39 +111,33 @@ const Callout = ({
     );
 };
 
-// Table of contents item
-const TocItem = ({ href, children }: { href: string; children: React.ReactNode }) => (
-    <li>
-        <a
-            href={href}
-            className="text-primary hover:underline text-sm"
-            onClick={(e) => {
-                // Determine if we're in preview mode where default anchor behavior might be intercepted
-                // For now standard anchor behavior is fine as long as IDs match
-            }}
-        >
-            {children}
-        </a>
-    </li>
-);
-
 export const GrafiskVejledningContent = () => {
     const { data: settings } = useShopSettings();
+    const { branding: previewBranding } = usePreviewBranding();
 
+    const mergedBranding = previewBranding || mergeBrandingWithDefaults(settings?.branding);
+    const grafisk = mergedBranding.grafiskVejledning || DEFAULT_BRANDING.grafiskVejledning;
     const company = settings?.company || {};
+    const contactOverrides = mergedBranding.contactPage?.contactInfo || DEFAULT_BRANDING.contactPage.contactInfo;
+    const extras = mergedBranding.pageExtras?.grafisk;
 
     // Contact info - use tenant data if available, otherwise placeholders
-    const contactPhone = company.phone || "+45 XX XX XX XX";
-    const contactEmail = company.email || "support@ditdomæne.dk";
+    const contactPhone = contactOverrides.phone?.trim() || company.phone || "+45 XX XX XX XX";
+    const contactEmail = contactOverrides.email?.trim() || company.email || "support@ditdomæne.dk";
 
     return (
+        <>
         <div className="container mx-auto px-4 max-w-4xl">
             {/* Page Header */}
             <div className="text-center mb-12">
-                <h1 className="text-4xl md:text-5xl font-bold mb-4">Grafisk Vejledning</h1>
+                {grafisk.header.headerLabel && (
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+                        {grafisk.header.headerLabel}
+                    </p>
+                )}
+                <h1 className="text-4xl md:text-5xl font-bold mb-4">{grafisk.header.title}</h1>
                 <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                    Alt du skal vide for at levere korrekte trykfiler – fra offsettryk til storformat,
-                    spotlak, folie og konturskæring.
+                    {grafisk.header.description}
                 </p>
             </div>
 
@@ -149,21 +147,12 @@ export const GrafiskVejledningContent = () => {
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <CheckCircle2 className="h-6 w-6 text-primary" />
-                            Hurtig Tjekliste – Før du sender
+                            {grafisk.checklist.title}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
                         <ul className="grid md:grid-cols-2 gap-3">
-                            {[
-                                "PDF-format (helst PDF/X-4)",
-                                "Korrekt færdigt format + beskæring (bleed)",
-                                "CMYK farverum (ikke RGB til offsettryk)",
-                                "Korrekt opløsning (offset vs storformat)",
-                                "Skrifttyper indlejret eller konverteret til kurver",
-                                "Billeder indlejret/linket korrekt",
-                                "Én fil = ét job med korrekt sideantal",
-                                "Filnavn + ordrereference"
-                            ].map((item, i) => (
+                            {grafisk.checklist.items.map((item, i) => (
                                 <li key={i} className="flex items-start gap-2">
                                     <CheckCircle2 className="h-4 w-4 text-primary shrink-0 mt-1" />
                                     <span className="text-sm">{item}</span>
@@ -175,20 +164,38 @@ export const GrafiskVejledningContent = () => {
             </section>
 
             {/* Table of Contents */}
-            <nav className="mb-4 p-6 bg-muted/30 rounded-lg">
-                <h2 className="text-lg font-semibold mb-4">Indholdsfortegnelse</h2>
-                <ol className="grid md:grid-cols-2 gap-2 list-decimal list-inside">
-                    <TocItem href="#offsettryk">Offsettryk (flyers, foldere, plakater)</TocItem>
-                    <TocItem href="#cmyk-rgb">CMYK vs RGB + farveforventninger</TocItem>
-                    <TocItem href="#storformat">Storformat / Wide-format</TocItem>
-                    <TocItem href="#efterbehandling">Efterbehandling af bannere</TocItem>
-                    <TocItem href="#spotlak">Specielle Effekter (Spotlak, Folie, CutContour, Hvidt Blæk)</TocItem>
-                    <TocItem href="#trykmetoder">Silketryk vs Digitaltryk</TocItem>
-                    <TocItem href="#tekstiltryk">Tekstiltryk: DTG & DTF</TocItem>
-                    <TocItem href="#pdf-eksport">PDF-eksport guide</TocItem>
-                    <TocItem href="#skabeloner">Skabeloner (PDF)</TocItem>
-                    <TocItem href="#kontakt">Support & Kontakt</TocItem>
-                </ol>
+            <nav className="mb-4">
+                <h2 className="text-lg font-semibold mb-4">{grafisk.toc.title}</h2>
+                <div className="grid md:grid-cols-2 gap-3">
+                    {grafisk.toc.items.map((item) => {
+                        const images = item.images || [];
+                        return (
+                            <a
+                                key={item.id}
+                                href={`#${item.anchor}`}
+                                className="block rounded-lg border p-4 transition-colors hover:shadow-sm"
+                                style={{
+                                    backgroundColor: grafisk.toc.boxBackground,
+                                    color: grafisk.toc.boxTextColor,
+                                    fontFamily: grafisk.toc.font ? `'${grafisk.toc.font}', sans-serif` : undefined,
+                                }}
+                            >
+                                <div className="space-y-3">
+                                    <div className="font-semibold text-sm">{item.label}</div>
+                                    {images.length > 0 && (
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {images.slice(0, 3).map((url, index) => (
+                                                <div key={`${item.id}-img-${index}`} className="h-16 w-full rounded overflow-hidden border bg-background">
+                                                    <img src={url} alt="" className="h-full w-full object-cover" />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </a>
+                        );
+                    })}
+                </div>
             </nav>
 
             {/* Section 1: Offsettryk */}
@@ -813,5 +820,8 @@ export const GrafiskVejledningContent = () => {
                 </Card>
             </section>
         </div>
+        <ContentBlocksRenderer blocks={extras?.contentBlocks} placement="all" brandingSectionId="page-extras" />
+        <LowerInfoRenderer lowerInfo={extras?.lowerInfo} sectionId="page-extras" />
+        </>
     );
 };

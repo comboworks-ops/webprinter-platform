@@ -43,9 +43,14 @@ All colors MUST be HSL.
 
     /* Typography-specific colors (can be customized via branding) */
     --heading-text: #1F2937;
+    --title-text: #1F2937;
+    --subtitle-text: #1F2937;
     --body-text: #4B5563;
     --pricing-text: #0EA5E9;
     --link-text: #0EA5E9;
+    --system-text: #1F2937;
+    --description-text: #4B5563;
+    --button-text: #FFFFFF;
   }
 
   .dark {
@@ -79,9 +84,14 @@ All colors MUST be HSL.
 
     /* Typography colors for dark mode */
     --heading-text: #F9FAFB;
+    --title-text: #F9FAFB;
+    --subtitle-text: #F9FAFB;
     --body-text: #E5E7EB;
     --pricing-text: #38BDF8;
     --link-text: #38BDF8;
+    --system-text: #F9FAFB;
+    --description-text: #E5E7EB;
+    --button-text: #FFFFFF;
     --text-dark: 0 0% 96%;
     --text-muted: 215 20% 70%;
   }
@@ -94,7 +104,7 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    color: var(--body-text, hsl(var(--foreground)));
+    color: var(--system-text, var(--body-text, hsl(var(--foreground))));
   }
 
   h1,
@@ -104,7 +114,37 @@ All colors MUST be HSL.
   h5,
   h6 {
     @apply font-heading font-semibold;
-    color: var(--heading-text, hsl(var(--foreground)));
+    color: var(--subtitle-text, var(--heading-text, hsl(var(--foreground))));
+  }
+
+  h1 {
+    font-family: var(--font-title, var(--font-heading, Poppins));
+    color: var(--title-text, var(--heading-text, hsl(var(--foreground))));
+  }
+
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-subtitle, var(--font-heading, Poppins));
+  }
+
+  h1.font-heading {
+    font-family: var(--font-title, var(--font-heading, Poppins));
+  }
+
+  h2.font-heading,
+  h3.font-heading,
+  h4.font-heading,
+  h5.font-heading,
+  h6.font-heading {
+    font-family: var(--font-subtitle, var(--font-heading, Poppins));
+  }
+
+  p {
+    font-family: var(--font-description, var(--font-body, Inter));
+    color: var(--description-text, var(--body-text, hsl(var(--foreground))));
   }
 
   /* Links use the link-text color from branding */
@@ -173,6 +213,184 @@ All colors MUST be HSL.
     font-weight: 800 !important;
     line-height: 1.2 !important;
   }
+
+  .content-block-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    background: var(--cta-bg, #0EA5E9);
+    color: var(--cta-text, #FFFFFF);
+    border: 1px solid transparent;
+    text-decoration: none;
+  }
+
+  .content-block-cta:hover {
+    background: var(--cta-hover-bg, #0284C7);
+    color: var(--cta-hover-text, #FFFFFF);
+  }
+
+  .content-block-cta-outline {
+    background: transparent;
+    color: var(--cta-text, #0EA5E9);
+    border-color: var(--cta-border, #0EA5E9);
+  }
+
+  .content-block-cta-outline:hover {
+    background: var(--cta-hover-bg, #0EA5E9);
+    color: var(--cta-hover-text, #FFFFFF);
+  }
+
+  .about-feature-card {
+    background: var(--about-card-bg, #0EA5E9);
+    color: var(--about-card-text, #FFFFFF);
+  }
+
+  .about-feature-card:hover {
+    background: var(--about-card-hover-bg, #0284C7);
+    color: var(--about-card-hover-text, #FFFFFF);
+  }
+
+  .about-feature-card--lift:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+  }
+
+  .about-feature-card--shadow:hover {
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+  }
+
+  .about-feature-card--glow:hover {
+    box-shadow: 0 0 0 3px var(--about-card-hover-bg, #0284C7);
+  }
+
+  .banner2-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    font-size: 1.25rem;
+    transition: background 0.2s ease;
+  }
+
+  .banner2-nav-btn:hover {
+    background: rgba(255, 255, 255, 0.35);
+  }
+
+  .banner2-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.4);
+    transition: background 0.2s ease;
+  }
+
+  .banner2-dot.active {
+    background: #ffffff;
+  }
+
+  .banner2-animated-gradient {
+    background-size: 200% 200%;
+  }
+
+  .banner2-gradient-slow {
+    animation: banner2-gradient 20s ease infinite;
+  }
+
+  .banner2-gradient-slower {
+    animation: banner2-gradient 40s ease infinite;
+  }
+
+  .banner2-anim-fade {
+    animation: banner2-fade 0.6s ease both;
+  }
+
+  .banner2-anim-slide-up {
+    animation: banner2-slide-up 0.6s ease both;
+  }
+
+  .banner2-anim-slide-down {
+    animation: banner2-slide-down 0.6s ease both;
+  }
+
+  .banner2-anim-scale {
+    animation: banner2-scale 0.6s ease both;
+  }
+
+  .banner2-anim-blur {
+    animation: banner2-blur 0.6s ease both;
+  }
+}
+
+@keyframes banner2-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes banner2-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes banner2-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes banner2-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes banner2-scale {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes banner2-blur {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
 }
 
 /* ================================================
@@ -232,6 +450,8 @@ All colors MUST be HSL.
 .animate-badge-pulse {
   animation: badge-pulse 2s ease-in-out infinite;
 }
+
+
 
 /* ====== DARK MODE OVERRIDES ====== */
 /* Override hard-coded dark text colors in dark mode */

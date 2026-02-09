@@ -380,6 +380,8 @@ export function ForsideSection({
                                 </Select>
                             </div>
                         </div>
+
+
                         <FontSelector
                             label="Knap skrifttype"
                             value={buttonConfig.font}

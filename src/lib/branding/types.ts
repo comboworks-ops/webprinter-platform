@@ -16,6 +16,7 @@ import {
     type HeaderSettings,
     type HeaderScrollSettings,
     type HeaderDropdownMode,
+    type HeaderDropdownImageSize,
     type HeaderNavItem,
     type HeaderCtaSettings,
     type HeaderStyleType,
@@ -27,6 +28,7 @@ import {
     type SocialPlatformSettings,
     type FooterStyleType,
     type FooterBackgroundType,
+    type PageExtrasSettings,
     DEFAULT_BRANDING,
     DEFAULT_HERO,
     DEFAULT_HEADER,
@@ -48,6 +50,7 @@ export type {
     HeaderSettings,
     HeaderScrollSettings,
     HeaderDropdownMode,
+    HeaderDropdownImageSize,
     HeaderNavItem,
     HeaderCtaSettings,
     HeaderStyleType,
@@ -301,11 +304,67 @@ export interface BrandingEditorContext {
  * Merge branding data with defaults to ensure all fields exist.
  */
 export function mergeBrandingWithDefaults(data: Partial<BrandingData>): BrandingData {
+    const mergePageExtrasEntry = (entry?: PageExtrasSettings): PageExtrasSettings => {
+        if (!entry) {
+            return {
+                ...DEFAULT_BRANDING.pageExtras.about,
+                lowerInfo: {
+                    ...DEFAULT_BRANDING.pageExtras.about.lowerInfo,
+                    background: { ...DEFAULT_BRANDING.pageExtras.about.lowerInfo.background },
+                    items: [...DEFAULT_BRANDING.pageExtras.about.lowerInfo.items],
+                },
+                contentBlocks: [...DEFAULT_BRANDING.pageExtras.about.contentBlocks],
+            };
+        }
+
+        const base = DEFAULT_BRANDING.pageExtras.about;
+        const lowerInfo = entry.lowerInfo
+            ? {
+                ...base.lowerInfo,
+                ...entry.lowerInfo,
+                background: { ...base.lowerInfo.background, ...(entry.lowerInfo.background || {}) },
+                layout: entry.lowerInfo.layout || base.lowerInfo.layout,
+                items: Array.isArray(entry.lowerInfo.items) ? entry.lowerInfo.items : [],
+            }
+            : base.lowerInfo;
+
+        return {
+            ...base,
+            ...entry,
+            contentBlocks: Array.isArray(entry.contentBlocks) ? entry.contentBlocks : [],
+            lowerInfo,
+        };
+    };
+
     return {
         ...DEFAULT_BRANDING,
         ...data,
         fonts: { ...DEFAULT_BRANDING.fonts, ...data.fonts },
         colors: { ...DEFAULT_BRANDING.colors, ...data.colors },
+        productPage: {
+            ...DEFAULT_BRANDING.productPage,
+            ...data.productPage,
+            orderButtons: {
+                ...DEFAULT_BRANDING.productPage.orderButtons,
+                ...(data.productPage?.orderButtons || {}),
+                primary: {
+                    ...DEFAULT_BRANDING.productPage.orderButtons.primary,
+                    ...(data.productPage?.orderButtons?.primary || {}),
+                },
+                secondary: {
+                    ...DEFAULT_BRANDING.productPage.orderButtons.secondary,
+                    ...(data.productPage?.orderButtons?.secondary || {}),
+                },
+                selected: {
+                    ...DEFAULT_BRANDING.productPage.orderButtons.selected,
+                    ...(data.productPage?.orderButtons?.selected || {}),
+                },
+            },
+            matrix: {
+                ...DEFAULT_BRANDING.productPage.matrix,
+                ...(data.productPage?.matrix || {}),
+            },
+        },
         hero: {
             ...DEFAULT_HERO,
             ...data.hero,
@@ -338,7 +397,49 @@ export function mergeBrandingWithDefaults(data: Partial<BrandingData>): Branding
                 youtube: { ...DEFAULT_FOOTER_SOCIAL.youtube, ...data.footer?.social?.youtube },
             },
         },
+        contactPage: {
+            ...DEFAULT_BRANDING.contactPage,
+            ...data.contactPage,
+            formBox: {
+                ...DEFAULT_BRANDING.contactPage.formBox,
+                ...(data.contactPage?.formBox || {}),
+            },
+            map: {
+                ...DEFAULT_BRANDING.contactPage.map,
+                ...(data.contactPage?.map || {}),
+            },
+            contactInfo: {
+                ...DEFAULT_BRANDING.contactPage.contactInfo,
+                ...(data.contactPage?.contactInfo || {}),
+            },
+        },
+        aboutPage: {
+            ...DEFAULT_BRANDING.aboutPage,
+            ...data.aboutPage,
+            media: {
+                ...DEFAULT_BRANDING.aboutPage.media,
+                ...(data.aboutPage?.media || {}),
+            },
+            features: {
+                ...DEFAULT_BRANDING.aboutPage.features,
+                ...(data.aboutPage?.features || {}),
+                items: Array.isArray(data.aboutPage?.features?.items)
+                    ? data.aboutPage?.features?.items
+                    : DEFAULT_BRANDING.aboutPage.features.items,
+            },
+        },
+        pageExtras: {
+            ...DEFAULT_BRANDING.pageExtras,
+            ...data.pageExtras,
+            about: mergePageExtrasEntry(data.pageExtras?.about),
+            contact: mergePageExtrasEntry(data.pageExtras?.contact),
+            grafisk: mergePageExtrasEntry(data.pageExtras?.grafisk),
+            product: mergePageExtrasEntry(data.pageExtras?.product),
+        },
         navigation: { ...DEFAULT_BRANDING.navigation, ...data.navigation },
+        // Theme system
+        themeId: data.themeId || DEFAULT_BRANDING.themeId,
+        themeSettings: { ...DEFAULT_BRANDING.themeSettings, ...data.themeSettings },
     };
 }
 

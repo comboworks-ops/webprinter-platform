@@ -1,13 +1,18 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { useShopSettings } from "@/hooks/useShopSettings";
+import { getPageBackgroundStyle } from "@/lib/branding/background";
 
 const Terms = () => {
+  const { data: settings } = useShopSettings();
+  const pageBackgroundStyle = getPageBackgroundStyle(settings?.branding);
+
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
 
-      <main className="flex-1 py-16">
+      <main className="flex-1 py-16" style={pageBackgroundStyle}>
         <div className="container mx-auto px-4">
           <div className="max-w-3xl mx-auto">
             <h1 className="text-4xl md:text-5xl font-heading font-bold mb-12">Generelle salgsbetingelser</h1>

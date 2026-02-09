@@ -34,6 +34,7 @@ import MasterTemplatesPage from '@/pages/admin/MasterTemplatesPage';
 import TenantTemplatesPage from '@/pages/admin/TenantTemplatesPage';
 import DesignerTemplateManager from '@/components/admin/DesignerTemplateManager';
 import ColorProfilesManager from '@/components/admin/ColorProfilesManager';
+import { AddonLibraryManager } from '@/components/admin/AddonLibraryManager';
 import AdminCompanyHub from '@/pages/admin/AdminCompanyHub';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -48,6 +49,7 @@ import PodBetaling from '@/pages/admin/PodBetaling';
 import { Pod2Admin } from '@/pages/admin/Pod2Admin';
 import { Pod2Katalog } from '@/pages/admin/Pod2Katalog';
 import { ShopModules } from '@/components/admin/ShopModules';
+import { PricingHub } from '@/pages/admin/PricingHub';
 
 
 export default function Admin() {
@@ -109,6 +111,7 @@ export default function Admin() {
                 <Route path="/machine-pricing" element={<MachinePricingManager />} />
                 <Route path="/designer-templates" element={<DesignerTemplateManager />} />
                 <Route path="/farveprofiler" element={<ColorProfilesManager />} />
+                <Route path="/tilvalgsbibliotek" element={<AddonLibraryManager />} />
                 <Route path="/product/:slug" element={<ProductPriceManager />} />
                 <Route path="/create-product" element={<ProductCreator />} />
                 <Route path="/seo" element={<SeoManager />} />
@@ -143,6 +146,8 @@ export default function Admin() {
                 {/* Print on Demand v2 Routes */}
                 <Route path="/pod2" element={<Pod2Admin />} />
                 <Route path="/pod2-katalog" element={<Pod2Katalog />} />
+                {/* Pricing Hub Route */}
+                <Route path="/pricing-hub" element={<PricingHub />} />
               </Routes>
             </div>
           </main>

@@ -13,6 +13,11 @@ import { getProductImage } from "@/utils/productImages";
 import { supabase } from "@/integrations/supabase/client";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { ProductSchema, BreadcrumbSchema } from "@/components/ProductSchema";
+import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
+import { getMatrixStyleVars } from "@/lib/branding/matrix";
+import { mergeBrandingWithDefaults } from "@/hooks/useBrandingDraft";
+import { ContentBlocksRenderer } from "@/components/content/ContentBlocksRenderer";
+import { LowerInfoRenderer } from "@/components/content/LowerInfoRenderer";
 import {
     type MatrixData
 } from "@/utils/productPricing";
@@ -128,6 +133,10 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
     const { slug: paramSlug } = useParams<{ slug: string }>();
     const [searchParams] = useSearchParams();
     const shopSettings = useShopSettings();
+    const { branding } = usePreviewBranding();
+    const matrixStyleVars = useMemo(() => getMatrixStyleVars(branding), [branding]);
+    const mergedBranding = branding || mergeBrandingWithDefaults(shopSettings.data?.branding || null);
+    const extras = mergedBranding.pageExtras?.product;
 
     // Use propSlug if available (for Preview), otherwise fallback to paramSlug
     const slug = propSlug || paramSlug;
@@ -784,6 +793,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                             externalDeliveryLoading={podShippingLoading}
                             externalDeliveryError={podShippingError}
                             externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+                            branding={branding}
                             summary={summaryParts.join(' • ')}
                         />
                     </div>
@@ -820,6 +830,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                             externalDeliveryLoading={podShippingLoading}
                             externalDeliveryError={podShippingError}
                             externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+                            branding={branding}
                             summary={[
                                 product?.name,
                                 selectedCell?.row,
@@ -925,6 +936,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                                 externalDeliveryLoading={podShippingLoading}
                                 externalDeliveryError={podShippingError}
                                 externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+                                branding={branding}
                                 summary={[
                                     product.name,
                                     // For area-based products, show custom dimensions instead of format
@@ -944,7 +956,8 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
     };
 
     return (
-        <div className="container mx-auto px-4 py-8">
+        <div style={matrixStyleVars}>
+            <div className="container mx-auto px-4 py-8">
             <ProductSchema
                 name={product.name}
                 description={product.description}
@@ -977,6 +990,9 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
             {renderPricingInterface()}
 
             <StaticProductInfo productId={product.slug || product.id} selectedFormat={selectedFormat} />
+            </div>
+            <ContentBlocksRenderer blocks={extras?.contentBlocks} placement="all" brandingSectionId="page-extras" />
+            <LowerInfoRenderer lowerInfo={extras?.lowerInfo} sectionId="page-extras" />
         </div>
     );
 };

@@ -11,6 +11,8 @@ import { Loader2, Settings, User, Mail, Phone, Building2, MapPin, LayoutDashboar
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { z } from 'zod';
+import { useShopSettings } from '@/hooks/useShopSettings';
+import { getPageBackgroundStyle } from '@/lib/branding/background';
 
 const profileSchema = z.object({
     first_name: z.string().trim().max(100, 'Fornavn må højst være 100 tegn').optional(),
@@ -29,6 +31,8 @@ const sidebarItems = [
 ];
 
 export default function MySettings() {
+    const { data: settings } = useShopSettings();
+    const pageBackgroundStyle = getPageBackgroundStyle(settings?.branding);
     const navigate = useNavigate();
     const [user, setUser] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -127,7 +131,7 @@ export default function MySettings() {
         <div className="min-h-screen flex flex-col">
             <Header />
 
-            <main className="flex-1 bg-background">
+            <main className="flex-1" style={pageBackgroundStyle}>
                 <div className="container mx-auto px-4 py-8">
                     {/* Page Header */}
                     <div className="mb-8">

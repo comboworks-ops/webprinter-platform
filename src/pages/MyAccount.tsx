@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, User, Package, MapPin, LayoutDashboard, Clock, Truck, CheckCircle, AlertCircle, ArrowRight, Plus, Settings, MessageCircle, CheckCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useShopSettings } from '@/hooks/useShopSettings';
+import { getPageBackgroundStyle } from '@/lib/branding/background';
 
 interface Order {
     id: string;
@@ -58,6 +60,8 @@ const sidebarItems = [
 ];
 
 export default function MyAccount() {
+    const { data: settings } = useShopSettings();
+    const pageBackgroundStyle = getPageBackgroundStyle(settings?.branding);
     const navigate = useNavigate();
     const location = useLocation();
     const [user, setUser] = useState<any>(null);
@@ -198,7 +202,7 @@ export default function MyAccount() {
         <div className="min-h-screen flex flex-col">
             <Header />
 
-            <main className="flex-1 bg-background">
+            <main className="flex-1" style={pageBackgroundStyle}>
                 <div className="container mx-auto px-4 py-8">
                     {/* Page Header */}
                     <div className="mb-8">

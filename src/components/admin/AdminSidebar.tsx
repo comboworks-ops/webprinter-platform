@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from "react";
-import { Package, Plus, FolderOpen, Globe, Search, ChevronDown, ChevronRight, Users, MessageCircle, ShoppingCart, Building2, Palette, CreditCard, Settings, LayoutGrid, UploadCloud, FileText, Calculator, Cpu, Paintbrush, Printer, Zap, PanelLeft } from "lucide-react";
+import { Package, Plus, FolderOpen, Globe, Search, ChevronDown, ChevronRight, Users, MessageCircle, ShoppingCart, Building2, Palette, CreditCard, Settings, LayoutGrid, UploadCloud, FileText, Calculator, Cpu, Paintbrush, Printer, Zap, PanelLeft, Library } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
 import { supabase } from "@/integrations/supabase/client";
@@ -457,6 +457,22 @@ export function AdminSidebar() {
                     <AdminNavLink to="/admin/farveprofiler">
                       <Settings className="h-4 w-4" />
                       {!collapsed && <span>Farveprofiler</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+
+                  {/* Tilvalgsbibliotek */}
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/tilvalgsbibliotek">
+                      <Library className="h-4 w-4" />
+                      {!collapsed && <span>Tilvalgsbibliotek</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+
+                  {/* Pricing Hub */}
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/pricing-hub">
+                      <Calculator className="h-4 w-4" />
+                      {!collapsed && <span>Pricing Hub</span>}
                     </AdminNavLink>
                   </SidebarMenuItem>
                 </SidebarMenu>

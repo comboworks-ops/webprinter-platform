@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -7,6 +7,7 @@ import { deliveryFee } from "@/utils/productPricing";
 import { Download, CheckCircle2 } from "lucide-react";
 import jsPDF from "jspdf";
 import { cn } from "@/lib/utils";
+import { DEFAULT_BRANDING, type BrandingData } from "@/hooks/useBrandingDraft";
 
 type ProductPricePanelProps = {
   productId: string;
@@ -21,6 +22,7 @@ type ProductPricePanelProps = {
   productSlug: string;
   selectedFormat?: string;
   orderDeliveryConfig?: any;
+  branding?: BrandingData | null;
   designWidthMm?: number;
   designHeightMm?: number;
   designBleedMm?: number;
@@ -116,6 +118,7 @@ export function ProductPricePanel({
   productSlug,
   selectedFormat,
   orderDeliveryConfig,
+  branding,
   designWidthMm,
   designHeightMm,
   designBleedMm,
@@ -130,6 +133,30 @@ export function ProductPricePanel({
   const [shippingSelected, setShippingSelected] = useState<string>("standard");
   const [designReady, setDesignReady] = useState(false);
   const [now, setNow] = useState<Date>(() => new Date());
+
+  const orderButtons = branding?.productPage?.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
+  const orderButtonFont = orderButtons.font || branding?.fonts?.button || DEFAULT_BRANDING.fonts.button;
+  const orderButtonAnimationClass = orderButtons.animation === "lift"
+    ? "hover:-translate-y-0.5 hover:shadow-md"
+    : orderButtons.animation === "glow"
+      ? "hover:shadow-lg"
+      : orderButtons.animation === "pulse"
+        ? "hover:scale-[1.02]"
+        : "";
+  const orderButtonBaseClass = cn(
+    "border-2 transition-all",
+    orderButtonAnimationClass,
+    "bg-[var(--order-btn-bg)] text-[var(--order-btn-text)] border-[var(--order-btn-border)] hover:bg-[var(--order-btn-hover-bg)] hover:text-[var(--order-btn-hover-text)] hover:border-[var(--order-btn-hover-border)]"
+  );
+  const buildOrderButtonStyle = (style: typeof orderButtons.primary): CSSProperties => ({
+    "--order-btn-bg": style.bgColor,
+    "--order-btn-hover-bg": style.hoverBgColor,
+    "--order-btn-text": style.textColor,
+    "--order-btn-hover-text": style.hoverTextColor,
+    "--order-btn-border": style.borderColor ?? style.bgColor,
+    "--order-btn-hover-border": style.hoverBorderColor ?? style.hoverBgColor ?? style.bgColor,
+    fontFamily: `'${orderButtonFont}', sans-serif`,
+  } as CSSProperties);
 
   const baseTotal = Math.round(productPrice + extraPrice);
   const manualDeliveryMethods: DeliveryMethod[] = (orderDeliveryConfig?.delivery?.methods || []).length > 0
@@ -573,7 +600,8 @@ export function ProductPricePanel({
             variant="outline"
             size="sm"
             onClick={generatePDF}
-            className="gap-2"
+            className={cn(orderButtonBaseClass, "gap-2")}
+            style={buildOrderButtonStyle(orderButtons.secondary)}
           >
             <Download className="h-4 w-4" />
             Download tilbud
@@ -618,11 +646,11 @@ export function ProductPricePanel({
                 variant="outline"
                 size="lg"
                 className={cn(
-                  "gap-2 py-5 border-2",
-                  designReady
-                    ? "bg-green-600 text-white border-green-600 hover:bg-green-700 hover:border-green-700"
-                    : "border-dashed border-2"
+                  orderButtonBaseClass,
+                  "gap-2 py-5",
+                  !designReady && "border-dashed"
                 )}
+                style={buildOrderButtonStyle(designReady ? orderButtons.selected : orderButtons.secondary)}
                 onClick={() => {
                   const params = new URLSearchParams();
                   params.set('productId', productId);
@@ -655,7 +683,8 @@ export function ProductPricePanel({
               </Button>
               <Button
                 size="lg"
-                className="px-6 py-6 text-lg font-semibold"
+                className={cn(orderButtonBaseClass, "px-6 py-6 text-lg font-semibold")}
+                style={buildOrderButtonStyle(orderButtons.primary)}
                 onClick={handleOrderClick}
               >
                 Bestil nu!

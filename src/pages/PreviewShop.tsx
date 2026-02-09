@@ -1,19 +1,19 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, type CSSProperties } from "react";
 import { useSearchParams, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useUserRole } from "@/hooks/useUserRole";
-import { Loader2, Home, ArrowLeft } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { PreviewBrandingProvider, usePreviewBranding } from "@/contexts/PreviewBrandingContext";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
-import HeroSlider from "@/components/HeroSlider";
 import html2canvas from "html2canvas";
-import ProductGrid from "@/components/ProductGrid";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Truck, Award, Phone } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { mergeBrandingWithDefaults, type BrandingData } from "@/hooks/useBrandingDraft";
+import { mergeBrandingWithDefaults, type BrandingData, DEFAULT_BRANDING } from "@/hooks/useBrandingDraft";
+
+// Theme System
+import { ThemeProvider, useTheme } from "@/lib/themes";
+import "@/themes/classic"; // Register classic theme
+import "@/themes/glassmorphism"; // Register glassmorphism theme
+import { getPageBackgroundStyle } from "@/lib/branding/background";
 import { resolveAdminTenant, MASTER_TENANT_ID } from "@/lib/adminTenant";
 import { GrafiskVejledningContent } from "@/components/content/GrafiskVejledningContent";
 import { ContactContent } from "@/components/content/ContactContent";
@@ -102,6 +102,23 @@ function PreviewNavigationGuard({ children }: { children: React.ReactNode }) {
 
     return <>{children}</>;
 }
+
+/**
+ * Wrapper that provides ThemeProvider based on current branding from context.
+ * This allows the theme to update when branding changes in the editor.
+ */
+function ThemedPreviewContent({ currentPage }: { currentPage: string }) {
+    const { branding } = usePreviewBranding();
+    const themeId = branding?.themeId || 'classic';
+    const themeSettings = branding?.themeSettings || {};
+
+    return (
+        <ThemeProvider themeId={themeId} themeSettings={themeSettings}>
+            <PreviewShopContent currentPage={currentPage} />
+        </ThemeProvider>
+    );
+}
+
 /**
  * The actual shop content with branding applied.
  * This renders the REAL storefront layout with tenant products and branding.
@@ -110,6 +127,8 @@ function PreviewNavigationGuard({ children }: { children: React.ReactNode }) {
  */
 function PreviewShopContent({ currentPage }: { currentPage: string }) {
     const { branding, tenantName } = usePreviewBranding();
+    const { components: Theme } = useTheme();
+    const customPages = branding?.pages?.items || [];
     const productsSection = branding?.forside?.productsSection;
     const showProducts = productsSection?.enabled ?? true;
     const productColumns = productsSection?.columns ?? 4;
@@ -117,21 +136,36 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
     const productBackgroundConfig = productsSection?.background;
     const productLayoutStyle = productsSection?.layoutStyle;
     const showStorformatTab = productsSection?.showStorformatTab ?? true;
+    const contentBlocks = branding?.forside?.contentBlocks?.filter((block) => block.enabled) || [];
+    const blocksAbove = contentBlocks.filter((block) => block.placement === 'above_products');
+    const blocksBelow = contentBlocks.filter((block) => block.placement !== 'above_products');
+    const banner2 = branding?.forside?.banner2;
+    const lowerInfo = branding?.forside?.lowerInfo;
 
     // Generate CSS variables from branding
-    const primaryColor = branding?.colors?.primary || "#0EA5E9";
-    const secondaryColor = branding?.colors?.secondary || "#F1F5F9";
-    const backgroundColor = branding?.colors?.background || "#F8FAFC";
-    const cardColor = branding?.colors?.card || "#FFFFFF";
-    const headingFont = branding?.fonts?.heading || "Poppins";
-    const bodyFont = branding?.fonts?.body || "Inter";
+    const primaryColor = branding?.colors?.primary || DEFAULT_BRANDING.colors.primary;
+    const secondaryColor = branding?.colors?.secondary || DEFAULT_BRANDING.colors.secondary;
+    const cardColor = branding?.colors?.card || DEFAULT_BRANDING.colors.card;
+    const titleFont = branding?.fonts?.title || branding?.fonts?.heading || "Poppins";
+    const subtitleFont = branding?.fonts?.subtitle || branding?.fonts?.heading || "Poppins";
+    const descriptionFont = branding?.fonts?.description || branding?.fonts?.body || "Inter";
+    const systemFont = branding?.fonts?.system || branding?.fonts?.body || "Inter";
+    const buttonFont = branding?.fonts?.button || branding?.fonts?.body || "Inter";
     const pricingFont = branding?.fonts?.pricing || "Roboto Mono";
 
     // Typography colors
-    const headingTextColor = branding?.colors?.headingText || "#1F2937";
-    const bodyTextColor = branding?.colors?.bodyText || "#4B5563";
-    const pricingTextColor = branding?.colors?.pricingText || "#0EA5E9";
-    const linkTextColor = branding?.colors?.linkText || "#0EA5E9";
+    const headingFallback = branding?.colors?.headingText || DEFAULT_BRANDING.colors.headingText;
+    const titleTextColor = branding?.colors?.titleText || headingFallback;
+    const subtitleTextColor = branding?.colors?.subtitleText || headingFallback;
+    const bodyTextColor = branding?.colors?.bodyText || DEFAULT_BRANDING.colors.bodyText;
+    const pricingTextColor = branding?.colors?.pricingText || DEFAULT_BRANDING.colors.pricingText;
+    const linkTextColor = branding?.colors?.linkText || DEFAULT_BRANDING.colors.linkText;
+    const systemTextColor = branding?.colors?.systemText || headingFallback;
+    const buttonTextColor = branding?.colors?.buttonText || DEFAULT_BRANDING.colors.buttonText;
+    const headingTextColor = headingFallback;
+    const tabInactiveBg = branding?.colors?.tabInactiveBg || branding?.colors?.secondary || DEFAULT_BRANDING.colors.tabInactiveBg;
+    const tabInactiveHoverBg = branding?.colors?.tabInactiveHoverBg || DEFAULT_BRANDING.colors.tabInactiveHoverBg;
+    const tabActiveHoverBg = branding?.colors?.tabActiveHoverBg || branding?.colors?.hover || DEFAULT_BRANDING.colors.tabActiveHoverBg;
 
     // Header settings for conditional layout
     const headerSettings = (branding?.header || {}) as { transparentOverHero?: boolean; height?: string };
@@ -143,21 +177,36 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
     const cssVariables = {
         "--primary": hexToHsl(primaryColor),
         "--secondary": hexToHsl(secondaryColor),
-        "--background": hexToHsl(backgroundColor),
         "--card": hexToHsl(cardColor),
-        "--font-heading": `'${headingFont}', sans-serif`,
-        "--font-body": `'${bodyFont}', sans-serif`,
+        "--font-heading": `'${titleFont}', sans-serif`,
+        "--font-title": `'${titleFont}', sans-serif`,
+        "--font-subtitle": `'${subtitleFont}', sans-serif`,
+        "--font-body": `'${systemFont}', sans-serif`,
+        "--font-system": `'${systemFont}', sans-serif`,
+        "--font-description": `'${descriptionFont}', sans-serif`,
+        "--font-button": `'${buttonFont}', sans-serif`,
         "--font-pricing": `'${pricingFont}', monospace`,
         // Typography colors as CSS custom properties
         "--heading-text": headingTextColor,
+        "--title-text": titleTextColor,
+        "--subtitle-text": subtitleTextColor,
         "--body-text": bodyTextColor,
+        "--system-text": systemTextColor,
+        "--description-text": bodyTextColor,
+        "--button-text": buttonTextColor,
         "--pricing-text": pricingTextColor,
         "--link-text": linkTextColor,
+        "--tabs-inactive-bg": tabInactiveBg,
+        "--tabs-inactive-hover-bg": tabInactiveHoverBg,
+        "--tabs-active-hover-bg": tabActiveHoverBg,
         // Also set foreground based on heading text for compatibility
-        "--foreground": hexToHsl(headingTextColor),
+        "--foreground": hexToHsl(systemTextColor),
         "--muted-foreground": hexToHsl(bodyTextColor),
-        fontFamily: `'${bodyFont}', sans-serif`,
-    } as React.CSSProperties;
+        "--primary-foreground": hexToHsl(buttonTextColor),
+        "--secondary-foreground": hexToHsl(buttonTextColor),
+        fontFamily: `'${systemFont}', sans-serif`,
+    } as CSSProperties;
+    const pageBackgroundStyle = getPageBackgroundStyle(branding);
 
     // Render page content based on virtual navigation
     const renderPageContent = () => {
@@ -185,7 +234,10 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
                                 </TabsList>
 
                                 <TabsContent value="tryksager" id="tryksager">
-                                    <ProductGrid
+                                    <Theme.ProductGrid
+                                        branding={branding!}
+                                        tenantName={tenantName}
+                                        isPreviewMode
                                         category="tryksager"
                                         columns={productColumns}
                                         buttonConfig={productButtonConfig}
@@ -195,7 +247,10 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
                                 </TabsContent>
 
                                 <TabsContent value="storformat" id="storformat">
-                                    <ProductGrid
+                                    <Theme.ProductGrid
+                                        branding={branding!}
+                                        tenantName={tenantName}
+                                        isPreviewMode
                                         category="storformat"
                                         columns={productColumns}
                                         buttonConfig={productButtonConfig}
@@ -205,7 +260,10 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
                                 </TabsContent>
                             </Tabs>
                         ) : (
-                            <ProductGrid
+                            <Theme.ProductGrid
+                                branding={branding!}
+                                tenantName={tenantName}
+                                isPreviewMode
                                 category="tryksager"
                                 columns={productColumns}
                                 buttonConfig={productButtonConfig}
@@ -291,168 +349,80 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
             );
         }
 
+        const customPage = customPages.find((page) => page.path === currentPage);
+        if (customPage) {
+            return (
+                <section className="py-16 pt-24">
+                    <div className="container mx-auto px-4 max-w-3xl">
+                        <div className="mb-6">
+                            {customPage.type === "subpage" && (
+                                <p className="text-xs uppercase tracking-wider text-muted-foreground">Underside</p>
+                            )}
+                            <h1 className="text-3xl font-heading font-bold">{customPage.title}</h1>
+                        </div>
+                        <div className="prose prose-lg max-w-none">
+                            <p className="text-muted-foreground leading-relaxed">
+                                Indhold kommer senere. Du kan nu navigere til siden og bygge den op trin for trin.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+            );
+        }
+
         // Default: Frontpage (Home)
         return (
             <main className="flex-1" style={{ marginTop: mainMargin }}>
                 {/* Real Hero Slider - shows tenant hero images (now appears under the transparent header) */}
-                <HeroSlider />
+                <Theme.HeroSlider branding={branding!} tenantName={tenantName} isPreviewMode />
 
-                {/* Products Section - MATCHES Shop.tsx */}
-                {showProducts && (
-                    <section className="py-16" id="produkter">
-                        <div className="container mx-auto px-4">
-                            {showStorformatTab ? (
-                                <Tabs defaultValue="tryksager" className="w-full">
-                                    <TabsList className="grid w-full max-w-md mx-auto grid-cols-2 mb-12">
-                                        <TabsTrigger value="tryksager">Tryksager</TabsTrigger>
-                                        <TabsTrigger value="storformat">Storformat print</TabsTrigger>
-                                    </TabsList>
-
-                                    <TabsContent value="tryksager" id="tryksager">
-                                        <ProductGrid
-                                            category="tryksager"
-                                            columns={productColumns}
-                                            buttonConfig={productButtonConfig}
-                                            backgroundConfig={productBackgroundConfig}
-                                            layoutStyle={productLayoutStyle}
-                                        />
-                                    </TabsContent>
-
-                                    <TabsContent value="storformat" id="storformat">
-                                        <ProductGrid
-                                            category="storformat"
-                                            columns={productColumns}
-                                            buttonConfig={productButtonConfig}
-                                            backgroundConfig={productBackgroundConfig}
-                                            layoutStyle={productLayoutStyle}
-                                        />
-                                    </TabsContent>
-                                </Tabs>
-                            ) : (
-                                <ProductGrid
-                                    category="tryksager"
-                                    columns={productColumns}
-                                    buttonConfig={productButtonConfig}
-                                    backgroundConfig={productBackgroundConfig}
-                                    layoutStyle={productLayoutStyle}
-                                />
-                            )}
-                        </div>
-                    </section>
-                )}
-
-                {/* Content Block Section - Dynamic from branding */}
-                {branding?.forside?.contentBlocks?.filter(block => block.enabled).map((block) => (
-                    <section key={block.id} className="bg-secondary py-8">
-                        <div className={`container mx-auto px-4 ${block.textAlign === 'center' ? 'text-center' : block.textAlign === 'right' ? 'text-right' : 'text-left'}`}>
-                            <div className={`flex flex-col ${block.imageUrl ? (block.imagePosition === 'right' ? 'md:flex-row' : 'md:flex-row-reverse') : ''} gap-8 items-center`}>
-                                {/* Text Content */}
-                                <div className={`flex-1 ${block.imageUrl ? '' : 'w-full'}`}>
-                                    {block.heading && (
-                                        <h2
-                                            className="text-2xl md:text-3xl font-semibold"
-                                            style={{
-                                                fontFamily: `'${block.headingFont || 'Poppins'}', sans-serif`,
-                                                color: block.headingColor || '#1F2937'
-                                            }}
-                                        >
-                                            {block.heading}
-                                        </h2>
-                                    )}
-                                    {block.text && (
-                                        <p
-                                            className="mt-4"
-                                            style={{
-                                                fontFamily: `'${block.textFont || 'Inter'}', sans-serif`,
-                                                color: block.textColor || '#4B5563'
-                                            }}
-                                        >
-                                            {block.text}
-                                        </p>
-                                    )}
-                                </div>
-                                {/* Optional Image */}
-                                {block.imageUrl && (
-                                    <div className="flex-1">
-                                        <img
-                                            src={block.imageUrl}
-                                            alt={block.heading || 'Content image'}
-                                            className="rounded-lg max-h-64 object-cover mx-auto"
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </section>
+                {/* Content Blocks (Above Products) */}
+                {blocksAbove.map((block: any) => (
+                    <Theme.ContentBlock key={block.id} branding={branding!} tenantName={tenantName} isPreviewMode block={block} />
                 ))}
 
-                {/* USP Strip - MATCHES Shop.tsx */}
-                <section className="bg-primary text-primary-foreground py-12">
-                    <div className="container mx-auto px-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
-                            <div className="flex flex-col items-center">
-                                <Truck className="h-12 w-12 mb-4" />
-                                <h3 className="text-lg font-heading font-semibold mb-2 text-white">Hurtig levering</h3>
-                                <p className="text-sm opacity-90 text-white">Express-muligheder til hele Danmark</p>
-                            </div>
-                            <div className="flex flex-col items-center">
-                                <Award className="h-12 w-12 mb-4" />
-                                <h3 className="text-lg font-heading font-semibold mb-2 text-white">Kvalitet til skarpe priser</h3>
-                                <p className="text-sm opacity-90 text-white">25+ års erfaring med professionelt tryk</p>
-                            </div>
-                            <div className="flex flex-col items-center">
-                                <Phone className="h-12 w-12 mb-4" />
-                                <h3 className="text-lg font-heading font-semibold mb-2 text-white">Personlig rådgivning</h3>
-                                <p className="text-sm opacity-90 text-white">Tlf: 71 99 11 10</p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
+                {/* Products Section - MATCHES Shop.tsx */}
+                <Theme.ProductsSection
+                    branding={branding!}
+                    tenantName={tenantName}
+                    isPreviewMode
+                    showProducts={showProducts}
+                    showStorformatTab={showStorformatTab}
+                    productColumns={productColumns}
+                    productButtonConfig={productButtonConfig}
+                    productBackgroundConfig={productBackgroundConfig}
+                    productLayoutStyle={productLayoutStyle}
+                />
 
-                {/* SEO Content - MATCHES Shop.tsx */}
-                <section className="py-16 bg-secondary/30">
-                    <div className="container mx-auto px-4">
-                        <div className="max-w-4xl mx-auto space-y-8">
-                            <div>
-                                <h2 className="text-xl font-heading font-semibold mb-3">Billige tryksager online</h2>
-                                <p className="text-muted-foreground leading-relaxed">
-                                    Webprinter.dk gør det nemt at bestille flyers, foldere, visitkort og hæfter i høj kvalitet til lave priser.
-                                    Beregn din pris direkte online og få levering i hele Danmark.
-                                </p>
-                            </div>
+                {/* Banner 2 (below products) */}
+                <Theme.Banner2 branding={branding!} tenantName={tenantName} isPreviewMode banner2={banner2} />
 
-                            <div>
-                                <h2 className="text-xl font-heading font-semibold mb-3">Storformat print til enhver opgave</h2>
-                                <p className="text-muted-foreground leading-relaxed">
-                                    Fra bannere og beachflag til skilte og tekstilprint – vi producerer storformat i topkvalitet.
-                                    Alt printes med UV-bestandige farver og professionel finish.
-                                </p>
-                            </div>
+                {/* Lower Info Section */}
+                <Theme.LowerInfo branding={branding!} tenantName={tenantName} isPreviewMode lowerInfo={lowerInfo} />
 
-                            <div>
-                                <h2 className="text-xl font-heading font-semibold mb-3">Dansk trykkeri med hurtig levering</h2>
-                                <p className="text-muted-foreground leading-relaxed">
-                                    Vi har over 25 års erfaring og leverer både til erhverv og private.
-                                    Kontakt os i dag og oplev service, kvalitet og konkurrencedygtige priser.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
+                {/* Content Blocks (Below Products) */}
+                {blocksBelow.map((block: any) => (
+                    <Theme.ContentBlock key={block.id} branding={branding!} tenantName={tenantName} isPreviewMode block={block} />
+                ))}
             </main>
         );
     };
 
+    // Common theme props
+    const themeProps = { branding: branding!, tenantName, isPreviewMode: true };
+
     return (
-        <div className="min-h-screen flex flex-col" style={cssVariables}>
+        <Theme.ShopLayout {...themeProps} cssVariables={cssVariables}>
             {/* Real Header Component - shows real products navigation */}
-            <Header />
+            <Theme.Header {...themeProps} />
 
             {/* Render page content based on currentPage */}
-            {renderPageContent()}
+            <div className="flex-1" style={pageBackgroundStyle}>
+                {renderPageContent()}
+            </div>
 
-            <Footer />
-        </div>
+            <Theme.Footer {...themeProps} />
+        </Theme.ShopLayout>
     );
 }
 
@@ -476,9 +446,17 @@ export default function PreviewShop() {
     const [tenantName, setTenantName] = useState("Dit Trykkeri");
     const [isLoading, setIsLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState('/');
+    const [resolvedTenantId, setResolvedTenantId] = useState<string | null>(null);
+    const [firstProductSlug, setFirstProductSlug] = useState<string | null>(null);
 
     const isDraft = searchParams.get("draft") === "1";
     const tenantIdParam = searchParams.get("tenantId") || searchParams.get("tenant_id");
+    const isPreviewContext = isDraft || searchParams.get("preview_mode") === "1" || window.self !== window.top;
+
+    useEffect(() => {
+        if (!isPreviewContext) return;
+        window.parent.postMessage({ type: 'PREVIEW_PAGE_CHANGED', path: currentPage }, '*');
+    }, [currentPage, isPreviewContext]);
 
     // Load initial branding from database
     useEffect(() => {
@@ -502,6 +480,7 @@ export default function PreviewShop() {
 
                 if (tenant) {
                     setTenantName((tenant as any).name || "Dit Trykkeri");
+                    setResolvedTenantId((tenant as any).id || null);
                     const brandingSettings = (tenant as any).settings?.branding || {};
 
                     if (isDraft && brandingSettings.draft) {
@@ -561,12 +540,59 @@ export default function PreviewShop() {
     const [editMode, setEditMode] = useState(false);
 
     // Listen for Edit Mode toggle from parent AND screenshot capture requests
+    const resolveFirstProductSlug = useCallback(async () => {
+        const tenantId = resolvedTenantId || tenantIdParam;
+        if (!tenantId) {
+            toast.error("Kunne ikke finde tenant til produkter");
+            return null;
+        }
+        if (firstProductSlug) return firstProductSlug;
+        try {
+            const { data, error } = await supabase
+                .from('products')
+                .select('slug')
+                .eq('is_published', true)
+                .eq('tenant_id', tenantId)
+                .not('slug', 'is', null)
+                .order('name')
+                .limit(1);
+
+            if (error) throw error;
+            const slug = (data && data[0]?.slug) || null;
+            if (slug) {
+                setFirstProductSlug(slug);
+            }
+            return slug;
+        } catch (error) {
+            console.error("Error loading first product:", error);
+            toast.error("Kunne ikke finde første produkt");
+            return null;
+        }
+    }, [resolvedTenantId, tenantIdParam, firstProductSlug]);
+
     useEffect(() => {
         const handleMessage = async (event: MessageEvent) => {
             if (event.data?.type === 'SET_EDIT_MODE') {
                 setEditMode(event.data.enabled);
                 if (event.data.enabled) {
                     toast.info("Redigering aktiveret - klik på elementer for at rette");
+                }
+            }
+
+            if (event.data?.type === 'NAVIGATE_TO') {
+                const path = typeof event.data.path === 'string' ? event.data.path : '/';
+                setCurrentPage(path);
+                window.scrollTo(0, 0);
+            }
+
+            if (event.data?.type === 'NAVIGATE_TO_FIRST_PRODUCT') {
+                const slug = await resolveFirstProductSlug();
+                if (slug) {
+                    setCurrentPage(`/produkt/${slug}`);
+                    window.scrollTo(0, 0);
+                } else {
+                    setCurrentPage('/produkter');
+                    window.scrollTo(0, 0);
                 }
             }
 
@@ -614,7 +640,7 @@ export default function PreviewShop() {
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, []);
+    }, [resolveFirstProductSlug]);
 
     // Global click interceptor for virtual navigation AND visual editing
     useEffect(() => {
@@ -682,7 +708,7 @@ export default function PreviewShop() {
     }, [editMode]);
 
     // Require admin access
-    if (!roleLoading && !isAdmin) {
+    if (!roleLoading && !isAdmin && !isPreviewContext) {
         return <Navigate to="/auth" replace />;
     }
 
@@ -699,7 +725,7 @@ export default function PreviewShop() {
             initialBranding={initialBranding}
             initialTenantName={tenantName}
         >
-            <PreviewShopContent currentPage={currentPage} />
+            <ThemedPreviewContent currentPage={currentPage} />
         </PreviewBrandingProvider>
     );
 }

@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Facebook, Instagram, Linkedin, Youtube, Mail, Phone, MapPin } from "lucide-react";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
-import { DEFAULT_FOOTER } from "@/hooks/useBrandingDraft";
+import { DEFAULT_BRANDING, DEFAULT_FOOTER, mergeBrandingWithDefaults } from "@/hooks/useBrandingDraft";
 import type { FooterSettings } from "@/hooks/useBrandingDraft";
 import { useCookieConsent } from "@/components/consent";
 
@@ -32,6 +32,10 @@ const Footer = () => {
     : settings?.branding?.header;
   const brandName = headerSettings?.logoText || settings?.branding?.shop_name || settings?.tenant_name || "Shopnavn";
 
+  const brandingSource = isPreviewMode && previewBranding ? previewBranding : settings?.branding;
+  const mergedBranding = brandingSource ? mergeBrandingWithDefaults(brandingSource) : DEFAULT_BRANDING;
+  const contactOverrides = mergedBranding.contactPage?.contactInfo || DEFAULT_BRANDING.contactPage.contactInfo;
+
   // Get footer settings with defaults - prioritize preview branding if in preview mode
   const footerSource = isPreviewMode && previewBranding?.footer
     ? previewBranding.footer
@@ -55,6 +59,11 @@ const Footer = () => {
         return { backgroundColor: '#F3F4F6', color: '#111827' };
       case 'solid':
         return { backgroundColor: footerSettings.bgColor, color: '#FFFFFF' };
+      case 'gradient':
+        return {
+          backgroundImage: `linear-gradient(${footerSettings.gradientAngle ?? 135}deg, ${footerSettings.gradientStart || '#1F2937'}, ${footerSettings.gradientEnd || '#0F172A'})`,
+          color: '#FFFFFF',
+        };
       default:
         return { backgroundColor: '#111827', color: 'white' };
     }
@@ -81,6 +90,12 @@ const Footer = () => {
   const hasAnySocialIcon = footerSettings.showSocialIcons && Object.values(footerSettings.social).some(
     platform => platform.enabled && platform.url
   );
+
+  const resolvedPhone = contactOverrides.phone?.trim() || company.phone;
+  const resolvedEmail = contactOverrides.email?.trim() || company.email;
+  const resolvedAddress = contactOverrides.address?.trim() || company.address;
+  const resolvedName = contactOverrides.name?.trim() || company.name;
+  const resolvedCvr = contactOverrides.cvr?.trim() || company.cvr;
 
   return (
     <footer style={bgStyle} data-branding-id="footer">
@@ -190,8 +205,8 @@ const Footer = () => {
               <p className={`${textColorClass} text-sm`}>
                 {footerSettings.text || 'Din partner for professionelt tryk og storformat print.'}
               </p>
-              {company.cvr && (
-                <p className={`${mutedTextClass} text-xs mt-4`}>CVR: {company.cvr}</p>
+              {resolvedCvr && (
+                <p className={`${mutedTextClass} text-xs mt-4`}>CVR: {resolvedCvr}</p>
               )}
             </div>
 
@@ -213,22 +228,25 @@ const Footer = () => {
             <div>
               <h4 className="text-lg font-heading font-semibold mb-4 text-white">Kontakt</h4>
               <ul className={`space-y-3 text-sm ${textColorClass}`}>
-                {company.phone && (
+                {resolvedPhone && (
                   <li className="flex items-center gap-2">
                     <Phone className="h-4 w-4 shrink-0" />
-                    <a href={`tel:${company.phone}`} className="hover:opacity-80 transition-opacity">{company.phone}</a>
+                    <a href={`tel:${resolvedPhone}`} className="hover:opacity-80 transition-opacity">{resolvedPhone}</a>
                   </li>
                 )}
-                {company.email && (
+                {resolvedEmail && (
                   <li className="flex items-center gap-2">
                     <Mail className="h-4 w-4 shrink-0" />
-                    <a href={`mailto:${company.email}`} className="hover:opacity-80 transition-opacity">{company.email}</a>
+                    <a href={`mailto:${resolvedEmail}`} className="hover:opacity-80 transition-opacity">{resolvedEmail}</a>
                   </li>
                 )}
-                {company.address && (
+                {resolvedAddress && (
                   <li className="flex items-start gap-2">
                     <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span className="whitespace-pre-line">{company.address}</span>
+                    <span className="whitespace-pre-line">
+                      {resolvedName || brandName}
+                      {resolvedAddress ? `\n${resolvedAddress}` : ""}
+                    </span>
                   </li>
                 )}
 
@@ -274,4 +292,3 @@ const Footer = () => {
 };
 
 export default Footer;
-

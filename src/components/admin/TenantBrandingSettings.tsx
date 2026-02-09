@@ -5,7 +5,7 @@
  * branding system with tenant-specific capabilities.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { UnifiedBrandingEditor } from "./UnifiedBrandingEditor";
@@ -48,6 +48,14 @@ export function TenantBrandingSettings() {
         loadTenantInfo();
     }, []);
 
+    // Memoize the adapter to prevent infinite re-renders.
+    // The adapter object reference must stay stable between renders to avoid
+    // re-running the loadData effect in useBrandingEditor.
+    const adapter = useMemo(() => {
+        if (!tenantId) return null;
+        return createTenantAdapter(tenantId, tenantName);
+    }, [tenantId, tenantName]);
+
     if (isLoading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
@@ -56,7 +64,7 @@ export function TenantBrandingSettings() {
         );
     }
 
-    if (!tenantId) {
+    if (!adapter) {
         return (
             <div className="text-center p-8">
                 <p className="text-muted-foreground">
@@ -65,8 +73,6 @@ export function TenantBrandingSettings() {
             </div>
         );
     }
-
-    const adapter = createTenantAdapter(tenantId, tenantName);
 
     return (
         <UnifiedBrandingEditor

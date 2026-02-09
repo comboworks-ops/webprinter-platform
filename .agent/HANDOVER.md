@@ -172,6 +172,12 @@ The dev server is typically running on `http://localhost:5173`
 
 ---
 
+## 📌 2026-02-07 Session Log
+
+See `.agent/SESSION_LOG_2026-02-07.md` for the latest storformat/format pricing work, design library sync, and designer sizing handoff notes.
+
+---
+
 ## Workflows
 
 | Command | Description |

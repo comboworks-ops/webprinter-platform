@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { getPriceForSelection } from "./productPricing";
-import { calculateStorformatPrice } from "./storformatPricing";
+import { calculateStorformatM2Price } from "./storformatPricing";
 
 interface Product {
   id: string;
@@ -204,56 +204,34 @@ export async function getProductDisplayPrice(product: Product): Promise<string> 
         .eq('product_id', product.id)
         .order('sort_order');
 
-      const { data: materialTiers } = await supabase
-        .from('storformat_material_price_tiers' as any)
+      const { data: m2Rows } = await supabase
+        .from('storformat_m2_prices' as any)
         .select('*')
         .eq('product_id', product.id)
-        .order('sort_order');
-
+        .order('from_m2');
+      const m2PriceRows = m2Rows || [];
       const materialsWithTiers = (materialRows || []).map((m: any) => ({
         ...m,
-        tiers: (materialTiers || []).filter((t: any) => t.material_id === m.id)
-      }));
-
-      const { data: productRows } = await supabase
-        .from('storformat_products' as any)
-        .select('*')
-        .eq('product_id', product.id)
-        .order('sort_order');
-
-      const { data: productTiers } = await supabase
-        .from('storformat_product_price_tiers' as any)
-        .select('*')
-        .eq('product_id', product.id)
-        .order('sort_order');
-
-      const { data: productFixedPrices } = await supabase
-        .from('storformat_product_fixed_prices' as any)
-        .select('*')
-        .eq('product_id', product.id)
-        .order('sort_order');
-
-      const productsWithPricing = (productRows || []).map((p: any) => ({
-        ...p,
-        tiers: (productTiers || []).filter((t: any) => t.product_item_id === p.id),
-        fixed_prices: (productFixedPrices || []).filter((fp: any) => fp.product_item_id === p.id)
+        tiers: []
       }));
 
       if (materialsWithTiers.length > 0) {
         const config = {
           rounding_step: cfg?.rounding_step || 1,
           global_markup_pct: cfg?.global_markup_pct || 0,
-          quantities: cfg?.quantities?.length ? cfg.quantities : [1]
+          quantities: cfg?.quantities?.length ? cfg.quantities : [1],
+          pricing_mode: 'm2_rates'
         };
         const quantity = config.quantities[0] || 1;
         const material = materialsWithTiers[0];
-        const productSelection = productsWithPricing[0] || null;
-        const result = calculateStorformatPrice({
+        const materialPrices = m2PriceRows.filter((t: any) => t.material_id === material.id);
+        const result = calculateStorformatM2Price({
           widthMm: 1000,
           heightMm: 1000,
           quantity,
           material,
-          product: productSelection,
+          materialPrices,
+          product: null,
           config
         });
         return `Fra ${Math.round(result.totalPrice)} kr`;

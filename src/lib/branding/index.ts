@@ -33,6 +33,7 @@ export {
     type HeaderSettings,
     type HeaderScrollSettings,
     type HeaderDropdownMode,
+    type HeaderDropdownImageSize,
     type HeaderNavItem,
     type HeaderCtaSettings,
     type HeaderStyleType,

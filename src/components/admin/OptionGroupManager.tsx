@@ -5,8 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Plus, GripVertical, Upload, Edit2, Save, X, Copy } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Trash2, Plus, GripVertical, Upload, Edit2, Save, X, Copy, Library } from "lucide-react";
 import { toast } from "sonner";
+import { AddonLibraryImportDialog } from "./AddonLibraryImportDialog";
+import { useProductAddons } from "@/hooks/useProductAddons";
 
 interface OptionGroup {
   id: string;
@@ -47,8 +50,16 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editingGroupDescription, setEditingGroupDescription] = useState("");
 
+  // Library import dialog state
+  const [showImportDialog, setShowImportDialog] = useState(false);
+
+  // Library-imported add-ons
+  const productAddons = useProductAddons({ productId, tenantId: tenantId || "" });
+
   useEffect(() => {
     fetchData();
+    // Also fetch library-imported add-ons
+    productAddons.fetchResolvedAddons();
   }, [productId]);
 
   async function fetchData() {
@@ -490,11 +501,28 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
           <h3 className="text-lg font-semibold">Valgmuligheder for dette produkt</h3>
           <p className="text-sm text-muted-foreground">Opret og administrer valgmuligheder der vises på produktsiden</p>
         </div>
-        <Button onClick={() => setShowAddGroup(true)} size="sm">
-          <Plus className="w-4 h-4 mr-2" />
-          Opret ny gruppe
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => setShowImportDialog(true)} size="sm" variant="outline">
+            <Library className="w-4 h-4 mr-2" />
+            Import fra bibliotek
+          </Button>
+          <Button onClick={() => setShowAddGroup(true)} size="sm">
+            <Plus className="w-4 h-4 mr-2" />
+            Opret ny gruppe
+          </Button>
+        </div>
       </div>
+
+      {/* Library Import Dialog */}
+      {tenantId && (
+        <AddonLibraryImportDialog
+          open={showImportDialog}
+          onOpenChange={setShowImportDialog}
+          productId={productId}
+          tenantId={tenantId}
+          onImportComplete={() => productAddons.refresh()}
+        />
+      )}
 
       {showAddGroup && (
         <Card className="border-primary">
@@ -538,6 +566,10 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
                 <SelectContent>
                   <SelectItem value="buttons">Knapper</SelectItem>
                   <SelectItem value="icon_grid">Ikon-grid</SelectItem>
+                  <SelectItem value="small">Billeder S (40px)</SelectItem>
+                  <SelectItem value="medium">Billeder M (64px)</SelectItem>
+                  <SelectItem value="large">Billeder L (96px)</SelectItem>
+                  <SelectItem value="xl">Billeder XL (128px)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -549,13 +581,95 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
         </Card>
       )}
 
-      {groups.length === 0 && !showAddGroup && (
+      {groups.length === 0 && productAddons.resolvedGroups.length === 0 && !showAddGroup && (
         <Card className="border-dashed">
           <CardContent className="py-8 text-center text-muted-foreground">
             <p>Ingen valgmuligheder oprettet for dette produkt.</p>
-            <p className="text-sm mt-1">Klik "Opret ny gruppe" for at tilføje valgmuligheder.</p>
+            <p className="text-sm mt-1">Klik "Opret ny gruppe" eller "Import fra bibliotek" for at tilføje valgmuligheder.</p>
           </CardContent>
         </Card>
+      )}
+
+      {/* Library-imported groups */}
+      {productAddons.resolvedGroups.length > 0 && (
+        <div className="space-y-4">
+          <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+            <Library className="w-4 h-4" />
+            Importeret fra bibliotek
+          </h4>
+          {productAddons.resolvedGroups.map((group) => (
+            <Card key={group.id} className="border-blue-200 bg-blue-50/30">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 flex-1">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <CardTitle className="text-base">{group.display_label}</CardTitle>
+                        <Badge variant="secondary" className="text-xs">
+                          Fra bibliotek
+                        </Badge>
+                        {group.is_required && (
+                          <Badge variant="outline" className="text-xs">
+                            Påkrævet
+                          </Badge>
+                        )}
+                      </div>
+                      {group.description && (
+                        <p className="text-xs text-muted-foreground mt-1 italic">{group.description}</p>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      const imp = productAddons.imports.find(i => i.addon_group_id === group.library_group_id);
+                      if (imp && confirm('Fjern denne tilvalgsgruppe fra produktet?')) {
+                        productAddons.removeImport(imp.id);
+                      }
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4 text-destructive" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {group.items.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 p-2 rounded-lg bg-white/50"
+                    >
+                      {item.icon_url && (
+                        <div className="w-10 h-10 flex-shrink-0 border rounded bg-background flex items-center justify-center overflow-hidden">
+                          <img src={item.icon_url} alt="" className="w-full h-full object-cover" />
+                        </div>
+                      )}
+                      <div className="flex-1">
+                        <span className="font-medium">{item.display_label}</span>
+                        {item.description && (
+                          <p className="text-xs text-muted-foreground italic">{item.description}</p>
+                        )}
+                      </div>
+                      {item.base_price > 0 && (
+                        <span className="text-sm text-primary font-medium">
+                          +{item.base_price} kr
+                          {item.pricing_mode === "per_quantity" && "/stk"}
+                          {item.pricing_mode === "per_area" && "/m²"}
+                        </span>
+                      )}
+                      {item.has_override && (
+                        <Badge variant="outline" className="text-xs">
+                          Override
+                        </Badge>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
 
       <div className="space-y-4">
@@ -627,6 +741,10 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
                     <SelectContent>
                       <SelectItem value="buttons">Knapper</SelectItem>
                       <SelectItem value="icon_grid">Ikon-grid</SelectItem>
+                      <SelectItem value="small">Billeder S (40px)</SelectItem>
+                      <SelectItem value="medium">Billeder M (64px)</SelectItem>
+                      <SelectItem value="large">Billeder L (96px)</SelectItem>
+                      <SelectItem value="xl">Billeder XL (128px)</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button

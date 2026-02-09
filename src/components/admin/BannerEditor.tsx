@@ -1718,88 +1718,88 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                                                             onSaveSwatch={onSaveSwatch}
                                                             onRemoveSwatch={onRemoveSwatch}
                                                         />
-                                                    </div>
 
-                                                    <div className="grid sm:grid-cols-2 gap-3">
-                                                        <div className="space-y-1">
-                                                            <Label className="text-xs">Link type</Label>
-                                                            <Select
-                                                                value={button.linkType}
-                                                                onValueChange={(v) => {
-                                                                    const newImages = [...heroImages];
-                                                                    const btns = [...(newImages[selectedBannerIndex].buttons || [])];
-                                                                    btns[btnIndex] = { ...btns[btnIndex], linkType: v as HeroButtonLinkType, target: {} };
-                                                                    newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
-                                                                    updateHero({ images: newImages });
-                                                                }}
-                                                            >
-                                                                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                                                                <SelectContent>
-                                                                    <SelectItem value="ALL_PRODUCTS">Alle produkter</SelectItem>
-                                                                    <SelectItem value="PRODUCT">Specifikt produkt</SelectItem>
-                                                                    <SelectItem value="INTERNAL_PAGE">Intern side</SelectItem>
-                                                                    <SelectItem value="EXTERNAL_URL">Ekstern URL</SelectItem>
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <Label className="text-xs">Destination</Label>
-                                                            {button.linkType === 'ALL_PRODUCTS' && (
-                                                                <Input value="/shop" disabled className="bg-muted h-8" />
-                                                            )}
-                                                            {button.linkType === 'PRODUCT' && (
+                                                        <div className="grid sm:grid-cols-2 gap-3">
+                                                            <div className="space-y-1">
+                                                                <Label className="text-xs">Link type</Label>
                                                                 <Select
-                                                                    value={button.target?.productId || ""}
+                                                                    value={button.linkType}
                                                                     onValueChange={(v) => {
-                                                                        const prod = products.find(p => p.id === v);
                                                                         const newImages = [...heroImages];
                                                                         const btns = [...(newImages[selectedBannerIndex].buttons || [])];
-                                                                        btns[btnIndex] = { ...btns[btnIndex], target: { productId: v, productSlug: prod?.slug } };
+                                                                        btns[btnIndex] = { ...btns[btnIndex], linkType: v as HeroButtonLinkType, target: {} };
                                                                         newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
                                                                         updateHero({ images: newImages });
                                                                     }}
                                                                 >
-                                                                    <SelectTrigger className="h-8"><SelectValue placeholder="Vælg" /></SelectTrigger>
+                                                                    <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                                                                     <SelectContent>
-                                                                        {products.map(p => (
-                                                                            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                                                                        ))}
+                                                                        <SelectItem value="ALL_PRODUCTS">Alle produkter</SelectItem>
+                                                                        <SelectItem value="PRODUCT">Specifikt produkt</SelectItem>
+                                                                        <SelectItem value="INTERNAL_PAGE">Intern side</SelectItem>
+                                                                        <SelectItem value="EXTERNAL_URL">Ekstern URL</SelectItem>
                                                                     </SelectContent>
                                                                 </Select>
-                                                            )}
-                                                            {button.linkType === 'INTERNAL_PAGE' && (
-                                                                <Select
-                                                                    value={button.target?.path || ""}
-                                                                    onValueChange={(v) => {
-                                                                        const newImages = [...heroImages];
-                                                                        const btns = [...(newImages[selectedBannerIndex].buttons || [])];
-                                                                        btns[btnIndex] = { ...btns[btnIndex], target: { path: v } };
-                                                                        newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
-                                                                        updateHero({ images: newImages });
-                                                                    }}
-                                                                >
-                                                                    <SelectTrigger className="h-8"><SelectValue placeholder="Vælg" /></SelectTrigger>
-                                                                    <SelectContent>
-                                                                        {INTERNAL_PAGES.map(p => (
-                                                                            <SelectItem key={p.path} value={p.path}>{p.label}</SelectItem>
-                                                                        ))}
-                                                                    </SelectContent>
-                                                                </Select>
-                                                            )}
-                                                            {button.linkType === 'EXTERNAL_URL' && (
-                                                                <Input
-                                                                    className="h-8"
-                                                                    value={button.target?.url || ""}
-                                                                    onChange={(e) => {
-                                                                        const newImages = [...heroImages];
-                                                                        const btns = [...(newImages[selectedBannerIndex].buttons || [])];
-                                                                        btns[btnIndex] = { ...btns[btnIndex], target: { url: e.target.value } };
-                                                                        newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
-                                                                        updateHero({ images: newImages });
-                                                                    }}
-                                                                    placeholder="https://..."
-                                                                />
-                                                            )}
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <Label className="text-xs">Destination</Label>
+                                                                {button.linkType === 'ALL_PRODUCTS' && (
+                                                                    <Input value="/shop" disabled className="bg-muted h-8" />
+                                                                )}
+                                                                {button.linkType === 'PRODUCT' && (
+                                                                    <Select
+                                                                        value={button.target?.productId || ""}
+                                                                        onValueChange={(v) => {
+                                                                            const prod = products.find(p => p.id === v);
+                                                                            const newImages = [...heroImages];
+                                                                            const btns = [...(newImages[selectedBannerIndex].buttons || [])];
+                                                                            btns[btnIndex] = { ...btns[btnIndex], target: { productId: v, productSlug: prod?.slug } };
+                                                                            newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
+                                                                            updateHero({ images: newImages });
+                                                                        }}
+                                                                    >
+                                                                        <SelectTrigger className="h-8"><SelectValue placeholder="Vælg" /></SelectTrigger>
+                                                                        <SelectContent>
+                                                                            {products.map(p => (
+                                                                                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                                                            ))}
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                )}
+                                                                {button.linkType === 'INTERNAL_PAGE' && (
+                                                                    <Select
+                                                                        value={button.target?.path || ""}
+                                                                        onValueChange={(v) => {
+                                                                            const newImages = [...heroImages];
+                                                                            const btns = [...(newImages[selectedBannerIndex].buttons || [])];
+                                                                            btns[btnIndex] = { ...btns[btnIndex], target: { path: v } };
+                                                                            newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
+                                                                            updateHero({ images: newImages });
+                                                                        }}
+                                                                    >
+                                                                        <SelectTrigger className="h-8"><SelectValue placeholder="Vælg" /></SelectTrigger>
+                                                                        <SelectContent>
+                                                                            {INTERNAL_PAGES.map(p => (
+                                                                                <SelectItem key={p.path} value={p.path}>{p.label}</SelectItem>
+                                                                            ))}
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                )}
+                                                                {button.linkType === 'EXTERNAL_URL' && (
+                                                                    <Input
+                                                                        className="h-8"
+                                                                        value={button.target?.url || ""}
+                                                                        onChange={(e) => {
+                                                                            const newImages = [...heroImages];
+                                                                            const btns = [...(newImages[selectedBannerIndex].buttons || [])];
+                                                                            btns[btnIndex] = { ...btns[btnIndex], target: { url: e.target.value } };
+                                                                            newImages[selectedBannerIndex] = { ...newImages[selectedBannerIndex], buttons: btns };
+                                                                            updateHero({ images: newImages });
+                                                                        }}
+                                                                        placeholder="https://..."
+                                                                    />
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>

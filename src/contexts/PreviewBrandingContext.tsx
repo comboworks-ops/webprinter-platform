@@ -50,6 +50,17 @@ function extractFontsFromBranding(branding: BrandingData | null): string[] {
     if (!branding) return [];
 
     return [
+        branding?.fonts?.title || branding?.fonts?.heading || 'Poppins',
+        branding?.fonts?.subtitle || branding?.fonts?.heading || 'Poppins',
+        branding?.fonts?.description || branding?.fonts?.body || 'Inter',
+        branding?.fonts?.system || branding?.fonts?.body || 'Inter',
+        branding?.fonts?.button || branding?.fonts?.body || 'Inter',
+        branding?.productPage?.orderButtons?.font || branding?.fonts?.button || branding?.fonts?.body || 'Inter',
+        branding?.productPage?.matrix?.font || branding?.fonts?.body || 'Inter',
+        branding?.grafiskVejledning?.toc?.font || branding?.fonts?.body || 'Inter',
+        branding?.contactPage?.headingFont || branding?.fonts?.heading || 'Poppins',
+        branding?.contactPage?.bodyFont || branding?.fonts?.body || 'Inter',
+        branding?.contactPage?.formFont || branding?.fonts?.body || 'Inter',
         branding?.fonts?.heading || 'Poppins',
         branding?.fonts?.body || 'Inter',
         branding?.fonts?.pricing || 'Roboto Mono',
@@ -199,16 +210,40 @@ export function PreviewBrandingProvider({
     // Load fonts for initial branding too (including header fonts)
     useEffect(() => {
         const fontsToLoad = [
-            branding?.fonts?.heading || 'Poppins',
-            branding?.fonts?.body || 'Inter',
-            branding?.fonts?.pricing || 'Roboto Mono',
-            branding?.header?.fontId || 'Inter', // Header menu font
-            branding?.header?.logoFont || 'Inter', // Logo text font
-            branding?.header?.dropdownCategoryFontId || 'Inter', // Dropdown category font
-            branding?.header?.dropdownProductFontId || 'Inter', // Dropdown product font
+            branding?.fonts?.title || branding?.fonts?.heading || 'Poppins',
+            branding?.fonts?.subtitle || branding?.fonts?.heading || 'Poppins',
+            branding?.fonts?.description || branding?.fonts?.body || 'Inter',
+            branding?.fonts?.system || branding?.fonts?.body || 'Inter',
+        branding?.fonts?.button || branding?.fonts?.body || 'Inter',
+        branding?.fonts?.heading || 'Poppins',
+        branding?.fonts?.body || 'Inter',
+        branding?.fonts?.pricing || 'Roboto Mono',
+        branding?.contactPage?.headingFont || 'Poppins',
+        branding?.contactPage?.bodyFont || 'Inter',
+        branding?.contactPage?.formFont || 'Inter',
+        branding?.header?.fontId || 'Inter', // Header menu font
+        branding?.header?.logoFont || 'Inter', // Logo text font
+        branding?.header?.dropdownCategoryFontId || 'Inter', // Dropdown category font
+        branding?.header?.dropdownProductFontId || 'Inter', // Dropdown product font
         ].filter(Boolean);
         loadGoogleFonts(fontsToLoad);
-    }, [branding?.fonts?.heading, branding?.fonts?.body, branding?.fonts?.pricing, branding?.header?.fontId, branding?.header?.logoFont, branding?.header?.dropdownCategoryFontId, branding?.header?.dropdownProductFontId]);
+    }, [
+        branding?.fonts?.title,
+        branding?.fonts?.subtitle,
+        branding?.fonts?.description,
+        branding?.fonts?.system,
+        branding?.fonts?.button,
+        branding?.fonts?.heading,
+        branding?.fonts?.body,
+        branding?.fonts?.pricing,
+        branding?.contactPage?.headingFont,
+        branding?.contactPage?.bodyFont,
+        branding?.contactPage?.formFont,
+        branding?.header?.fontId,
+        branding?.header?.logoFont,
+        branding?.header?.dropdownCategoryFontId,
+        branding?.header?.dropdownProductFontId
+    ]);
 
     // Apply global product image filters
     useEffect(() => {

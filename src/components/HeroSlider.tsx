@@ -332,7 +332,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
         size="lg"
         variant={btn.variant === 'secondary' ? 'outline' : 'default'}
         style={buttonStyle}
-        className={btn.variant === 'secondary' && !btn.bgColor ? 'hover:bg-white/20' : ''}
+        className={`${btn.variant === 'secondary' && !btn.bgColor ? 'hover:bg-white/20' : ''}`}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >

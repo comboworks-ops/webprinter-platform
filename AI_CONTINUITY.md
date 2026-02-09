@@ -175,6 +175,15 @@ npm run lint
 
 ---
 
+## 📌 2026-02-07 Session Summary
+
+See `.agent/SESSION_LOG_2026-02-07.md` for full details. Highlights:
+- Added format/matrix “save to library” for materials & formats, plus copy-price in generator.
+- Storformat product pages now open designer with selected custom size.
+- Added storformat product tags migration.
+
+---
+
 ## 🗂️ Recent Session Summary
 
 ### Dec 16, 2024 Session Goals (Completed)

@@ -12,6 +12,8 @@ import { Loader2, Package, Truck, CheckCircle, AlertCircle, Upload, FileText, Cl
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useShopSettings } from '@/hooks/useShopSettings';
+import { getPageBackgroundStyle } from '@/lib/branding/background';
 
 interface Order {
     id: string;
@@ -86,6 +88,8 @@ const sidebarItems = [
 ];
 
 export default function MyOrders() {
+    const { data: settings } = useShopSettings();
+    const pageBackgroundStyle = getPageBackgroundStyle(settings?.branding);
     const navigate = useNavigate();
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
@@ -334,7 +338,7 @@ export default function MyOrders() {
         <div className="min-h-screen flex flex-col">
             <Header />
 
-            <main className="flex-1 bg-background">
+            <main className="flex-1" style={pageBackgroundStyle}>
                 <div className="container mx-auto px-4 py-8">
                     {/* Page Header */}
                     <div className="mb-8">

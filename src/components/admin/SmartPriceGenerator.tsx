@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
+import { CenterSlider } from "@/components/ui/center-slider";
 import { Calculator, Plus, Trash2, Wand2, AlertCircle, TrendingUp, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -339,14 +339,19 @@ export function SmartPriceGenerator({
                         <div className="space-y-2">
                             <Label className="text-sm font-medium">Avance markup (%)</Label>
                             <div className="flex items-center gap-3">
-                                <Slider
+                                <span className="text-xs text-muted-foreground">-100%</span>
+                                <CenterSlider
                                     value={[markup]}
                                     onValueChange={([v]) => setMarkup(v)}
-                                    max={50}
+                                    min={-100}
+                                    max={100}
                                     step={1}
                                     className="flex-1"
                                 />
-                                <span className="text-sm font-medium w-12 text-right">{markup}%</span>
+                                <span className="text-xs text-muted-foreground">+100%</span>
+                                <span className="text-sm font-medium w-16 text-right">
+                                    {markup > 0 ? "+" : ""}{markup}%
+                                </span>
                             </div>
                         </div>
                     </div>

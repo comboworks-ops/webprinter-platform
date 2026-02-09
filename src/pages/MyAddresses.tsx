@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Loader2, MapPin, Plus, Pencil, Trash2, Star, LayoutDashboard, Package, Settings, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useShopSettings } from '@/hooks/useShopSettings';
+import { getPageBackgroundStyle } from '@/lib/branding/background';
 
 interface Address {
     id: string;
@@ -50,6 +52,8 @@ const sidebarItems = [
 ];
 
 export default function MyAddresses() {
+    const { data: settings } = useShopSettings();
+    const pageBackgroundStyle = getPageBackgroundStyle(settings?.branding);
     const navigate = useNavigate();
     const [user, setUser] = useState<any>(null);
     const [addresses, setAddresses] = useState<Address[]>([]);
@@ -234,7 +238,7 @@ export default function MyAddresses() {
         <div className="min-h-screen flex flex-col">
             <Header />
 
-            <main className="flex-1 bg-background">
+            <main className="flex-1" style={pageBackgroundStyle}>
                 <div className="container mx-auto px-4 py-8">
                     {/* Page Header */}
                     <div className="mb-8">

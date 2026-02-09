@@ -84,6 +84,7 @@ const Header = () => {
     actionHoverBgColor: 'rgba(0,0,0,0.05)',
     autoContrastText: true,
     dropdownMode: 'IMAGE_AND_TEXT' as const,
+    dropdownImageSize: 'normal' as const,  // Size of product images in dropdown (normal, large, xl)
     transparentOverHero: true, // Default to true for standard template
     // Logo defaults
     logoType: 'text' as const,
@@ -250,6 +251,14 @@ const Header = () => {
   const categoryColor = headerSettings.dropdownCategoryColor || '#6B7280';
   const productFont = headerSettings.dropdownProductFontId || 'Inter';
   const productColor = headerSettings.dropdownProductColor || '#1F2937';
+
+  // Dropdown image size mapping (normal = 56px, large = 80px, xl = 112px)
+  const dropdownImageSizeMap = {
+    normal: 'w-14 h-14',   // 56px
+    large: 'w-20 h-20',    // 80px
+    xl: 'w-28 h-28',       // 112px
+  };
+  const dropdownImageClass = dropdownImageSizeMap[headerSettings.dropdownImageSize || 'normal'] || 'w-14 h-14';
 
   // Build position class - Ensure it reacts to sticky changes
   // When isHome is true, we use manual styles (fixed/absolute). 
@@ -532,39 +541,33 @@ const Header = () => {
                       <DropdownMenuContent
                         align="start"
                         className={`backdrop-blur-sm z-[1001] ${headerSettings.dropdownShowBorder !== false ? 'border shadow-xl' : 'border-0 shadow-none'} ${(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT')
-                          ? 'min-w-[600px] max-w-4xl p-4'
+                          ? 'p-3'
                           : 'min-w-[200px] p-2'
                           } animate-in fade-in-0 slide-in-from-top-2 duration-200`}
                         style={getDropdownStyles()}
                       >
                         {/* Tryksager Section */}
                         {allProducts.filter(p => (p.category as string) === 'tryksager').length > 0 && (
-                          <div className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}>
+                          <div className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-3' : 'mb-2'}>
                             <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>Tryksager</h3>
                             {(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? (
-                              <div
-                                className="grid gap-2"
-                                style={{
-                                  gridTemplateColumns: `repeat(${Math.ceil(allProducts.filter(p => (p.category as string) === 'tryksager').length / 2)}, 1fr)`,
-                                  gridTemplateRows: 'repeat(2, 1fr)'
-                                }}
-                              >
+                              <div className="flex flex-wrap gap-1">
                                 {allProducts.filter(p => (p.category as string) === 'tryksager').map((product) => (
                                   <DropdownMenuItem key={product.id} asChild>
                                     <Link
                                       to={`/produkt/${product.slug}`}
-                                      className="dropdown-product-link cursor-pointer flex flex-col items-center gap-2 p-3 transition-all hover:scale-105 rounded-md"
+                                      className="dropdown-product-link cursor-pointer flex flex-col items-center gap-1 p-1 transition-all hover:scale-105 rounded"
                                     >
                                       {product.image_url && (
                                         <img
                                           src={product.image_url}
                                           alt={product.name}
-                                          className="w-14 h-14 object-contain"
+                                          className={`${dropdownImageClass} object-contain`}
                                           style={{ filter: 'var(--product-filter)' }}
                                         />
                                       )}
                                       {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
-                                        <span className="text-xs text-center" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>{getProductLabel(product)}</span>
+                                        <span className="text-xs text-center max-w-[80px] truncate" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>{getProductLabel(product)}</span>
                                       )}
                                     </Link>
                                   </DropdownMenuItem>
@@ -590,32 +593,26 @@ const Header = () => {
 
                         {/* Storformat Section */}
                         {allProducts.filter(p => (p.category as string) === 'storformat').length > 0 && (
-                          <div className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}>
+                          <div className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-3' : 'mb-2'}>
                             <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>Storformat</h3>
                             {(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? (
-                              <div
-                                className="grid gap-2"
-                                style={{
-                                  gridTemplateColumns: `repeat(${Math.ceil(allProducts.filter(p => (p.category as string) === 'storformat').length / 2)}, 1fr)`,
-                                  gridTemplateRows: 'repeat(2, 1fr)'
-                                }}
-                              >
+                              <div className="flex flex-wrap gap-1">
                                 {allProducts.filter(p => (p.category as string) === 'storformat').map((product) => (
                                   <DropdownMenuItem key={product.id} asChild>
                                     <Link
                                       to={`/produkt/${product.slug}`}
-                                      className="dropdown-product-link cursor-pointer flex flex-col items-center gap-2 p-3 transition-all hover:scale-105 rounded-md"
+                                      className="dropdown-product-link cursor-pointer flex flex-col items-center gap-1 p-1 transition-all hover:scale-105 rounded"
                                     >
                                       {product.image_url && (
                                         <img
                                           src={product.image_url}
                                           alt={product.name}
-                                          className="w-14 h-14 object-contain"
+                                          className={`${dropdownImageClass} object-contain`}
                                           style={{ filter: 'var(--product-filter)' }}
                                         />
                                       )}
                                       {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
-                                        <span className="text-xs text-center" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>{getProductLabel(product)}</span>
+                                        <span className="text-xs text-center max-w-[80px] truncate" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>{getProductLabel(product)}</span>
                                       )}
                                     </Link>
                                   </DropdownMenuItem>
@@ -641,32 +638,26 @@ const Header = () => {
 
                         {/* Tekstil Section */}
                         {allProducts.filter(p => (p.category as string) === 'tekstiltryk').length > 0 && (
-                          <div className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}>
+                          <div className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-3' : 'mb-2'}>
                             <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>Tøj & Tekstil</h3>
                             {(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? (
-                              <div
-                                className="grid gap-2"
-                                style={{
-                                  gridTemplateColumns: `repeat(${Math.ceil(allProducts.filter(p => (p.category as string) === 'tekstiltryk').length / 2)}, 1fr)`,
-                                  gridTemplateRows: 'repeat(2, 1fr)'
-                                }}
-                              >
+                              <div className="flex flex-wrap gap-1">
                                 {allProducts.filter(p => (p.category as string) === 'tekstiltryk').map((product) => (
                                   <DropdownMenuItem key={product.id} asChild>
                                     <Link
                                       to={`/produkt/${product.slug}`}
-                                      className="dropdown-product-link cursor-pointer flex flex-col items-center gap-2 p-3 transition-all hover:scale-105 rounded-md"
+                                      className="dropdown-product-link cursor-pointer flex flex-col items-center gap-1 p-1 transition-all hover:scale-105 rounded"
                                     >
                                       {product.image_url && (
                                         <img
                                           src={product.image_url}
                                           alt={product.name}
-                                          className="w-14 h-14 object-contain"
+                                          className={`${dropdownImageClass} object-contain`}
                                           style={{ filter: 'var(--product-filter)' }}
                                         />
                                       )}
                                       {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
-                                        <span className="text-xs text-center" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>{getProductLabel(product)}</span>
+                                        <span className="text-xs text-center max-w-[80px] truncate" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>{getProductLabel(product)}</span>
                                       )}
                                     </Link>
                                   </DropdownMenuItem>
@@ -850,7 +841,7 @@ const Header = () => {
             {headerSettings.cta?.enabled && (
               <Button
                 asChild
-                className="hidden md:flex header-cta-button"
+                className={`hidden md:flex header-cta-button`}
                 style={{
                   color: headerSettings.cta.textColor || '#FFFFFF',
                 }}
@@ -1003,7 +994,7 @@ const Header = () => {
             {headerSettings.cta?.enabled && (
               <Button
                 asChild
-                className="w-full mt-4 header-cta-button"
+                className={`w-full mt-4 header-cta-button ${headerSettings.cta.shimmer ? 'btn-shimmer' : ''}`}
                 style={{
                   color: headerSettings.cta.textColor || '#FFFFFF',
                 }}

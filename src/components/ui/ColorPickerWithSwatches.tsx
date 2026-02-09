@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/popover";
 import { Check, Palette, Plus, X, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 
 // Predefined swatch colors - curated for branding (organized by hue)
 const DEFAULT_SWATCHES = [
@@ -72,6 +73,8 @@ interface ColorPickerWithSwatchesProps {
     onChange: (color: string) => void;
     /** Optional label */
     label?: string;
+    /** Optional tooltip text to explain what this color controls */
+    tooltip?: string;
     /** Show opacity slider */
     showOpacity?: boolean;
     /** Current opacity (0-1) */
@@ -96,6 +99,7 @@ export function ColorPickerWithSwatches({
     value,
     onChange,
     label,
+    tooltip,
     showOpacity = false,
     opacity = 1,
     onOpacityChange,
@@ -342,45 +346,31 @@ export function ColorPickerWithSwatches({
 
     // Full inline mode with popover for the picker
     return (
-        <div className={cn("space-y-2", inline && "flex items-center gap-3 space-y-0 w-full")}>
+        <div className="flex flex-col gap-1.5 h-full">
             {label && (
-                <Label className={cn("text-sm font-medium", inline && "text-xs text-muted-foreground whitespace-nowrap")}>
-                    {label}
-                </Label>
+                <div className="flex items-center gap-1 flex-1">
+                    <Label className="text-xs text-muted-foreground leading-tight">
+                        {label}
+                    </Label>
+                    {tooltip && <InfoTooltip content={tooltip} />}
+                </div>
             )}
 
-            <div className={cn("flex items-center gap-2", inline && "gap-1.5 flex-1 min-w-0")}>
-                <Popover open={isOpen} onOpenChange={setIsOpen}>
-                    <PopoverTrigger asChild>
-                        <button
-                            className={cn(
-                                "h-10 w-10 rounded-lg border-2 overflow-hidden shadow-sm hover:ring-2 ring-primary transition-all flex-shrink-0",
-                                inline && "h-9 w-9 rounded-md"
-                            )}
-                            style={{ backgroundColor: value }}
-                            title="Klik for at vælge farve"
-                        />
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[320px] p-4" align="start" sideOffset={5}>
-                        <PickerContent />
-                    </PopoverContent>
-                </Popover>
-
-                <Input
-                    value={value.toUpperCase()}
-                    onChange={(e) => onChange(e.target.value)}
-                    className={cn("font-mono flex-1 h-10 uppercase min-w-0", inline && "h-9 text-xs px-2")}
-                    placeholder="#000000"
-                />
-            </div>
-
-            {/* RGB display (optional info) */}
-            {!inline && rgb && (
-                <p className="text-xs text-muted-foreground">
-                    RGB: {rgb.r}, {rgb.g}, {rgb.b}
-                    {showOpacity && ` / ${Math.round(opacity * 100)}%`}
-                </p>
-            )}
+            <Popover open={isOpen} onOpenChange={setIsOpen}>
+                <PopoverTrigger asChild>
+                    <button
+                        className={cn(
+                            "h-8 w-8 rounded-md border-2 overflow-hidden shadow-sm hover:ring-2 ring-primary transition-all flex-shrink-0",
+                            inline && "h-7 w-7"
+                        )}
+                        style={{ backgroundColor: value }}
+                        title={`${value.toUpperCase()} - Klik for at vælge farve`}
+                    />
+                </PopoverTrigger>
+                <PopoverContent className="w-[320px] p-4" align="start" sideOffset={5}>
+                    <PickerContent />
+                </PopoverContent>
+            </Popover>
         </div>
     );
 }

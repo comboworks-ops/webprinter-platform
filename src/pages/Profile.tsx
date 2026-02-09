@@ -12,6 +12,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { User, Mail, Phone, Building2, Loader2, Package, ArrowRight, Clock, Truck, CheckCircle, AlertCircle } from "lucide-react";
 import { z } from "zod";
+import { useShopSettings } from "@/hooks/useShopSettings";
+import { getPageBackgroundStyle } from "@/lib/branding/background";
 
 const profileSchema = z.object({
   first_name: z.string().trim().max(100, "First name must be less than 100 characters").optional(),
@@ -42,6 +44,8 @@ const statusConfig: Record<string, { label: string; color: string; icon: any }> 
 };
 
 const Profile = () => {
+  const { data: settings } = useShopSettings();
+  const pageBackgroundStyle = getPageBackgroundStyle(settings?.branding);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -209,7 +213,7 @@ const Profile = () => {
   return (
     <>
       <Header />
-      <main className="min-h-screen bg-background py-12">
+      <main className="min-h-screen py-12" style={pageBackgroundStyle}>
         <div className="container mx-auto px-4 max-w-2xl space-y-6">
           {/* Profile Card */}
           <Card>
@@ -382,4 +386,3 @@ const Profile = () => {
 };
 
 export default Profile;
-

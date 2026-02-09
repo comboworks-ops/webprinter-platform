@@ -41,6 +41,7 @@ export interface UseBrandingEditorReturn {
     // Draft operations
     updateDraft: (partial: Partial<BrandingData>) => void;
     saveDraft: () => Promise<void>;
+    saveDraftSnapshot: (data: BrandingData, options?: { toast?: boolean }) => Promise<void>;
     discardDraft: () => Promise<void>;
 
     // Publish operations
@@ -154,6 +155,127 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
                 } : prev.footer.social,
             } : prev.footer;
 
+            const newProductPage = partial.productPage ? {
+                ...prev.productPage,
+                ...partial.productPage,
+                orderButtons: partial.productPage.orderButtons
+                    ? {
+                        ...prev.productPage.orderButtons,
+                        ...partial.productPage.orderButtons,
+                        primary: {
+                            ...prev.productPage.orderButtons.primary,
+                            ...(partial.productPage.orderButtons.primary || {}),
+                        },
+                        secondary: {
+                            ...prev.productPage.orderButtons.secondary,
+                            ...(partial.productPage.orderButtons.secondary || {}),
+                        },
+                        selected: {
+                            ...prev.productPage.orderButtons.selected,
+                            ...(partial.productPage.orderButtons.selected || {}),
+                        },
+                    }
+                    : prev.productPage.orderButtons,
+                matrix: partial.productPage.matrix
+                    ? {
+                        ...prev.productPage.matrix,
+                        ...partial.productPage.matrix,
+                    }
+                    : prev.productPage.matrix,
+            } : prev.productPage;
+
+            const newGrafiskVejledning = partial.grafiskVejledning ? {
+                ...prev.grafiskVejledning,
+                ...partial.grafiskVejledning,
+                header: partial.grafiskVejledning.header
+                    ? { ...prev.grafiskVejledning.header, ...partial.grafiskVejledning.header }
+                    : prev.grafiskVejledning.header,
+                checklist: partial.grafiskVejledning.checklist
+                    ? {
+                        ...prev.grafiskVejledning.checklist,
+                        ...partial.grafiskVejledning.checklist,
+                        items: partial.grafiskVejledning.checklist.items ?? prev.grafiskVejledning.checklist.items,
+                    }
+                    : prev.grafiskVejledning.checklist,
+                toc: partial.grafiskVejledning.toc
+                    ? {
+                        ...prev.grafiskVejledning.toc,
+                        ...partial.grafiskVejledning.toc,
+                        items: partial.grafiskVejledning.toc.items ?? prev.grafiskVejledning.toc.items,
+                    }
+                    : prev.grafiskVejledning.toc,
+            } : prev.grafiskVejledning;
+
+            const newContactPage = partial.contactPage ? {
+                ...prev.contactPage,
+                ...partial.contactPage,
+                formBox: partial.contactPage.formBox
+                    ? { ...prev.contactPage.formBox, ...partial.contactPage.formBox }
+                    : prev.contactPage.formBox,
+                map: partial.contactPage.map
+                    ? { ...prev.contactPage.map, ...partial.contactPage.map }
+                    : prev.contactPage.map,
+                contactInfo: partial.contactPage.contactInfo
+                    ? { ...prev.contactPage.contactInfo, ...partial.contactPage.contactInfo }
+                    : prev.contactPage.contactInfo,
+            } : prev.contactPage;
+
+            const newAboutPage = partial.aboutPage ? {
+                ...prev.aboutPage,
+                ...partial.aboutPage,
+                media: partial.aboutPage.media
+                    ? { ...prev.aboutPage.media, ...partial.aboutPage.media }
+                    : prev.aboutPage.media,
+                features: partial.aboutPage.features
+                    ? {
+                        ...prev.aboutPage.features,
+                        ...partial.aboutPage.features,
+                        items: partial.aboutPage.features.items ?? prev.aboutPage.features.items,
+                    }
+                    : prev.aboutPage.features,
+            } : prev.aboutPage;
+
+            const mergePageExtrasEntry = (
+                prevEntry: BrandingData["pageExtras"][keyof BrandingData["pageExtras"]],
+                updates: BrandingData["pageExtras"][keyof BrandingData["pageExtras"]]
+            ) => {
+                const nextLowerInfo = updates.lowerInfo
+                    ? {
+                        ...prevEntry.lowerInfo,
+                        ...updates.lowerInfo,
+                        background: updates.lowerInfo.background
+                            ? { ...prevEntry.lowerInfo.background, ...updates.lowerInfo.background }
+                            : prevEntry.lowerInfo.background,
+                        items: updates.lowerInfo.items ?? prevEntry.lowerInfo.items,
+                        layout: updates.lowerInfo.layout ?? prevEntry.lowerInfo.layout,
+                    }
+                    : prevEntry.lowerInfo;
+
+                return {
+                    ...prevEntry,
+                    ...updates,
+                    contentBlocks: updates.contentBlocks ?? prevEntry.contentBlocks,
+                    lowerInfo: nextLowerInfo,
+                };
+            };
+
+            const newPageExtras = partial.pageExtras ? {
+                ...prev.pageExtras,
+                ...partial.pageExtras,
+                about: partial.pageExtras.about
+                    ? mergePageExtrasEntry(prev.pageExtras.about, partial.pageExtras.about)
+                    : prev.pageExtras.about,
+                contact: partial.pageExtras.contact
+                    ? mergePageExtrasEntry(prev.pageExtras.contact, partial.pageExtras.contact)
+                    : prev.pageExtras.contact,
+                grafisk: partial.pageExtras.grafisk
+                    ? mergePageExtrasEntry(prev.pageExtras.grafisk, partial.pageExtras.grafisk)
+                    : prev.pageExtras.grafisk,
+                product: partial.pageExtras.product
+                    ? mergePageExtrasEntry(prev.pageExtras.product, partial.pageExtras.product)
+                    : prev.pageExtras.product,
+            } : prev.pageExtras;
+
             return {
                 ...prev,
                 ...partial,
@@ -162,7 +284,12 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
                 hero: newHero,
                 header: newHeader,
                 footer: newFooter,
+                productPage: newProductPage,
+                grafiskVejledning: newGrafiskVejledning,
+                contactPage: newContactPage,
+                aboutPage: newAboutPage,
                 navigation: { ...prev.navigation, ...(partial.navigation || {}) },
+                pageExtras: newPageExtras,
             };
         });
     }, []);
@@ -182,6 +309,25 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             setIsSaving(false);
         }
     }, [adapter, draft]);
+
+    const saveDraftSnapshot = useCallback(async (data: BrandingData, options?: { toast?: boolean }) => {
+        setIsSaving(true);
+        try {
+            const merged = mergeBrandingWithDefaults(data);
+            await adapter.saveDraft(merged);
+            setDraft(merged);
+            setOriginalDraft(merged);
+            if (options?.toast !== false) {
+                toast.success('Kladde gemt');
+            }
+        } catch (error) {
+            console.error('Error saving draft snapshot:', error);
+            toast.error('Kunne ikke gemme kladde');
+            throw error;
+        } finally {
+            setIsSaving(false);
+        }
+    }, [adapter]);
 
     // Discard draft
     const discardDraft = useCallback(async () => {
@@ -362,6 +508,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         // Draft operations
         updateDraft,
         saveDraft,
+        saveDraftSnapshot,
         discardDraft,
 
         // Publish operations

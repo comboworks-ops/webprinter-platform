@@ -1,18 +1,48 @@
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
-import HeroSlider from "@/components/HeroSlider";
-import ProductGrid from "@/components/ProductGrid";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Truck, Award, Phone } from "lucide-react";
+import { type CSSProperties } from "react";
+import { Loader2 } from "lucide-react";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { PreviewBrandingProvider } from "@/contexts/PreviewBrandingContext";
-import { mergeBrandingWithDefaults } from "@/hooks/useBrandingDraft";
-import { Loader2 } from "lucide-react";
+import { mergeBrandingWithDefaults, DEFAULT_BRANDING } from "@/hooks/useBrandingDraft";
+import { getPageBackgroundStyle } from "@/lib/branding/background";
+
+// Theme System
+import { ThemeProvider, useTheme } from "@/lib/themes";
+import "@/themes/classic"; // Register classic theme
+import "@/themes/glassmorphism"; // Register glassmorphism theme
+
+// Helper to convert hex to HSL for CSS variables
+function hexToHsl(hex: string): string {
+    if (!hex || !hex.startsWith("#")) return "0 0% 0%";
+
+    let c = hex.substring(1).split("");
+    if (c.length === 3) c = [c[0], c[0], c[1], c[1], c[2], c[2]];
+    const r = parseInt(c.slice(0, 2).join(""), 16) / 255;
+    const g = parseInt(c.slice(2, 4).join(""), 16) / 255;
+    const b = parseInt(c.slice(4, 6).join(""), 16) / 255;
+
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0, l = (max + min) / 2;
+
+    if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+            case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+            case g: h = (b - r) / d + 2; break;
+            case b: h = (r - g) / d + 4; break;
+        }
+        h /= 6;
+    }
+    return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+}
 
 /**
  * Inner shop content component that uses branding from context
  */
-const ShopContent = ({ branding }: { branding: any }) => {
+const ShopContent = ({ branding, tenantName }: { branding: any; tenantName: string }) => {
+    // Get theme components
+    const { components: Theme } = useTheme();
+
     const productsSection = branding?.forside?.productsSection;
     const showProducts = productsSection?.enabled ?? true;
     const productColumns = productsSection?.columns ?? 4;
@@ -20,168 +50,115 @@ const ShopContent = ({ branding }: { branding: any }) => {
     const productBackgroundConfig = productsSection?.background;
     const productLayoutStyle = productsSection?.layoutStyle;
     const showStorformatTab = productsSection?.showStorformatTab ?? true;
+    const contentBlocks = branding?.forside?.contentBlocks?.filter((block: any) => block.enabled) || [];
+    const blocksAbove = contentBlocks.filter((block: any) => block.placement === 'above_products');
+    const blocksBelow = contentBlocks.filter((block: any) => block.placement !== 'above_products');
+    const banner2 = branding?.forside?.banner2;
+    const lowerInfo = branding?.forside?.lowerInfo;
 
-    return <div className="min-h-screen flex flex-col">
-        <Header />
+    const primaryColor = branding?.colors?.primary || DEFAULT_BRANDING.colors.primary;
+    const secondaryColor = branding?.colors?.secondary || DEFAULT_BRANDING.colors.secondary;
+    const cardColor = branding?.colors?.card || DEFAULT_BRANDING.colors.card;
 
-        {/* Main content - HeroSlider uses negative margin to slide under the Header */}
-        <main className="flex-1" style={{ marginTop: '-80px' }}>
-            <HeroSlider />
+    const titleFont = branding?.fonts?.title || branding?.fonts?.heading || "Poppins";
+    const subtitleFont = branding?.fonts?.subtitle || branding?.fonts?.heading || "Poppins";
+    const descriptionFont = branding?.fonts?.description || branding?.fonts?.body || "Inter";
+    const systemFont = branding?.fonts?.system || branding?.fonts?.body || "Inter";
+    const buttonFont = branding?.fonts?.button || branding?.fonts?.body || "Inter";
+    const pricingFont = branding?.fonts?.pricing || "Roboto Mono";
 
-            {/* Products Section */}
-            {showProducts && (
-                <section className="py-16" id="produkter">
-                    <div className="container mx-auto px-4">
-                        {showStorformatTab ? (
-                            <Tabs defaultValue="tryksager" className="w-full">
-                                <TabsList className="grid w-full max-w-md mx-auto grid-cols-2 mb-12">
-                                    <TabsTrigger value="tryksager">Tryksager</TabsTrigger>
-                                    <TabsTrigger value="storformat">Storformat print</TabsTrigger>
-                                </TabsList>
+    const headingFallback = branding?.colors?.headingText || DEFAULT_BRANDING.colors.headingText;
+    const titleTextColor = branding?.colors?.titleText || headingFallback;
+    const subtitleTextColor = branding?.colors?.subtitleText || headingFallback;
+    const bodyTextColor = branding?.colors?.bodyText || DEFAULT_BRANDING.colors.bodyText;
+    const pricingTextColor = branding?.colors?.pricingText || DEFAULT_BRANDING.colors.pricingText;
+    const linkTextColor = branding?.colors?.linkText || DEFAULT_BRANDING.colors.linkText;
+    const systemTextColor = branding?.colors?.systemText || headingFallback;
+    const buttonTextColor = branding?.colors?.buttonText || DEFAULT_BRANDING.colors.buttonText;
+    const headingTextColor = headingFallback;
+    const tabInactiveBg = branding?.colors?.tabInactiveBg || branding?.colors?.secondary || DEFAULT_BRANDING.colors.tabInactiveBg;
+    const tabInactiveHoverBg = branding?.colors?.tabInactiveHoverBg || DEFAULT_BRANDING.colors.tabInactiveHoverBg;
+    const tabActiveHoverBg = branding?.colors?.tabActiveHoverBg || branding?.colors?.hover || DEFAULT_BRANDING.colors.tabActiveHoverBg;
 
-                                <TabsContent value="tryksager" id="tryksager">
-                                    <ProductGrid
-                                        category="tryksager"
-                                        columns={productColumns}
-                                        buttonConfig={productButtonConfig}
-                                        backgroundConfig={productBackgroundConfig}
-                                        layoutStyle={productLayoutStyle}
-                                    />
-                                </TabsContent>
+    const cssVariables = {
+        "--primary": hexToHsl(primaryColor),
+        "--secondary": hexToHsl(secondaryColor),
+        "--card": hexToHsl(cardColor),
+        "--font-heading": `'${titleFont}', sans-serif`,
+        "--font-title": `'${titleFont}', sans-serif`,
+        "--font-subtitle": `'${subtitleFont}', sans-serif`,
+        "--font-body": `'${systemFont}', sans-serif`,
+        "--font-system": `'${systemFont}', sans-serif`,
+        "--font-description": `'${descriptionFont}', sans-serif`,
+        "--font-button": `'${buttonFont}', sans-serif`,
+        "--font-pricing": `'${pricingFont}', monospace`,
+        "--heading-text": headingTextColor,
+        "--title-text": titleTextColor,
+        "--subtitle-text": subtitleTextColor,
+        "--body-text": bodyTextColor,
+        "--system-text": systemTextColor,
+        "--description-text": bodyTextColor,
+        "--button-text": buttonTextColor,
+        "--pricing-text": pricingTextColor,
+        "--link-text": linkTextColor,
+        "--tabs-inactive-bg": tabInactiveBg,
+        "--tabs-inactive-hover-bg": tabInactiveHoverBg,
+        "--tabs-active-hover-bg": tabActiveHoverBg,
+        "--foreground": hexToHsl(systemTextColor),
+        "--muted-foreground": hexToHsl(bodyTextColor),
+        "--primary-foreground": hexToHsl(buttonTextColor),
+        "--secondary-foreground": hexToHsl(buttonTextColor),
+        fontFamily: `'${systemFont}', sans-serif`,
+    } as CSSProperties;
 
-                                <TabsContent value="storformat" id="storformat">
-                                    <ProductGrid
-                                        category="storformat"
-                                        columns={productColumns}
-                                        buttonConfig={productButtonConfig}
-                                        backgroundConfig={productBackgroundConfig}
-                                        layoutStyle={productLayoutStyle}
-                                    />
-                                </TabsContent>
-                            </Tabs>
-                        ) : (
-                            <ProductGrid
-                                category="tryksager"
-                                columns={productColumns}
-                                buttonConfig={productButtonConfig}
-                                backgroundConfig={productBackgroundConfig}
-                                layoutStyle={productLayoutStyle}
-                            />
-                        )}
-                    </div>
-                </section>
-            )}
+    const pageBackgroundStyle = getPageBackgroundStyle(branding);
 
-            {/* Content Block Section - Dynamic from branding */}
-            {branding?.forside?.contentBlocks?.filter(block => block.enabled).map((block) => (
-                <section
-                    key={block.id}
-                    data-branding-id={block.id}
-                    className="bg-secondary py-8"
-                >
-                    <div className={`container mx-auto px-4 ${block.textAlign === 'center' ? 'text-center' : block.textAlign === 'right' ? 'text-right' : 'text-left'}`}>
-                        <div className={`flex flex-col ${block.imageUrl ? (block.imagePosition === 'right' ? 'md:flex-row' : 'md:flex-row-reverse') : ''} gap-8 items-center`}>
-                            {/* Text Content */}
-                            <div className={`flex-1 ${block.imageUrl ? '' : 'w-full'}`}>
-                                {block.heading && (
-                                    <h2
-                                        className="text-2xl md:text-3xl font-semibold"
-                                        style={{
-                                            fontFamily: `'${block.headingFont || 'Poppins'}', sans-serif`,
-                                            color: block.headingColor || '#1F2937'
-                                        }}
-                                    >
-                                        {block.heading}
-                                    </h2>
-                                )}
-                                {block.text && (
-                                    <p
-                                        className="mt-4"
-                                        style={{
-                                            fontFamily: `'${block.textFont || 'Inter'}', sans-serif`,
-                                            color: block.textColor || '#4B5563'
-                                        }}
-                                    >
-                                        {block.text}
-                                    </p>
-                                )}
-                            </div>
-                            {/* Optional Image */}
-                            {block.imageUrl && (
-                                <div className="flex-1">
-                                    <img
-                                        src={block.imageUrl}
-                                        alt={block.heading || 'Content image'}
-                                        className="rounded-lg max-h-64 object-cover mx-auto"
-                                    />
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </section>
-            ))}
+    // Common theme props
+    const themeProps = { branding, tenantName };
 
-            {/* USP Strip */}
-            <section className="bg-primary text-primary-foreground py-12">
-                <div className="container mx-auto px-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
-                        <div className="flex flex-col items-center">
-                            <Truck className="h-12 w-12 mb-4" />
-                            <h3 className="text-lg font-heading font-semibold mb-2">Hurtig levering</h3>
-                            <p className="text-sm opacity-90">Express-muligheder til hele Danmark</p>
-                        </div>
-                        <div className="flex flex-col items-center">
-                            <Award className="h-12 w-12 mb-4" />
-                            <h3 className="text-lg font-heading font-semibold mb-2">Kvalitet til skarpe priser</h3>
-                            <p className="text-sm opacity-90">25+ års erfaring med professionelt tryk</p>
-                        </div>
-                        <div className="flex flex-col items-center">
-                            <Phone className="h-12 w-12 mb-4" />
-                            <h3 className="text-lg font-heading font-semibold mb-2">Personlig rådgivning</h3>
-                            <p className="text-sm opacity-90">Tlf: 71 99 11 10</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
+    return (
+        <Theme.ShopLayout {...themeProps} cssVariables={cssVariables}>
+            <Theme.Header {...themeProps} />
 
-            {/* SEO Content */}
-            <section className="py-16 bg-secondary/30">
-                <div className="container mx-auto px-4">
-                    <div className="max-w-4xl mx-auto space-y-8">
-                        <div>
-                            <h2 className="text-xl font-heading font-semibold mb-3">Billige tryksager online</h2>
-                            <p className="text-muted-foreground leading-relaxed">
-                                Webprinter.dk gør det nemt at bestille flyers, foldere, visitkort og hæfter i høj kvalitet til lave priser.
-                                Beregn din pris direkte online og få levering i hele Danmark.
-                            </p>
-                        </div>
+            {/* Main content - HeroSlider uses negative margin to slide under the Header */}
+            <main className="flex-1" style={{ marginTop: '-80px', ...pageBackgroundStyle }}>
+                <Theme.HeroSlider {...themeProps} />
 
-                        <div>
-                            <h2 className="text-xl font-heading font-semibold mb-3">Storformat print til enhver opgave</h2>
-                            <p className="text-muted-foreground leading-relaxed">
-                                Fra bannere og beachflag til skilte og tekstilprint – vi producerer storformat i topkvalitet.
-                                Alt printes med UV-bestandige farver og professionel finish.
-                            </p>
-                        </div>
+                {/* Content Blocks (Above Products) */}
+                {blocksAbove.map((block: any) => (
+                    <Theme.ContentBlock key={block.id} {...themeProps} block={block} />
+                ))}
 
-                        <div>
-                            <h2 className="text-xl font-heading font-semibold mb-3">Dansk trykkeri med hurtig levering</h2>
-                            <p className="text-muted-foreground leading-relaxed">
-                                Vi har over 25 års erfaring og leverer både til erhverv og private.
-                                Kontakt os i dag og oplev service, kvalitet og konkurrencedygtige priser.
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </section>
-        </main>
+                {/* Products Section */}
+                <Theme.ProductsSection
+                    {...themeProps}
+                    showProducts={showProducts}
+                    showStorformatTab={showStorformatTab}
+                    productColumns={productColumns}
+                    productButtonConfig={productButtonConfig}
+                    productBackgroundConfig={productBackgroundConfig}
+                    productLayoutStyle={productLayoutStyle}
+                />
 
-        <Footer />
-    </div>;
+                {/* Banner 2 (below products) */}
+                <Theme.Banner2 {...themeProps} banner2={banner2} />
+
+                {/* Lower Info Section */}
+                <Theme.LowerInfo {...themeProps} lowerInfo={lowerInfo} />
+
+                {/* Content Blocks (Below Products) */}
+                {blocksBelow.map((block: any) => (
+                    <Theme.ContentBlock key={block.id} {...themeProps} block={block} />
+                ))}
+            </main>
+
+            <Theme.Footer {...themeProps} />
+        </Theme.ShopLayout>
+    );
 };
 
 /**
- * Shop page wrapper that provides branding context
+ * Shop page wrapper that provides branding and theme context
  * This ensures HeroSlider and other components receive the published branding
  */
 const Shop = () => {
@@ -201,13 +178,19 @@ const Shop = () => {
     const branding = mergeBrandingWithDefaults(settings?.branding || null);
     const tenantName = settings?.tenant_name || "WebPrinter";
 
+    // Get theme ID from branding (defaults to 'classic')
+    const themeId = branding.themeId || 'classic';
+    const themeSettings = branding.themeSettings || {};
+
     return (
-        <PreviewBrandingProvider
-            initialBranding={branding}
-            initialTenantName={tenantName}
-        >
-            <ShopContent branding={branding} />
-        </PreviewBrandingProvider>
+        <ThemeProvider themeId={themeId} themeSettings={themeSettings}>
+            <PreviewBrandingProvider
+                initialBranding={branding}
+                initialTenantName={tenantName}
+            >
+                <ShopContent branding={branding} tenantName={tenantName} />
+            </PreviewBrandingProvider>
+        </ThemeProvider>
     );
 };
 

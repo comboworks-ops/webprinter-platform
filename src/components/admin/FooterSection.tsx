@@ -154,7 +154,7 @@ export function FooterSection({ footer, onChange, savedSwatches, onSaveSwatch, o
                         <RadioGroup
                             value={safeFooter.background}
                             onValueChange={(v) => updateFooter({ background: v as FooterBackgroundType })}
-                            className="grid grid-cols-3 gap-4"
+                            className="grid grid-cols-4 gap-4"
                         >
                             <div className="relative">
                                 <RadioGroupItem value="themeDark" id="footer-bg-dark" className="peer sr-only" />
@@ -189,6 +189,21 @@ export function FooterSection({ footer, onChange, savedSwatches, onSaveSwatch, o
                                     <span className="text-xs">Brugerdefineret</span>
                                 </label>
                             </div>
+                            <div className="relative">
+                                <RadioGroupItem value="gradient" id="footer-bg-gradient" className="peer sr-only" />
+                                <label
+                                    htmlFor="footer-bg-gradient"
+                                    className="flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 hover:bg-muted/50"
+                                >
+                                    <div
+                                        className="w-8 h-8 rounded border"
+                                        style={{
+                                            backgroundImage: `linear-gradient(${safeFooter.gradientAngle || 135}deg, ${safeFooter.gradientStart || '#1F2937'}, ${safeFooter.gradientEnd || '#0F172A'})`,
+                                        }}
+                                    />
+                                    <span className="text-xs">Gradient</span>
+                                </label>
+                            </div>
                         </RadioGroup>
 
                         {safeFooter.background === 'solid' && (
@@ -202,12 +217,50 @@ export function FooterSection({ footer, onChange, savedSwatches, onSaveSwatch, o
                                             savedSwatches={savedSwatches}
                                             onSaveSwatch={onSaveSwatch}
                                             onRemoveSwatch={onRemoveSwatch}
+                                            inline
                                         />
                                     </div>
                                     <Input
                                         value={safeFooter.bgColor}
                                         onChange={(e) => updateFooter({ bgColor: e.target.value })}
                                         className="font-mono w-28"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {safeFooter.background === 'gradient' && (
+                            <div className="flex flex-col gap-3 mt-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-2">
+                                        <Label>Gradient start</Label>
+                                        <ColorPickerWithSwatches
+                                            value={safeFooter.gradientStart || '#1F2937'}
+                                            onChange={(color) => updateFooter({ gradientStart: color })}
+                                            savedSwatches={savedSwatches}
+                                            onSaveSwatch={onSaveSwatch}
+                                            onRemoveSwatch={onRemoveSwatch}
+                                            inline
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Gradient slut</Label>
+                                        <ColorPickerWithSwatches
+                                            value={safeFooter.gradientEnd || '#0F172A'}
+                                            onChange={(color) => updateFooter({ gradientEnd: color })}
+                                            savedSwatches={savedSwatches}
+                                            onSaveSwatch={onSaveSwatch}
+                                            onRemoveSwatch={onRemoveSwatch}
+                                            inline
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Gradient vinkel (grader)</Label>
+                                    <Input
+                                        type="number"
+                                        value={safeFooter.gradientAngle ?? 135}
+                                        onChange={(e) => updateFooter({ gradientAngle: Number(e.target.value) })}
                                     />
                                 </div>
                             </div>

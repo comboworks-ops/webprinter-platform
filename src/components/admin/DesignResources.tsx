@@ -50,14 +50,38 @@ interface SavedDesign {
     product_id: string | null;
 }
 
+interface StorformatMaterialLibraryItem {
+    id: string;
+    name: string;
+    max_width_mm: number | null;
+    max_height_mm: number | null;
+    tags?: string[] | null;
+    created_at?: string | null;
+}
+
+interface StorformatFinishLibraryItem {
+    id: string;
+    name: string;
+    tags?: string[] | null;
+    created_at?: string | null;
+}
+
+interface StorformatProductLibraryItem {
+    id: string;
+    name: string;
+    tags?: string[] | null;
+    created_at?: string | null;
+}
+
 export default function DesignResources() {
     const [items, setItems] = useState<DesignLibraryItem[]>([]);
     const [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([]);
     const [templates, setTemplates] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [storformatLoading, setStorformatLoading] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [uploading, setUploading] = useState(false);
-    const [activeTab, setActiveTab] = useState<'mine' | 'skabeloner' | 'ressourcer' | 'materialer' | 'efterbehandling' | 'produkter'>('mine');
+    const [activeTab, setActiveTab] = useState<'mine' | 'skabeloner' | 'ressourcer' | 'materialer' | 'efterbehandling' | 'produkter' | 'storformat'>('mine');
     const [tenantId, setTenantId] = useState<string>();
 
     // Upload dialog state
@@ -71,6 +95,29 @@ export default function DesignResources() {
     const [materials, setMaterials] = useState<any[]>([]);
     const [finishes, setFinishes] = useState<any[]>([]);
     const [products, setProducts] = useState<any[]>([]);
+    const [storformatMaterials, setStorformatMaterials] = useState<StorformatMaterialLibraryItem[]>([]);
+    const [storformatFinishes, setStorformatFinishes] = useState<StorformatFinishLibraryItem[]>([]);
+    const [storformatProducts, setStorformatProducts] = useState<StorformatProductLibraryItem[]>([]);
+    const [showStorformatDialog, setShowStorformatDialog] = useState(false);
+    const [showStorformatFinishDialog, setShowStorformatFinishDialog] = useState(false);
+    const [showStorformatProductDialog, setShowStorformatProductDialog] = useState(false);
+    const [editingStorformatMaterial, setEditingStorformatMaterial] = useState<StorformatMaterialLibraryItem | null>(null);
+    const [editingStorformatFinish, setEditingStorformatFinish] = useState<StorformatFinishLibraryItem | null>(null);
+    const [editingStorformatProduct, setEditingStorformatProduct] = useState<StorformatProductLibraryItem | null>(null);
+    const [storformatDraft, setStorformatDraft] = useState({
+        name: "",
+        maxWidthCm: "",
+        maxHeightCm: "",
+        tags: ""
+    });
+    const [storformatFinishDraft, setStorformatFinishDraft] = useState({
+        name: "",
+        tags: ""
+    });
+    const [storformatProductDraft, setStorformatProductDraft] = useState({
+        name: "",
+        tags: ""
+    });
     const [showCreateMaterial, setShowCreateMaterial] = useState(false);
     const [showCreateFinish, setShowCreateFinish] = useState(false);
     const [showCreateProduct, setShowCreateProduct] = useState(false);
@@ -151,6 +198,295 @@ export default function DesignResources() {
         }
     };
 
+    const fetchStorformatMaterials = async (overrideTenantId?: string) => {
+        const targetTenantId = overrideTenantId || tenantId;
+        if (!targetTenantId) return;
+        setStorformatLoading(true);
+        try {
+            const [materialsRes, finishesRes, productsRes] = await Promise.all([
+                supabase
+                    .from('storformat_material_library' as any)
+                    .select('*')
+                    .eq('tenant_id', targetTenantId)
+                    .order('name'),
+                supabase
+                    .from('storformat_finish_library' as any)
+                    .select('*')
+                    .eq('tenant_id', targetTenantId)
+                    .order('name'),
+                supabase
+                    .from('storformat_product_library' as any)
+                    .select('*')
+                    .eq('tenant_id', targetTenantId)
+                    .order('name'),
+            ]);
+            if (materialsRes.error) throw materialsRes.error;
+            if (finishesRes.error) throw finishesRes.error;
+            if (productsRes.error) throw productsRes.error;
+            setStorformatMaterials((materialsRes.data as StorformatMaterialLibraryItem[]) || []);
+            setStorformatFinishes((finishesRes.data as StorformatFinishLibraryItem[]) || []);
+            setStorformatProducts((productsRes.data as StorformatProductLibraryItem[]) || []);
+        } catch (error) {
+            console.error('Error fetching storformat libraries:', error);
+        } finally {
+            setStorformatLoading(false);
+        }
+    };
+
+    const openCreateStorformat = () => {
+        setEditingStorformatMaterial(null);
+        setStorformatDraft({
+            name: "",
+            maxWidthCm: "",
+            maxHeightCm: "",
+            tags: ""
+        });
+        setShowStorformatDialog(true);
+    };
+
+    const openEditStorformat = (item: StorformatMaterialLibraryItem) => {
+        setEditingStorformatMaterial(item);
+        setStorformatDraft({
+            name: item.name || "",
+            maxWidthCm: item.max_width_mm ? String(item.max_width_mm / 10) : "",
+            maxHeightCm: item.max_height_mm ? String(item.max_height_mm / 10) : "",
+            tags: (item.tags || []).join(", ")
+        });
+        setShowStorformatDialog(true);
+    };
+
+    const handleSaveStorformatMaterial = async () => {
+        if (!tenantId) {
+            toast.error("Tenant mangler");
+            return;
+        }
+        const name = storformatDraft.name.trim();
+        if (!name) {
+            toast.error("Indtast et navn");
+            return;
+        }
+        const payload = {
+            tenant_id: tenantId,
+            name,
+            max_width_mm: storformatDraft.maxWidthCm ? Number(storformatDraft.maxWidthCm) * 10 : null,
+            max_height_mm: storformatDraft.maxHeightCm ? Number(storformatDraft.maxHeightCm) * 10 : null,
+            tags: storformatDraft.tags
+                .split(",")
+                .map((t) => t.trim())
+                .filter(Boolean)
+        };
+        try {
+            if (editingStorformatMaterial?.id) {
+                const { error } = await supabase
+                    .from("storformat_material_library" as any)
+                    .update({
+                        name: payload.name,
+                        max_width_mm: payload.max_width_mm,
+                        max_height_mm: payload.max_height_mm,
+                        tags: payload.tags
+                    })
+                    .eq("id", editingStorformatMaterial.id);
+                if (error) throw error;
+                toast.success("Storformat materiale opdateret");
+            } else {
+                const { error } = await supabase
+                    .from("storformat_material_library" as any)
+                    .insert(payload);
+                if (error) throw error;
+                toast.success("Storformat materiale oprettet");
+            }
+            setShowStorformatDialog(false);
+            setEditingStorformatMaterial(null);
+            fetchStorformatMaterials();
+        } catch (error) {
+            console.error("Error saving storformat material:", error);
+            toast.error("Kunne ikke gemme storformat materiale");
+        }
+    };
+
+    const handleDeleteStorformatMaterial = async () => {
+        if (!editingStorformatMaterial?.id) return;
+        if (!confirm("Slet dette storformat materiale?")) return;
+        try {
+            const { error } = await supabase
+                .from("storformat_material_library" as any)
+                .delete()
+                .eq("id", editingStorformatMaterial.id);
+            if (error) throw error;
+            toast.success("Storformat materiale slettet");
+            setShowStorformatDialog(false);
+            setEditingStorformatMaterial(null);
+            fetchStorformatMaterials();
+        } catch (error) {
+            console.error("Error deleting storformat material:", error);
+            toast.error("Kunne ikke slette storformat materiale");
+        }
+    };
+
+    const openCreateStorformatFinish = () => {
+        setEditingStorformatFinish(null);
+        setStorformatFinishDraft({
+            name: "",
+            tags: ""
+        });
+        setShowStorformatFinishDialog(true);
+    };
+
+    const openEditStorformatFinish = (item: StorformatFinishLibraryItem) => {
+        setEditingStorformatFinish(item);
+        setStorformatFinishDraft({
+            name: item.name || "",
+            tags: (item.tags || []).join(", ")
+        });
+        setShowStorformatFinishDialog(true);
+    };
+
+    const handleSaveStorformatFinish = async () => {
+        if (!tenantId) {
+            toast.error("Tenant mangler");
+            return;
+        }
+        const name = storformatFinishDraft.name.trim();
+        if (!name) {
+            toast.error("Indtast et navn");
+            return;
+        }
+        const payload = {
+            tenant_id: tenantId,
+            name,
+            tags: storformatFinishDraft.tags
+                .split(",")
+                .map((t) => t.trim())
+                .filter(Boolean)
+        };
+        try {
+            if (editingStorformatFinish?.id) {
+                const { error } = await supabase
+                    .from("storformat_finish_library" as any)
+                    .update({
+                        name: payload.name,
+                        tags: payload.tags
+                    })
+                    .eq("id", editingStorformatFinish.id);
+                if (error) throw error;
+                toast.success("Storformat efterbehandling opdateret");
+            } else {
+                const { error } = await supabase
+                    .from("storformat_finish_library" as any)
+                    .insert(payload);
+                if (error) throw error;
+                toast.success("Storformat efterbehandling oprettet");
+            }
+            setShowStorformatFinishDialog(false);
+            setEditingStorformatFinish(null);
+            fetchStorformatMaterials();
+        } catch (error) {
+            console.error("Error saving storformat finish:", error);
+            toast.error("Kunne ikke gemme efterbehandling");
+        }
+    };
+
+    const handleDeleteStorformatFinish = async () => {
+        if (!editingStorformatFinish?.id) return;
+        if (!confirm("Slet denne efterbehandling?")) return;
+        try {
+            const { error } = await supabase
+                .from("storformat_finish_library" as any)
+                .delete()
+                .eq("id", editingStorformatFinish.id);
+            if (error) throw error;
+            toast.success("Efterbehandling slettet");
+            setShowStorformatFinishDialog(false);
+            setEditingStorformatFinish(null);
+            fetchStorformatMaterials();
+        } catch (error) {
+            console.error("Error deleting storformat finish:", error);
+            toast.error("Kunne ikke slette efterbehandling");
+        }
+    };
+
+    const openCreateStorformatProduct = () => {
+        setEditingStorformatProduct(null);
+        setStorformatProductDraft({
+            name: "",
+            tags: ""
+        });
+        setShowStorformatProductDialog(true);
+    };
+
+    const openEditStorformatProduct = (item: StorformatProductLibraryItem) => {
+        setEditingStorformatProduct(item);
+        setStorformatProductDraft({
+            name: item.name || "",
+            tags: (item.tags || []).join(", ")
+        });
+        setShowStorformatProductDialog(true);
+    };
+
+    const handleSaveStorformatProduct = async () => {
+        if (!tenantId) {
+            toast.error("Tenant mangler");
+            return;
+        }
+        const name = storformatProductDraft.name.trim();
+        if (!name) {
+            toast.error("Indtast et navn");
+            return;
+        }
+        const payload = {
+            tenant_id: tenantId,
+            name,
+            tags: storformatProductDraft.tags
+                .split(",")
+                .map((t) => t.trim())
+                .filter(Boolean)
+        };
+        try {
+            if (editingStorformatProduct?.id) {
+                const { error } = await supabase
+                    .from("storformat_product_library" as any)
+                    .update({
+                        name: payload.name,
+                        tags: payload.tags
+                    })
+                    .eq("id", editingStorformatProduct.id);
+                if (error) throw error;
+                toast.success("Storformat produkt opdateret");
+            } else {
+                const { error } = await supabase
+                    .from("storformat_product_library" as any)
+                    .insert(payload);
+                if (error) throw error;
+                toast.success("Storformat produkt oprettet");
+            }
+            setShowStorformatProductDialog(false);
+            setEditingStorformatProduct(null);
+            fetchStorformatMaterials();
+        } catch (error) {
+            console.error("Error saving storformat product:", error);
+            toast.error("Kunne ikke gemme produkt");
+        }
+    };
+
+    const handleDeleteStorformatProduct = async () => {
+        if (!editingStorformatProduct?.id) return;
+        if (!confirm("Slet dette produkt?")) return;
+        try {
+            const { error } = await supabase
+                .from("storformat_product_library" as any)
+                .delete()
+                .eq("id", editingStorformatProduct.id);
+            if (error) throw error;
+            toast.success("Produkt slettet");
+            setShowStorformatProductDialog(false);
+            setEditingStorformatProduct(null);
+            fetchStorformatMaterials();
+        } catch (error) {
+            console.error("Error deleting storformat product:", error);
+            toast.error("Kunne ikke slette produkt");
+        }
+    };
+
     // Fetch format templates (excluding materials, finishes, and products)
     const fetchTemplates = async () => {
         try {
@@ -216,6 +552,12 @@ export default function DesignResources() {
         fetchTemplates();
         fetchAttributes();
     }, []);
+
+    useEffect(() => {
+        if (tenantId) {
+            fetchStorformatMaterials(tenantId);
+        }
+    }, [tenantId]);
 
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -387,6 +729,19 @@ export default function DesignResources() {
         return true;
     });
 
+    const filteredStorformatMaterials = storformatMaterials.filter(item =>
+        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.tags || []).some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+    const filteredStorformatFinishes = storformatFinishes.filter(item =>
+        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.tags || []).some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+    const filteredStorformatProducts = storformatProducts.filter(item =>
+        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.tags || []).some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -475,7 +830,7 @@ export default function DesignResources() {
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
-                    <Button onClick={() => { fetchItems(); fetchSavedDesigns(); }} variant="outline" size="sm">
+                    <Button onClick={() => { fetchItems(); fetchSavedDesigns(); fetchStorformatMaterials(); }} variant="outline" size="sm">
                         <RefreshCw className="w-4 h-4 mr-2" />
                         Opdater
                     </Button>
@@ -483,28 +838,32 @@ export default function DesignResources() {
             </div>
 
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="space-y-4">
-                <TabsList className="grid w-full grid-cols-2 md:grid-cols-3 lg:grid-cols-6 h-auto">
-                    <TabsTrigger value="mine" className="gap-2 py-2">
+                <TabsList className="grid w-full grid-cols-2 md:grid-cols-3 lg:grid-cols-7 h-auto">
+                    <TabsTrigger value="mine" className="gap-2 py-2 data-[state=inactive]:hover:text-muted-foreground data-[state=active]:hover:bg-primary data-[state=active]:hover:text-primary-foreground">
                         <User className="w-4 h-4" />
                         <span className="hidden sm:inline">Mine</span> <span className="text-xs opacity-70">({savedDesigns.length})</span>
                     </TabsTrigger>
-                    <TabsTrigger value="skabeloner" className="gap-2 py-2">
+                    <TabsTrigger value="skabeloner" className="gap-2 py-2 data-[state=inactive]:hover:text-muted-foreground data-[state=active]:hover:bg-primary data-[state=active]:hover:text-primary-foreground">
                         <Layers className="w-4 h-4" />
                         <span className="hidden sm:inline">Skabeloner</span> <span className="text-xs opacity-70">({templates.length})</span>
                     </TabsTrigger>
-                    <TabsTrigger value="materialer" className="gap-2 py-2">
+                    <TabsTrigger value="materialer" className="gap-2 py-2 data-[state=inactive]:hover:text-muted-foreground data-[state=active]:hover:bg-primary data-[state=active]:hover:text-primary-foreground">
                         <Scroll className="w-4 h-4" />
                         <span className="hidden sm:inline">Materialer</span> <span className="text-xs opacity-70">({materials.length})</span>
                     </TabsTrigger>
-                    <TabsTrigger value="efterbehandling" className="gap-2 py-2">
+                    <TabsTrigger value="storformat" className="gap-2 py-2 data-[state=inactive]:hover:text-muted-foreground data-[state=active]:hover:bg-primary data-[state=active]:hover:text-primary-foreground">
+                        <LayoutGrid className="w-4 h-4" />
+                        <span className="hidden sm:inline">Storformat</span> <span className="text-xs opacity-70">({storformatMaterials.length + storformatFinishes.length + storformatProducts.length})</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="efterbehandling" className="gap-2 py-2 data-[state=inactive]:hover:text-muted-foreground data-[state=active]:hover:bg-primary data-[state=active]:hover:text-primary-foreground">
                         <Sparkles className="w-4 h-4" />
                         <span className="hidden sm:inline">Efterbehandling</span> <span className="text-xs opacity-70">({finishes.length})</span>
                     </TabsTrigger>
-                    <TabsTrigger value="produkter" className="gap-2 py-2">
+                    <TabsTrigger value="produkter" className="gap-2 py-2 data-[state=inactive]:hover:text-muted-foreground data-[state=active]:hover:bg-primary data-[state=active]:hover:text-primary-foreground">
                         <Package className="w-4 h-4" />
                         <span className="hidden sm:inline">Produkter</span> <span className="text-xs opacity-70">({products.length})</span>
                     </TabsTrigger>
-                    <TabsTrigger value="ressourcer" className="gap-2 py-2">
+                    <TabsTrigger value="ressourcer" className="gap-2 py-2 data-[state=inactive]:hover:text-muted-foreground data-[state=active]:hover:bg-primary data-[state=active]:hover:text-primary-foreground">
                         <FolderOpen className="w-4 h-4" />
                         <span className="hidden sm:inline">Ressourcer</span>
                     </TabsTrigger>
@@ -812,6 +1171,168 @@ export default function DesignResources() {
                             )}
                         </TabsContent>
 
+                        {/* Storformat Bibliotek */}
+                        <TabsContent value="storformat" className="mt-0">
+                            {storformatLoading ? (
+                                <div className="flex justify-center py-12">
+                                    <Loader2 className="animate-spin h-8 w-8 text-primary" />
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+                                        Storformat biblioteket bruges til genbrug af materialer, efterbehandlinger og produkter i prislister.
+                                    </div>
+
+                                    {/* Materialer */}
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <Label className="text-xs font-medium uppercase text-muted-foreground">Materialer</Label>
+                                            <Button variant="outline" size="sm" onClick={openCreateStorformat}>
+                                                <Plus className="w-4 h-4 mr-2" />
+                                                Opret materiale
+                                            </Button>
+                                        </div>
+                                        {filteredStorformatMaterials.length === 0 ? (
+                                            <div className="text-xs text-muted-foreground italic">Ingen materialer gemt</div>
+                                        ) : (
+                                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                                {filteredStorformatMaterials.map((item) => {
+                                                    const maxLabel = item.max_width_mm || item.max_height_mm
+                                                        ? `Max ${item.max_width_mm ? `${item.max_width_mm / 10} cm` : "—"} × ${item.max_height_mm ? `${item.max_height_mm / 10} cm` : "—"}`
+                                                        : "Ingen max størrelse";
+                                                    return (
+                                                        <Card key={item.id} className="overflow-hidden group">
+                                                            <div className="aspect-[2/1] bg-gradient-to-br from-emerald-500/5 to-emerald-500/10 relative flex items-center justify-center border-b px-2 py-4">
+                                                                <div className="text-center">
+                                                                    <LayoutGrid className="w-8 h-8 text-emerald-500/40 mx-auto" />
+                                                                    <p className="text-[10px] font-mono text-muted-foreground/60 px-2 truncate max-w-[120px]">
+                                                                        {maxLabel}
+                                                                    </p>
+                                                                </div>
+                                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                                    <Button size="sm" variant="secondary" onClick={() => openEditStorformat(item)}>
+                                                                        <Pencil className="h-4 w-4 mr-1" /> Rediger
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                            <CardContent className="p-3">
+                                                                <h4 className="font-medium text-sm truncate" title={item.name}>{item.name}</h4>
+                                                                <div className="text-[10px] text-muted-foreground mt-1">{maxLabel}</div>
+                                                                {(item.tags || []).length > 0 && (
+                                                                    <div className="flex flex-wrap gap-1 mt-2">
+                                                                        {(item.tags || []).slice(0, 3).map(tag => (
+                                                                            <span key={tag} className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                                                                                {tag}
+                                                                            </span>
+                                                                        ))}
+                                                                        {(item.tags || []).length > 3 && (
+                                                                            <span className="text-[10px] text-muted-foreground">+{(item.tags || []).length - 3}</span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </CardContent>
+                                                        </Card>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Efterbehandling */}
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <Label className="text-xs font-medium uppercase text-muted-foreground">Efterbehandlinger</Label>
+                                            <Button variant="outline" size="sm" onClick={openCreateStorformatFinish}>
+                                                <Plus className="w-4 h-4 mr-2" />
+                                                Opret efterbehandling
+                                            </Button>
+                                        </div>
+                                        {filteredStorformatFinishes.length === 0 ? (
+                                            <div className="text-xs text-muted-foreground italic">Ingen efterbehandlinger gemt</div>
+                                        ) : (
+                                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                                {filteredStorformatFinishes.map((item) => (
+                                                    <Card key={item.id} className="overflow-hidden group">
+                                                        <div className="aspect-[2/1] bg-gradient-to-br from-purple-500/5 to-purple-500/10 relative flex items-center justify-center border-b px-2 py-4">
+                                                            <div className="text-center">
+                                                                <Sparkles className="w-8 h-8 text-purple-500/40 mx-auto" />
+                                                            </div>
+                                                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                                <Button size="sm" variant="secondary" onClick={() => openEditStorformatFinish(item)}>
+                                                                    <Pencil className="h-4 w-4 mr-1" /> Rediger
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                        <CardContent className="p-3">
+                                                            <h4 className="font-medium text-sm truncate" title={item.name}>{item.name}</h4>
+                                                            {(item.tags || []).length > 0 && (
+                                                                <div className="flex flex-wrap gap-1 mt-2">
+                                                                    {(item.tags || []).slice(0, 3).map(tag => (
+                                                                        <span key={tag} className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                                                                            {tag}
+                                                                        </span>
+                                                                    ))}
+                                                                    {(item.tags || []).length > 3 && (
+                                                                        <span className="text-[10px] text-muted-foreground">+{(item.tags || []).length - 3}</span>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </CardContent>
+                                                    </Card>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Produkter */}
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <Label className="text-xs font-medium uppercase text-muted-foreground">Produkter</Label>
+                                            <Button variant="outline" size="sm" onClick={openCreateStorformatProduct}>
+                                                <Plus className="w-4 h-4 mr-2" />
+                                                Opret produkt
+                                            </Button>
+                                        </div>
+                                        {filteredStorformatProducts.length === 0 ? (
+                                            <div className="text-xs text-muted-foreground italic">Ingen produkter gemt</div>
+                                        ) : (
+                                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                                {filteredStorformatProducts.map((item) => (
+                                                    <Card key={item.id} className="overflow-hidden group">
+                                                        <div className="aspect-[2/1] bg-gradient-to-br from-blue-500/5 to-blue-500/10 relative flex items-center justify-center border-b px-2 py-4">
+                                                            <div className="text-center">
+                                                                <Package className="w-8 h-8 text-blue-500/40 mx-auto" />
+                                                            </div>
+                                                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                                <Button size="sm" variant="secondary" onClick={() => openEditStorformatProduct(item)}>
+                                                                    <Pencil className="h-4 w-4 mr-1" /> Rediger
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                        <CardContent className="p-3">
+                                                            <h4 className="font-medium text-sm truncate" title={item.name}>{item.name}</h4>
+                                                            {(item.tags || []).length > 0 && (
+                                                                <div className="flex flex-wrap gap-1 mt-2">
+                                                                    {(item.tags || []).slice(0, 3).map(tag => (
+                                                                        <span key={tag} className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                                                                            {tag}
+                                                                        </span>
+                                                                    ))}
+                                                                    {(item.tags || []).length > 3 && (
+                                                                        <span className="text-[10px] text-muted-foreground">+{(item.tags || []).length - 3}</span>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </CardContent>
+                                                    </Card>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </TabsContent>
+
                         {/* Efterbehandling Tab */}
                         <TabsContent value="efterbehandling" className="mt-0">
                             {isLoading ? (
@@ -1063,10 +1584,12 @@ export default function DesignResources() {
                                 ? `Viser ${filteredSavedDesigns.length} gemte designs`
                                 : activeTab === 'skabeloner'
                                     ? `Viser ${filteredTemplates.length} skabeloner`
-                                    : activeTab === 'materialer'
-                                        ? `Viser ${materials.length} materialer`
-                                        : activeTab === 'efterbehandling'
-                                            ? `Viser ${finishes.length} efterbehandlinger`
+                                : activeTab === 'materialer'
+                                    ? `Viser ${materials.length} materialer`
+                                    : activeTab === 'storformat'
+                                        ? `Viser ${filteredStorformatMaterials.length + filteredStorformatFinishes.length + filteredStorformatProducts.length} storformat-elementer`
+                                    : activeTab === 'efterbehandling'
+                                        ? `Viser ${finishes.length} efterbehandlinger`
                                             : activeTab === 'produkter'
                                                 ? `Viser ${products.length} produkter`
                                                 : `Viser ${filteredItems.length} af ${items.length} designs`
@@ -1091,6 +1614,147 @@ export default function DesignResources() {
                 onSuccess={() => { fetchTemplates(); setEditingTemplate(null); }}
                 existingCategories={templateCategories}
             />
+
+            <Dialog open={showStorformatDialog} onOpenChange={setShowStorformatDialog}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{editingStorformatMaterial ? "Rediger storformat materiale" : "Opret storformat materiale"}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-2">
+                            <Label>Navn</Label>
+                            <Input
+                                value={storformatDraft.name}
+                                onChange={(e) => setStorformatDraft((prev) => ({ ...prev, name: e.target.value }))}
+                                placeholder="F.eks. PVC banner"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-2">
+                                <Label>Maks længde (cm)</Label>
+                                <Input
+                                    type="number"
+                                    value={storformatDraft.maxWidthCm}
+                                    onChange={(e) => setStorformatDraft((prev) => ({ ...prev, maxWidthCm: e.target.value }))}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Maks højde (cm)</Label>
+                                <Input
+                                    type="number"
+                                    value={storformatDraft.maxHeightCm}
+                                    onChange={(e) => setStorformatDraft((prev) => ({ ...prev, maxHeightCm: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Tags (komma-separeret)</Label>
+                            <Input
+                                value={storformatDraft.tags}
+                                onChange={(e) => setStorformatDraft((prev) => ({ ...prev, tags: e.target.value }))}
+                                placeholder="banner, pvc, udendørs"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter className="flex items-center justify-between">
+                        <div>
+                            {editingStorformatMaterial && (
+                                <Button variant="destructive" onClick={handleDeleteStorformatMaterial}>
+                                    <Trash2 className="h-4 w-4 mr-2" /> Slet
+                                </Button>
+                            )}
+                        </div>
+                        <div className="flex gap-2">
+                            <Button variant="outline" onClick={() => setShowStorformatDialog(false)}>Annuller</Button>
+                            <Button onClick={handleSaveStorformatMaterial}>
+                                {editingStorformatMaterial ? "Gem ændringer" : "Opret"}
+                            </Button>
+                        </div>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={showStorformatFinishDialog} onOpenChange={setShowStorformatFinishDialog}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{editingStorformatFinish ? "Rediger efterbehandling" : "Opret efterbehandling"}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-2">
+                            <Label>Navn</Label>
+                            <Input
+                                value={storformatFinishDraft.name}
+                                onChange={(e) => setStorformatFinishDraft((prev) => ({ ...prev, name: e.target.value }))}
+                                placeholder="F.eks. Lamineret"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Tags (komma-separeret)</Label>
+                            <Input
+                                value={storformatFinishDraft.tags}
+                                onChange={(e) => setStorformatFinishDraft((prev) => ({ ...prev, tags: e.target.value }))}
+                                placeholder="finish, mat, glans"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter className="flex items-center justify-between">
+                        <div>
+                            {editingStorformatFinish && (
+                                <Button variant="destructive" onClick={handleDeleteStorformatFinish}>
+                                    <Trash2 className="h-4 w-4 mr-2" /> Slet
+                                </Button>
+                            )}
+                        </div>
+                        <div className="flex gap-2">
+                            <Button variant="outline" onClick={() => setShowStorformatFinishDialog(false)}>Annuller</Button>
+                            <Button onClick={handleSaveStorformatFinish}>
+                                {editingStorformatFinish ? "Gem ændringer" : "Opret"}
+                            </Button>
+                        </div>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={showStorformatProductDialog} onOpenChange={setShowStorformatProductDialog}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{editingStorformatProduct ? "Rediger produkt" : "Opret produkt"}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-2">
+                            <Label>Navn</Label>
+                            <Input
+                                value={storformatProductDraft.name}
+                                onChange={(e) => setStorformatProductDraft((prev) => ({ ...prev, name: e.target.value }))}
+                                placeholder="F.eks. Banner"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Tags (komma-separeret)</Label>
+                            <Input
+                                value={storformatProductDraft.tags}
+                                onChange={(e) => setStorformatProductDraft((prev) => ({ ...prev, tags: e.target.value }))}
+                                placeholder="produkt, banner"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter className="flex items-center justify-between">
+                        <div>
+                            {editingStorformatProduct && (
+                                <Button variant="destructive" onClick={handleDeleteStorformatProduct}>
+                                    <Trash2 className="h-4 w-4 mr-2" /> Slet
+                                </Button>
+                            )}
+                        </div>
+                        <div className="flex gap-2">
+                            <Button variant="outline" onClick={() => setShowStorformatProductDialog(false)}>Annuller</Button>
+                            <Button onClick={handleSaveStorformatProduct}>
+                                {editingStorformatProduct ? "Gem ændringer" : "Opret"}
+                            </Button>
+                        </div>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Create Dialogs for Attributes */}
             <CreateAttributeLibraryItemDialog

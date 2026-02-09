@@ -16,6 +16,12 @@ import { getProductImage } from "@/utils/productImages";
 import { supabase } from "@/integrations/supabase/client";
 import { SEO } from "@/components/SEO";
 import { ProductSchema, BreadcrumbSchema } from "@/components/ProductSchema";
+import { useShopSettings } from "@/hooks/useShopSettings";
+import { getPageBackgroundStyle } from "@/lib/branding/background";
+import { getMatrixStyleVars } from "@/lib/branding/matrix";
+import { mergeBrandingWithDefaults } from "@/hooks/useBrandingDraft";
+import { ContentBlocksRenderer } from "@/components/content/ContentBlocksRenderer";
+import { LowerInfoRenderer } from "@/components/content/LowerInfoRenderer";
 import {
   type MatrixData
 } from "@/utils/productPricing";
@@ -32,6 +38,12 @@ import { getDimensionsFromVariant } from "@/utils/formatStandards";
 const ProductPrice = () => {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
+  const { data: settings } = useShopSettings();
+  const branding = useMemo(() => mergeBrandingWithDefaults(settings?.branding || null), [settings?.branding]);
+  const pageBackgroundStyle = getPageBackgroundStyle(branding);
+  const matrixStyleVars = useMemo(() => getMatrixStyleVars(branding), [branding]);
+  const pageStyle = useMemo(() => ({ ...pageBackgroundStyle, ...matrixStyleVars }), [pageBackgroundStyle, matrixStyleVars]);
+  const extras = branding.pageExtras?.product;
 
   const staticProduct = slug ? getProductBySlug(slug) : null;
 
@@ -673,11 +685,16 @@ const ProductPrice = () => {
               productName={product?.name || ''}
               productSlug={slug || ''}
               orderDeliveryConfig={orderDeliveryConfig}
+              designWidthMm={designDimensions.width}
+              designHeightMm={designDimensions.height}
+              designBleedMm={designDimensions.bleed}
+              designSafeAreaMm={designSafeAreaMm}
               externalDeliveryEnabled={podShippingEnabled}
               externalDeliveryMethods={podShippingMethods}
               externalDeliveryLoading={podShippingLoading}
               externalDeliveryError={podShippingError}
               externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+              branding={branding}
               summary={summaryParts.join(' • ')}
             />
           </div>
@@ -719,6 +736,7 @@ const ProductPrice = () => {
               externalDeliveryLoading={podShippingLoading}
               externalDeliveryError={podShippingError}
               externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+              branding={branding}
               summary={[
                 product?.name,
                 ...matrixSelectionSummary,
@@ -839,6 +857,7 @@ const ProductPrice = () => {
                 externalDeliveryLoading={podShippingLoading}
                 externalDeliveryError={podShippingError}
                 externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+                branding={branding}
                 summary={[
                   product.name,
                   // For area-based products, show custom dimensions instead of format
@@ -877,40 +896,44 @@ const ProductPrice = () => {
         ]}
       />
       <Header />
-      <main className="flex-1 container mx-auto px-4 py-8">
-        <div className="flex flex-col md:flex-row gap-6 mb-8">
-          <div className="flex-1">
-            <h1 className="text-3xl md:text-4xl font-heading font-bold mb-2">{product.name}</h1>
-            <p className="text-muted-foreground">{product.description}</p>
+      <main className="flex-1" style={pageStyle}>
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex flex-col md:flex-row gap-6 mb-8">
+            <div className="flex-1">
+              <h1 className="text-3xl md:text-4xl font-heading font-bold mb-2">{product.name}</h1>
+              <p className="text-muted-foreground">{product.description}</p>
+            </div>
+            {product && (
+              <div className="w-full md:w-48 h-48 flex-shrink-0">
+                <img
+                  src={dbProduct?.image_url || getProductImage(product.slug)}
+                  alt={product.name}
+                  className="w-full h-full object-contain"
+                  style={{ filter: 'var(--product-filter)' }}
+                />
+              </div>
+            )}
           </div>
-          {product && (
-            <div className="w-full md:w-48 h-48 flex-shrink-0">
-              <img
-                src={dbProduct?.image_url || getProductImage(product.slug)}
-                alt={product.name}
-                className="w-full h-full object-contain"
-                style={{ filter: 'var(--product-filter)' }}
-              />
+
+          {renderPricingInterface()}
+
+          <StaticProductInfo productId={product.slug || product.id} selectedFormat={selectedFormat} />
+
+          {/* Debug Overlay */}
+          {searchParams.get('debug') === 'true' && (
+            <div className="fixed bottom-4 right-4 bg-black/80 text-white p-4 rounded text-xs z-50 max-w-sm overflow-auto max-h-screen">
+              <h3 className="font-bold border-b border-gray-600 mb-2">Debug Info</h3>
+              <div>Product ID: <span className="font-mono bg-gray-700 px-1">{dbProductId}</span></div>
+              <div>Slug: {slug}</div>
+              <div>Pricing Mode: {pricingStructure?.mode || 'generic'}</div>
+              <div>Generic Variants: {genericVariantNames.length}</div>
+              <div>Matrix Rows: {matrixData.rows.length}</div>
+              <div>Matrix Cols: {matrixData.columns.length}</div>
             </div>
           )}
         </div>
-
-        {renderPricingInterface()}
-
-        <StaticProductInfo productId={product.slug || product.id} selectedFormat={selectedFormat} />
-
-        {/* Debug Overlay */}
-        {searchParams.get('debug') === 'true' && (
-          <div className="fixed bottom-4 right-4 bg-black/80 text-white p-4 rounded text-xs z-50 max-w-sm overflow-auto max-h-screen">
-            <h3 className="font-bold border-b border-gray-600 mb-2">Debug Info</h3>
-            <div>Product ID: <span className="font-mono bg-gray-700 px-1">{dbProductId}</span></div>
-            <div>Slug: {slug}</div>
-            <div>Pricing Mode: {pricingStructure?.mode || 'generic'}</div>
-            <div>Generic Variants: {genericVariantNames.length}</div>
-            <div>Matrix Rows: {matrixData.rows.length}</div>
-            <div>Matrix Cols: {matrixData.columns.length}</div>
-          </div>
-        )}
+        <ContentBlocksRenderer blocks={extras?.contentBlocks} placement="all" brandingSectionId="page-extras" />
+        <LowerInfoRenderer lowerInfo={extras?.lowerInfo} sectionId="page-extras" />
       </main>
       <Footer />
     </div>

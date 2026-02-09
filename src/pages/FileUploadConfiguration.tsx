@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { PreflightGuide } from "@/components/product-price-page/PreflightGuide";
 import { StripePaymentForm } from "@/components/checkout/StripePaymentForm";
+import { getPageBackgroundStyle } from "@/lib/branding/background";
 import {
     getFlyerMatrixDataFromDB,
     getFolderMatrixDataFromDB,
@@ -61,6 +62,7 @@ const FileUploadConfiguration = () => {
     const navigate = useNavigate();
     const { state } = location;
     const shopSettings = useShopSettings();
+    const pageBackgroundStyle = getPageBackgroundStyle(shopSettings.data?.branding);
 
     const [loading, setLoading] = useState(true);
     const [product, setProduct] = useState<any>(null);
@@ -566,7 +568,7 @@ const FileUploadConfiguration = () => {
     return (
         <div className="min-h-screen flex flex-col bg-slate-50">
             <Header />
-            <main className="flex-1 container mx-auto px-4 py-12">
+            <main className="flex-1 container mx-auto px-4 py-12" style={pageBackgroundStyle}>
                 <div className="max-w-5xl mx-auto">
                     <div className="flex items-center justify-between mb-8">
                         <h1 className="text-3xl font-heading font-bold">Konfigurer dit design</h1>

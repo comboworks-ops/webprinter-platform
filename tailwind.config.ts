@@ -16,6 +16,7 @@ export default {
       fontFamily: {
         sans: ['var(--font-body, Inter)', 'system-ui', 'sans-serif'],
         heading: ['var(--font-heading, Poppins)', 'system-ui', 'sans-serif'],
+        button: ['var(--font-button, var(--font-body, Inter))', 'system-ui', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",

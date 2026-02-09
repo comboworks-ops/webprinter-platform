@@ -25,7 +25,7 @@ export type DesignLibraryItem = {
 export function useDesignLibrary(options: {
     search?: string;
     productId?: string | null;
-    tab: 'skabeloner' | 'mine' | 'ressourcer'
+    tab: 'skabeloner' | 'mine' | 'ressourcer' | 'storformat'
 }) {
     return useQuery({
         queryKey: ['design-library', options],
@@ -113,6 +113,37 @@ export function useDesignLibrary(options: {
                     icon_name: t.icon_name,
                     template_type: t.template_type,
                 })) as any[];
+            }
+
+            // Storformat materials tab
+            if (options.tab === 'storformat') {
+                let query = supabase
+                    .from('storformat_materials' as any)
+                    .select('id, name, tags, thumbnail_url, tenant_id')
+                    .order('name');
+
+                if (options.search) {
+                    query = query.ilike('name', `%${options.search}%`);
+                }
+
+                const { data, error } = await query;
+                if (error) throw error;
+
+                // Map storformat materials to DesignLibraryItem format
+                return (data || []).map((m: any) => ({
+                    id: m.id,
+                    name: m.name,
+                    description: 'Storformat materiale',
+                    kind: 'image' as const,
+                    preview_path: m.thumbnail_url,
+                    preview_thumbnail_url: m.thumbnail_url,
+                    storage_path: m.thumbnail_url,
+                    fabric_json: null,
+                    tags: m.tags || [],
+                    product_id: null,
+                    visibility: 'tenant' as const,
+                    created_at: new Date().toISOString(),
+                })) as DesignLibraryItem[];
             }
 
             // Ressourcer from design_library_items (public resources)

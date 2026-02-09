@@ -73,6 +73,15 @@ These systems are **PROTECTED** and work correctly. Modifying them without expli
 
 **Why**: POD v1 and v2 must remain separate. Changes can break Print.com integration.
 
+### 6. Pricing Hub CSV Import (LOCKED)
+| File | Purpose | Risk Level |
+|------|---------|------------|
+| `src/pages/admin/PricingHub.tsx` | Pricing Hub main UI | 🟠 HIGH |
+| `src/hooks/usePricingHub.ts` | CSV parsing + import workflow | 🟠 HIGH |
+| `src/components/admin/pricing-hub/*` | Matrix builder + publish flow | 🟠 HIGH |
+
+**Why**: This flow converts CSV data into system pricing structures. Changes can break imports or publish incorrect prices.
+
 ---
 
 ## ⚠️ KNOWN BUGS & ISSUES (By Severity)
@@ -149,6 +158,11 @@ These systems are **PROTECTED** and work correctly. Modifying them without expli
    - Three tabs (Mine, Skabeloner, Ressourcer)
    - Thumbnail generation
    - Save/load designs
+
+6. **Pricing Hub (CSV Import → Publish)** ✓
+   - CSV import and attribute detection
+   - Matrix builder layout + export
+   - Publish into product attributes/prices
 
 ---
 

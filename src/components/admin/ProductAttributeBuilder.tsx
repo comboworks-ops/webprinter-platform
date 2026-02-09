@@ -26,10 +26,11 @@ import { CenterSlider } from "@/components/ui/center-slider";
 import { STANDARD_FORMATS, FormatDimension } from "@/utils/formatStandards";
 import { CategorySelector } from "./CategorySelector";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PICTURE_SIZES, type PictureSizeMode } from "@/lib/storformat-pricing/types";
 
 // Size mode type
 type SizeMode = 'format' | 'free_size';
-type FormatDisplayMode = 'buttons' | 'dropdown' | 'checkboxes';
+type FormatDisplayMode = 'buttons' | 'dropdown' | 'checkboxes' | 'small' | 'medium' | 'large' | 'xl';
 
 interface ValueSetting {
     showThumbnail: boolean;
@@ -437,7 +438,7 @@ export function ProductAttributeBuilder({
     // Each row can have 1-3 sections, each section contains product group IDs
     // Layout configuration
     type AttributeType = 'products' | 'formats' | 'materials' | 'finishes';
-    type DisplayMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden';
+    type DisplayMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden' | 'small' | 'medium' | 'large' | 'xl';
     type SelectionMode = 'required' | 'optional';
 
     interface LayoutSection {
@@ -582,11 +583,15 @@ export function ProductAttributeBuilder({
     const [genRounding, setGenRounding] = useState(1);
     const [productMarkups, setProductMarkups] = useState<Record<string, number>>({});
     const [generatedPreview, setGeneratedPreview] = useState<{ quantity: number; price: number }[]>([]);
+    const [matrixEditMode, setMatrixEditMode] = useState(false);
+    const [editingPriceKey, setEditingPriceKey] = useState<string | null>(null);
+    const [editingPriceValue, setEditingPriceValue] = useState('');
 
     // Generator display mode (buttons, dropdown, checkboxes)
-    const [generatorDisplayMode, setGeneratorDisplayMode] = useState<'buttons' | 'dropdown' | 'checkboxes'>('buttons');
+    const [generatorDisplayMode, setGeneratorDisplayMode] = useState<FormatDisplayMode>('buttons');
     // Combination status tracking: key = "formatId-materialId-variantId", value = 'pristine' | 'in_progress' | 'done'
     const [combinationStatus, setCombinationStatus] = useState<Record<string, 'pristine' | 'in_progress' | 'done'>>({});
+    const [copySourceKey, setCopySourceKey] = useState<string>('');
 
     const [importedData, setImportedData] = useState<any[]>([]);
     const [importHeaders, setImportHeaders] = useState<string[]>([]);
@@ -600,6 +605,13 @@ export function ProductAttributeBuilder({
     useEffect(() => {
         importedDataRef.current = importedData;
     }, [importedData]);
+
+    useEffect(() => {
+        if (!matrixEditMode) {
+            setEditingPriceKey(null);
+            setEditingPriceValue('');
+        }
+    }, [matrixEditMode]);
 
     const verticalSectionId = verticalAxisConfig.sectionId || 'vertical-axis';
 
@@ -691,6 +703,19 @@ export function ProductAttributeBuilder({
         return '';
     };
 
+    const buildCombinationLabel = (formatId: string, materialId: string, variantId: string) => {
+        const formatName = getValueNameById(formatId) || 'Format';
+        const materialName = getValueNameById(materialId) || 'Materiale';
+        if (!variantId || variantId === 'none') {
+            return `${formatName} · ${materialName}`;
+        }
+        const variantNames = variantId.split('|')
+            .map(id => getValueNameById(id))
+            .filter(Boolean);
+        const variantLabel = variantNames.length ? variantNames.join(' + ') : variantId;
+        return `${formatName} · ${materialName} · ${variantLabel}`;
+    };
+
     const getActiveFormatId = (selections: Record<string, string>) => {
         if (verticalAxisConfig.sectionType === 'formats') {
             return selections[verticalSectionId] || getDefaultValueId('format');
@@ -766,6 +791,8 @@ export function ProductAttributeBuilder({
     const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
     const hasLoadedStructureRef = useRef(false);
     const hasLoadedPublishedPricesRef = useRef(false);
+    const [savingMaterialLibrary, setSavingMaterialLibrary] = useState(false);
+    const [savingFormatLibrary, setSavingFormatLibrary] = useState(false);
 
 
 
@@ -791,6 +818,167 @@ export function ProductAttributeBuilder({
             .eq('tenant_id', tenantId)
             .order('created_at', { ascending: false });
         setAllTemplates(data || []);
+    };
+
+    const getMaterialKey = (name: string, category?: string | null) =>
+        `${name.trim().toLowerCase()}|${(category || '').trim().toLowerCase()}`;
+
+    const getFormatKey = (name: string, width?: number | null, height?: number | null, category?: string | null) =>
+        `${name.trim().toLowerCase()}|${width ?? 'null'}|${height ?? 'null'}|${(category || '').trim().toLowerCase()}`;
+
+    const handleSaveMaterialsToLibrary = async () => {
+        const materialGroups = productAttrs.groups.filter(g => g.kind === 'material');
+        const candidates = materialGroups.flatMap(group =>
+            (group.values || []).map(value => ({
+                name: value.name?.trim() || '',
+                category: group.name || 'Materialer',
+                template_type: 'material',
+                width_mm: 0,
+                height_mm: 0,
+                is_active: true,
+                is_public: false,
+                description: null,
+                weight_gsm: value.meta?.weight_gsm ?? null
+            }))
+        ).filter(item => item.name.length > 0);
+
+        if (candidates.length === 0) {
+            toast.error('Ingen materialer med navn at gemme');
+            return;
+        }
+
+        setSavingMaterialLibrary(true);
+        try {
+            const { data: existing, error } = await supabase
+                .from('designer_templates' as any)
+                .select('id,name,category')
+                .eq('template_type', 'material')
+                .eq('is_active', true);
+
+            if (error) throw error;
+
+            const existingMap = new Map(
+                (existing || []).map((row: any) => [getMaterialKey(row.name, row.category), row])
+            );
+            const uniqueCandidates = new Map<string, any>();
+            candidates.forEach(item => {
+                const key = getMaterialKey(item.name, item.category);
+                if (!uniqueCandidates.has(key)) uniqueCandidates.set(key, item);
+            });
+
+            const rows = Array.from(uniqueCandidates.values());
+            const updates = rows
+                .filter(row => existingMap.has(getMaterialKey(row.name, row.category)))
+                .map(row => ({ ...row, id: existingMap.get(getMaterialKey(row.name, row.category)).id }));
+            const inserts = rows.filter(row => !existingMap.has(getMaterialKey(row.name, row.category)));
+
+            if (updates.length) {
+                const { error: updateError } = await supabase
+                    .from('designer_templates' as any)
+                    .upsert(updates, { onConflict: 'id' });
+                if (updateError) throw updateError;
+            }
+            if (inserts.length) {
+                const { error: insertError } = await supabase
+                    .from('designer_templates' as any)
+                    .insert(inserts);
+                if (insertError) throw insertError;
+            }
+
+            const newCount = inserts.length;
+            const updateCount = updates.length;
+            if (newCount && updateCount) {
+                toast.success(`Gemt ${newCount} og opdateret ${updateCount} materiale(r)`);
+            } else if (updateCount) {
+                toast.success(`Opdateret ${updateCount} materiale(r) i biblioteket`);
+            } else {
+                toast.success(`Gemt ${newCount} materiale(r) i biblioteket`);
+            }
+            setLibraryRefreshKey(k => k + 1);
+        } catch (err: any) {
+            console.error('Error saving materials to library:', err);
+            toast.error(err.message || 'Kunne ikke gemme materialer');
+        } finally {
+            setSavingMaterialLibrary(false);
+        }
+    };
+
+    const handleSaveFormatsToLibrary = async () => {
+        const formatGroups = productAttrs.groups.filter(g => g.kind === 'format');
+        const candidates = formatGroups.flatMap(group =>
+            (group.values || []).map(value => ({
+                name: value.name?.trim() || '',
+                category: group.name || 'Format',
+                template_type: 'format',
+                width_mm: value.width_mm ?? null,
+                height_mm: value.height_mm ?? null,
+                bleed_mm: value.meta?.bleed_mm ?? 3,
+                safe_area_mm: value.meta?.safe_area_mm ?? 3,
+                is_active: true,
+                is_public: false,
+                description: 'Oprettet fra Produktbygger'
+            }))
+        ).filter(item => item.name.length > 0 && item.width_mm && item.height_mm);
+
+        if (candidates.length === 0) {
+            toast.error('Ingen formater med størrelse at gemme');
+            return;
+        }
+
+        setSavingFormatLibrary(true);
+        try {
+            const { data: existing, error } = await supabase
+                .from('designer_templates' as any)
+                .select('id,name,category,width_mm,height_mm')
+                .eq('template_type', 'format')
+                .eq('is_active', true);
+
+            if (error) throw error;
+
+            const existingMap = new Map(
+                (existing || []).map((row: any) => [getFormatKey(row.name, row.width_mm, row.height_mm, row.category), row])
+            );
+            const uniqueCandidates = new Map<string, any>();
+            candidates.forEach(item => {
+                const key = getFormatKey(item.name, item.width_mm, item.height_mm, item.category);
+                if (!uniqueCandidates.has(key)) uniqueCandidates.set(key, item);
+            });
+
+            const rows = Array.from(uniqueCandidates.values());
+            const updates = rows
+                .filter(row => existingMap.has(getFormatKey(row.name, row.width_mm, row.height_mm, row.category)))
+                .map(row => ({ ...row, id: existingMap.get(getFormatKey(row.name, row.width_mm, row.height_mm, row.category)).id }));
+            const inserts = rows.filter(row => !existingMap.has(getFormatKey(row.name, row.width_mm, row.height_mm, row.category)));
+
+            if (updates.length) {
+                const { error: updateError } = await supabase
+                    .from('designer_templates' as any)
+                    .upsert(updates, { onConflict: 'id' });
+                if (updateError) throw updateError;
+            }
+            if (inserts.length) {
+                const { error: insertError } = await supabase
+                    .from('designer_templates' as any)
+                    .insert(inserts);
+                if (insertError) throw insertError;
+            }
+
+            const newCount = inserts.length;
+            const updateCount = updates.length;
+            if (newCount && updateCount) {
+                toast.success(`Gemt ${newCount} og opdateret ${updateCount} format(er)`);
+            } else if (updateCount) {
+                toast.success(`Opdateret ${updateCount} format(er) i biblioteket`);
+            } else {
+                toast.success(`Gemt ${newCount} format(er) i biblioteket`);
+            }
+            setLibraryRefreshKey(k => k + 1);
+        } catch (err: any) {
+            console.error('Error saving formats to library:', err);
+            toast.error(err.message || 'Kunne ikke gemme formater');
+        } finally {
+            setSavingFormatLibrary(false);
+        }
     };
 
     useEffect(() => {
@@ -1701,6 +1889,205 @@ export function ProductAttributeBuilder({
         toast.success(noValuesYet ? 'CSV skabelon eksporteret (udfyld værdierne)' : 'CSV skabelon eksporteret med layout metadata');
     };
 
+    const handleExportCSVWithPrices = () => {
+        if (selectedOplag.length === 0) {
+            toast.error('Vælg mindst ét oplag først.');
+            return;
+        }
+
+        // 1. Collect vertical axis info
+        const verticalGroup = productAttrs.groups.find(g => {
+            if (verticalAxisConfig.sectionType === 'formats') return g.kind === 'format';
+            if (verticalAxisConfig.sectionType === 'materials') return g.kind === 'material';
+            if (verticalAxisConfig.sectionType === 'finishes') return g.kind === 'finish';
+            return false;
+        });
+
+        const findValueById = (valueId: string) => {
+            for (const group of productAttrs.groups) {
+                const val = group.values?.find(v => v.id === valueId);
+                if (val) return val;
+            }
+            return null;
+        };
+
+        let verticalValues: any[] = [];
+        if (verticalAxisConfig.valueIds && verticalAxisConfig.valueIds.length > 0) {
+            verticalValues = verticalAxisConfig.valueIds
+                .map(id => findValueById(id))
+                .filter(v => v && v.enabled);
+        } else if (verticalGroup) {
+            verticalValues = verticalGroup.values.filter(v => v.enabled) || [];
+        }
+
+        const noValuesYet = verticalValues.length === 0;
+        if (noValuesYet) {
+            toast.error('Ingen værdier fundet til eksport');
+            return;
+        }
+
+        // 2. Collect horizontal sections from layout rows
+        const sections: Array<{
+            sectionId: string;
+            groupId: string;
+            sectionType: string;
+            ui_mode: string;
+            selection_mode: SelectionMode;
+            name: string;
+            values: any[];
+        }> = [];
+
+        for (const row of layoutRows) {
+            for (const section of row.sections) {
+                const sectionKind = section.sectionType === 'formats' ? 'format' :
+                    section.sectionType === 'materials' ? 'material' :
+                        section.sectionType === 'finishes' ? 'finish' : 'other';
+
+                let group = productAttrs.groups.find(g =>
+                    g.kind === sectionKind &&
+                    (section.groupId.includes(g.id) || section.valueIds?.some(vId => g.values?.some(v => v.id === vId)))
+                );
+
+                if (!group && sectionKind !== 'other') {
+                    group = productAttrs.groups.find(g => g.kind === sectionKind);
+                }
+
+                let sectionValues: any[] = [];
+                if (section.valueIds && section.valueIds.length > 0) {
+                    sectionValues = section.valueIds
+                        .map(id => findValueById(id))
+                        .filter(v => v && v.enabled);
+                } else if (group) {
+                    sectionValues = group.values.filter(v => v.enabled) || [];
+                }
+
+                if (sectionValues.length > 0) {
+                    sections.push({
+                        sectionId: section.id,
+                        groupId: group?.id || '',
+                        sectionType: section.sectionType,
+                        ui_mode: section.ui_mode || 'buttons',
+                        selection_mode: section.selection_mode || 'required',
+                        name: section.title || group?.name || section.sectionType,
+                        values: sectionValues
+                    });
+                }
+            }
+        }
+
+        // 3. Build headers and meta
+        const nameCounts: Record<string, number> = {};
+        sections.forEach(s => { nameCounts[s.name] = (nameCounts[s.name] || 0) + 1; });
+
+        const verticalLabel = verticalAxisConfig.title || verticalGroup?.name ||
+            (verticalAxisConfig.sectionType === 'formats' ? 'Format' :
+                verticalAxisConfig.sectionType === 'materials' ? 'Materiale' : 'Værdi');
+
+        const meta = {
+            version: 2,
+            vertical_axis: {
+                sectionId: verticalAxisConfig.sectionId || 'vertical-axis',
+                sectionType: verticalAxisConfig.sectionType,
+                groupId: verticalGroup?.id || '',
+                label: verticalLabel,
+                valueSettings: verticalAxisConfig.valueSettings || {}
+            },
+            layout_rows: layoutRows.map(row => ({
+                id: row.id,
+                title: row.title || '',
+                description: row.description || '',
+                columns: row.sections.map(sec => ({
+                    id: sec.id,
+                    sectionType: sec.sectionType,
+                    groupId: sec.groupId || '',
+                    ui_mode: sec.ui_mode || 'buttons',
+                    selection_mode: sec.selection_mode || 'required',
+                    valueSettings: sec.valueSettings || {},
+                    title: sec.title || '',
+                    description: sec.description || ''
+                }))
+            })),
+            quantities: selectedOplag.sort((a, b) => a - b)
+        };
+
+        const sectionHeaders = sections.map(s => {
+            if (nameCounts[s.name] > 1) {
+                return `${s.name}__sec_${s.sectionId.substring(0, 8)}`;
+            }
+            return s.name;
+        });
+
+        const humanHeaders = [verticalLabel, ...sectionHeaders, ...selectedOplag.map(q => String(q))];
+
+        const csvRows: string[] = [];
+        csvRows.push(`#meta;${JSON.stringify(meta)}`);
+        csvRows.push(humanHeaders.join(';'));
+
+        const allSectionValues = sections.map(s => {
+            if (s.selection_mode === 'optional') {
+                return [{ id: '', name: '' }, ...s.values];
+            }
+            return s.values;
+        });
+
+        const cartesian = (arrays: any[][]): any[][] => {
+            if (arrays.length === 0) return [[]];
+            const [first, ...rest] = arrays;
+            if (!first || first.length === 0) return cartesian(rest);
+            const restCombinations = cartesian(rest);
+            return first.flatMap(item => restCombinations.map(combo => [item, ...combo]));
+        };
+
+        const sectionCombinations = allSectionValues.length > 0 ? cartesian(allSectionValues) : [[]];
+
+        const computeExportPrice = (formatId: string, materialId: string, variantId: string, qty: number) => {
+            const computed = computeFinalPriceForContext(formatId, materialId, variantId, qty);
+            return computed?.price ? String(computed.price) : '';
+        };
+
+        for (const vertVal of verticalValues) {
+            for (const combo of sectionCombinations) {
+                const selectionBySection: Record<string, string> = {
+                    [verticalSectionId]: vertVal.id
+                };
+                combo.forEach((val: any, idx: number) => {
+                    const section = sections[idx];
+                    if (!section) return;
+                    if (val?.id) selectionBySection[section.sectionId] = val.id;
+                });
+
+                const formatId = getActiveFormatId(selectionBySection);
+                const materialId = getActiveMaterialId(selectionBySection);
+                const variantIds: string[] = [];
+                layoutRows.forEach(row => {
+                    row.sections.forEach(section => {
+                        if (section.sectionType === 'formats' || section.sectionType === 'materials') return;
+                        const selected = selectionBySection[section.id];
+                        if (selected) variantIds.push(selected);
+                    });
+                });
+                const variantId = variantIds.length > 0 ? variantIds.sort().join('|') : 'none';
+
+                const priceCells = selectedOplag.map(qty => computeExportPrice(formatId, materialId, variantId, qty));
+                const cells = [
+                    vertVal.name,
+                    ...combo.map((v: any) => v?.name || ''),
+                    ...priceCells
+                ];
+                csvRows.push(cells.join(';'));
+            }
+        }
+
+        const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${productSlug || 'produkt'}_prisliste_med_priser_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success('CSV eksporteret med priser');
+    };
+
     const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -1957,61 +2344,22 @@ export function ProductAttributeBuilder({
                 }
             });
 
-            const computeFinalPrice = (formatId: string, materialId: string, variantId: string, qty: number) => {
-                const priceKey = getGenPriceKey(formatId, materialId, variantId, qty);
-                const data = generatorPrices[priceKey];
-                const localMarkup = Number(data?.markup) || 0;
-                const markupKey = `${formatId}::${materialId}${variantId !== 'none' ? `::${variantId}` : ''}`;
-                const prodMarkup = productMarkups[markupKey] || 0;
-                const gm = Number(masterMarkup) || 0;
-                const rnd = Number(genRounding) || 1;
-
-                if (data?.price && data.price > 0) {
-                    const finalPrice = Math.round(
-                        data.price * (1 + localMarkup / 100) * (1 + prodMarkup / 100) * (1 + gm / 100) / rnd
-                    ) * rnd;
-                    return {
-                        price: finalPrice,
-                        basePrice: data.price,
-                        localMarkup,
-                        prodMarkup,
-                        source: 'manual'
-                    };
-                }
-
-                const anchors = getAnchorsForContext(formatId, materialId, variantId);
-                if (anchors.length >= 2) {
-                    const beforeAnchor = anchors.filter(a => a.quantity < qty).pop();
-                    const afterAnchor = anchors.find(a => a.quantity > qty);
-                    if (beforeAnchor && afterAnchor) {
-                        let interpolated = interpolatePrice(qty, anchors);
-                        interpolated = interpolated * (1 + prodMarkup / 100) * (1 + gm / 100);
-                        const finalPrice = Math.round(interpolated / rnd) * rnd;
-                        if (finalPrice > 0) {
-                            return {
-                                price: finalPrice,
-                                basePrice: null,
-                                localMarkup: 0,
-                                prodMarkup,
-                                source: 'interpolated'
-                            };
-                        }
-                    }
-                }
-
-                return null;
-            };
-
             comboMap.forEach(({ formatId, materialId, variantId }) => {
                 const variantKey = variantId === 'none' ? '' : variantId;
-                const variantName = variantKey || 'none';
                 const variantValueIds = variantKey ? variantKey.split('|').filter(Boolean) : [];
+                // LOCK FIX (2026-02-09): keep variant_name stable across saves by including
+                // all non-vertical selections. Do not simplify this to variant-only keys.
+                // This prevents collisions when only one axis is stored in variant_value.
+                const variantNameParts: string[] = [...variantValueIds];
+                if (verticalAxisConfig.sectionType !== 'formats') variantNameParts.push(formatId);
+                if (verticalAxisConfig.sectionType !== 'materials') variantNameParts.push(materialId);
+                const variantName = Array.from(new Set(variantNameParts.filter(Boolean))).sort().join('|') || 'none';
 
                 const verticalValueId = verticalAxisConfig.sectionType === 'formats' ? formatId :
                     verticalAxisConfig.sectionType === 'materials' ? materialId : formatId;
 
                 quantities.forEach(qty => {
-                    const computed = computeFinalPrice(formatId, materialId, variantId, qty);
+                    const computed = computeFinalPriceForContext(formatId, materialId, variantId, qty);
                     if (!computed || !computed.price || computed.price <= 0) return;
 
                     inserts.push({
@@ -2071,8 +2419,17 @@ export function ProductAttributeBuilder({
                 toast.warning(`Fjernede ${duplicateCount} duplikat(er) før gem`);
             }
 
+            // LOCK FIX (2026-02-09): delete then upsert for this product.
+            // Old rows from previous key schemas can otherwise shadow new prices in frontend lookups.
             // 4. Upsert to generic_product_prices
             // Use product_id + variant_name + variant_value + quantity as conflict key
+            const { error: deleteExistingPricesError } = await supabase
+                .from('generic_product_prices')
+                .delete()
+                .eq('product_id', productId);
+
+            if (deleteExistingPricesError) throw deleteExistingPricesError;
+
             console.log('[Matrix V1 Push] Upserting to generic_product_prices...');
             const { error: priceError } = await supabase
                 .from('generic_product_prices')
@@ -2496,17 +2853,31 @@ export function ProductAttributeBuilder({
                     return qty;
                 }).filter(q => !isNaN(q));
 
-                data.forEach(row => {
+                data.forEach((row, rowIdx) => {
                     const selectionBySection: Record<string, string> = {};
                     metaColumnMap.forEach(col => {
                         const raw = row[col.colIndex]?.trim();
                         if (!raw || !col.group) return;
                         const match = col.group.values?.find(v => normalizeForMatch(v.name) === normalizeForMatch(raw));
                         if (match) selectionBySection[col.sectionId] = match.id;
+                        if (rowIdx === 0) {
+                            console.log('[CSV Import] Row 0 matching:', {
+                                sectionId: col.sectionId,
+                                sectionType: col.sectionType,
+                                raw,
+                                groupId: col.group?.id,
+                                groupValues: col.group?.values?.map(v => v.name).slice(0, 5),
+                                matchFound: !!match,
+                                matchId: match?.id
+                            });
+                        }
                     });
 
                     const verticalValueId = selectionBySection[verticalSectionId];
-                    if (!verticalValueId) return;
+                    if (!verticalValueId) {
+                        if (rowIdx === 0) console.log('[CSV Import] Row 0: No verticalValueId, skipping');
+                        return;
+                    }
 
                     const variantValueIds = Object.entries(selectionBySection)
                         .filter(([secId]) => secId !== verticalSectionId)
@@ -3087,6 +3458,181 @@ export function ProductAttributeBuilder({
         }));
     };
 
+    const applyManualPriceForKey = (priceKey: string, finalPrice: number | null) => {
+        const parts = priceKey.split('::');
+        if (parts.length < 4) return;
+        const [formatId, materialId, variantId] = parts;
+        const existing = generatorPrices[priceKey] || { price: 0, markup: 0 };
+
+        if (!finalPrice || finalPrice <= 0) {
+            setGeneratorPrices(prev => ({
+                ...prev,
+                [priceKey]: { ...(prev[priceKey] || existing), price: 0, excludeFromCurve: true }
+            }));
+            return;
+        }
+
+        const localMarkup = Number(existing.markup) || 0;
+        const markupKey = `${formatId}::${materialId}${variantId && variantId !== 'none' ? `::${variantId}` : ''}`;
+        const prodMarkup = productMarkups[markupKey] || 0;
+        const gm = Number(masterMarkup) || 0;
+        const totalMultiplier = (1 + localMarkup / 100) * (1 + prodMarkup / 100) * (1 + gm / 100);
+        const basePrice = totalMultiplier !== 0 ? finalPrice / totalMultiplier : finalPrice;
+
+        setGeneratorPrices(prev => ({
+            ...prev,
+            [priceKey]: { ...(prev[priceKey] || existing), price: basePrice, excludeFromCurve: false }
+        }));
+    };
+
+    const commitEditingPrice = (priceKey: string) => {
+        const raw = editingPriceValue.trim();
+        const normalized = raw.replace(',', '.');
+        const parsed = normalized ? parseFloat(normalized) : NaN;
+        const finalPrice = !raw || Number.isNaN(parsed) || parsed <= 0 ? null : parsed;
+        applyManualPriceForKey(priceKey, finalPrice);
+        setEditingPriceKey(null);
+    };
+
+    function computeFinalPriceForContext(formatId: string, materialId: string, variantId: string, qty: number): {
+        price: number;
+        basePrice: number | null;
+        localMarkup: number;
+        prodMarkup: number;
+        source: 'manual' | 'interpolated';
+    } | null {
+        const priceKey = getGenPriceKey(formatId, materialId, variantId, qty);
+        const data = generatorPrices[priceKey];
+        if (data?.excludeFromCurve && (!data.price || data.price <= 0)) return null;
+
+        const localMarkup = Number(data?.markup) || 0;
+        const markupKey = `${formatId}::${materialId}${variantId !== 'none' ? `::${variantId}` : ''}`;
+        const prodMarkup = productMarkups[markupKey] || 0;
+        const gm = Number(masterMarkup) || 0;
+        const rnd = Number(genRounding) || 1;
+
+        if (data?.price && data.price > 0) {
+            const finalPrice = Math.round(
+                data.price * (1 + localMarkup / 100) * (1 + prodMarkup / 100) * (1 + gm / 100) / rnd
+            ) * rnd;
+            return {
+                price: finalPrice,
+                basePrice: data.price,
+                localMarkup,
+                prodMarkup,
+                source: 'manual'
+            };
+        }
+
+        const anchors = getAnchorsForContext(formatId, materialId, variantId);
+        if (anchors.length >= 2) {
+            const beforeAnchor = anchors.filter(a => a.quantity < qty).pop();
+            const afterAnchor = anchors.find(a => a.quantity > qty);
+            if (beforeAnchor && afterAnchor) {
+                let interpolated = interpolatePrice(qty, anchors);
+                interpolated = interpolated * (1 + prodMarkup / 100) * (1 + gm / 100);
+                const finalPrice = Math.round(interpolated / rnd) * rnd;
+                if (finalPrice > 0) {
+                    return {
+                        price: finalPrice,
+                        basePrice: null,
+                        localMarkup: 0,
+                        prodMarkup,
+                        source: 'interpolated'
+                    };
+                }
+            }
+        }
+
+        return null;
+    }
+
+    function computeFinalPriceForContextFromSource(
+        sourcePrices: Record<string, any>,
+        formatId: string,
+        materialId: string,
+        variantId: string,
+        qty: number
+    ): {
+        price: number;
+        basePrice: number | null;
+        localMarkup: number;
+        prodMarkup: number;
+        source: 'manual' | 'interpolated';
+    } | null {
+        const priceKey = getGenPriceKey(formatId, materialId, variantId, qty);
+        const data = sourcePrices[priceKey];
+        if (data?.excludeFromCurve && (!data.price || data.price <= 0)) return null;
+
+        const localMarkup = Number(data?.markup) || 0;
+        const markupKey = `${formatId}::${materialId}${variantId !== 'none' ? `::${variantId}` : ''}`;
+        const prodMarkup = productMarkups[markupKey] || 0;
+        const gm = Number(masterMarkup) || 0;
+        const rnd = Number(genRounding) || 1;
+
+        if (data?.price && data.price > 0) {
+            const finalPrice = Math.round(
+                data.price * (1 + localMarkup / 100) * (1 + prodMarkup / 100) * (1 + gm / 100) / rnd
+            ) * rnd;
+            return {
+                price: finalPrice,
+                basePrice: data.price,
+                localMarkup,
+                prodMarkup,
+                source: 'manual'
+            };
+        }
+
+        if (typeof data === 'number' && data > 0) {
+            const finalPrice = Math.round(data * (1 + prodMarkup / 100) * (1 + gm / 100) / rnd) * rnd;
+            return {
+                price: finalPrice,
+                basePrice: data,
+                localMarkup: 0,
+                prodMarkup,
+                source: 'manual'
+            };
+        }
+
+        const anchors: { quantity: number; price: number; markup: number }[] = [];
+        Object.entries(sourcePrices).forEach(([key, value]) => {
+            const parts = key.split('::');
+            if (parts.length < 4) return;
+            const [fId, mId, vId, qtyStr] = parts;
+            if (fId !== formatId || mId !== materialId || (vId || 'none') !== (variantId || 'none')) return;
+            const q = parseInt(qtyStr, 10);
+            if (Number.isNaN(q)) return;
+            if (value && typeof value !== 'number' && value.isLocked && value.price > 0 && !value.excludeFromCurve) {
+                anchors.push({ quantity: q, price: value.price, markup: value.markup || 0 });
+                return;
+            }
+            if (typeof value === 'number' && value > 0) {
+                anchors.push({ quantity: q, price: value, markup: 0 });
+            }
+        });
+
+        if (anchors.length >= 2) {
+            const beforeAnchor = anchors.filter(a => a.quantity < qty).pop();
+            const afterAnchor = anchors.find(a => a.quantity > qty);
+            if (beforeAnchor && afterAnchor) {
+                let interpolated = interpolatePrice(qty, anchors);
+                interpolated = interpolated * (1 + prodMarkup / 100) * (1 + gm / 100);
+                const finalPrice = Math.round(interpolated / rnd) * rnd;
+                if (finalPrice > 0) {
+                    return {
+                        price: finalPrice,
+                        basePrice: null,
+                        localMarkup: 0,
+                        prodMarkup,
+                        source: 'interpolated'
+                    };
+                }
+            }
+        }
+
+        return null;
+    }
+
     const getAnchorsForContext = (formatId: string, materialId: string, variantId: string): { quantity: number; price: number; markup: number }[] => {
         return selectedOplag
             .filter(qty => {
@@ -3105,6 +3651,87 @@ export function ProductAttributeBuilder({
             })
             .sort((a, b) => a.quantity - b.quantity);
     };
+
+    const generatorCombinationOptions = useMemo(() => {
+        const combos = new Map<string, { formatId: string; materialId: string; variantId: string; priceCount: number }>();
+        Object.entries(generatorPrices).forEach(([key, data]) => {
+            const parts = key.split('::');
+            if (parts.length < 4) return;
+            const [formatId, materialId, variantId] = parts;
+            if (!formatId || !materialId) return;
+            const comboKey = `${formatId}::${materialId}::${variantId || 'none'}`;
+            const priceVal = typeof data === 'number' ? data : Number((data as any)?.price || 0);
+            const entry = combos.get(comboKey) || { formatId, materialId, variantId: variantId || 'none', priceCount: 0 };
+            if (priceVal > 0) entry.priceCount += 1;
+            combos.set(comboKey, entry);
+        });
+
+        return Array.from(combos.values())
+            .filter(entry => entry.priceCount > 0)
+            .map(entry => ({
+                ...entry,
+                key: `${entry.formatId}::${entry.materialId}::${entry.variantId || 'none'}`,
+                label: buildCombinationLabel(entry.formatId, entry.materialId, entry.variantId || 'none')
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    }, [generatorPrices, productAttrs.groups]);
+
+    const currentCombinationKey = activeGenFormat && activeGenMaterial
+        ? `${activeGenFormat}::${activeGenMaterial}::${activeGenVariant || 'none'}`
+        : '';
+
+    const copyOptions = useMemo(
+        () => generatorCombinationOptions.filter(opt => opt.key !== currentCombinationKey),
+        [generatorCombinationOptions, currentCombinationKey]
+    );
+
+    const handleCopyPricesFrom = useCallback((sourceKey: string) => {
+        if (!activeGenFormat || !activeGenMaterial) {
+            toast.error('Vælg format og materiale først');
+            return;
+        }
+
+        const [sourceFormatId, sourceMaterialId, sourceVariantId] = sourceKey.split('::');
+        if (!sourceFormatId || !sourceMaterialId) {
+            toast.error('Ugyldig kombination');
+            return;
+        }
+
+        const targetVariantId = activeGenVariant || 'none';
+        let copied = 0;
+
+        setGeneratorPrices(prev => {
+            const next = { ...prev };
+            const quantityFilter = selectedOplag.length > 0 ? new Set(selectedOplag) : null;
+            Object.entries(prev).forEach(([key, data]) => {
+                const parts = key.split('::');
+                if (parts.length < 4) return;
+                const [formatId, materialId, variantId, qtyStr] = parts;
+                if (formatId !== sourceFormatId || materialId !== sourceMaterialId) return;
+                if ((variantId || 'none') !== (sourceVariantId || 'none')) return;
+                const qty = Number(qtyStr);
+                if (quantityFilter && !quantityFilter.has(qty)) return;
+                const targetKey = getGenPriceKey(activeGenFormat, activeGenMaterial, targetVariantId, qty);
+                const normalized = typeof data === 'number' ? { price: data, markup: 0 } : { ...data };
+                next[targetKey] = normalized;
+                copied += 1;
+            });
+            return next;
+        });
+
+        setProductMarkups(prev => {
+            const sourceMarkupKey = `${sourceFormatId}::${sourceMaterialId}`;
+            if (prev[sourceMarkupKey] == null) return prev;
+            const targetMarkupKey = `${activeGenFormat}::${activeGenMaterial}`;
+            return { ...prev, [targetMarkupKey]: prev[sourceMarkupKey] };
+        });
+
+        if (copied > 0) {
+            toast.success(`Priser kopieret (${copied})`);
+        } else {
+            toast.error('Ingen priser at kopiere');
+        }
+    }, [activeGenFormat, activeGenMaterial, activeGenVariant, selectedOplag]);
 
     // ==========================================
     // PROTECTED CORE LOGIC: PRICE INTERPOLATION
@@ -3255,6 +3882,63 @@ export function ProductAttributeBuilder({
             sourceKeys = Object.keys(sourcePrices);
         }
 
+        if (sourceKeys.length === 0 && productId) {
+            try {
+                const { data, error } = await supabase
+                    .from('generic_product_prices')
+                    .select('quantity, price_dkk, extra_data')
+                    .eq('product_id', productId);
+
+                if (!error && data && data.length > 0) {
+                    const formatValueIds = new Set<string>();
+                    const materialValueIds = new Set<string>();
+                    productAttrs.groups.forEach(group => {
+                        if (group.kind === 'format') {
+                            (group.values || []).forEach(value => formatValueIds.add(value.id));
+                        }
+                        if (group.kind === 'material') {
+                            (group.values || []).forEach(value => materialValueIds.add(value.id));
+                        }
+                    });
+
+                    const fallbackPrices: Record<string, any> = {};
+                    const fallbackOplag = new Set<number>();
+                    data.forEach((row: any) => {
+                        const extra = row.extra_data || {};
+                        const formatId = extra.formatId || extra.selectionMap?.format;
+                        const materialId = extra.materialId || extra.selectionMap?.material;
+                        const rawVariantValueIds = Array.isArray(extra.variantValueIds)
+                            ? extra.variantValueIds
+                            : Array.isArray(extra.selectionMap?.variantValueIds)
+                                ? extra.selectionMap.variantValueIds
+                                : [];
+                        const filteredVariantValueIds = rawVariantValueIds
+                            .filter((id: string) => !formatValueIds.has(id) && !materialValueIds.has(id));
+                        const variantId = extra.variantId
+                            || extra.selectionMap?.variant
+                            || (filteredVariantValueIds.length > 0 ? filteredVariantValueIds.slice().sort().join('|') : 'none');
+                        if (!formatId || !materialId) return;
+                        const qty = Number(row.quantity);
+                        const price = Number(row.price_dkk);
+                        if (!qty || !price) return;
+                        const key = `${formatId}::${materialId}::${variantId || 'none'}::${qty}`;
+                        fallbackPrices[key] = { price, markup: 0, isLocked: false };
+                        fallbackOplag.add(qty);
+                    });
+
+                    if (Object.keys(fallbackPrices).length > 0) {
+                        sourcePrices = normalizeGeneratorPrices(fallbackPrices);
+                        sourceKeys = Object.keys(sourcePrices);
+                        if (selectedOplag.length === 0 && fallbackOplag.size > 0) {
+                            setSelectedOplag(Array.from(fallbackOplag).sort((a, b) => a - b));
+                        }
+                    }
+                }
+            } catch (e) {
+                // Ignore fetch fallback failures and let the normal error message handle it
+            }
+        }
+
         const effectiveOplag = selectedOplag.length > 0
             ? selectedOplag
             : (lastImportedOplagRef.current.length > 0
@@ -3290,70 +3974,15 @@ export function ProductAttributeBuilder({
             }
         });
 
-        // Generate Price for each Combination + Oplag using Interpolation
-
+        // Generate Price for each Combination + Oplag using shared calculation
         uniqueCombinations.forEach(comboKey => {
             const [formatId, materialId, variantId] = comboKey.split('::');
 
-            // 1. Get Anchors for this specific combo
-            // We need to fetch them from sourcePrices directly as `getAnchorsForContext` relies on state selection
-
-            // Filter source keys that match this combo
-            const comboAnchors: { quantity: number; price: number; markup?: number }[] = [];
-            sourceKeys.forEach(key => {
-                if (key.startsWith(comboKey + "::") || (variantId === 'none' && key.startsWith(`${formatId}::${materialId}::`) && key.split('::').length === 3)) {
-                    const parts = key.split('::');
-                    const qty = parseInt(parts[parts.length - 1]);
-                    const data = sourcePrices[key];
-                    if (data && typeof (data) !== 'number' && data.isLocked && data.price > 0 && !data.excludeFromCurve) {
-                        comboAnchors.push({
-                            quantity: qty,
-                            price: data.price,
-                            markup: data.markup || 0
-                        });
-                    } else if (typeof (data) === 'number' && data > 0) {
-                        // Fallback for flat number prices (legacy/imported) - treat as anchor if valid
-                        comboAnchors.push({ quantity: qty, price: data, markup: 0 });
-                    }
-                }
-            });
-
-            // Use ALL effective oplag steps for this row
             effectiveOplag.forEach(qty => {
                 const fullKey = getGenPriceKey(formatId, materialId, variantId, qty);
-                const existingData = sourcePrices[fullKey];
-
-                // If explicit Locked/Manual price exists, use it. Otherwise Interpolate.
-                // We prefer explicit values to honour manual overrides that might be "off-curve"
-                let basePriceWithLocalMarkup = 0;
-
-                if (existingData && typeof existingData !== 'number' && existingData.isLocked && existingData.price > 0) {
-                    // Use explicit locked price
-                    basePriceWithLocalMarkup = existingData.price * (1 + (existingData.markup || 0) / 100);
-                } else if (typeof existingData === 'number' && existingData > 0) {
-                    // Use explicit legacy price
-                    basePriceWithLocalMarkup = existingData;
-                } else {
-                    // Interpolate from anchors
-                    basePriceWithLocalMarkup = interpolatePrice(qty, comboAnchors);
-
-                    // Apply local markup from the interpolated point if any (this mimics the previous logic, though typically interpolation includes markup)
-                    // In the reverted code, interpolatePrice returns "priceWithMarkup".
-                    // So specific local markup application again might be double-counting if interpolatePrice already does it.
-                    // IMPORTANT: The reverted interpolatePrice function ALREADY applies (1+markup/100).
-                    // So we do NOT need to apply local markup again here.
-                }
-
-                if (basePriceWithLocalMarkup <= 0) return;
-
-                // Apply Product & Master Markup
-                const prodMarkupKey = `${formatId}::${materialId}${variantId !== 'none' ? `::${variantId}` : ''}`;
-                const prodMarkup = productMarkups[prodMarkupKey] || 0;
-
-                // Final Price Calculation
-                const finalPrice = Math.round(basePriceWithLocalMarkup * (1 + prodMarkup / 100) * (1 + masterMarkup / 100) / genRounding) * genRounding;
-
-                allPrices[fullKey] = finalPrice;
+                const computed = computeFinalPriceForContextFromSource(sourcePrices, formatId, materialId, variantId, qty);
+                if (!computed || !computed.price || computed.price <= 0) return;
+                allPrices[fullKey] = computed.price;
             });
         });
 
@@ -3768,6 +4397,27 @@ export function ProductAttributeBuilder({
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                        <div className="flex flex-wrap gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleSaveMaterialsToLibrary}
+                                disabled={savingMaterialLibrary}
+                            >
+                                <Save className="h-3.5 w-3.5 mr-1.5" />
+                                {savingMaterialLibrary ? 'Gemmer...' : 'Gem materialer til bibliotek'}
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleSaveFormatsToLibrary}
+                                disabled={savingFormatLibrary}
+                            >
+                                <Save className="h-3.5 w-3.5 mr-1.5" />
+                                {savingFormatLibrary ? 'Gemmer...' : 'Gem formater til bibliotek'}
+                            </Button>
+                        </div>
+
                         {/* Tab Toggle */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                             <Button
@@ -3907,6 +4557,7 @@ export function ProductAttributeBuilder({
                                 </div>
 
                                 <TemplateLibraryBrowser
+                                    key={`format-${libraryRefreshKey}`}
                                     onCreateNew={() => setShowCreateTemplateDialog(true)}
                                     onSelect={async (template: any) => {
                                         const scrollY = window.scrollY;
@@ -4337,6 +4988,10 @@ export function ProductAttributeBuilder({
                                                                 <SelectItem value="dropdown">Dropdown</SelectItem>
                                                                 <SelectItem value="checkboxes">Checkboxes</SelectItem>
                                                                 <SelectItem value="hidden">Skjul</SelectItem>
+                                                                <SelectItem value="small">Billeder S (40px)</SelectItem>
+                                                                <SelectItem value="medium">Billeder M (64px)</SelectItem>
+                                                                <SelectItem value="large">Billeder L (96px)</SelectItem>
+                                                                <SelectItem value="xl">Billeder XL (128px)</SelectItem>
                                                             </SelectContent>
                                                         </Select>
                                                     </div>
@@ -4672,26 +5327,72 @@ export function ProductAttributeBuilder({
                                                                             })}
                                                                         </SelectContent>
                                                                     </Select>
-                                                                ) : (
+                                                                ) : displayMode === 'checkboxes' ? (
                                                                     <div className="flex flex-wrap gap-2">
                                                                         {values.map(v => {
                                                                             const isSelected = selectedValue === v.id;
                                                                             const settings = section.valueSettings?.[v.id];
-
-                                                                            if (displayMode === 'checkboxes') {
-                                                                                return (
-                                                                                    <div key={v.id} className="flex items-center space-x-2 border p-2 rounded cursor-pointer hover:bg-muted/50" onClick={() => setSelectedValue(v.id)}>
-                                                                                        <Checkbox checked={isSelected} onCheckedChange={() => setSelectedValue(v.id)} />
-                                                                                        <div className="flex items-center gap-2">
-                                                                                            {settings?.showThumbnail && settings.customImage && (
-                                                                                                <img src={settings.customImage} className="w-6 h-6 object-cover rounded" />
-                                                                                            )}
-                                                                                            <span className="text-sm">{v.name}</span>
-                                                                                        </div>
+                                                                            return (
+                                                                                <div key={v.id} className="flex items-center space-x-2 border p-2 rounded cursor-pointer hover:bg-muted/50" onClick={() => setSelectedValue(v.id)}>
+                                                                                    <Checkbox checked={isSelected} onCheckedChange={() => setSelectedValue(v.id)} />
+                                                                                    <div className="flex items-center gap-2">
+                                                                                        {settings?.showThumbnail && settings.customImage && (
+                                                                                            <img src={settings.customImage} className="w-6 h-6 object-cover rounded" />
+                                                                                        )}
+                                                                                        <span className="text-sm">{v.name}</span>
                                                                                     </div>
-                                                                                );
-                                                                            }
-
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                ) : ['small', 'medium', 'large', 'xl'].includes(displayMode) ? (
+                                                                    /* Picture grid display */
+                                                                    <div className="flex flex-wrap gap-2">
+                                                                        {values.map(v => {
+                                                                            const isSelected = selectedValue === v.id;
+                                                                            const settings = section.valueSettings?.[v.id];
+                                                                            const thumbUrl = settings?.customImage;
+                                                                            const size = PICTURE_SIZES[displayMode as PictureSizeMode] || PICTURE_SIZES.medium;
+                                                                            return (
+                                                                                <button
+                                                                                    key={v.id}
+                                                                                    onClick={() => setSelectedValue(v.id)}
+                                                                                    className={cn(
+                                                                                        "relative rounded-lg border-2 transition-all flex flex-col items-center overflow-hidden",
+                                                                                        isSelected
+                                                                                            ? "border-primary ring-2 ring-primary/20"
+                                                                                            : "border-muted hover:border-muted-foreground/50"
+                                                                                    )}
+                                                                                    style={{ width: size.width, minHeight: size.height + (displayMode !== 'small' ? 22 : 0) }}
+                                                                                >
+                                                                                    {thumbUrl ? (
+                                                                                        <img src={thumbUrl} alt={v.name} className="w-full object-cover rounded-t-md" style={{ height: size.height }} />
+                                                                                    ) : (
+                                                                                        <div
+                                                                                            className={cn(
+                                                                                                "w-full flex items-center justify-center bg-muted text-xs font-semibold text-muted-foreground rounded-t-md",
+                                                                                                isSelected && "bg-primary/10 text-primary"
+                                                                                            )}
+                                                                                            style={{ height: size.height }}
+                                                                                        >
+                                                                                            {(v.name || '?').slice(0, 3).toUpperCase()}
+                                                                                        </div>
+                                                                                    )}
+                                                                                    {displayMode !== 'small' && (
+                                                                                        <span className="text-[10px] leading-tight text-center truncate w-full px-1 py-0.5">
+                                                                                            {v.name}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </button>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                ) : (
+                                                                    /* Default: buttons */
+                                                                    <div className="flex flex-wrap gap-2">
+                                                                        {values.map(v => {
+                                                                            const isSelected = selectedValue === v.id;
+                                                                            const settings = section.valueSettings?.[v.id];
                                                                             return (
                                                                                 <button
                                                                                     key={v.id}
@@ -4740,6 +5441,31 @@ export function ProductAttributeBuilder({
                                         <SelectContent>
                                             {(activeVariantGroup.values || []).filter(v => v.enabled).map(v => (
                                                 <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+
+                            {activeGenFormat && activeGenMaterial && copyOptions.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-2 pt-3">
+                                    <span className="text-xs text-muted-foreground">Kopier priser fra:</span>
+                                    <Select
+                                        value={copySourceKey}
+                                        onValueChange={(value) => {
+                                            setCopySourceKey(value);
+                                            handleCopyPricesFrom(value);
+                                            requestAnimationFrame(() => setCopySourceKey(''));
+                                        }}
+                                    >
+                                        <SelectTrigger className="h-7 w-full md:w-[320px] text-xs">
+                                            <SelectValue placeholder="Vælg kombination..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {copyOptions.map(option => (
+                                                <SelectItem key={option.key} value={option.key}>
+                                                    {option.label}
+                                                </SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
@@ -4798,7 +5524,9 @@ export function ProductAttributeBuilder({
                                                 // Defensive calculations
                                                 const localMarkup = Number(anchorData.markup) || 0;
                                                 const prodMarkup = productMarkups[`${activeGenFormat}::${activeGenMaterial}`] || 0;
-                                                const totalMultiplier = (1 + localMarkup / 100) * (1 + prodMarkup / 100);
+                                                const master = Number(masterMarkup) || 0;
+                                                const rnd = Number(genRounding) || 1;
+                                                const totalMultiplier = (1 + localMarkup / 100) * (1 + prodMarkup / 100) * (1 + master / 100);
 
                                                 // Calculate interpolated price safely - ONLY if between two anchors
                                                 let interpolatedPrice: number | null = null;
@@ -4818,7 +5546,7 @@ export function ProductAttributeBuilder({
                                                                 rawInterpolatedBase = price;
                                                                 price = price * (1 + localMarkup / 100);
                                                                 price = price * (1 + prodMarkup / 100);
-                                                                const rnd = Number(genRounding) || 1;
+                                                                price = price * (1 + master / 100);
                                                                 interpolatedPrice = Math.round(price / rnd) * rnd;
                                                             }
                                                         }
@@ -4829,7 +5557,6 @@ export function ProductAttributeBuilder({
                                                 let displayPrice: number | string = '';
                                                 if (isLocked && typeof anchorData.price === 'number') {
                                                     const val = anchorData.price * totalMultiplier;
-                                                    const rnd = Number(genRounding) || 5;
                                                     if (!isNaN(val)) {
                                                         displayPrice = Math.round(val / rnd) * rnd;
                                                     }
@@ -4871,21 +5598,22 @@ export function ProductAttributeBuilder({
                                                                 value={
                                                                     // If locked (anchor) or excluded (individual override), show manual value
                                                                     (isLocked || anchorData.excludeFromCurve) && anchorData.price
-                                                                        ? Math.round(anchorData.price * (1 + (anchorData.markup || 0) / 100) * (1 + prodMarkup / 100))
+                                                                        ? Math.round(anchorData.price * (1 + (anchorData.markup || 0) / 100) * (1 + prodMarkup / 100) * (1 + master / 100) / rnd) * rnd
                                                                         // If there's an interpolated value, show that instead
                                                                         : interpolatedPrice
                                                                             ? interpolatedPrice
                                                                             // Otherwise show manual value if exists, or empty
                                                                             : anchorData.price
-                                                                                ? Math.round(anchorData.price * (1 + (anchorData.markup || 0) / 100) * (1 + prodMarkup / 100))
+                                                                                ? Math.round(anchorData.price * (1 + (anchorData.markup || 0) / 100) * (1 + prodMarkup / 100) * (1 + master / 100) / rnd) * rnd
                                                                                 : ''
                                                                 }
                                                                 onChange={(e) => {
                                                                     const finalPrice = parseFloat(e.target.value) || 0;
                                                                     const localMarkup = anchorData.markup || 0;
                                                                     const prodMarkup = productMarkups[`${activeGenFormat}::${activeGenMaterial}`] || 0;
+                                                                    const master = Number(masterMarkup) || 0;
                                                                     // Reverse-calculate base price from final price
-                                                                    const totalMultiplier = (1 + localMarkup / 100) * (1 + prodMarkup / 100);
+                                                                    const totalMultiplier = (1 + localMarkup / 100) * (1 + prodMarkup / 100) * (1 + master / 100);
                                                                     const basePrice = totalMultiplier !== 0 ? finalPrice / totalMultiplier : 0;
                                                                     setAnchorData(qty, { price: basePrice, markup: localMarkup, excludeFromCurve: false, isLocked: false });
                                                                 }}
@@ -4893,8 +5621,9 @@ export function ProductAttributeBuilder({
                                                             />
                                                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">kr</span>
                                                         </div>
-                                                        {/* Per-anchor markup slider (-70% to +70%) */}
-                                                        <div className="flex-1 flex items-center gap-2 min-w-[100px]">
+                                                        {/* Per-anchor markup slider (-100% to +100%) */}
+                                                        <div className="flex-1 flex items-center gap-2 min-w-[160px]">
+                                                            <span className="text-[10px] text-muted-foreground">-100%</span>
                                                             <CenterSlider
                                                                 value={[anchorData.markup || 0]}
                                                                 onValueChange={([v]) => {
@@ -4920,12 +5649,13 @@ export function ProductAttributeBuilder({
                                                                     // Otherwise just update the markup without changing lock state
                                                                     setAnchorData(qty, updates);
                                                                 }}
-                                                                min={-70}
-                                                                max={70}
+                                                                min={-100}
+                                                                max={100}
                                                                 step={1}
                                                                 className="flex-1"
                                                             />
-                                                            <span className="text-xs text-muted-foreground w-10 text-right">
+                                                            <span className="text-[10px] text-muted-foreground">+100%</span>
+                                                            <span className="text-xs font-medium w-14 text-right">
                                                                 {anchorData.markup && anchorData.markup > 0 ? '+' : ''}
                                                                 {anchorData.markup || 0}%
                                                             </span>
@@ -4968,12 +5698,12 @@ export function ProductAttributeBuilder({
                                         <CenterSlider
                                             value={[productMarkups[`${activeGenFormat}::${activeGenMaterial}`] || 0]}
                                             onValueChange={([v]) => setProductMarkups(prev => ({ ...prev, [`${activeGenFormat}::${activeGenMaterial}`]: v }))}
-                                            min={-200}
-                                            max={200}
+                                            min={-100}
+                                            max={100}
                                             step={1}
                                             className="flex-1"
                                         />
-                                        <span className="text-sm w-14 text-right">
+                                        <span className="text-sm w-16 text-right">
                                             {(productMarkups[`${activeGenFormat}::${activeGenMaterial}`] || 0) > 0 ? '+' : ''}{productMarkups[`${activeGenFormat}::${activeGenMaterial}`] || 0}%
                                         </span>
                                     </div>
@@ -5038,19 +5768,32 @@ export function ProductAttributeBuilder({
                                         <LayoutGrid className="h-4 w-4" />
                                         Prisliste forhåndsvisning
                                     </CardTitle>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={handleResetPriceListConfig}
-                                    >
-                                        <RotateCcw className="h-3.5 w-3.5 mr-2" />
-                                        Nulstil prisliste
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            variant={matrixEditMode ? "default" : "outline"}
+                                            size="sm"
+                                            onClick={() => setMatrixEditMode(prev => !prev)}
+                                        >
+                                            <Pencil className="h-3.5 w-3.5 mr-2" />
+                                            {matrixEditMode ? "Redigering aktiv" : "Rediger priser"}
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={handleResetPriceListConfig}
+                                        >
+                                            <RotateCcw className="h-3.5 w-3.5 mr-2" />
+                                            Nulstil prisliste
+                                        </Button>
+                                    </div>
                                 </div>
                                 <CardDescription className="text-xs">
                                     {showGenerator
                                         ? 'Priser opdateres live fra generatoren. Klik på format/materiale for at vælge.'
                                         : 'Indtast priser manuelt, eller åbn generatoren for automatisk beregning.'}
+                                    {matrixEditMode && (
+                                        <span className="ml-2 text-muted-foreground">Klik på en pris for at redigere.</span>
+                                    )}
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
@@ -5060,12 +5803,12 @@ export function ProductAttributeBuilder({
                                     <CenterSlider
                                         value={[masterMarkup]}
                                         onValueChange={([v]) => setMasterMarkup(v)}
-                                        min={-200}
-                                        max={200}
+                                        min={-100}
+                                        max={100}
                                         step={1}
                                         className="flex-1 max-w-xs"
                                     />
-                                    <span className="text-sm w-12 text-right font-medium">
+                                    <span className="text-sm w-16 text-right font-medium">
                                         {masterMarkup > 0 ? '+' : ''}{masterMarkup}%
                                     </span>
                                     <div className="text-xs text-muted-foreground ml-auto">
@@ -5395,9 +6138,6 @@ export function ProductAttributeBuilder({
                                                     const rowFormatId = getActiveFormatId(rowSelections);
                                                     const rowMaterialId = getActiveMaterialId(rowSelections);
                                                     const rowVariantId = getVariantKeyFromSelections(rowSelections);
-
-                                                    // Get anchors for this specific row
-                                                    const anchorsArray = getAnchorsForContext(rowFormatId, rowMaterialId, rowVariantId);
                                                     const settings = verticalAxisConfig.valueSettings?.[verticalValue.id];
 
                                                     return (
@@ -5423,39 +6163,44 @@ export function ProductAttributeBuilder({
                                                             </TableCell>
                                                             {visibleOplag.map((qty) => {
                                                                 const priceKey = getGenPriceKey(rowFormatId, rowMaterialId, rowVariantId, qty);
-                                                                let priceValue: number | null = null;
-
-                                                                // 1. Check generator price
-                                                                const genPriceData = generatorPrices[priceKey];
-                                                                if (genPriceData?.price > 0) {
-                                                                    const localMarkup = Number(genPriceData.markup) || 0;
-                                                                    const markupKey = `${rowFormatId}::${rowMaterialId}${rowVariantId !== 'none' ? `::${rowVariantId}` : ''}`;
-                                                                    const mm = productMarkups[markupKey] || 0;
-                                                                    const gm = Number(masterMarkup) || 0;
-                                                                    const rnd = Number(genRounding) || 1;
-                                                                    let finalPrice = genPriceData.price * (1 + localMarkup / 100) * (1 + mm / 100) * (1 + gm / 100);
-                                                                    priceValue = Math.round(finalPrice / rnd) * rnd;
-                                                                }
-
-                                                                // 2. Live interpolation
-                                                                if (!priceValue && anchorsArray.length >= 1) {
-                                                                    try {
-                                                                        let interpolated = interpolatePrice(qty, anchorsArray);
-                                                                        const markupKey = `${rowFormatId}::${rowMaterialId}${rowVariantId !== 'none' ? `::${rowVariantId}` : ''}`;
-                                                                        const mm = productMarkups[markupKey] || 0;
-                                                                        const gm = Number(masterMarkup) || 0;
-                                                                        const rnd = Number(genRounding) || 1;
-                                                                        interpolated = interpolated * (1 + mm / 100) * (1 + gm / 100);
-                                                                        priceValue = Math.round(interpolated / rnd) * rnd;
-                                                                    } catch (e) { }
-                                                                }
+                                                                const isEditing = matrixEditMode && editingPriceKey === priceKey;
+                                                                const computed = computeFinalPriceForContext(rowFormatId, rowMaterialId, rowVariantId, qty);
+                                                                const priceValue = computed?.price ?? null;
 
                                                                 return (
                                                                     <TableCell
                                                                         key={qty}
-                                                                        className="text-center p-1 text-sm font-medium"
+                                                                        className={cn(
+                                                                            "text-center p-1 text-sm font-medium",
+                                                                            matrixEditMode && "cursor-pointer hover:bg-muted/40"
+                                                                        )}
+                                                                        onClick={(e) => {
+                                                                            if (!matrixEditMode) return;
+                                                                            e.stopPropagation();
+                                                                            setSelection(verticalValue.id);
+                                                                            setEditingPriceKey(priceKey);
+                                                                            setEditingPriceValue(priceValue ? String(priceValue) : '');
+                                                                        }}
                                                                     >
-                                                                        {priceValue ? `${priceValue.toLocaleString()} kr` : '—'}
+                                                                        {isEditing ? (
+                                                                            <Input
+                                                                                type="number"
+                                                                                value={editingPriceValue}
+                                                                                onChange={(e) => setEditingPriceValue(e.target.value)}
+                                                                                onBlur={() => commitEditingPrice(priceKey)}
+                                                                                onKeyDown={(e) => {
+                                                                                    if (e.key === 'Enter') commitEditingPrice(priceKey);
+                                                                                    if (e.key === 'Escape') {
+                                                                                        setEditingPriceKey(null);
+                                                                                        setEditingPriceValue('');
+                                                                                    }
+                                                                                }}
+                                                                                className="h-7 text-xs text-center"
+                                                                                autoFocus
+                                                                            />
+                                                                        ) : (
+                                                                            priceValue ? `${priceValue.toLocaleString()} kr` : '—'
+                                                                        )}
                                                                     </TableCell>
                                                                 );
                                                             })}
@@ -5531,6 +6276,10 @@ export function ProductAttributeBuilder({
                                 <Button variant="outline" onClick={handleExportCSV} className="bg-background">
                                     <Download className="h-4 w-4 mr-2" />
                                     1. Eksporter Skabelon (CSV)
+                                </Button>
+                                <Button variant="outline" onClick={handleExportCSVWithPrices} className="bg-background">
+                                    <Download className="h-4 w-4 mr-2" />
+                                    Eksporter med priser (CSV)
                                 </Button>
 
                                 <div className="h-8 w-px bg-border hidden sm:block"></div>
