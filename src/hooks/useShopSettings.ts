@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { applyActiveSiteThemeToBranding } from "@/lib/sites/activeSiteBranding";
 
 // Define the root domain for subdomain parsing
 const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
@@ -32,14 +33,19 @@ function extractPublishedBranding(settings: any): any {
 /**
  * Normalize tenant settings to always have flat branding at the top level.
  */
-function normalizeSettings(tenant: any): any {
+function normalizeSettings(tenant: any, forceSiteId?: string | null): any {
     const settings = tenant?.settings || {};
     const publishedBranding = extractPublishedBranding(settings);
+    const siteAwareBranding = applyActiveSiteThemeToBranding(
+        publishedBranding,
+        settings,
+        forceSiteId
+    );
 
     return {
         ...settings,
         // Override branding with the flattened published version
-        branding: publishedBranding,
+        branding: siteAwareBranding,
         // Keep rawBranding for debugging if needed
         _rawBranding: settings.branding,
         tenant_name: tenant?.name,
@@ -55,6 +61,7 @@ export function useShopSettings() {
     const forceDomain = searchParams.get('force_domain');
     const forceSubdomain = searchParams.get('tenant_subdomain');
     const forceTenantId = searchParams.get('tenantId') || searchParams.get('tenant_id');
+    const forceSiteId = searchParams.get('siteId') || searchParams.get('site_id');
     const hostname = window.location.hostname;
 
     // Track auth state - distinguish between "not checked yet" and "checked, no user"
@@ -79,7 +86,15 @@ export function useShopSettings() {
 
     return useQuery({
         // Only include userId in query key AFTER auth is checked to prevent key thrashing
-        queryKey: ["shop-settings", hostname, forceDomain, forceSubdomain, forceTenantId, authState.checked ? authState.userId : null],
+        queryKey: [
+            "shop-settings",
+            hostname,
+            forceDomain,
+            forceSubdomain,
+            forceTenantId,
+            forceSiteId,
+            authState.checked ? authState.userId : null
+        ],
         // Don't run query until auth state is determined
         enabled: authState.checked,
         queryFn: async () => {
@@ -104,7 +119,7 @@ export function useShopSettings() {
                         .maybeSingle();
 
                     if (tenantById) {
-                        return normalizeSettings(tenantById);
+                        return normalizeSettings(tenantById, forceSiteId);
                     }
                 }
             }
@@ -138,7 +153,7 @@ export function useShopSettings() {
                     .maybeSingle();
 
                 if (tenantByDomain) {
-                    return normalizeSettings(tenantByDomain);
+                    return normalizeSettings(tenantByDomain, forceSiteId);
                 }
 
                 // B. Subdomain Match (e.g. shop1.webprinter.dk or shop1.webprinter-platform.vercel.app)
@@ -161,7 +176,7 @@ export function useShopSettings() {
                         .maybeSingle();
 
                     if (tenantByDomain) {
-                        return normalizeSettings(tenantByDomain);
+                        return normalizeSettings(tenantByDomain, forceSiteId);
                     }
                 }
             }
@@ -214,11 +229,11 @@ export function useShopSettings() {
                     console.log("[useShopSettings] Filtered real shops (Fix Applied):", realShops.map(t => t.name));
 
                     if (realShops.length > 0) {
-                        return normalizeSettings(realShops[0]);
+                        return normalizeSettings(realShops[0], forceSiteId);
                     }
 
                     // Fallback: If they ONLY own Master (weird, but possible), show master.
-                    return normalizeSettings(list[0]);
+                    return normalizeSettings(list[0], forceSiteId);
                 }
             }
 
@@ -231,7 +246,7 @@ export function useShopSettings() {
 
             if (master) {
                 // For master, override subdomain with 'master'
-                const normalized = normalizeSettings(master);
+                const normalized = normalizeSettings(master, forceSiteId);
                 return { ...normalized, subdomain: 'master' };
             }
 
@@ -241,4 +256,3 @@ export function useShopSettings() {
         retry: 1
     });
 }
-

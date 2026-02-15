@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { getPageBackgroundStyle } from "@/lib/branding/background";
+import { useTenantModules } from "@/hooks/useTenantModules";
 
 export default function CompanyHub() {
     const navigate = useNavigate();
@@ -19,7 +20,9 @@ export default function CompanyHub() {
     const [checkingAuth, setCheckingAuth] = useState(true);
     const [currentUser, setCurrentUser] = useState<any>(null);
     const { data: settings } = useShopSettings();
+    const modules = useTenantModules({ tenantId: settings?.id ?? null });
     const pageBackgroundStyle = getPageBackgroundStyle(settings?.branding);
+    const companyHubEnabled = modules.isModuleEnabled("company-hub");
 
     useEffect(() => {
         async function checkAuth() {
@@ -45,6 +48,25 @@ export default function CompanyHub() {
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+        );
+    }
+
+    if (settings?.id && !modules.isLoading && !companyHubEnabled) {
+        return (
+            <div className="min-h-screen flex flex-col">
+                <Header />
+                <main className="flex-1 container mx-auto px-4 py-24 flex items-center justify-center text-center" style={pageBackgroundStyle}>
+                    <div className="max-w-md space-y-4">
+                        <Building2 className="h-12 w-12 text-muted-foreground mx-auto opacity-20" />
+                        <h1 className="text-2xl font-bold">Company Hub er slået fra</h1>
+                        <p className="text-muted-foreground italic">
+                            Denne shop har ikke Company Hub aktiv lige nu.
+                        </p>
+                        <Button variant="outline" onClick={() => navigate("/")}>Forside</Button>
+                    </div>
+                </main>
+                <Footer />
             </div>
         );
     }

@@ -40,6 +40,7 @@ import PlatformPrivacyPolicy from "./pages/platform/PlatformPrivacyPolicy";
 import PlatformHandelsbetingelser from "./pages/platform/PlatformHandelsbetingelser";
 
 import { PreviewInteractionManager } from "@/components/preview/PreviewInteractionManager";
+import { PreviewRouteRedirect } from "@/components/preview/PreviewRouteRedirect";
 
 // Cookie consent
 import { CookieConsentProvider, CookieBanner, CookieSettingsDialog } from "@/components/consent";
@@ -83,17 +84,73 @@ const App = () => (
               <Route path="/cookiepolitik" element={<Cookiepolitik />} />
 
               {/* Contact - platform on marketing domain, tenant on shop domains */}
-              <Route path="/kontakt" element={<ContactRouter />} />
+              <Route
+                path="/kontakt"
+                element={
+                  <PreviewRouteRedirect>
+                    <ContactRouter />
+                  </PreviewRouteRedirect>
+                }
+              />
 
               {/* Dynamic Root: Shop on localhost (dev), Landing Page on main domain, Shop on subdomains */}
-              <Route path="/" element={<SubdomainRouter />} />
+              <Route
+                path="/"
+                element={
+                  <PreviewRouteRedirect>
+                    <SubdomainRouter />
+                  </PreviewRouteRedirect>
+                }
+              />
 
-              <Route path="/om-os" element={<About />} />
-              <Route path="/betingelser" element={<Terms />} />
-              <Route path="/produkter" element={<Shop />} />
-              <Route path="/shop" element={<Shop />} />
-              <Route path="/prisberegner" element={<Shop />} />
-              <Route path="/produkt/:slug" element={<ProductPrice />} />
+              <Route
+                path="/om-os"
+                element={
+                  <PreviewRouteRedirect>
+                    <About />
+                  </PreviewRouteRedirect>
+                }
+              />
+              <Route
+                path="/betingelser"
+                element={
+                  <PreviewRouteRedirect>
+                    <Terms />
+                  </PreviewRouteRedirect>
+                }
+              />
+              <Route
+                path="/produkter"
+                element={
+                  <PreviewRouteRedirect>
+                    <Shop />
+                  </PreviewRouteRedirect>
+                }
+              />
+              <Route
+                path="/shop"
+                element={
+                  <PreviewRouteRedirect>
+                    <Shop />
+                  </PreviewRouteRedirect>
+                }
+              />
+              <Route
+                path="/prisberegner"
+                element={
+                  <PreviewRouteRedirect>
+                    <Shop />
+                  </PreviewRouteRedirect>
+                }
+              />
+              <Route
+                path="/produkt/:slug"
+                element={
+                  <PreviewRouteRedirect>
+                    <ProductPrice />
+                  </PreviewRouteRedirect>
+                }
+              />
               <Route path="/checkout/konfigurer" element={<FileUploadConfiguration />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/opret-shop" element={<TenantSignup />} />

@@ -8,12 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Loader2, Upload, AlertCircle, CheckCircle2, FileText, ArrowRight, Download, Info, Zap, Sparkles, Package, X } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { PreflightGuide } from "@/components/product-price-page/PreflightGuide";
 import { StripePaymentForm } from "@/components/checkout/StripePaymentForm";
 import { getPageBackgroundStyle } from "@/lib/branding/background";
+import { ptToMm } from "@/utils/unitConversions";
+import { getImageDpi } from "@/utils/imageMetadata";
 import {
     getFlyerMatrixDataFromDB,
     getFolderMatrixDataFromDB,
@@ -57,6 +60,28 @@ const STANDARD_SPECS: Record<string, { width_mm: number; height_mm: number; min_
     "85x55": { width_mm: 85, height_mm: 55, min_dpi: 300 },
 };
 
+const A3_SHORT_MM = 297;
+const A3_LONG_MM = 420;
+const MM_PER_INCH = 25.4;
+const SIZE_TOLERANCE_MM = 1.5;
+const ASPECT_RATIO_TOLERANCE = 0.03;
+const PDF_PREVIEW_MAX_PX = 1400;
+
+const toNumberOrNull = (value: unknown): number | null => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+const isAtMostA3 = (widthMm: number, heightMm: number): boolean => {
+    const shortSide = Math.min(widthMm, heightMm);
+    const longSide = Math.max(widthMm, heightMm);
+    return shortSide <= A3_SHORT_MM && longSide <= A3_LONG_MM;
+};
+
+const getSizeBasedMinDpi = (widthMm: number, heightMm: number): number => (
+    isAtMostA3(widthMm, heightMm) ? 300 : 150
+);
+
 const FileUploadConfiguration = () => {
     const location = useLocation();
     const navigate = useNavigate();
@@ -77,12 +102,21 @@ const FileUploadConfiguration = () => {
     } | null>(null);
     const [paymentStatusLoaded, setPaymentStatusLoaded] = useState(false);
     const [preflightResults, setPreflightResults] = useState<{
+        fileType: "image" | "pdf";
         dpi?: number;
         width_px?: number;
         height_px?: number;
+        file_width_mm?: number;
+        file_height_mm?: number;
+        target_width_mm?: number;
+        target_height_mm?: number;
+        required_dpi: number;
+        source_dpi?: number;
         aspectRatioMatch: boolean;
+        sizeMatch: boolean;
         dpiOk: boolean;
         issues: string[];
+        warnings: string[];
     } | null>(null);
     const [platformPreflight, setPlatformPreflight] = useState<{
         status: "PROCESSING" | "PROCESSED" | "FAILED";
@@ -95,6 +129,10 @@ const FileUploadConfiguration = () => {
     } | null>(null);
     const [platformPreflightLoading, setPlatformPreflightLoading] = useState(false);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [previewType, setPreviewType] = useState<"image" | "pdf" | null>(null);
+    const [softProofEnabled, setSoftProofEnabled] = useState(false);
+    const [previewFitToTarget, setPreviewFitToTarget] = useState(false);
+    const [isDropZoneActive, setIsDropZoneActive] = useState(false);
 
     // Local Order Configuration (to allow for Best Deal upgrades)
     const [orderQuantity, setOrderQuantity] = useState<number>(state?.quantity || 0);
@@ -109,6 +147,43 @@ const FileUploadConfiguration = () => {
     const [paymentSuccess, setPaymentSuccess] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const previewBlobUrlRef = useRef<string | null>(null);
+
+    const clearPreview = () => {
+        if (previewBlobUrlRef.current) {
+            URL.revokeObjectURL(previewBlobUrlRef.current);
+            previewBlobUrlRef.current = null;
+        }
+        setPreviewUrl(null);
+        setPreviewType(null);
+    };
+
+    const setPreview = (url: string, type: "image" | "pdf", isObjectUrl = false) => {
+        clearPreview();
+        if (isObjectUrl) {
+            previewBlobUrlRef.current = url;
+        }
+        setPreviewUrl(url);
+        setPreviewType(type);
+    };
+
+    const clearUploadedFileState = () => {
+        setUploadedFile(null);
+        setPreflightResults(null);
+        setPlatformPreflight(null);
+        setSoftProofEnabled(false);
+        setPreviewFitToTarget(false);
+        clearPreview();
+    };
+
+    useEffect(() => {
+        return () => {
+            if (previewBlobUrlRef.current) {
+                URL.revokeObjectURL(previewBlobUrlRef.current);
+                previewBlobUrlRef.current = null;
+            }
+        };
+    }, []);
     const handleBackToConfiguration = () => {
         if (window.history.length > 1) {
             navigate(-1);
@@ -183,17 +258,50 @@ const FileUploadConfiguration = () => {
         setPaymentClientSecret(null);
     };
 
-    // Resolve specs: prefer standard lookup if state.selectedFormat exists, otherwise use product metadata
+    // Resolve specs in this order:
+    // 1) explicit design dimensions from ProductPrice (most accurate)
+    // 2) known standard format lookup
+    // 3) product technical specs fallback
     const getResolvedSpecs = (): TechnicalSpecs | null => {
         const bleedDefault = 3;
+        const designWidthMm = toNumberOrNull(state?.designWidthMm);
+        const designHeightMm = toNumberOrNull(state?.designHeightMm);
+        const designBleedMm = toNumberOrNull(state?.designBleedMm);
+        const productBleedMm = toNumberOrNull(product?.technical_specs?.bleed_mm);
+
+        if (designWidthMm && designWidthMm > 0 && designHeightMm && designHeightMm > 0) {
+            return {
+                width_mm: designWidthMm,
+                height_mm: designHeightMm,
+                bleed_mm: designBleedMm !== null && designBleedMm >= 0
+                    ? designBleedMm
+                    : (productBleedMm !== null && productBleedMm >= 0 ? productBleedMm : bleedDefault),
+                min_dpi: getSizeBasedMinDpi(designWidthMm, designHeightMm),
+            };
+        }
+
         if (state?.selectedFormat && STANDARD_SPECS[state.selectedFormat]) {
             const std = STANDARD_SPECS[state.selectedFormat];
-            return { ...std, bleed_mm: bleedDefault };
+            return {
+                ...std,
+                bleed_mm: bleedDefault,
+                min_dpi: getSizeBasedMinDpi(std.width_mm, std.height_mm),
+            };
         }
+
         if (product?.technical_specs) {
-            return product.technical_specs as TechnicalSpecs;
+            const widthMm = toNumberOrNull(product.technical_specs.width_mm);
+            const heightMm = toNumberOrNull(product.technical_specs.height_mm);
+            if (widthMm && widthMm > 0 && heightMm && heightMm > 0) {
+                return {
+                    width_mm: widthMm,
+                    height_mm: heightMm,
+                    bleed_mm: productBleedMm !== null && productBleedMm >= 0 ? productBleedMm : bleedDefault,
+                    min_dpi: getSizeBasedMinDpi(widthMm, heightMm),
+                };
+            }
         }
-        // Very fallback for common products if nothing found
+
         return null;
     };
 
@@ -394,12 +502,22 @@ const FileUploadConfiguration = () => {
         }
     };
 
-    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-
+    const isSupportedUploadFile = (file: File) => {
         const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];
-        if (!allowedTypes.includes(file.type)) {
+        if (allowedTypes.includes(file.type)) return true;
+        const lowerName = file.name.toLowerCase();
+        return (
+            lowerName.endsWith('.pdf') ||
+            lowerName.endsWith('.jpg') ||
+            lowerName.endsWith('.jpeg') ||
+            lowerName.endsWith('.png') ||
+            lowerName.endsWith('.tif') ||
+            lowerName.endsWith('.tiff')
+        );
+    };
+
+    const processSelectedFile = async (file: File) => {
+        if (!isSupportedUploadFile(file)) {
             toast.error("Venligst upload en PDF eller et billede (JPG, PNG, TIFF)");
             return;
         }
@@ -408,6 +526,9 @@ const FileUploadConfiguration = () => {
         setUploadProgress(0);
         setPreflightResults(null);
         setPlatformPreflight(null);
+        setSoftProofEnabled(false);
+        setPreviewFitToTarget(false);
+        clearPreview();
 
         try {
             const fileExt = file.name.split('.').pop();
@@ -426,10 +547,12 @@ const FileUploadConfiguration = () => {
                 .getPublicUrl(filePath);
 
             setUploadedFile({ name: file.name, url: publicUrl, path: filePath });
-            setPreviewUrl(URL.createObjectURL(file));
+            if (file.type.startsWith('image/')) {
+                const objectUrl = URL.createObjectURL(file);
+                setPreview(objectUrl, "image", true);
+            }
 
             await runPreflight(file, { filePath, publicUrl });
-
             toast.success("Fil uploadet og tjekket");
         } catch (err) {
             console.error("Error uploading file:", err);
@@ -439,44 +562,220 @@ const FileUploadConfiguration = () => {
         }
     };
 
+    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        await processSelectedFile(file);
+        event.target.value = "";
+    };
+
+    const handleDropZoneDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!isDropZoneActive) setIsDropZoneActive(true);
+    };
+
+    const handleDropZoneDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const related = event.relatedTarget as Node | null;
+        if (related && event.currentTarget.contains(related)) return;
+        setIsDropZoneActive(false);
+    };
+
+    const handleDropZoneDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsDropZoneActive(false);
+
+        const getFileFromDrop = async (): Promise<File | null> => {
+            if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+                return event.dataTransfer.files[0];
+            }
+
+            const uriList = event.dataTransfer.getData('text/uri-list');
+            const textPlain = event.dataTransfer.getData('text/plain');
+            const htmlData = event.dataTransfer.getData('text/html');
+            const directUrl = (uriList || textPlain || "").trim();
+
+            let candidateUrl = directUrl;
+            if (!candidateUrl && htmlData) {
+                const srcMatch = htmlData.match(/src=["']([^"']+)["']/i);
+                if (srcMatch?.[1]) {
+                    candidateUrl = srcMatch[1];
+                }
+            }
+
+            if (!candidateUrl || !/^https?:\/\//i.test(candidateUrl)) {
+                return null;
+            }
+
+            try {
+                const response = await fetch(candidateUrl);
+                if (!response.ok) return null;
+                const blob = await response.blob();
+                const contentType = blob.type || "";
+                const extFromMime = contentType.includes("pdf")
+                    ? "pdf"
+                    : contentType.includes("jpeg")
+                        ? "jpg"
+                        : contentType.includes("png")
+                            ? "png"
+                            : contentType.includes("tiff")
+                                ? "tiff"
+                                : "";
+                const urlName = candidateUrl.split("/").pop()?.split("?")[0] || "";
+                const baseName = urlName || `dropped-image.${extFromMime || "bin"}`;
+                const fileName = /\.[a-z0-9]+$/i.test(baseName)
+                    ? baseName
+                    : `${baseName}.${extFromMime || "bin"}`;
+                return new File([blob], fileName, { type: contentType || undefined });
+            } catch (error) {
+                console.error("Could not fetch dropped URL:", error);
+                return null;
+            }
+        };
+
+        const file = await getFileFromDrop();
+        if (!file) {
+            toast.error("Kunne ikke læse den droppede fil. Prøv at trække en lokal fil fra din computer.");
+            return;
+        }
+        await processSelectedFile(file);
+    };
+
     const runPreflight = async (file: File, uploadInfo?: { filePath: string; publicUrl: string }) => {
         const specs = getResolvedSpecs();
         if (!specs) return;
 
         const issues: string[] = [];
+        const warnings: string[] = [];
         let dpi = 0;
         let width_px = 0;
         let height_px = 0;
+        let fileWidthMm = 0;
+        let fileHeightMm = 0;
+        let sourceDpi: number | undefined;
         let aspectRatioMatch = true;
+        let sizeMatch = true;
         let dpiOk = true;
+        const targetWidthMm = specs.width_mm + (specs.bleed_mm * 2);
+        const targetHeightMm = specs.height_mm + (specs.bleed_mm * 2);
+        const requiredDpi = specs.min_dpi;
+
+        const ratioDelta = (aWidth: number, aHeight: number, bWidth: number, bHeight: number): number => {
+            const ratioA = aWidth / aHeight;
+            const ratioB = bWidth / bHeight;
+            return Math.abs(ratioA - ratioB);
+        };
+
+        const isSizeMatch = (aWidthMm: number, aHeightMm: number, bWidthMm: number, bHeightMm: number, toleranceMm = SIZE_TOLERANCE_MM): boolean => {
+            const directMatch = Math.abs(aWidthMm - bWidthMm) <= toleranceMm && Math.abs(aHeightMm - bHeightMm) <= toleranceMm;
+            const rotatedMatch = Math.abs(aHeightMm - bWidthMm) <= toleranceMm && Math.abs(aWidthMm - bHeightMm) <= toleranceMm;
+            return directMatch || rotatedMatch;
+        };
 
         if (file.type.startsWith('image/')) {
-            const img = new Image();
-            img.src = URL.createObjectURL(file);
-            await new Promise((resolve) => (img.onload = resolve));
+            try {
+                const img = new Image();
+                const objectUrl = URL.createObjectURL(file);
+                img.src = objectUrl;
+                await new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = reject;
+                });
+                URL.revokeObjectURL(objectUrl);
 
-            width_px = img.width;
-            height_px = img.height;
+                width_px = img.width;
+                height_px = img.height;
+                const extractedDpi = await getImageDpi(file);
+                sourceDpi = extractedDpi && extractedDpi > 0 ? extractedDpi : 72;
+                if (!extractedDpi) {
+                    warnings.push("Billedet har ingen indlejret DPI metadata. Forhåndsvisning bruger 72 DPI som antagelse.");
+                }
 
-            const targetWidthMm = specs.width_mm + (specs.bleed_mm * 2);
-            const targetHeightMm = specs.height_mm + (specs.bleed_mm * 2);
+                const dpiW = width_px / (targetWidthMm / 25.4);
+                const dpiH = height_px / (targetHeightMm / 25.4);
+                dpi = Math.min(dpiW, dpiH);
+                fileWidthMm = (width_px / sourceDpi) * MM_PER_INCH;
+                fileHeightMm = (height_px / sourceDpi) * MM_PER_INCH;
 
-            const dpiW = width_px / (targetWidthMm / 25.4);
-            const dpiH = height_px / (targetHeightMm / 25.4);
-            dpi = Math.min(dpiW, dpiH);
+                if (dpi < requiredDpi) {
+                    dpiOk = false;
+                    issues.push(`Opløsningen er for lav: ${Math.round(dpi)} DPI (minimum ${requiredDpi} DPI for dette format).`);
+                }
 
-            if (dpi < specs.min_dpi) {
+                const directRatioDelta = ratioDelta(width_px, height_px, targetWidthMm, targetHeightMm);
+                const rotatedRatioDelta = ratioDelta(width_px, height_px, targetHeightMm, targetWidthMm);
+                aspectRatioMatch = Math.min(directRatioDelta, rotatedRatioDelta) <= ASPECT_RATIO_TOLERANCE;
+                if (!aspectRatioMatch) {
+                    aspectRatioMatch = false;
+                    issues.push("Størrelsesforholdet matcher ikke produktet. Filen kan blive beskåret uhensigtsmæssigt.");
+                }
+
+                const requiredWidthPx = (targetWidthMm / MM_PER_INCH) * requiredDpi;
+                const requiredHeightPx = (targetHeightMm / MM_PER_INCH) * requiredDpi;
+                const directFit = width_px >= requiredWidthPx && height_px >= requiredHeightPx;
+                const rotatedFit = width_px >= requiredHeightPx && height_px >= requiredWidthPx;
+                sizeMatch = directFit || rotatedFit;
+                if (!sizeMatch) {
+                    issues.push(
+                        `Dokumentet er fysisk for lille: kræver mindst ${Math.round(requiredWidthPx)} x ${Math.round(requiredHeightPx)} px ved ${requiredDpi} DPI.`
+                    );
+                }
+            } catch (imgErr) {
+                console.error("Image browser preflight failed:", imgErr);
                 dpiOk = false;
-                issues.push(`Opløsningen er for lav: ${Math.round(dpi)} DPI (Minimum ${specs.min_dpi} DPI påkrævet inkl. beskæring)`);
-            }
-
-            const fileRatio = width_px / height_px;
-            const targetRatio = targetWidthMm / targetHeightMm;
-            if (Math.abs(fileRatio - targetRatio) > 0.05) {
+                sizeMatch = false;
                 aspectRatioMatch = false;
-                issues.push("Størrelsesforholdet matcher ikke produktet. Filen kan blive beskåret uhensigtsmæssigt.");
+                issues.push("Kunne ikke læse billedfilens dimensioner i browseren.");
             }
         } else if (file.type === 'application/pdf') {
+            try {
+                const pdfjs = await import("pdfjs-dist");
+                pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+                const buffer = await file.arrayBuffer();
+                const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+                const page = await pdf.getPage(1);
+                const viewport = page.getViewport({ scale: 1 });
+
+                fileWidthMm = ptToMm(viewport.width);
+                fileHeightMm = ptToMm(viewport.height);
+
+                const directRatioDelta = ratioDelta(fileWidthMm, fileHeightMm, targetWidthMm, targetHeightMm);
+                const rotatedRatioDelta = ratioDelta(fileWidthMm, fileHeightMm, targetHeightMm, targetWidthMm);
+                aspectRatioMatch = Math.min(directRatioDelta, rotatedRatioDelta) <= ASPECT_RATIO_TOLERANCE;
+                sizeMatch = isSizeMatch(fileWidthMm, fileHeightMm, targetWidthMm, targetHeightMm);
+
+                if (!aspectRatioMatch) {
+                    issues.push("PDF-sidens forhold matcher ikke produktformatet.");
+                }
+                if (!sizeMatch) {
+                    issues.push(
+                        `PDF-størrelse matcher ikke formatet: ${fileWidthMm.toFixed(1)} x ${fileHeightMm.toFixed(1)} mm mod forventet ${targetWidthMm.toFixed(1)} x ${targetHeightMm.toFixed(1)} mm.`
+                    );
+                }
+
+                const previewScale = Math.min(1.5, PDF_PREVIEW_MAX_PX / Math.max(viewport.width, viewport.height));
+                const previewViewport = page.getViewport({ scale: previewScale });
+                const previewCanvas = document.createElement("canvas");
+                previewCanvas.width = Math.round(previewViewport.width);
+                previewCanvas.height = Math.round(previewViewport.height);
+                const previewCtx = previewCanvas.getContext("2d");
+                if (previewCtx) {
+                    previewCtx.fillStyle = "#ffffff";
+                    previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+                    await page.render({
+                        canvasContext: previewCtx,
+                        viewport: previewViewport,
+                    }).promise;
+                    setPreview(previewCanvas.toDataURL("image/png"), "pdf");
+                }
+            } catch (pdfErr) {
+                console.error("PDF browser preflight failed:", pdfErr);
+                issues.push("Kunne ikke læse PDF i browseren. Upload en ny fil eller fortsæt med platform preflight.");
+            }
+
             if (isPodProduct && podPreflightEnabled && uploadInfo?.publicUrl && product?.id) {
                 await runPlatformPreflight({
                     productId: product.id,
@@ -486,17 +785,26 @@ const FileUploadConfiguration = () => {
                     autoFix: podPreflightAutoFix,
                 });
             } else {
-                issues.push("PDF preflight er begrænset i browseren. Vi tjekker formatet manuelt ved modtagelse.");
+                warnings.push("PDF indhold (interne billeder/fonts) valideres bedst i platform preflight.");
             }
         }
 
         setPreflightResults({
-            dpi: Math.round(dpi),
+            fileType: file.type.startsWith("image/") ? "image" : "pdf",
+            dpi: dpi > 0 ? Math.round(dpi) : undefined,
             width_px,
             height_px,
+            file_width_mm: fileWidthMm || undefined,
+            file_height_mm: fileHeightMm || undefined,
+            target_width_mm: targetWidthMm,
+            target_height_mm: targetHeightMm,
+            required_dpi: requiredDpi,
+            source_dpi: sourceDpi,
             aspectRatioMatch,
+            sizeMatch,
             dpiOk,
-            issues
+            issues,
+            warnings,
         });
     };
 
@@ -561,9 +869,26 @@ const FileUploadConfiguration = () => {
     const specs = getResolvedSpecs();
     const targetWidth = specs ? specs.width_mm + (specs.bleed_mm * 2) : 0;
     const targetHeight = specs ? specs.height_mm + (specs.bleed_mm * 2) : 0;
-
-    const bleedXPercent = specs ? (specs.bleed_mm / targetWidth) * 100 : 0;
-    const bleedYPercent = specs ? (specs.bleed_mm / targetHeight) * 100 : 0;
+    const previewMaxLongSidePx = 420;
+    const previewPaddingPx = 64;
+    const previewScalePxPerMm = targetWidth > 0 && targetHeight > 0
+        ? Math.min(previewMaxLongSidePx / Math.max(targetWidth, targetHeight), 1)
+        : 1;
+    const previewTargetWidthPx = Math.max(1, targetWidth * previewScalePxPerMm);
+    const previewTargetHeightPx = Math.max(1, targetHeight * previewScalePxPerMm);
+    const previewFileWidthMm = preflightResults?.file_width_mm ?? targetWidth;
+    const previewFileHeightMm = preflightResults?.file_height_mm ?? targetHeight;
+    const previewImageBaseWidthPx = Math.max(1, previewFileWidthMm * previewScalePxPerMm);
+    const previewImageBaseHeightPx = Math.max(1, previewFileHeightMm * previewScalePxPerMm);
+    const fitScale = previewImageBaseWidthPx > 0 && previewImageBaseHeightPx > 0
+        ? Math.min(previewTargetWidthPx / previewImageBaseWidthPx, previewTargetHeightPx / previewImageBaseHeightPx)
+        : 1;
+    const previewImageScale = previewFitToTarget ? Math.max(0.01, Math.min(fitScale, 10)) : 1;
+    const previewImageWidthPx = previewImageBaseWidthPx * previewImageScale;
+    const previewImageHeightPx = previewImageBaseHeightPx * previewImageScale;
+    const previewTrimInsetPx = specs ? specs.bleed_mm * previewScalePxPerMm : 0;
+    const previewStageWidthPx = previewTargetWidthPx + previewPaddingPx * 2;
+    const previewStageHeightPx = previewTargetHeightPx + previewPaddingPx * 2;
 
     return (
         <div className="min-h-screen flex flex-col bg-slate-50">
@@ -599,11 +924,24 @@ const FileUploadConfiguration = () => {
                                         <FileText className="h-8 w-8 text-primary opacity-20" />
                                     </div>
                                 </CardHeader>
-                                <CardContent className="pt-6 space-y-6">
+                                <CardContent
+                                    className={`pt-6 space-y-6 transition-colors ${isDropZoneActive ? "bg-primary/5" : ""}`}
+                                    onDragOver={handleDropZoneDragOver}
+                                    onDragEnter={handleDropZoneDragOver}
+                                    onDragLeave={handleDropZoneDragLeave}
+                                    onDrop={handleDropZoneDrop}
+                                >
                                     {!uploadedFile ? (
                                         <div
-                                            className="border-2 border-dashed border-primary/20 rounded-xl p-12 text-center hover:bg-primary/5 transition-all cursor-pointer group"
+                                            className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer group ${isDropZoneActive
+                                                    ? 'border-primary bg-primary/10'
+                                                    : 'border-primary/20 hover:bg-primary/5'
+                                                }`}
                                             onClick={() => fileInputRef.current?.click()}
+                                            onDragOver={handleDropZoneDragOver}
+                                            onDragEnter={handleDropZoneDragOver}
+                                            onDragLeave={handleDropZoneDragLeave}
+                                            onDrop={handleDropZoneDrop}
                                         >
                                             <div className="flex flex-col items-center">
                                                 <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
@@ -632,35 +970,88 @@ const FileUploadConfiguration = () => {
                                                         <p className="text-xs text-green-700">Filen er klar til tjek</p>
                                                     </div>
                                                 </div>
-                                                <Button variant="ghost" size="sm" onClick={() => setUploadedFile(null)}>Skift fil</Button>
+                                                <Button variant="ghost" size="sm" onClick={clearUploadedFileState}>Skift fil</Button>
                                             </div>
 
                                             {previewUrl && (
-                                                <div className="relative aspect-auto max-h-[500px] border rounded-lg overflow-hidden bg-white shadow-inner flex items-center justify-center p-8">
-                                                    <div className="relative">
+                                                <div className="relative border rounded-lg overflow-hidden bg-white shadow-inner p-4 md:p-6">
+                                                    <div
+                                                        className="relative mx-auto rounded-md border border-slate-200 bg-slate-50/70 overflow-hidden"
+                                                        style={{
+                                                            width: `${previewStageWidthPx}px`,
+                                                            maxWidth: "100%",
+                                                            height: `${previewStageHeightPx}px`,
+                                                        }}
+                                                    >
+                                                        <div
+                                                            className="absolute bg-white border-2 border-slate-300 shadow-md"
+                                                            style={{
+                                                                width: `${previewTargetWidthPx}px`,
+                                                                height: `${previewTargetHeightPx}px`,
+                                                                left: "50%",
+                                                                top: "50%",
+                                                                transform: "translate(-50%, -50%)",
+                                                            }}
+                                                        />
                                                         <img
                                                             src={previewUrl}
                                                             alt="Preview"
-                                                            className="max-w-full max-h-[400px] object-contain shadow-2xl"
+                                                            className="absolute object-contain shadow-2xl"
+                                                            style={{
+                                                                width: `${previewImageWidthPx}px`,
+                                                                height: `${previewImageHeightPx}px`,
+                                                                left: "50%",
+                                                                top: "50%",
+                                                                transform: "translate(-50%, -50%)",
+                                                                filter: softProofEnabled
+                                                                    ? "saturate(0.88) contrast(0.96) brightness(0.98)"
+                                                                    : "none",
+                                                            }}
                                                         />
                                                         {specs && (
                                                             <div
-                                                                className="absolute border-2 border-red-500 border-dashed pointer-events-none opacity-80"
+                                                                className="absolute border-2 border-red-500 border-dashed pointer-events-none opacity-90"
                                                                 style={{
-                                                                    top: `${bleedYPercent}%`,
-                                                                    bottom: `${bleedYPercent}%`,
-                                                                    left: `${bleedXPercent}%`,
-                                                                    right: `${bleedXPercent}%`,
+                                                                    width: `${Math.max(1, previewTargetWidthPx - (previewTrimInsetPx * 2))}px`,
+                                                                    height: `${Math.max(1, previewTargetHeightPx - (previewTrimInsetPx * 2))}px`,
+                                                                    left: "50%",
+                                                                    top: "50%",
+                                                                    transform: "translate(-50%, -50%)",
                                                                 }}
                                                             >
-                                                                <div className="absolute -top-6 left-0 bg-red-500 text-white text-[10px] px-2 py-0.5 font-bold rounded shadow-sm whitespace-nowrap">
-                                                                    BESKÆRINGSLINJE (3mm)
+                                                                <div className="absolute -top-6 left-0 bg-red-500 text-white text-[10px] px-2 py-0.5 font-bold rounded shadow-sm whitespace-nowrap z-10">
+                                                                    BESKÆRINGSLINJE ({specs.bleed_mm}mm)
                                                                 </div>
                                                             </div>
                                                         )}
                                                     </div>
-                                                    <div className="absolute top-2 right-2 flex gap-2">
-                                                        <Badge className="bg-white/90 text-primary border-primary/20 backdrop-blur-sm">Visuel Preview</Badge>
+                                                    <div className="absolute top-2 right-2 flex flex-wrap items-center justify-end gap-2">
+                                                        <Badge className="bg-white/90 text-primary border-primary/20 backdrop-blur-sm">
+                                                            {previewType === "pdf" ? "PDF Preview (side 1)" : "Visuel Preview"}
+                                                        </Badge>
+                                                        <div className="bg-white/90 border border-primary/20 rounded-md px-2 py-1 flex items-center gap-2 backdrop-blur-sm">
+                                                            <Label htmlFor="preflight-soft-proof" className="text-[11px] font-semibold text-slate-700 cursor-pointer">
+                                                                Soft proof
+                                                            </Label>
+                                                            <Switch
+                                                                id="preflight-soft-proof"
+                                                                checked={softProofEnabled}
+                                                                onCheckedChange={setSoftProofEnabled}
+                                                            />
+                                                        </div>
+                                                        <div className="bg-white/90 border border-primary/20 rounded-md px-2 py-1 flex items-center gap-2 backdrop-blur-sm">
+                                                            <Label htmlFor="preflight-fit-target" className="text-[11px] font-semibold text-slate-700 cursor-pointer">
+                                                                Fit til format
+                                                            </Label>
+                                                            <Switch
+                                                                id="preflight-fit-target"
+                                                                checked={previewFitToTarget}
+                                                                onCheckedChange={setPreviewFitToTarget}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <div className="absolute left-2 bottom-2 bg-white/90 border border-slate-200 rounded px-2 py-1 text-[11px] text-slate-700">
+                                                        1:1 fysisk visning: {previewFileWidthMm.toFixed(1)} x {previewFileHeightMm.toFixed(1)} mm
                                                     </div>
                                                 </div>
                                             )}
@@ -689,17 +1080,44 @@ const FileUploadConfiguration = () => {
                                                         </ul>
                                                     )}
 
-                                                    <div className="grid grid-cols-2 gap-4 mt-4">
+                                                    {preflightResults.warnings.length > 0 && (
+                                                        <ul className="space-y-2 mb-4">
+                                                            {preflightResults.warnings.map((warning, idx) => (
+                                                                <li key={`warn-${idx}`} className="flex gap-2 text-sm text-blue-900">
+                                                                    <span className="shrink-0">•</span>
+                                                                    <span>{warning}</span>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    )}
+
+                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                                                         <div className="bg-white/50 p-3 rounded-lg border border-black/5">
                                                             <p className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Opløsning</p>
                                                             <p className={`text-xl font-bold ${preflightResults.dpiOk ? 'text-green-600' : 'text-amber-600'}`}>
-                                                                {preflightResults.dpi ? `${preflightResults.dpi} DPI` : 'PDF (Tjekkes manuelt)'}
+                                                                {preflightResults.fileType === "image"
+                                                                    ? `${preflightResults.dpi || 0} DPI`
+                                                                    : 'PDF (format tjekket)'}
                                                             </p>
+                                                            <p className="text-xs text-slate-500 mt-1">Krav: {preflightResults.required_dpi} DPI</p>
+                                                            {preflightResults.fileType === "image" && preflightResults.source_dpi && (
+                                                                <p className="text-xs text-slate-500 mt-1">Kilde-DPI: {preflightResults.source_dpi}</p>
+                                                            )}
                                                         </div>
                                                         <div className="bg-white/50 p-3 rounded-lg border border-black/5">
                                                             <p className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Target Størrelse</p>
                                                             <p className="text-xl font-bold text-slate-700">
-                                                                {targetWidth} x {targetHeight} mm
+                                                                {targetWidth.toFixed(1)} x {targetHeight.toFixed(1)} mm
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-white/50 p-3 rounded-lg border border-black/5">
+                                                            <p className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Filstørrelse</p>
+                                                            <p className="text-xl font-bold text-slate-700">
+                                                                {preflightResults.file_width_mm && preflightResults.file_height_mm
+                                                                    ? `${preflightResults.file_width_mm.toFixed(1)} x ${preflightResults.file_height_mm.toFixed(1)} mm`
+                                                                    : preflightResults.width_px && preflightResults.height_px
+                                                                        ? `${preflightResults.width_px} x ${preflightResults.height_px} px`
+                                                                        : 'Ukendt'}
                                                             </p>
                                                         </div>
                                                     </div>
@@ -790,7 +1208,7 @@ const FileUploadConfiguration = () => {
                                                 <li>Nettoformat: {specs?.width_mm} x {specs?.height_mm} mm</li>
                                                 <li>Bruttoformat (+beskæring): {targetWidth} x {targetHeight} mm</li>
                                                 <li>Beskæring (Bleed): {specs?.bleed_mm} mm på alle sider</li>
-                                                <li>Minimum opløsning: {specs?.min_dpi} DPI</li>
+                                                <li>Minimum opløsning: {specs?.min_dpi} DPI ({specs ? (isAtMostA3(specs.width_mm, specs.height_mm) ? "A3 eller mindre" : "over A3") : "format ikke valgt"})</li>
                                             </ul>
                                         </div>
                                         <div className="p-4 bg-muted/50 rounded-lg">

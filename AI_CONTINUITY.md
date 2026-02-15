@@ -182,6 +182,13 @@ See `.agent/SESSION_LOG_2026-02-07.md` for full details. Highlights:
 - Storformat product pages now open designer with selected custom size.
 - Added storformat product tags migration.
 
+## 📌 2026-02-12 Session Summary
+
+See `.agent/SESSION_LOG_2026-02-12.md` for full details. Highlights:
+- Added `Sites` preview infrastructure with dedicated `/preview-shop` site-preview mode.
+- Integrated multiple external site ZIP bundles under `public/site-previews/*` (iframe manifests).
+- Added bundle runbook: `docs/SITES_PREVIEW_BUNDLES.md`.
+
 ---
 
 ## 🗂️ Recent Session Summary

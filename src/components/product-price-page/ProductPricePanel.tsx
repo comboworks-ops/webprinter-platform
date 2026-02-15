@@ -27,6 +27,7 @@ type ProductPricePanelProps = {
   designHeightMm?: number;
   designBleedMm?: number;
   designSafeAreaMm?: number;
+  designModuleEnabled?: boolean;
   externalDeliveryEnabled?: boolean;
   externalDeliveryMethods?: DeliveryMethod[];
   externalDeliveryLoading?: boolean;
@@ -123,6 +124,7 @@ export function ProductPricePanel({
   designHeightMm,
   designBleedMm,
   designSafeAreaMm,
+  designModuleEnabled = true,
   externalDeliveryEnabled,
   externalDeliveryMethods,
   externalDeliveryLoading,
@@ -585,6 +587,10 @@ export function ProductPricePanel({
         productName,
         productSlug,
         selectedFormat,
+        designWidthMm,
+        designHeightMm,
+        designBleedMm,
+        designSafeAreaMm,
         shippingSelected: activeDeliveryMethod?.id || null,
         shippingCost: activeShippingCost
       }
@@ -642,45 +648,47 @@ export function ProductPricePanel({
           </div>
           {baseTotal > 0 && (
             <div className="flex flex-col items-stretch gap-2">
-              <Button
-                variant="outline"
-                size="lg"
-                className={cn(
-                  orderButtonBaseClass,
-                  "gap-2 py-5",
-                  !designReady && "border-dashed"
-                )}
-                style={buildOrderButtonStyle(designReady ? orderButtons.selected : orderButtons.secondary)}
-                onClick={() => {
-                  const params = new URLSearchParams();
-                  params.set('productId', productId);
-                  if (selectedFormat) params.set('format', selectedFormat);
-                  if (selectedVariant) params.set('variant', selectedVariant);
-                  if (typeof designWidthMm === "number" && designWidthMm > 0 && typeof designHeightMm === "number" && designHeightMm > 0) {
-                    params.set('widthMm', String(designWidthMm));
-                    params.set('heightMm', String(designHeightMm));
-                  }
-                  if (typeof designBleedMm === "number" && designBleedMm >= 0) {
-                    params.set('bleedMm', String(designBleedMm));
-                  }
-                  if (typeof designSafeAreaMm === "number" && designSafeAreaMm >= 0) {
-                    params.set('safeMm', String(designSafeAreaMm));
-                  }
-                  params.set('order', '1');
-                  params.set('returnTo', `/produkt/${productSlug}`);
-                  navigate(`/designer?${params.toString()}`);
-                }}
-              >
-                {designReady ? (
-                  <CheckCircle2 className="h-5 w-5" />
-                ) : (
-                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                    <path d="M3 9h18M9 21V9" />
-                  </svg>
-                )}
-                {designReady ? "Design klar" : "Design online"}
-              </Button>
+              {designModuleEnabled && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className={cn(
+                    orderButtonBaseClass,
+                    "gap-2 py-5",
+                    !designReady && "border-dashed"
+                  )}
+                  style={buildOrderButtonStyle(designReady ? orderButtons.selected : orderButtons.secondary)}
+                  onClick={() => {
+                    const params = new URLSearchParams();
+                    params.set('productId', productId);
+                    if (selectedFormat) params.set('format', selectedFormat);
+                    if (selectedVariant) params.set('variant', selectedVariant);
+                    if (typeof designWidthMm === "number" && designWidthMm > 0 && typeof designHeightMm === "number" && designHeightMm > 0) {
+                      params.set('widthMm', String(designWidthMm));
+                      params.set('heightMm', String(designHeightMm));
+                    }
+                    if (typeof designBleedMm === "number" && designBleedMm >= 0) {
+                      params.set('bleedMm', String(designBleedMm));
+                    }
+                    if (typeof designSafeAreaMm === "number" && designSafeAreaMm >= 0) {
+                      params.set('safeMm', String(designSafeAreaMm));
+                    }
+                    params.set('order', '1');
+                    params.set('returnTo', `/produkt/${productSlug}`);
+                    navigate(`/designer?${params.toString()}`);
+                  }}
+                >
+                  {designReady ? (
+                    <CheckCircle2 className="h-5 w-5" />
+                  ) : (
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="3" width="18" height="18" rx="2" />
+                      <path d="M3 9h18M9 21V9" />
+                    </svg>
+                  )}
+                  {designReady ? "Design klar" : "Design online"}
+                </Button>
+              )}
               <Button
                 size="lg"
                 className={cn(orderButtonBaseClass, "px-6 py-6 text-lg font-semibold")}

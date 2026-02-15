@@ -6,6 +6,10 @@ description: Protected Pricing Hub CSV import + publish flow (locked)
 
 The Pricing Hub CSV import and publish flow is stable and should be treated as **locked**. Do not modify this system without explicit user approval.
 
+## Requirements Source
+- CSV import requirements and operator workflow are documented in:
+- `docs/PRICING_HUB_CSV_IMPORT_REQUIREMENTS.md`
+
 ## Protected Files
 - `src/pages/admin/PricingHub.tsx` - Pricing Hub UI and CSV workflow entry points
 - `src/hooks/usePricingHub.ts` - CSV parsing, attribute detection, import aggregation

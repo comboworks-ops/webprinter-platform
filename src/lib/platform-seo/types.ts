@@ -112,5 +112,12 @@ export function isPlatformHost(hostname: string): boolean {
 
 // Check if path is excluded from platform SEO (demo routes)
 export function isExcludedPath(pathname: string): boolean {
-    return pathname.startsWith('/demo');
+    const excludedPrefixes = [
+        '/demo',
+        '/preview',
+        '/preview-shop',
+        '/preview-storefront',
+    ];
+
+    return excludedPrefixes.some(prefix => pathname.startsWith(prefix));
 }

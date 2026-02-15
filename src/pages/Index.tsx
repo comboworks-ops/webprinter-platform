@@ -63,7 +63,85 @@ const Index = () => {
       <PlatformHeader />
 
       {/* Hero Section */}
-      <section className="relative flex-1 flex items-center justify-center bg-gradient-to-br from-primary/5 to-secondary/10 pt-16 pb-12 overflow-hidden" style={{ marginTop: '0', paddingTop: '120px' }}>
+      <section className="relative flex-1 flex items-center justify-center bg-gradient-to-b from-slate-50 to-white pt-16 pb-12 overflow-hidden" style={{ marginTop: '0', paddingTop: '120px' }}>
+        {/* Animated Glassmorphism Background */}
+        <style>{`
+          @keyframes platform-float-1 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(5%, 10%) scale(1.05); }
+            50% { transform: translate(-5%, 5%) scale(0.95); }
+            75% { transform: translate(10%, -5%) scale(1.02); }
+          }
+          @keyframes platform-float-2 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(-10%, 8%) scale(1.08); }
+            66% { transform: translate(8%, -10%) scale(0.92); }
+          }
+          @keyframes platform-float-3 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            20% { transform: translate(12%, 5%) scale(0.98); }
+            40% { transform: translate(-8%, 12%) scale(1.04); }
+            60% { transform: translate(5%, -8%) scale(1.06); }
+            80% { transform: translate(-5%, 3%) scale(0.96); }
+          }
+          @keyframes platform-float-4 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(-15%, -10%) scale(1.1); }
+          }
+        `}</style>
+
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {/* Large soft blue orb - top left */}
+          <div
+            className="absolute -top-20 -left-20 w-[500px] h-[500px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(147, 197, 253, 0.4) 0%, rgba(147, 197, 253, 0) 70%)',
+              filter: 'blur(60px)',
+              animation: 'platform-float-1 25s ease-in-out infinite',
+            }}
+          />
+
+          {/* Medium cyan orb - top right */}
+          <div
+            className="absolute -top-10 right-0 w-[400px] h-[400px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(165, 243, 252, 0.35) 0%, rgba(165, 243, 252, 0) 70%)',
+              filter: 'blur(50px)',
+              animation: 'platform-float-2 30s ease-in-out infinite',
+            }}
+          />
+
+          {/* Large primary blue orb - center */}
+          <div
+            className="absolute top-1/3 left-1/3 w-[600px] h-[600px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%)',
+              filter: 'blur(80px)',
+              animation: 'platform-float-3 35s ease-in-out infinite',
+            }}
+          />
+
+          {/* Small accent orb - bottom left */}
+          <div
+            className="absolute bottom-10 left-1/4 w-[300px] h-[300px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(186, 230, 253, 0.5) 0%, rgba(186, 230, 253, 0) 70%)',
+              filter: 'blur(40px)',
+              animation: 'platform-float-4 20s ease-in-out infinite',
+            }}
+          />
+
+          {/* Medium purple-blue orb - bottom right */}
+          <div
+            className="absolute -bottom-20 -right-10 w-[450px] h-[450px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(196, 181, 253, 0.3) 0%, rgba(196, 181, 253, 0) 70%)',
+              filter: 'blur(55px)',
+              animation: 'platform-float-1 28s ease-in-out infinite reverse',
+            }}
+          />
+        </div>
+
         <div className="container px-4 mx-auto text-center z-10">
           <span className="inline-block py-1 px-3 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4">
             Den komplette løsning til dit trykkeri
@@ -91,12 +169,6 @@ const Index = () => {
           <div className="mt-12">
             <PlatformSlider />
           </div>
-        </div>
-
-        {/* Abstract shapes */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full max-w-5xl opacity-30 pointer-events-none">
-          <div className="absolute top-10 left-10 w-72 h-72 bg-blue-400/20 rounded-full blur-3xl mix-blend-multiply" />
-          <div className="absolute bottom-10 right-10 w-72 h-72 bg-purple-400/20 rounded-full blur-3xl mix-blend-multiply" />
         </div>
       </section>
 

@@ -6,7 +6,7 @@
  */
 
 import type { ComponentType, ReactNode } from 'react';
-import type { BrandingData } from '@/hooks/useBrandingDraft';
+import type { BrandingData, FeaturedProductConfig } from '@/hooks/useBrandingDraft';
 
 // =============================================================================
 // THEME COMPONENT PROPS
@@ -76,6 +76,8 @@ export interface ProductsSectionProps extends ThemeComponentProps {
     productButtonConfig?: ProductGridProps['buttonConfig'];
     productBackgroundConfig?: ProductGridProps['backgroundConfig'];
     productLayoutStyle?: ProductGridProps['layoutStyle'];
+    /** Featured product quick configurator settings */
+    featuredProductConfig?: FeaturedProductConfig;
 }
 
 /**

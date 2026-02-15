@@ -242,8 +242,8 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
                             <img
                               src={getProductImage(product.slug, product.image_url)}
                               alt={product.name}
-                              className={`w-full h-full object-contain transition-all duration-300 ${!hoverImageUrl ? 'hover:scale-110' : 'group-hover:opacity-0'}`}
-                              style={{ filter: 'var(--product-filter)' }}
+                              className={`w-full h-full object-contain transition-transform duration-500 ease-out transform-gpu ${!hoverImageUrl ? 'hover:scale-105' : 'group-hover:opacity-0 transition-opacity'}`}
+                              style={{ filter: 'var(--product-filter)', willChange: 'transform' }}
                             />
                             {hoverImageUrl && (
                               <img

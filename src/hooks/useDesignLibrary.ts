@@ -25,7 +25,7 @@ export type DesignLibraryItem = {
 export function useDesignLibrary(options: {
     search?: string;
     productId?: string | null;
-    tab: 'skabeloner' | 'mine' | 'ressourcer' | 'storformat'
+    tab: 'skabeloner' | 'mine' | 'ressourcer' | 'storformat' | 'sites'
 }) {
     return useQuery({
         queryKey: ['design-library', options],
@@ -144,6 +144,43 @@ export function useDesignLibrary(options: {
                     visibility: 'tenant' as const,
                     created_at: new Date().toISOString(),
                 })) as DesignLibraryItem[];
+            }
+
+            // Site format templates (installed from /admin/sites)
+            if (options.tab === 'sites') {
+                let query = supabase
+                    .from('designer_templates' as any)
+                    .select('*')
+                    .eq('is_active', true)
+                    .eq('template_type', 'format')
+                    .ilike('category', 'Sites:%');
+
+                if (options.search) {
+                    query = query.ilike('name', `%${options.search}%`);
+                }
+
+                const { data, error } = await query.order('category').order('name');
+                if (error) throw error;
+
+                return (data || []).map((t: any) => ({
+                    id: t.id,
+                    name: t.name,
+                    description: t.description,
+                    kind: 'template' as const,
+                    preview_path: t.preview_image_url,
+                    preview_thumbnail_url: t.preview_image_url,
+                    storage_path: t.template_pdf_url,
+                    fabric_json: null,
+                    tags: [t.category],
+                    product_id: null,
+                    visibility: t.is_public ? 'public' : 'tenant',
+                    created_at: t.created_at || new Date().toISOString(),
+                    width_mm: t.width_mm,
+                    height_mm: t.height_mm,
+                    bleed_mm: t.bleed_mm,
+                    icon_name: t.icon_name,
+                    template_type: t.template_type,
+                })) as any[];
             }
 
             // Ressourcer from design_library_items (public resources)

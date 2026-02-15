@@ -803,11 +803,28 @@ export interface PageExtrasByPage {
     product: PageExtrasSettings;
 }
 
+// Featured Product Quick Configurator settings
+export interface FeaturedProductConfig {
+    enabled: boolean;
+    productId: string | null;        // UUID of featured product
+    productSlug: string | null;      // For linking to product page
+    quantityPresets: number[];       // e.g., [200, 500, 1000, 2500, 5000]
+    overlapPx: number;               // Hero overlap (0-120px)
+    showOptions: boolean;            // Show option buttons
+    showPrice: boolean;              // Show price badge
+    cardStyle: 'solid' | 'glass';    // Visual style
+    pricePosition: 'top-right' | 'bottom-right' | 'bottom-left';
+    ctaLabel: string;                // Button text
+    ctaColor: string;                // Button color
+    ctaTextColor: string;
+}
+
 export interface ForsideProductsSection {
     enabled: boolean;
     columns: 3 | 4 | 5;
     layoutStyle: 'cards' | 'flat' | 'grouped' | 'slim';
     showStorformatTab: boolean;
+    featuredProduct?: FeaturedProductConfig;  // Featured product quick configurator
     button: {
         style: 'default' | 'bar' | 'center' | 'hidden';
         bgColor: string;
@@ -1073,6 +1090,22 @@ const createPageExtrasDefaults = (): PageExtrasSettings => ({
     },
 });
 
+// Default featured product config
+const DEFAULT_FEATURED_PRODUCT: FeaturedProductConfig = {
+    enabled: false,
+    productId: null,
+    productSlug: null,
+    quantityPresets: [200, 500, 1000, 2500, 5000],
+    overlapPx: 200,
+    showOptions: true,
+    showPrice: true,
+    cardStyle: 'solid',
+    pricePosition: 'top-right',
+    ctaLabel: 'Bestil nu',
+    ctaColor: '#0EA5E9',
+    ctaTextColor: '#FFFFFF',
+};
+
 // Default forside settings
 const DEFAULT_FORSIDE: ForsideSettings = {
     showBanner: true,
@@ -1081,6 +1114,7 @@ const DEFAULT_FORSIDE: ForsideSettings = {
         columns: 4,
         layoutStyle: 'cards',
         showStorformatTab: true,
+        featuredProduct: DEFAULT_FEATURED_PRODUCT,
         button: {
             style: 'default',
             bgColor: '#0EA5E9',
@@ -1287,6 +1321,7 @@ export {
     DEFAULT_FOOTER_LINKS,
     DEFAULT_CONTACT_PAGE,
     DEFAULT_FORSIDE,
+    DEFAULT_FEATURED_PRODUCT,
 };
 
 
@@ -1456,6 +1491,10 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
             productsSection: {
                 ...DEFAULT_BRANDING.forside.productsSection,
                 ...(data.forside.productsSection || {}),
+                featuredProduct: {
+                    ...DEFAULT_FEATURED_PRODUCT,
+                    ...(data.forside.productsSection?.featuredProduct || {}),
+                },
                 button: {
                     ...DEFAULT_BRANDING.forside.productsSection.button,
                     ...(data.forside.productsSection?.button || {}),

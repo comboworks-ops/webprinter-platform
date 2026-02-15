@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, type CSSProperties } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, type CSSProperties } from "react";
 import { useSearchParams, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -20,6 +20,9 @@ import { ContactContent } from "@/components/content/ContactContent";
 import { AboutContent } from "@/components/content/AboutContent";
 import { ProductPriceContent } from "@/components/content/ProductPriceContent";
 import { TermsContent } from "@/components/content/TermsContent";
+import { applyActiveSiteThemeToBranding } from "@/lib/sites/activeSiteBranding";
+import { readPreviewSession, writePreviewSession } from "@/lib/preview/previewSession";
+import { SitePackagePreview } from "@/components/sites/SitePackagePreview";
 
 // List of ALLOWED customer-visible routes in preview mode
 // This prevents navigation to admin/backend routes
@@ -107,14 +110,22 @@ function PreviewNavigationGuard({ children }: { children: React.ReactNode }) {
  * Wrapper that provides ThemeProvider based on current branding from context.
  * This allows the theme to update when branding changes in the editor.
  */
-function ThemedPreviewContent({ currentPage }: { currentPage: string }) {
+function ThemedPreviewContent({
+    currentPage,
+    siteId,
+    sitePreviewMode
+}: {
+    currentPage: string;
+    siteId?: string | null;
+    sitePreviewMode?: boolean;
+}) {
     const { branding } = usePreviewBranding();
     const themeId = branding?.themeId || 'classic';
     const themeSettings = branding?.themeSettings || {};
 
     return (
         <ThemeProvider themeId={themeId} themeSettings={themeSettings}>
-            <PreviewShopContent currentPage={currentPage} />
+            <PreviewShopContent currentPage={currentPage} siteId={siteId} sitePreviewMode={sitePreviewMode} />
         </ThemeProvider>
     );
 }
@@ -125,7 +136,15 @@ function ThemedPreviewContent({ currentPage }: { currentPage: string }) {
  * IMPORTANT: This must mirror Shop.tsx exactly, with preview branding applied.
  * Now supports virtual navigation via currentPage prop.
  */
-function PreviewShopContent({ currentPage }: { currentPage: string }) {
+function PreviewShopContent({
+    currentPage,
+    siteId,
+    sitePreviewMode
+}: {
+    currentPage: string;
+    siteId?: string | null;
+    sitePreviewMode?: boolean;
+}) {
     const { branding, tenantName } = usePreviewBranding();
     const { components: Theme } = useTheme();
     const customPages = branding?.pages?.items || [];
@@ -136,6 +155,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
     const productBackgroundConfig = productsSection?.background;
     const productLayoutStyle = productsSection?.layoutStyle;
     const showStorformatTab = productsSection?.showStorformatTab ?? true;
+    const featuredProductConfig = productsSection?.featuredProduct;
     const contentBlocks = branding?.forside?.contentBlocks?.filter((block) => block.enabled) || [];
     const blocksAbove = contentBlocks.filter((block) => block.placement === 'above_products');
     const blocksBelow = contentBlocks.filter((block) => block.placement !== 'above_products');
@@ -207,6 +227,10 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         fontFamily: `'${systemFont}', sans-serif`,
     } as CSSProperties;
     const pageBackgroundStyle = getPageBackgroundStyle(branding);
+
+    if (sitePreviewMode && siteId) {
+        return <SitePackagePreview siteId={siteId} />;
+    }
 
     // Render page content based on virtual navigation
     const renderPageContent = () => {
@@ -392,6 +416,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
                     productButtonConfig={productButtonConfig}
                     productBackgroundConfig={productBackgroundConfig}
                     productLayoutStyle={productLayoutStyle}
+                    featuredProductConfig={featuredProductConfig}
                 />
 
                 {/* Banner 2 (below products) */}
@@ -445,18 +470,44 @@ export default function PreviewShop() {
     const [initialBranding, setInitialBranding] = useState<BrandingData | null>(null);
     const [tenantName, setTenantName] = useState("Dit Trykkeri");
     const [isLoading, setIsLoading] = useState(true);
-    const [currentPage, setCurrentPage] = useState('/');
+    const [currentPage, setCurrentPage] = useState(() => {
+        const pageParam = searchParams.get('page');
+        return pageParam && pageParam.startsWith('/') ? pageParam : '/';
+    });
     const [resolvedTenantId, setResolvedTenantId] = useState<string | null>(null);
     const [firstProductSlug, setFirstProductSlug] = useState<string | null>(null);
+    const previewSession = useMemo(() => readPreviewSession(), [searchParams]);
 
     const isDraft = searchParams.get("draft") === "1";
-    const tenantIdParam = searchParams.get("tenantId") || searchParams.get("tenant_id");
-    const isPreviewContext = isDraft || searchParams.get("preview_mode") === "1" || window.self !== window.top;
+    const isPreviewModeQuery = searchParams.get("preview_mode") === "1";
+    const useSessionSiteContext = isPreviewModeQuery;
+    const tenantIdParam =
+        searchParams.get("tenantId") ||
+        searchParams.get("tenant_id") ||
+        (useSessionSiteContext ? previewSession?.tenantId : null) ||
+        null;
+    const siteIdParam =
+        searchParams.get("siteId") ||
+        searchParams.get("site_id") ||
+        (useSessionSiteContext ? previewSession?.siteId : null) ||
+        null;
+    const sitePreviewMode =
+        searchParams.get("sitePreview") === "1" ||
+        (useSessionSiteContext && previewSession?.sitePreviewMode === true);
+    const isPreviewContext = isDraft || isPreviewModeQuery || window.self !== window.top;
 
     useEffect(() => {
         if (!isPreviewContext) return;
         window.parent.postMessage({ type: 'PREVIEW_PAGE_CHANGED', path: currentPage }, '*');
     }, [currentPage, isPreviewContext]);
+
+    useEffect(() => {
+        const pageParam = searchParams.get('page');
+        if (pageParam && pageParam.startsWith('/') && pageParam !== currentPage) {
+            setCurrentPage(pageParam);
+            window.scrollTo(0, 0);
+        }
+    }, [searchParams, currentPage]);
 
     // Load initial branding from database
     useEffect(() => {
@@ -469,7 +520,6 @@ export default function PreviewShop() {
                     .from('tenants' as any)
                     .select('id, name, settings');
 
-                const tenantIdParam = searchParams.get("tenantId");
                 if (tenantIdParam) {
                     query = query.eq('id', tenantIdParam);
                 } else {
@@ -482,15 +532,18 @@ export default function PreviewShop() {
                     setTenantName((tenant as any).name || "Dit Trykkeri");
                     setResolvedTenantId((tenant as any).id || null);
                     const brandingSettings = (tenant as any).settings?.branding || {};
+                    const rawBranding =
+                        isDraft && brandingSettings.draft
+                            ? brandingSettings.draft
+                            : brandingSettings.published || brandingSettings;
 
-                    if (isDraft && brandingSettings.draft) {
-                        setInitialBranding(mergeBrandingWithDefaults(brandingSettings.draft));
-                    } else if (brandingSettings.published) {
-                        setInitialBranding(mergeBrandingWithDefaults(brandingSettings.published));
-                    } else {
-                        // Legacy format - branding is the actual data
-                        setInitialBranding(mergeBrandingWithDefaults(brandingSettings));
-                    }
+                    const siteAwareBranding = applyActiveSiteThemeToBranding(
+                        rawBranding,
+                        (tenant as any).settings,
+                        siteIdParam
+                    );
+
+                    setInitialBranding(mergeBrandingWithDefaults(siteAwareBranding));
                 }
             } catch (error) {
                 console.error("Error loading branding:", error);
@@ -502,7 +555,16 @@ export default function PreviewShop() {
         if (!roleLoading) {
             loadInitialBranding();
         }
-    }, [isDraft, roleLoading]);
+    }, [isDraft, roleLoading, siteIdParam, tenantIdParam]);
+
+    useEffect(() => {
+        if (!isPreviewModeQuery && !sitePreviewMode) return;
+        writePreviewSession({
+            tenantId: resolvedTenantId || tenantIdParam || null,
+            siteId: siteIdParam || null,
+            sitePreviewMode,
+        });
+    }, [isPreviewModeQuery, resolvedTenantId, tenantIdParam, siteIdParam, sitePreviewMode]);
 
     useEffect(() => {
         if (roleLoading || !isAdmin) return;
@@ -725,7 +787,11 @@ export default function PreviewShop() {
             initialBranding={initialBranding}
             initialTenantName={tenantName}
         >
-            <ThemedPreviewContent currentPage={currentPage} />
+            <ThemedPreviewContent
+                currentPage={currentPage}
+                siteId={siteIdParam}
+                sitePreviewMode={sitePreviewMode}
+            />
         </PreviewBrandingProvider>
     );
 }

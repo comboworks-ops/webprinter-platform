@@ -207,9 +207,9 @@ export function PlatformSeoHead() {
             const { data, error } = await supabase
                 .from('platform_seo_settings')
                 .select('*')
-                .single();
+                .maybeSingle();
 
-            if (error && error.code !== 'PGRST116') {
+            if (error) {
                 console.warn('Platform SEO settings fetch error:', error);
                 return null;
             }
@@ -229,10 +229,9 @@ export function PlatformSeoHead() {
                 .select('*')
                 .eq('path', pathname)
                 .is('locale', null)
-                .single();
+                .maybeSingle();
 
-            if (error && error.code !== 'PGRST116') {
-                // Not found is OK
+            if (error) {
                 return null;
             }
 

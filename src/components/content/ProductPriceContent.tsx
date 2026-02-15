@@ -12,6 +12,7 @@ import { getProductBySlug } from "@/utils/productMetadata";
 import { getProductImage } from "@/utils/productImages";
 import { supabase } from "@/integrations/supabase/client";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { useTenantModules } from "@/hooks/useTenantModules";
 import { ProductSchema, BreadcrumbSchema } from "@/components/ProductSchema";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { getMatrixStyleVars } from "@/lib/branding/matrix";
@@ -133,10 +134,12 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
     const { slug: paramSlug } = useParams<{ slug: string }>();
     const [searchParams] = useSearchParams();
     const shopSettings = useShopSettings();
+    const modules = useTenantModules({ tenantId: shopSettings.data?.id ?? null });
     const { branding } = usePreviewBranding();
     const matrixStyleVars = useMemo(() => getMatrixStyleVars(branding), [branding]);
     const mergedBranding = branding || mergeBrandingWithDefaults(shopSettings.data?.branding || null);
     const extras = mergedBranding.pageExtras?.product;
+    const designModuleEnabled = modules.isModuleEnabled("print-designer");
 
     // Use propSlug if available (for Preview), otherwise fallback to paramSlug
     const slug = propSlug || paramSlug;
@@ -788,6 +791,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                             designHeightMm={designDimensions.height}
                             designBleedMm={designDimensions.bleed}
                             designSafeAreaMm={designSafeAreaMm}
+                            designModuleEnabled={designModuleEnabled}
                             externalDeliveryEnabled={podShippingEnabled}
                             externalDeliveryMethods={podShippingMethods}
                             externalDeliveryLoading={podShippingLoading}
@@ -825,6 +829,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                             productSlug={slug || ''}
                             quantity={selectedCell?.column || 0}
                             orderDeliveryConfig={orderDeliveryConfig}
+                            designModuleEnabled={designModuleEnabled}
                             externalDeliveryEnabled={podShippingEnabled}
                             externalDeliveryMethods={podShippingMethods}
                             externalDeliveryLoading={podShippingLoading}
@@ -931,6 +936,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                                 designHeightMm={designDimensions.height}
                                 designBleedMm={designDimensions.bleed}
                                 designSafeAreaMm={designSafeAreaMm}
+                                designModuleEnabled={designModuleEnabled}
                                 externalDeliveryEnabled={podShippingEnabled}
                                 externalDeliveryMethods={podShippingMethods}
                                 externalDeliveryLoading={podShippingLoading}

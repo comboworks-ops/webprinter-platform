@@ -5,7 +5,7 @@
  * into a single "Forside" tab with collapsible subsections.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,8 @@ import {
     type ForsideSettings,
     type HeaderSettings,
     type FooterSettings,
+    type FeaturedProductConfig,
+    DEFAULT_FEATURED_PRODUCT,
 } from "@/hooks/useBrandingDraft";
 
 interface ForsideSectionProps {
@@ -59,10 +61,26 @@ export function ForsideSection({
     onRemoveSwatch,
 }: ForsideSectionProps) {
     const [uploading, setUploading] = useState<string | null>(null);
+    const [products, setProducts] = useState<{ id: string; name: string; slug: string }[]>([]);
+
+    // Fetch products for featured product selector
+    useEffect(() => {
+        async function fetchProducts() {
+            if (!tenantId) return;
+            const { data } = await supabase
+                .from('products')
+                .select('id, name, slug')
+                .eq('is_published', true)
+                .eq('tenant_id', tenantId)
+                .order('name');
+            if (data) setProducts(data);
+        }
+        fetchProducts();
+    }, [tenantId]);
 
     const forside = draft.forside;
     const contentBlocks = forside.contentBlocks || [];
-    const productsSection = forside.productsSection || { enabled: true, columns: 4 };
+    const productsSection = forside.productsSection;
     const layoutStyle = productsSection.layoutStyle || 'cards';
     const buttonConfig = productsSection.button || {
         style: 'default',
@@ -106,6 +124,14 @@ export function ForsideSection({
             background: { ...backgroundConfig, ...updates },
         });
     }, [backgroundConfig, updateProductsSection]);
+
+    const featuredProduct = productsSection.featuredProduct || DEFAULT_FEATURED_PRODUCT;
+
+    const updateFeaturedProduct = useCallback((updates: Partial<FeaturedProductConfig>) => {
+        updateProductsSection({
+            featuredProduct: { ...featuredProduct, ...updates },
+        });
+    }, [featuredProduct, updateProductsSection]);
 
     // Update header
     const handleHeaderChange = useCallback((header: HeaderSettings) => {
@@ -332,7 +358,7 @@ export function ForsideSection({
                     <div className="flex items-center justify-between py-2">
                         <div>
                             <Label>Vis kategori knap</Label>
-                            <p className="text-xs text-muted-foreground">Skjuler fanen “Storformat print”</p>
+                            <p className="text-xs text-muted-foreground">Skjuler fanen "Storformat print"</p>
                         </div>
                         <Switch
                             checked={productsSection.showStorformatTab ?? true}
@@ -340,6 +366,143 @@ export function ForsideSection({
                             disabled={!productsSection.enabled}
                         />
                     </div>
+
+                    {/* Featured Product Quick Configurator */}
+                    <div className="space-y-4 border-t pt-4">
+                        <div className="flex items-center justify-between py-2">
+                            <div>
+                                <Label>Fremhævet produkt</Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Vis et stort produktkort med hurtig konfiguration
+                                </p>
+                            </div>
+                            <Switch
+                                checked={featuredProduct.enabled}
+                                onCheckedChange={(checked) => updateFeaturedProduct({ enabled: checked })}
+                                disabled={!productsSection.enabled}
+                            />
+                        </div>
+
+                        {featuredProduct.enabled && (
+                            <div className="space-y-4 pl-4 border-l-2 border-primary/20">
+                                {/* Product Selector */}
+                                <div className="space-y-2">
+                                    <Label>Vælg produkt</Label>
+                                    <Select
+                                        value={featuredProduct.productId || ""}
+                                        onValueChange={(value) => {
+                                            const product = products.find(p => p.id === value);
+                                            updateFeaturedProduct({
+                                                productId: value,
+                                                productSlug: product?.slug || null,
+                                            });
+                                        }}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Vælg et produkt..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {products.map((p) => (
+                                                <SelectItem key={p.id} value={p.id}>
+                                                    {p.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {/* Quantity Presets */}
+                                <div className="space-y-2">
+                                    <Label>Antal-knapper (kommasepareret)</Label>
+                                    <Input
+                                        value={featuredProduct.quantityPresets?.join(', ') || ''}
+                                        onChange={(e) => {
+                                            const presets = e.target.value
+                                                .split(',')
+                                                .map(s => parseInt(s.trim()))
+                                                .filter(n => !isNaN(n) && n > 0);
+                                            updateFeaturedProduct({ quantityPresets: presets });
+                                        }}
+                                        placeholder="200, 500, 1000, 2500, 5000"
+                                    />
+                                </div>
+
+                                {/* Overlap Amount */}
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <Label>Overlap med banner</Label>
+                                        <span className="text-xs text-muted-foreground">
+                                            {featuredProduct.overlapPx || 200}px
+                                        </span>
+                                    </div>
+                                    <Slider
+                                        value={[featuredProduct.overlapPx || 200]}
+                                        onValueChange={([value]) => updateFeaturedProduct({ overlapPx: value })}
+                                        min={0}
+                                        max={250}
+                                        step={10}
+                                    />
+                                </div>
+
+                                {/* Card Style */}
+                                <div className="space-y-2">
+                                    <Label>Kort-stil</Label>
+                                    <Select
+                                        value={featuredProduct.cardStyle || 'solid'}
+                                        onValueChange={(value) => updateFeaturedProduct({
+                                            cardStyle: value as 'solid' | 'glass',
+                                        })}
+                                    >
+                                        <SelectTrigger className="w-48">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="solid">Solid</SelectItem>
+                                            <SelectItem value="glass">Glasmorfisme</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {/* Show Options Toggle */}
+                                <div className="flex items-center justify-between py-2">
+                                    <Label>Vis produktindstillinger</Label>
+                                    <Switch
+                                        checked={featuredProduct.showOptions ?? true}
+                                        onCheckedChange={(checked) => updateFeaturedProduct({ showOptions: checked })}
+                                    />
+                                </div>
+
+                                {/* Show Price Toggle */}
+                                <div className="flex items-center justify-between py-2">
+                                    <Label>Vis pris</Label>
+                                    <Switch
+                                        checked={featuredProduct.showPrice ?? true}
+                                        onCheckedChange={(checked) => updateFeaturedProduct({ showPrice: checked })}
+                                    />
+                                </div>
+
+                                {/* CTA Settings */}
+                                <div className="grid gap-3 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label>Knap-tekst</Label>
+                                        <Input
+                                            value={featuredProduct.ctaLabel || 'Bestil nu'}
+                                            onChange={(e) => updateFeaturedProduct({ ctaLabel: e.target.value })}
+                                        />
+                                    </div>
+                                    <ColorPickerWithSwatches
+                                        label="Knap-farve"
+                                        value={featuredProduct.ctaColor || '#0EA5E9'}
+                                        onChange={(value) => updateFeaturedProduct({ ctaColor: value })}
+                                        savedSwatches={savedSwatches}
+                                        onSaveSwatch={onSaveSwatch}
+                                        onRemoveSwatch={onRemoveSwatch}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     <div className={cn("space-y-4 border-t pt-4", !productsSection.enabled && "opacity-50")}>
                         <Label className="text-sm font-semibold">Knap design</Label>
                         <div className="grid gap-3 md:grid-cols-2">

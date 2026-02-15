@@ -13,9 +13,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
     Search,
     LayoutGrid,
+    Store,
     User,
     FolderOpen,
-    Plus,
     FileJson,
     Image as ImageIcon,
     FileCode,
@@ -41,7 +41,7 @@ export function DesignLibraryDrawer({
     onReplaceDesign
 }: DesignLibraryDrawerProps) {
     const [search, setSearch] = useState("");
-    const [activeTab, setActiveTab] = useState<'skabeloner' | 'mine' | 'ressourcer'>('skabeloner');
+    const [activeTab, setActiveTab] = useState<'skabeloner' | 'sites' | 'mine' | 'ressourcer'>('skabeloner');
 
     const { data: items, isLoading } = useDesignLibrary({
         search,
@@ -90,6 +90,10 @@ export function DesignLibraryDrawer({
                             <TabsTrigger value="skabeloner" className="flex-1 gap-2">
                                 <LayoutGrid className="h-4 w-4" />
                                 Skabeloner
+                            </TabsTrigger>
+                            <TabsTrigger value="sites" className="flex-1 gap-2">
+                                <Store className="h-4 w-4" />
+                                Sites
                             </TabsTrigger>
                             <TabsTrigger value="mine" className="flex-1 gap-2">
                                 <User className="h-4 w-4" />

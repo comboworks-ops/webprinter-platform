@@ -1,11 +1,13 @@
 
 import { useState, useEffect } from "react";
-import { Package, Plus, FolderOpen, Globe, Search, ChevronDown, ChevronRight, Users, MessageCircle, ShoppingCart, Building2, Palette, CreditCard, Settings, LayoutGrid, UploadCloud, FileText, Calculator, Cpu, Paintbrush, Printer, Zap, PanelLeft, Library } from "lucide-react";
+import { Package, Plus, FolderOpen, Globe, Search, ChevronDown, ChevronRight, Users, MessageCircle, ShoppingCart, Building2, Palette, CreditCard, Settings, LayoutGrid, UploadCloud, FileText, Calculator, Cpu, Paintbrush, Printer, Zap, PanelLeft, Library, Store } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveAdminTenant } from "@/lib/adminTenant";
 import { Button } from "@/components/ui/button";
+import { useTenantModules } from "@/hooks/useTenantModules";
+import type { ShopModuleId } from "@/lib/modules/catalog";
 
 import {
   Sidebar,
@@ -97,6 +99,7 @@ export function AdminSidebar() {
   const [unreadSystemCount, setUnreadSystemCount] = useState(0);
   const [isMasterAdmin, setIsMasterAdmin] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const modules = useTenantModules();
 
   // Get dynamic styles based on dark mode
   const sidebarStyles = getAdminSidebarStyles(isDarkMode);
@@ -242,6 +245,8 @@ export function AdminSidebar() {
 
   const isActive = (path: string) => currentPath === path;
   const collapsed = state === "collapsed";
+  const showModule = (moduleId: ShopModuleId) =>
+    modules.isLoading ? true : modules.isModuleEnabled(moduleId);
 
   // Scoped CSS for admin sidebar - modern professional design
   const scopedStyles = `
@@ -405,44 +410,62 @@ export function AdminSidebar() {
                   </SidebarMenuItem>
 
                   {/* Print Designer */}
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/designer-templates">
-                      <Paintbrush className="h-4 w-4" />
-                      {!collapsed && <span>Print Designer</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
+                  {showModule("print-designer") && (
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/designer-templates">
+                        <Paintbrush className="h-4 w-4" />
+                        {!collapsed && <span>Print Designer</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                  )}
 
                   {/* Site Design */}
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/branding-v2">
-                      <Palette className="h-4 w-4" />
-                      {!collapsed && <span>Site Design</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
+                  {showModule("site-design") && (
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/branding-v2">
+                        <Palette className="h-4 w-4" />
+                        {!collapsed && <span>Site Design</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                  )}
+                  {showModule("site-design") && (
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/sites">
+                        <Store className="h-4 w-4" />
+                        {!collapsed && <span>Sites</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                  )}
 
                   {/* Maskin-beregning */}
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/machine-pricing">
-                      <Cpu className="h-4 w-4" />
-                      {!collapsed && <span>Maskin-beregning</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
+                  {showModule("machine-pricing") && (
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/machine-pricing">
+                        <Cpu className="h-4 w-4" />
+                        {!collapsed && <span>Maskin-beregning</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                  )}
 
                   {/* Print on Demand */}
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/pod-katalog">
-                      <Printer className="h-4 w-4" />
-                      {!collapsed && <span>Print on Demand</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
+                  {showModule("print-on-demand") && (
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/pod-katalog">
+                        <Printer className="h-4 w-4" />
+                        {!collapsed && <span>Print on Demand</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                  )}
 
                   {/* Company Hub */}
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/companyhub">
-                      <Building2 className="h-4 w-4" />
-                      {!collapsed && <span>Company Hub</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
+                  {showModule("company-hub") && (
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/companyhub">
+                        <Building2 className="h-4 w-4" />
+                        {!collapsed && <span>Company Hub</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                  )}
 
                   {/* Design Bibliotek */}
                   <SidebarMenuItem>

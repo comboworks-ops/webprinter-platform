@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { useNavigate, Routes, Route } from 'react-router-dom';
+import { type ReactElement, useEffect } from 'react';
+import { useNavigate, Routes, Route, Link } from 'react-router-dom';
 import { useUserRole } from '@/hooks/useUserRole';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
@@ -32,6 +32,7 @@ import MasterResources from '@/components/admin/MasterResources';
 import DesignResources from '@/components/admin/DesignResources';
 import MasterTemplatesPage from '@/pages/admin/MasterTemplatesPage';
 import TenantTemplatesPage from '@/pages/admin/TenantTemplatesPage';
+import SitesAdmin from '@/pages/admin/SitesAdmin';
 import DesignerTemplateManager from '@/components/admin/DesignerTemplateManager';
 import ColorProfilesManager from '@/components/admin/ColorProfilesManager';
 import { AddonLibraryManager } from '@/components/admin/AddonLibraryManager';
@@ -50,6 +51,36 @@ import { Pod2Admin } from '@/pages/admin/Pod2Admin';
 import { Pod2Katalog } from '@/pages/admin/Pod2Katalog';
 import { ShopModules } from '@/components/admin/ShopModules';
 import { PricingHub } from '@/pages/admin/PricingHub';
+import { useTenantModules } from '@/hooks/useTenantModules';
+import type { ShopModuleId } from '@/lib/modules/catalog';
+
+function AdminModuleGate({ moduleId, children }: { moduleId: ShopModuleId; children: ReactElement }) {
+  const modules = useTenantModules();
+
+  if (modules.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!modules.isModuleEnabled(moduleId)) {
+    return (
+      <div className="rounded-lg border bg-muted/30 p-8 text-center space-y-3">
+        <h2 className="text-xl font-semibold">Modul er slået fra</h2>
+        <p className="text-sm text-muted-foreground">
+          Dette modul er ikke aktivt for den valgte shop. Aktiver det under Shop Moduler.
+        </p>
+        <Button asChild>
+          <Link to="/admin/moduler">Gå til Shop Moduler</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  return children;
+}
 
 
 export default function Admin() {
@@ -108,20 +139,63 @@ export default function Admin() {
                 <Route path="/" element={<Dashboard />} /> {/* Changed to Dashboard */}
                 <Route path="/products" element={<ProductOverview />} /> {/* Moved ProductOverview to /products */}
                 <Route path="/prismoduler" element={<PricingModules />} />
-                <Route path="/machine-pricing" element={<MachinePricingManager />} />
-                <Route path="/designer-templates" element={<DesignerTemplateManager />} />
+                <Route
+                  path="/machine-pricing"
+                  element={
+                    <AdminModuleGate moduleId="machine-pricing">
+                      <MachinePricingManager />
+                    </AdminModuleGate>
+                  }
+                />
+                <Route
+                  path="/designer-templates"
+                  element={
+                    <AdminModuleGate moduleId="print-designer">
+                      <DesignerTemplateManager />
+                    </AdminModuleGate>
+                  }
+                />
                 <Route path="/farveprofiler" element={<ColorProfilesManager />} />
                 <Route path="/tilvalgsbibliotek" element={<AddonLibraryManager />} />
                 <Route path="/product/:slug" element={<ProductPriceManager />} />
                 <Route path="/create-product" element={<ProductCreator />} />
                 <Route path="/seo" element={<SeoManager />} />
                 <Route path="/kunder" element={<OrderManager />} />
-                <Route path="/companyhub" element={<AdminCompanyHub />} />
+                <Route
+                  path="/companyhub"
+                  element={
+                    <AdminModuleGate moduleId="company-hub">
+                      <AdminCompanyHub />
+                    </AdminModuleGate>
+                  }
+                />
                 <Route path="/beskeder" element={<AdminMessages />} />
                 {/* Min Konto routes */}
                 <Route path="/domaene" element={<DomainSettings />} />
-                <Route path="/branding" element={<TenantBrandingSettings />} />
-                <Route path="/branding-v2" element={<TenantBrandingSettingsV2 />} />
+                <Route
+                  path="/branding"
+                  element={
+                    <AdminModuleGate moduleId="site-design">
+                      <TenantBrandingSettings />
+                    </AdminModuleGate>
+                  }
+                />
+                <Route
+                  path="/branding-v2"
+                  element={
+                    <AdminModuleGate moduleId="site-design">
+                      <TenantBrandingSettingsV2 />
+                    </AdminModuleGate>
+                  }
+                />
+                <Route
+                  path="/sites"
+                  element={
+                    <AdminModuleGate moduleId="site-design">
+                      <SitesAdmin />
+                    </AdminModuleGate>
+                  }
+                />
                 <Route path="/abonnement" element={<SubscriptionSettings />} />
                 <Route path="/indstillinger" element={<ShopSettings />} />
                 <Route path="/indstillinger/betaling" element={<TenantPaymentSettings />} />
@@ -140,7 +214,14 @@ export default function Admin() {
                 <Route path="/platform-seo/callback" element={<SearchConsoleCallback />} />
                 {/* Print on Demand Routes */}
                 <Route path="/pod" element={<PodAdmin />} />
-                <Route path="/pod-katalog" element={<PodKatalog />} />
+                <Route
+                  path="/pod-katalog"
+                  element={
+                    <AdminModuleGate moduleId="print-on-demand">
+                      <PodKatalog />
+                    </AdminModuleGate>
+                  }
+                />
                 <Route path="/pod-ordrer" element={<PodOrdrer />} />
                 <Route path="/pod-betaling" element={<PodBetaling />} />
                 {/* Print on Demand v2 Routes */}

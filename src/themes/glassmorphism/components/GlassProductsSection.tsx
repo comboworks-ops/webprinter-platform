@@ -2,11 +2,13 @@
  * Glassmorphism Theme - ProductsSection Component
  *
  * Products section with frosted glass tabs and floating cards.
+ * Optionally includes a featured product quick configurator with glass effects.
  */
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useTheme } from '@/lib/themes';
 import type { ProductsSectionProps } from '@/lib/themes/types';
+import { FeaturedProductConfigurator } from '@/components/FeaturedProductConfigurator';
 
 export function GlassProductsSection({
     branding,
@@ -18,6 +20,7 @@ export function GlassProductsSection({
     productButtonConfig,
     productBackgroundConfig,
     productLayoutStyle,
+    featuredProductConfig,
 }: ProductsSectionProps) {
     const { components: Theme } = useTheme();
     const primaryColor = branding?.colors?.primary || '#0EA5E9';
@@ -25,9 +28,25 @@ export function GlassProductsSection({
     if (!showProducts) return null;
 
     const themeProps = { branding, tenantName, isPreviewMode };
+    const hasFeaturedProduct = featuredProductConfig?.enabled && featuredProductConfig?.productId;
+
+    // For glassmorphism, prefer glass card style
+    const glassConfig = featuredProductConfig ? {
+        ...featuredProductConfig,
+        cardStyle: featuredProductConfig.cardStyle || 'glass',
+    } : undefined;
 
     return (
-        <section className="py-20 relative" id="produkter">
+        <section
+            className="py-20 relative"
+            id="produkter"
+            style={{
+                // Adjust padding when featured product overlaps
+                paddingTop: hasFeaturedProduct && featuredProductConfig?.overlapPx
+                    ? `${80 + (featuredProductConfig.overlapPx || 0)}px`
+                    : undefined,
+            }}
+        >
             {/* Decorative gradient blobs */}
             <div
                 className="absolute top-20 left-10 w-72 h-72 rounded-full blur-3xl opacity-20 pointer-events-none"
@@ -39,6 +58,23 @@ export function GlassProductsSection({
             />
 
             <div className="container mx-auto px-4 relative z-10">
+                {/* Featured Product (positioned to overlap hero) */}
+                {hasFeaturedProduct && glassConfig && (
+                    <div
+                        className="mb-12"
+                        style={{
+                            marginTop: `-${featuredProductConfig.overlapPx || 60}px`,
+                            position: 'relative',
+                            zIndex: 10,
+                        }}
+                    >
+                        <FeaturedProductConfigurator
+                            config={glassConfig}
+                            branding={branding}
+                        />
+                    </div>
+                )}
+
                 {showStorformatTab ? (
                     <Tabs defaultValue="tryksager" className="w-full">
                         {/* Glass Tab Container */}

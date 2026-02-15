@@ -17,6 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { SEO } from "@/components/SEO";
 import { ProductSchema, BreadcrumbSchema } from "@/components/ProductSchema";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { useTenantModules } from "@/hooks/useTenantModules";
 import { getPageBackgroundStyle } from "@/lib/branding/background";
 import { getMatrixStyleVars } from "@/lib/branding/matrix";
 import { mergeBrandingWithDefaults } from "@/hooks/useBrandingDraft";
@@ -39,11 +40,13 @@ const ProductPrice = () => {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
   const { data: settings } = useShopSettings();
+  const modules = useTenantModules({ tenantId: settings?.id ?? null });
   const branding = useMemo(() => mergeBrandingWithDefaults(settings?.branding || null), [settings?.branding]);
   const pageBackgroundStyle = getPageBackgroundStyle(branding);
   const matrixStyleVars = useMemo(() => getMatrixStyleVars(branding), [branding]);
   const pageStyle = useMemo(() => ({ ...pageBackgroundStyle, ...matrixStyleVars }), [pageBackgroundStyle, matrixStyleVars]);
   const extras = branding.pageExtras?.product;
+  const designModuleEnabled = modules.isModuleEnabled("print-designer");
 
   const staticProduct = slug ? getProductBySlug(slug) : null;
 
@@ -689,6 +692,7 @@ const ProductPrice = () => {
               designHeightMm={designDimensions.height}
               designBleedMm={designDimensions.bleed}
               designSafeAreaMm={designSafeAreaMm}
+              designModuleEnabled={designModuleEnabled}
               externalDeliveryEnabled={podShippingEnabled}
               externalDeliveryMethods={podShippingMethods}
               externalDeliveryLoading={podShippingLoading}
@@ -731,6 +735,7 @@ const ProductPrice = () => {
               designHeightMm={designDimensions.height}
               designBleedMm={designDimensions.bleed}
               designSafeAreaMm={designSafeAreaMm}
+              designModuleEnabled={designModuleEnabled}
               externalDeliveryEnabled={podShippingEnabled}
               externalDeliveryMethods={podShippingMethods}
               externalDeliveryLoading={podShippingLoading}
@@ -852,6 +857,7 @@ const ProductPrice = () => {
                 designHeightMm={designDimensions.height}
                 designBleedMm={designDimensions.bleed}
                 designSafeAreaMm={designSafeAreaMm}
+                designModuleEnabled={designModuleEnabled}
                 externalDeliveryEnabled={podShippingEnabled}
                 externalDeliveryMethods={podShippingMethods}
                 externalDeliveryLoading={podShippingLoading}

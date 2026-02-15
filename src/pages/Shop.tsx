@@ -50,6 +50,7 @@ const ShopContent = ({ branding, tenantName }: { branding: any; tenantName: stri
     const productBackgroundConfig = productsSection?.background;
     const productLayoutStyle = productsSection?.layoutStyle;
     const showStorformatTab = productsSection?.showStorformatTab ?? true;
+    const featuredProductConfig = productsSection?.featuredProduct;
     const contentBlocks = branding?.forside?.contentBlocks?.filter((block: any) => block.enabled) || [];
     const blocksAbove = contentBlocks.filter((block: any) => block.placement === 'above_products');
     const blocksBelow = contentBlocks.filter((block: any) => block.placement !== 'above_products');
@@ -138,6 +139,7 @@ const ShopContent = ({ branding, tenantName }: { branding: any; tenantName: stri
                     productButtonConfig={productButtonConfig}
                     productBackgroundConfig={productBackgroundConfig}
                     productLayoutStyle={productLayoutStyle}
+                    featuredProductConfig={featuredProductConfig}
                 />
 
                 {/* Banner 2 (below products) */}
