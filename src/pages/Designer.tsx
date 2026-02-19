@@ -78,7 +78,8 @@ import {
     ZoomOut,
     Hand,
     Maximize,
-    Scissors
+    Scissors,
+    RotateCcw
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -707,6 +708,17 @@ export function Designer() {
             navigateBack();
         }
     }, [hasChanges, navigateBack]);
+
+    // Flip orientation (swap width and height)
+    const handleFlipOrientation = useCallback(() => {
+        setDocumentSpec(prev => ({
+            ...prev,
+            width_mm: prev.height_mm,
+            height_mm: prev.width_mm
+        }));
+        setHasChanges(true);
+        toast.success(documentSpec.width_mm > documentSpec.height_mm ? 'Skiftet til stående format' : 'Skiftet til liggende format');
+    }, [documentSpec.width_mm, documentSpec.height_mm]);
 
     const markDesignReady = useCallback(() => {
         if (!documentSpec.product_id) return;
@@ -1388,6 +1400,7 @@ export function Designer() {
                     // If meta/ctrl is pressed, we let the browser handle the standard Copy action
                     break;
                 case 'l': if (!hasModifier) handleToolClick('line'); break;
+                case 'o': if (!hasModifier) handleFlipOrientation(); break;
                 case 'g':
                     if (!hasModifier) {
                         if (e.shiftKey) {
@@ -1792,6 +1805,23 @@ export function Designer() {
                                 </span>
                             </Button>
                         ))}
+
+                        {/* Separator */}
+                        <div className="h-px bg-border my-1" />
+
+                        {/* Flip Orientation */}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10 relative group"
+                            onClick={handleFlipOrientation}
+                            title={documentSpec.width_mm > documentSpec.height_mm ? "Skift til stående (O)" : "Skift til liggende (O)"}
+                        >
+                            <RotateCcw className="h-5 w-5" />
+                            <span className="absolute left-12 bg-popover text-popover-foreground px-2 py-1 rounded text-xs shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none">
+                                {documentSpec.width_mm > documentSpec.height_mm ? "Skift til stående format" : "Skift til liggende format"}
+                            </span>
+                        </Button>
                     </div>
 
                     <div className="flex-1" />

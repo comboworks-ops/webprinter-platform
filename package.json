@@ -8,7 +8,12 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "product:validate": "node scripts/product-blueprint-cli.js validate",
+    "product:import": "node scripts/product-blueprint-cli.js import",
+    "product:import:folders": "node scripts/fetch-folders-import.js import",
+    "product:import:folders:dry": "node scripts/fetch-folders-import.js import --dry-run",
+    "test:product-import": "node --test scripts/product-import/__tests__/ul-prices.test.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -58,9 +63,11 @@
     "embla-carousel-react": "^8.6.0",
     "fabric": "^5.3.0",
     "input-otp": "^1.4.2",
+    "js-yaml": "^4.1.0",
     "jspdf": "^3.0.4",
     "lcms-wasm": "^1.0.5",
     "lucide-react": "^0.462.0",
+    "motion": "^12.34.2",
     "next-themes": "^0.3.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",
@@ -93,6 +100,7 @@
     "globals": "^15.15.0",
     "lovable-tagger": "^1.1.11",
     "postcss": "^8.5.6",
+    "playwright": "^1.56.1",
     "supabase": "^2.71.1",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",

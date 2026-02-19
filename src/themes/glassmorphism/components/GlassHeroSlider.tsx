@@ -5,10 +5,11 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ThemeComponentProps } from '@/lib/themes/types';
 import { cn } from '@/lib/utils';
+import { ShimmerButton } from '@/components/ui/shimmer-button';
 
 /**
  * Animated Glassmorphism Background
@@ -100,6 +101,7 @@ function AnimatedGlassBackground({ primaryColor }: { primaryColor: string }) {
 }
 
 export function GlassHeroSlider({ branding, tenantName }: ThemeComponentProps) {
+    const navigate = useNavigate();
     const heroSettings = branding?.hero || {};
     const images = heroSettings.images || [];
     const slideshow = heroSettings.slideshow || { autoplay: true, intervalMs: 5000 };
@@ -190,43 +192,49 @@ export function GlassHeroSlider({ branding, tenantName }: ThemeComponentProps) {
                         {currentImage?.buttons && currentImage.buttons.length > 0 ? (
                             <div className="flex flex-wrap gap-3">
                                 {currentImage.buttons.slice(0, 2).map((button: any) => (
-                                    <Link
-                                        key={button.id}
-                                        to={button.target?.path || button.target?.url || '/shop'}
-                                        className={cn(
-                                            "px-6 py-3 rounded-full font-medium transition-all",
-                                            "hover:scale-105 hover:shadow-lg",
-                                            button.variant === 'secondary'
-                                                ? "bg-white/20 backdrop-blur text-white border border-white/30"
-                                                : "text-white shadow-lg"
-                                        )}
-                                        style={button.variant !== 'secondary' ? {
-                                            background: `linear-gradient(135deg, ${button.bgColor || primaryColor}, ${button.bgColor || primaryColor}cc)`,
-                                        } : undefined}
-                                    >
-                                        {button.label}
-                                    </Link>
+                                    button.variant === 'secondary' ? (
+                                        <Link
+                                            key={button.id}
+                                            to={button.target?.path || button.target?.url || '/shop'}
+                                            className="px-6 py-3 rounded-full font-medium transition-all hover:scale-105 bg-white/20 backdrop-blur text-white border border-white/30"
+                                        >
+                                            {button.label}
+                                        </Link>
+                                    ) : (
+                                        <ShimmerButton
+                                            key={button.id}
+                                            onClick={() => navigate(button.target?.path || button.target?.url || '/shop')}
+                                            shimmerColor="rgba(255,255,255,0.3)"
+                                            background={`linear-gradient(135deg, ${button.bgColor || primaryColor}, ${button.bgColor || primaryColor}cc)`}
+                                            className="font-medium"
+                                        >
+                                            {button.label}
+                                        </ShimmerButton>
+                                    )
                                 ))}
                             </div>
                         ) : overlay.showButtons && overlay.buttons?.length > 0 ? (
                             <div className="flex flex-wrap gap-3">
                                 {overlay.buttons.slice(0, 2).map((button: any) => (
-                                    <Link
-                                        key={button.id}
-                                        to={button.target?.path || '/shop'}
-                                        className={cn(
-                                            "px-6 py-3 rounded-full font-medium transition-all",
-                                            "hover:scale-105 hover:shadow-lg",
-                                            button.variant === 'secondary'
-                                                ? "bg-white/20 backdrop-blur text-white border border-white/30"
-                                                : "text-white shadow-lg"
-                                        )}
-                                        style={button.variant !== 'secondary' ? {
-                                            background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}cc)`,
-                                        } : undefined}
-                                    >
-                                        {button.label}
-                                    </Link>
+                                    button.variant === 'secondary' ? (
+                                        <Link
+                                            key={button.id}
+                                            to={button.target?.path || '/shop'}
+                                            className="px-6 py-3 rounded-full font-medium transition-all hover:scale-105 bg-white/20 backdrop-blur text-white border border-white/30"
+                                        >
+                                            {button.label}
+                                        </Link>
+                                    ) : (
+                                        <ShimmerButton
+                                            key={button.id}
+                                            onClick={() => navigate(button.target?.path || '/shop')}
+                                            shimmerColor="rgba(255,255,255,0.3)"
+                                            background={`linear-gradient(135deg, ${primaryColor}, ${primaryColor}cc)`}
+                                            className="font-medium"
+                                        >
+                                            {button.label}
+                                        </ShimmerButton>
+                                    )
                                 ))}
                             </div>
                         ) : null}

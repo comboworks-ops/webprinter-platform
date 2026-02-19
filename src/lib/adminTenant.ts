@@ -32,7 +32,10 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
 
     if (roleRows && roleRows.length > 0) {
         const hasMaster = roleRows.some((row) => row.role === 'master_admin');
-        const preferred = roleRows.find((row) => row.tenant_id) || roleRows[0];
+        const preferred =
+            roleRows.find((row) => row.tenant_id && row.tenant_id !== MASTER_TENANT_ID) ||
+            roleRows.find((row) => row.tenant_id) ||
+            roleRows[0];
         role = hasMaster ? 'master_admin' : preferred?.role || null;
         tenantId = preferred?.tenant_id || null;
     }

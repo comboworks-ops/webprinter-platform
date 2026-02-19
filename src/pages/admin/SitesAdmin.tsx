@@ -13,7 +13,7 @@ import {
 import { toast } from 'sonner';
 
 import { supabase } from '@/integrations/supabase/client';
-import { resolveAdminTenant } from '@/lib/adminTenant';
+import { resolveAdminTenant, MASTER_TENANT_ID } from '@/lib/adminTenant';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -86,6 +86,7 @@ export default function SitesAdmin() {
   const [tenant, setTenant] = useState<TenantData | null>(null);
   const [loading, setLoading] = useState(true);
   const [workingSiteId, setWorkingSiteId] = useState<string | null>(null);
+  const [isMasterAdmin, setIsMasterAdmin] = useState(false);
 
   const siteState = useMemo(() => parseSiteFrontendState(tenant?.settings), [tenant?.settings]);
 
@@ -93,6 +94,9 @@ export default function SitesAdmin() {
 
   const persistSettings = async (nextSettings: any) => {
     if (!tenant) return;
+    if (!isMasterAdmin) {
+      throw new Error('Sites administreres centralt af master-tenant.');
+    }
 
     const { error } = await supabase
       .from('tenants' as any)
@@ -115,9 +119,11 @@ export default function SitesAdmin() {
     setLoading(true);
 
     try {
-      const { tenantId } = await resolveAdminTenant();
+      const { tenantId, isMasterAdmin: resolvedIsMasterAdmin } = await resolveAdminTenant();
+      setIsMasterAdmin(resolvedIsMasterAdmin);
 
-      if (!tenantId) {
+      const targetTenantId = resolvedIsMasterAdmin ? MASTER_TENANT_ID : tenantId;
+      if (!targetTenantId) {
         setTenant(null);
         return;
       }
@@ -125,7 +131,7 @@ export default function SitesAdmin() {
       const { data, error } = await supabase
         .from('tenants' as any)
         .select('id, name, settings')
-        .eq('id', tenantId)
+        .eq('id', targetTenantId)
         .maybeSingle();
 
       if (error) throw error;
@@ -152,7 +158,7 @@ export default function SitesAdmin() {
   const getPreviewHref = (siteId: string) => {
     if (!tenant) return '/preview-shop';
     return buildPreviewShopUrl({
-      tenantId: tenant.id,
+      tenantId: MASTER_TENANT_ID,
       siteId,
       sitePreviewMode: true,
       page: '/',
@@ -161,6 +167,10 @@ export default function SitesAdmin() {
 
   const handleActivateSite = async (sitePackage: SitePackage) => {
     if (!tenant) return;
+    if (!isMasterAdmin) {
+      toast.error('Sites styres af master-tenant og kan ikke aktiveres her.');
+      return;
+    }
 
     setWorkingSiteId(sitePackage.id);
     try {
@@ -179,6 +189,10 @@ export default function SitesAdmin() {
 
   const handleInstallSite = async (sitePackage: SitePackage) => {
     if (!tenant) return;
+    if (!isMasterAdmin) {
+      toast.error('Sites styres af master-tenant og kan ikke installeres her.');
+      return;
+    }
 
     setWorkingSiteId(sitePackage.id);
 
@@ -253,6 +267,11 @@ export default function SitesAdmin() {
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
+          {!isMasterAdmin && (
+            <div className="rounded-md border border-amber-300/70 bg-amber-100/50 px-3 py-2 text-xs text-amber-900">
+              Site-pakker er midlertidigt master-styrede. Du kan previewe dem her, men aktivering/installering er låst for tenant-konti.
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="text-muted-foreground">Aktiv shop:</span>
             <Badge variant="secondary">{tenant.name}</Badge>
@@ -341,7 +360,7 @@ export default function SitesAdmin() {
                 <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
-                    disabled={isWorking}
+                    disabled={isWorking || !isMasterAdmin}
                     onClick={() => handleActivateSite(sitePackage)}
                   >
                     {isWorking ? (
@@ -366,7 +385,11 @@ export default function SitesAdmin() {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={isWorking || (counts.formats + counts.materials + counts.finishes + counts.products === 0)}
+                    disabled={
+                      isWorking ||
+                      !isMasterAdmin ||
+                      (counts.formats + counts.materials + counts.finishes + counts.products === 0)
+                    }
                     onClick={() => handleInstallSite(sitePackage)}
                   >
                     {isWorking ? (
@@ -383,6 +406,19 @@ export default function SitesAdmin() {
                       GitHub
                     </a>
                   </Button>
+                </div>
+
+                <div className="rounded-md border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground space-y-1">
+                  <p>
+                    <span className="font-medium text-foreground">Aktivér site:</span>{' '}
+                    Vælger hvilket facade-site der er aktivt som kontekst i preview/admin.
+                    Dette importerer ikke bibliotekselementer.
+                  </p>
+                  <p>
+                    <span className="font-medium text-foreground">Installer bibliotek:</span>{' '}
+                    Importerer site-specifikke formater, materialer, efterbehandlinger og produkter til biblioteket.
+                    Kan køres igen sikkert, eksisterende elementer springes over.
+                  </p>
                 </div>
               </CardContent>
             </Card>

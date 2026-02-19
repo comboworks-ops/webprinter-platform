@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, Truck, ShoppingCart, Clock, Package } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { cloneStandardDeliveryMethods } from "@/lib/delivery/defaults";
 
 // Define anchor zones that can have tooltips - now includes dynamic IDs
 export interface AnchorZone {
@@ -144,17 +145,22 @@ export function ProductPagePreview({
                 setPriceMatrix(matrixRows);
 
                 // Load delivery options
-                const orderDeliveryConfig = (product as any).order_delivery_config;
+                const orderDeliveryConfig =
+                    (product as any)?.banner_config?.order_delivery ||
+                    (product as any)?.order_delivery_config ||
+                    null;
                 const deliveryMethods = orderDeliveryConfig?.delivery?.methods || [];
                 setDeliveryOptions(deliveryMethods.length > 0 ? deliveryMethods.map((m: any) => ({
                     id: m.id,
                     name: m.name,
                     price: m.price || 0,
                     lead_time_days: m.lead_time_days
-                })) : [
-                    { id: 'standard', name: 'Standard levering', price: 49, lead_time_days: 5 },
-                    { id: 'express', name: 'Express levering', price: 99, lead_time_days: 2 }
-                ]);
+                })) : cloneStandardDeliveryMethods().map((method) => ({
+                    id: method.id,
+                    name: method.name,
+                    price: method.price,
+                    lead_time_days: method.lead_time_days,
+                })));
 
             } catch (error) {
                 console.error('Error loading product data:', error);

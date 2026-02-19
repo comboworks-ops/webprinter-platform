@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -12,11 +12,18 @@ import { Switch } from "@/components/ui/switch";
 import { Loader2, Upload, AlertCircle, CheckCircle2, FileText, ArrowRight, Download, Info, Zap, Sparkles, Package, X } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import { PreflightGuide } from "@/components/product-price-page/PreflightGuide";
 import { StripePaymentForm } from "@/components/checkout/StripePaymentForm";
 import { getPageBackgroundStyle } from "@/lib/branding/background";
 import { ptToMm } from "@/utils/unitConversions";
 import { getImageDpi } from "@/utils/imageMetadata";
+import {
+    clearSiteCheckoutSession,
+    readSiteCheckoutSession,
+} from "@/lib/checkout/siteCheckoutSession";
+import {
+    cloneStandardDeliveryMethods,
+    resolveDeliveryMethodCost,
+} from "@/lib/delivery/defaults";
 import {
     getFlyerMatrixDataFromDB,
     getFolderMatrixDataFromDB,
@@ -47,6 +54,18 @@ interface TemplateFile {
     uploadedAt: string;
 }
 
+interface CheckoutDeliveryMethod {
+    id: string;
+    name: string;
+    description?: string;
+    lead_time_days?: number;
+    cutoff_time?: string;
+    cutoff_label?: "deadline" | "latest";
+    submission?: string;
+    delivery_date?: string;
+    price: number;
+}
+
 const STANDARD_SPECS: Record<string, { width_mm: number; height_mm: number; min_dpi: number }> = {
     "A6": { width_mm: 105, height_mm: 148, min_dpi: 300 },
     "M65": { width_mm: 99, height_mm: 210, min_dpi: 300 },
@@ -66,10 +85,142 @@ const MM_PER_INCH = 25.4;
 const SIZE_TOLERANCE_MM = 1.5;
 const ASPECT_RATIO_TOLERANCE = 0.03;
 const PDF_PREVIEW_MAX_PX = 1400;
+const DEFAULT_CHECKOUT_DELIVERY_METHODS: CheckoutDeliveryMethod[] =
+    cloneStandardDeliveryMethods().map((method) => ({
+        id: method.id,
+        name: method.name,
+        description: method.description,
+        lead_time_days: method.lead_time_days,
+        cutoff_time: method.cutoff_time,
+        cutoff_label: method.cutoff_label,
+        price: method.price,
+    }));
+
+const DEFAULT_CHECKOUT_DELIVERY_METHODS_BY_ID = new Map(
+    DEFAULT_CHECKOUT_DELIVERY_METHODS.map((method) => [method.id.toLowerCase(), method]),
+);
 
 const toNumberOrNull = (value: unknown): number | null => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizeDeliveryMethods = (rawMethods: unknown): CheckoutDeliveryMethod[] => {
+    if (!Array.isArray(rawMethods)) return [];
+
+    const normalized = rawMethods
+        .map((raw, index) => {
+            if (!raw || typeof raw !== "object") return null;
+            const row = raw as Record<string, unknown>;
+            const name = typeof row.name === "string" ? row.name.trim() : "";
+            if (!name) return null;
+            const rawId = typeof row.id === "string" ? row.id.trim() : "";
+            const id = rawId || `method-${index + 1}`;
+            const fallback = DEFAULT_CHECKOUT_DELIVERY_METHODS_BY_ID.get(id.toLowerCase());
+            return {
+                id,
+                name,
+                description: typeof row.description === "string" ? row.description : (fallback?.description || ""),
+                lead_time_days: toNumberOrNull(row.lead_time_days) ?? fallback?.lead_time_days ?? undefined,
+                cutoff_time:
+                    (typeof row.cutoff_time === "string" ? row.cutoff_time : "")
+                    || (typeof row.cutoffTime === "string" ? row.cutoffTime : "")
+                    || fallback?.cutoff_time
+                    || "",
+                cutoff_label:
+                    ((typeof row.cutoff_label === "string" ? row.cutoff_label : "")
+                        || (typeof row.cutoffLabel === "string" ? row.cutoffLabel : "")
+                        || fallback?.cutoff_label
+                        || "deadline") as "deadline" | "latest",
+                submission: typeof row.submission === "string" ? row.submission : "",
+                delivery_date:
+                    (typeof row.delivery_date === "string" ? row.delivery_date : "")
+                    || (typeof row.deliveryDate === "string" ? row.deliveryDate : ""),
+                price: toNumberOrNull(row.price)
+                    ?? resolveDeliveryMethodCost(1, { id, price: null }),
+            } as CheckoutDeliveryMethod;
+        })
+        .filter((value): value is CheckoutDeliveryMethod => !!value);
+
+    const unique = new Map<string, CheckoutDeliveryMethod>();
+    normalized.forEach((method) => {
+        if (!unique.has(method.id)) {
+            unique.set(method.id, method);
+        }
+    });
+
+    return Array.from(unique.values());
+};
+
+const parseDateValue = (value?: string): Date | null => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const parseCutoffTimeValue = (value?: string): { hours: number; minutes: number } | null => {
+    if (!value) return null;
+    const [hoursRaw, minutesRaw] = value.split(":");
+    const hours = Number(hoursRaw);
+    const minutes = Number(minutesRaw);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+    return { hours, minutes };
+};
+
+const getNextCutoffDate = (method: CheckoutDeliveryMethod, now: Date): Date | null => {
+    const parsed = parseCutoffTimeValue(method.cutoff_time);
+    if (!parsed) return null;
+    const cutoff = new Date(now);
+    cutoff.setHours(parsed.hours, parsed.minutes, 0, 0);
+    if (cutoff.getTime() <= now.getTime()) {
+        cutoff.setDate(cutoff.getDate() + 1);
+    }
+    return cutoff;
+};
+
+const formatCountdown = (targetDate: Date, now: Date): string => {
+    const diffMs = targetDate.getTime() - now.getTime();
+    if (diffMs <= 0) return "0m";
+    const totalMinutes = Math.floor(diffMs / 60000);
+    const days = Math.floor(totalMinutes / 1440);
+    const hours = Math.floor((totalMinutes % 1440) / 60);
+    const minutes = totalMinutes % 60;
+    if (days > 0) return `${days}d ${hours}t`;
+    if (hours > 0) return `${hours}t ${minutes}m`;
+    return `${minutes}m`;
+};
+
+const formatDeliveryMetaText = (method: CheckoutDeliveryMethod, now: Date): string => {
+    const cutoffDate = getNextCutoffDate(method, now);
+    if (cutoffDate && method.cutoff_time) {
+        const label = method.cutoff_label === "latest" ? "Senest bestilling" : "Deadline";
+        return `${label} kl. ${method.cutoff_time} (${formatCountdown(cutoffDate, now)})`;
+    }
+    const submissionDate = parseDateValue(method.submission);
+    if (submissionDate) {
+        return `Bestil senest: ${new Intl.DateTimeFormat("da-DK", {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+        }).format(submissionDate)}`;
+    }
+    if (typeof method.lead_time_days === "number" && method.lead_time_days > 0) {
+        return `Leveringstid: ca. ${Math.round(method.lead_time_days)} dage`;
+    }
+    const deliveryDate = parseDateValue(method.delivery_date);
+    if (deliveryDate) {
+        return `Forventet levering: ${new Intl.DateTimeFormat("da-DK", {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+        }).format(deliveryDate)}`;
+    }
+    return "";
 };
 
 const isAtMostA3 = (widthMm: number, heightMm: number): boolean => {
@@ -85,7 +236,12 @@ const getSizeBasedMinDpi = (widthMm: number, heightMm: number): number => (
 const FileUploadConfiguration = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { state } = location;
+    const locationState = (location.state as any) || null;
+    const sessionState = useMemo(
+        () => (locationState ? null : readSiteCheckoutSession()),
+        [location.key, locationState]
+    );
+    const state = (locationState || sessionState) as any;
     const shopSettings = useShopSettings();
     const pageBackgroundStyle = getPageBackgroundStyle(shopSettings.data?.branding);
 
@@ -136,7 +292,14 @@ const FileUploadConfiguration = () => {
 
     // Local Order Configuration (to allow for Best Deal upgrades)
     const [orderQuantity, setOrderQuantity] = useState<number>(state?.quantity || 0);
-    const [orderPrice, setOrderPrice] = useState<number>(state?.totalPrice || 0);
+    const initialOrderPrice = toNumberOrNull(state?.productPrice) ?? toNumberOrNull(state?.totalPrice) ?? 0;
+    const [orderPrice, setOrderPrice] = useState<number>(initialOrderPrice);
+    const [deliveryMethods, setDeliveryMethods] = useState<CheckoutDeliveryMethod[]>([]);
+    const [selectedDeliveryId, setSelectedDeliveryId] = useState<string | null>(
+        typeof state?.shippingSelected === "string" ? state.shippingSelected : null
+    );
+    const [shippingCost, setShippingCost] = useState<number>(toNumberOrNull(state?.shippingCost) || 0);
+    const [deliveryNow, setDeliveryNow] = useState<Date>(() => new Date());
     const [matrix, setMatrix] = useState<{ rows: string[], columns: number[], cells: any } | null>(null);
     const [upsellOptions, setUpsellOptions] = useState<{ quantity: number, price: number, savingPercent: number }[]>([]);
 
@@ -148,6 +311,17 @@ const FileUploadConfiguration = () => {
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const previewBlobUrlRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        const timer = window.setInterval(() => setDeliveryNow(new Date()), 30000);
+        return () => window.clearInterval(timer);
+    }, []);
+
+    useEffect(() => {
+        if (!locationState && sessionState) {
+            clearSiteCheckoutSession();
+        }
+    }, [locationState, sessionState]);
 
     const clearPreview = () => {
         if (previewBlobUrlRef.current) {
@@ -205,7 +379,7 @@ const FileUploadConfiguration = () => {
 
         setPaymentLoading(true);
         try {
-            const totalPrice = orderPrice + (state?.shippingCost || 0);
+            const totalPrice = orderPrice + shippingCost;
             const amountOre = Math.round(totalPrice * 100);
 
             const { data, error } = await supabase.functions.invoke("stripe-create-payment-intent", {
@@ -217,6 +391,10 @@ const FileUploadConfiguration = () => {
                         product_id: state?.productId || "",
                         product_slug: state?.productSlug || "",
                         uploaded_file: uploadedFile?.path || "",
+                        source_site_id: state?.sourceSiteId || "",
+                        source_site_upload_name: state?.siteUpload?.name || "",
+                        shipping_method_id: selectedDeliveryId || "",
+                        shipping_cost: shippingCost,
                     },
                 },
             });
@@ -305,6 +483,70 @@ const FileUploadConfiguration = () => {
         return null;
     };
 
+    useEffect(() => {
+        const siteUpload = state?.siteUpload;
+        if (!siteUpload || uploadedFile || preflightResults) return;
+
+        const widthPx = Math.max(1, Math.round(toNumberOrNull(siteUpload.widthPx) || 0));
+        const heightPx = Math.max(1, Math.round(toNumberOrNull(siteUpload.heightPx) || 0));
+        const previewDataUrl = typeof siteUpload.previewDataUrl === "string" ? siteUpload.previewDataUrl : null;
+        const sourceDpi = toNumberOrNull(siteUpload.estimatedDpi);
+        const specs = getResolvedSpecs();
+        const requiredDpi = specs?.min_dpi || 150;
+        const fallbackFileWidthMm = toNumberOrNull(state?.designWidthMm) || specs?.width_mm || 0;
+        const fallbackFileHeightMm = toNumberOrNull(state?.designHeightMm) || specs?.height_mm || 0;
+        const fileWidthMm = sourceDpi
+            ? (widthPx / sourceDpi) * MM_PER_INCH
+            : fallbackFileWidthMm;
+        const fileHeightMm = sourceDpi
+            ? (heightPx / sourceDpi) * MM_PER_INCH
+            : fallbackFileHeightMm;
+        const targetWidthMm = specs?.width_mm || fallbackFileWidthMm;
+        const targetHeightMm = specs?.height_mm || fallbackFileHeightMm;
+        const aspectRatioDiff = targetWidthMm > 0 && targetHeightMm > 0 && fileWidthMm > 0 && fileHeightMm > 0
+            ? Math.abs((fileWidthMm / fileHeightMm) - (targetWidthMm / targetHeightMm))
+            : 0;
+
+        const warnings: string[] = [];
+        if (!sourceDpi) {
+            warnings.push("DPI kunne ikke fastlaes automatisk fra site-preview filen.");
+        } else if (sourceDpi < requiredDpi) {
+            warnings.push(`Filen er ca. ${Math.round(sourceDpi)} DPI. Anbefalet minimum er ${requiredDpi} DPI.`);
+        }
+
+        if (aspectRatioDiff > ASPECT_RATIO_TOLERANCE) {
+            warnings.push("Filens proportioner matcher ikke helt den valgte bannerstørrelse.");
+        }
+
+        const fileName = (siteUpload.name || "site-preview-upload").toString();
+        if (previewDataUrl) {
+            setUploadedFile({
+                name: fileName,
+                url: previewDataUrl,
+                path: "",
+            });
+            setPreview(previewDataUrl, "image");
+        }
+
+        setPreflightResults({
+            fileType: "image",
+            dpi: sourceDpi || undefined,
+            width_px: widthPx || undefined,
+            height_px: heightPx || undefined,
+            file_width_mm: fileWidthMm || undefined,
+            file_height_mm: fileHeightMm || undefined,
+            target_width_mm: targetWidthMm || undefined,
+            target_height_mm: targetHeightMm || undefined,
+            required_dpi: requiredDpi,
+            source_dpi: sourceDpi || undefined,
+            aspectRatioMatch: aspectRatioDiff <= ASPECT_RATIO_TOLERANCE,
+            sizeMatch: true,
+            dpiOk: sourceDpi ? sourceDpi >= requiredDpi : true,
+            issues: [],
+            warnings,
+        });
+    }, [state, uploadedFile, preflightResults, product]);
+
     const isPodProduct = Boolean(product?.technical_specs?.is_pod || product?.technical_specs?.is_pod_v2);
     const podPreflightEnabled = Boolean(product?.technical_specs?.pod_preflight_enabled);
     const podPreflightAutoFix = (product?.technical_specs as any)?.pod_preflight_auto_fix ?? true;
@@ -332,7 +574,7 @@ const FileUploadConfiguration = () => {
             try {
                 // Use specific columns to avoid any issues with missing columns in schema
                 let query = supabase.from("products")
-                    .select("id, slug, name, description, image_url, technical_specs");
+                    .select("id, slug, name, description, image_url, technical_specs, banner_config");
 
                 if (state.productId) {
                     query = query.eq("id", state.productId);
@@ -418,6 +660,40 @@ const FileUploadConfiguration = () => {
 
         fetchProductData();
     }, [state, navigate]);
+
+    useEffect(() => {
+        if (!product) return;
+        const rawMethods = (product as any)?.banner_config?.order_delivery?.delivery?.methods;
+        const configuredMethods = normalizeDeliveryMethods(rawMethods);
+        const nextMethods = configuredMethods.length > 0 ? configuredMethods : DEFAULT_CHECKOUT_DELIVERY_METHODS;
+        setDeliveryMethods(nextMethods);
+
+        const stateSelectedId =
+            typeof state?.shippingSelected === "string" && state.shippingSelected.trim()
+                ? state.shippingSelected.trim()
+                : null;
+        const fallbackId = nextMethods[0]?.id || null;
+        const nextSelectedId =
+            stateSelectedId && nextMethods.some((method) => method.id === stateSelectedId)
+                ? stateSelectedId
+                : fallbackId;
+        setSelectedDeliveryId(nextSelectedId);
+
+        const stateShippingCost = toNumberOrNull(state?.shippingCost);
+        const selectedMethod = nextMethods.find((method) => method.id === nextSelectedId) || null;
+        if (stateShippingCost !== null && stateSelectedId && stateSelectedId === nextSelectedId) {
+            setShippingCost(stateShippingCost);
+        } else {
+            setShippingCost(resolveDeliveryMethodCost(orderPrice, selectedMethod));
+        }
+    }, [product, state?.shippingSelected, state?.shippingCost, orderPrice]);
+
+    useEffect(() => {
+        if (!selectedDeliveryId || deliveryMethods.length === 0) return;
+        const selectedMethod = deliveryMethods.find((method) => method.id === selectedDeliveryId);
+        if (!selectedMethod) return;
+        setShippingCost(resolveDeliveryMethodCost(orderPrice, selectedMethod));
+    }, [selectedDeliveryId, deliveryMethods, orderPrice]);
 
     useEffect(() => {
         const tenantId = shopSettings.data?.id;
@@ -1290,14 +1566,6 @@ const FileUploadConfiguration = () => {
                         </div>
 
                         <div className="space-y-6">
-                            {specs && (
-                                <PreflightGuide
-                                    width={specs.width_mm}
-                                    height={specs.height_mm}
-                                    bleed={specs.bleed_mm}
-                                    minDpi={specs.min_dpi}
-                                />
-                            )}
                             <Card className="shadow-lg border-2 border-primary/5">
                                 <CardHeader className="pb-2">
                                     <div className="flex items-center justify-between">
@@ -1330,13 +1598,55 @@ const FileUploadConfiguration = () => {
                                         </div>
                                         <div className="flex justify-between text-sm">
                                             <span className="text-muted-foreground">Levering:</span>
-                                            <span className="font-medium">{state.shippingCost} kr</span>
+                                            <span className="font-medium">{shippingCost} kr</span>
                                         </div>
                                     </div>
 
+                                    {deliveryMethods.length > 0 && (
+                                        <div className="space-y-2 pt-2 border-t border-black/5">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                Leveringsmetode
+                                            </p>
+                                            <div className="space-y-2">
+                                                {deliveryMethods.map((method) => {
+                                                    const isSelected = selectedDeliveryId === method.id;
+                                                    const methodCost = resolveDeliveryMethodCost(orderPrice, method);
+                                                    const methodMeta = formatDeliveryMetaText(method, deliveryNow);
+                                                    return (
+                                                        <button
+                                                            key={method.id}
+                                                            type="button"
+                                                            onClick={() => setSelectedDeliveryId(method.id)}
+                                                            className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                                                                isSelected
+                                                                    ? "border-primary bg-primary/5"
+                                                                    : "border-slate-200 hover:border-primary/40 hover:bg-slate-50"
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <span className="text-sm font-medium">{method.name}</span>
+                                                                <span className="text-sm font-semibold">{methodCost} kr</span>
+                                                            </div>
+                                                            {method.description && (
+                                                                <p className="text-xs text-muted-foreground mt-0.5">
+                                                                    {method.description}
+                                                                </p>
+                                                            )}
+                                                            {methodMeta && (
+                                                                <p className="text-xs text-muted-foreground mt-0.5">
+                                                                    {methodMeta}
+                                                                </p>
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <div className="pt-4 border-t-2 border-primary/10 flex justify-between items-end">
                                         <span className="font-bold">Total (ex. moms):</span>
-                                        <span className="text-2xl font-bold text-primary">{orderPrice + (state?.shippingCost || 0)} kr</span>
+                                        <span className="text-2xl font-bold text-primary">{orderPrice + shippingCost} kr</span>
                                     </div>
 
                                     {paymentStatusLoaded &&
@@ -1405,7 +1715,7 @@ const FileUploadConfiguration = () => {
                         </button>
                         <StripePaymentForm
                             clientSecret={paymentClientSecret}
-                            amount={orderPrice + (state?.shippingCost || 0)}
+                            amount={orderPrice + shippingCost}
                             currency="dkk"
                             onSuccess={handlePaymentSuccess}
                             onCancel={handlePaymentCancel}

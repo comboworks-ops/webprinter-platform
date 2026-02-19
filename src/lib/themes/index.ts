@@ -29,12 +29,16 @@ export const DEFAULT_THEME_ID = 'classic';
  */
 export function registerTheme(theme: ThemeDefinition): void {
     if (themeRegistry.has(theme.metadata.id)) {
-        console.warn(
-            `[Themes] Theme "${theme.metadata.id}" already registered, overwriting.`
-        );
+        if (import.meta.env.DEV) {
+            console.warn(
+                `[Themes] Theme "${theme.metadata.id}" already registered, overwriting.`
+            );
+        }
     }
     themeRegistry.set(theme.metadata.id, theme);
-    console.log(`[Themes] Registered theme: ${theme.metadata.name}`);
+    if (import.meta.env.DEV) {
+        console.log(`[Themes] Registered theme: ${theme.metadata.name}`);
+    }
 }
 
 /**

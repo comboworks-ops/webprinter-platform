@@ -53,6 +53,7 @@ import { ShopModules } from '@/components/admin/ShopModules';
 import { PricingHub } from '@/pages/admin/PricingHub';
 import { useTenantModules } from '@/hooks/useTenantModules';
 import type { ShopModuleId } from '@/lib/modules/catalog';
+import { consumePostLogoutPath, getPostLogoutPath } from '@/lib/auth/logoutRedirect';
 
 function AdminModuleGate({ moduleId, children }: { moduleId: ShopModuleId; children: ReactElement }) {
   const modules = useTenantModules();
@@ -86,6 +87,7 @@ function AdminModuleGate({ moduleId, children }: { moduleId: ShopModuleId; child
 export default function Admin() {
   const navigate = useNavigate();
   const { isAdmin, loading: roleLoading } = useUserRole();
+  const postLogoutPath = getPostLogoutPath();
 
   useEffect(() => {
     const checkAccess = async () => {
@@ -98,12 +100,13 @@ export default function Admin() {
           toast.error('Adgang nægtet. Administrator rettigheder påkrævet.');
         }
 
-        navigate('/');
+        const stickyTarget = consumePostLogoutPath();
+        navigate(stickyTarget || postLogoutPath, { replace: true });
       }
     };
 
     checkAccess();
-  }, [isAdmin, roleLoading, navigate]);
+  }, [isAdmin, roleLoading, navigate, postLogoutPath]);
 
   if (roleLoading) {
     return (
@@ -120,7 +123,7 @@ export default function Admin() {
         <p className="text-sm text-muted-foreground max-w-md">
           Du mangler administratorrettigheder, eller adgangskontrollen kunne ikke verificeres.
         </p>
-        <Button onClick={() => navigate('/')}>Tilbage til forsiden</Button>
+        <Button onClick={() => navigate(postLogoutPath)}>Tilbage til forsiden</Button>
       </div>
     );
   }

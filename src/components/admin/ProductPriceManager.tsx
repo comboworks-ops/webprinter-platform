@@ -49,6 +49,10 @@ import { SmartPriceGenerator } from "./SmartPriceGenerator";
 import { useProductAttributes } from "@/hooks/useProductAttributes";
 import { cn } from "@/lib/utils";
 import { StorformatManager } from "./StorformatManager";
+import {
+  cloneStandardDeliveryMethods,
+  resolveDeliveryMethodCost,
+} from "@/lib/delivery/defaults";
 
 
 interface BasePrice {
@@ -161,38 +165,9 @@ interface OrderDeliveryConfig {
   };
 }
 
-const DEFAULT_DELIVERY_METHODS: DeliveryMethod[] = [
-  {
-    id: "standard",
-    name: "Standard",
-    description: "",
-    lead_time_days: 4,
-    production_days: 2,
-    shipping_days: 2,
-    delivery_window_days: 0,
-    auto_mark_delivered: false,
-    auto_mark_days: 0,
-    price: 0,
-    cutoff_time: "12:00",
-    cutoff_label: "deadline",
-    cutoff_text: ""
-  },
-  {
-    id: "express",
-    name: "Express",
-    description: "",
-    lead_time_days: 2,
-    production_days: 1,
-    shipping_days: 1,
-    delivery_window_days: 0,
-    auto_mark_delivered: false,
-    auto_mark_days: 0,
-    price: 0,
-    cutoff_time: "12:00",
-    cutoff_label: "deadline",
-    cutoff_text: ""
-  }
-];
+const DEFAULT_DELIVERY_METHODS: DeliveryMethod[] = cloneStandardDeliveryMethods().map(
+  (method) => ({ ...method }),
+);
 
 const DEFAULT_ORDER_DELIVERY_CONFIG: OrderDeliveryConfig = {
   ordering: {
@@ -262,6 +237,7 @@ export function ProductPriceManager() {
   const [product, setProduct] = useState<any>(null);
   const [prices, setPrices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pricesLoading, setPricesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editedPrices, setEditedPrices] = useState<Record<string, number>>({});
   const [editedListPrices, setEditedListPrices] = useState<Record<string, number>>({});
@@ -370,7 +346,12 @@ export function ProductPriceManager() {
         delivery_window_days: deliveryWindowDays,
         auto_mark_delivered: method.auto_mark_delivered ?? fallbackTimeline?.auto_mark_delivered ?? false,
         auto_mark_days: typeof method.auto_mark_days === "number" ? method.auto_mark_days : fallbackTimeline?.auto_mark_days ?? 0,
-        price: typeof method.price === "number" ? method.price : 0,
+        price: typeof method.price === "number"
+          ? method.price
+          : resolveDeliveryMethodCost(1, {
+            id: method.id || null,
+            price: null,
+          }),
         cutoff_time: method.cutoff_time || "",
         cutoff_label: method.cutoff_label === "latest" ? "latest" : "deadline",
         cutoff_text: method.cutoff_text || ""
@@ -709,6 +690,8 @@ export function ProductPriceManager() {
     } catch (error: any) {
       console.error('Error fetching product:', error);
       toast.error(`Kunne ikke hente produkt: ${error.message || 'Ukendt fejl'}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -716,18 +699,29 @@ export function ProductPriceManager() {
     if (!product) return;
 
     try {
-      setLoading(true);
+      setPricesLoading(true);
       const tableName = 'generic_product_prices';
+      const pageSize = 1000;
+      let offset = 0;
+      const allRows: any[] = [];
 
-      // Always filter by product_id for generic pricing
-      const query = supabase.from(tableName as any).select('*').eq('product_id', product.id);
+      while (true) {
+        const { data, error } = await supabase
+          .from(tableName as any)
+          .select('*')
+          .eq('product_id', product.id)
+          .range(offset, offset + pageSize - 1);
 
-      const { data, error } = await query;
+        if (error) throw error;
+        if (!data || data.length === 0) break;
 
-      if (error) throw error;
+        allRows.push(...data);
+        if (data.length < pageSize) break;
+        offset += pageSize;
+      }
 
       // Sort by quantity for products that have it, otherwise keep original order
-      const sortedData = (data as any[] || []).sort((a, b) => {
+      const sortedData = (allRows || []).sort((a, b) => {
         if (a.quantity !== undefined && b.quantity !== undefined) {
           return a.quantity - b.quantity;
         }
@@ -740,7 +734,7 @@ export function ProductPriceManager() {
       console.error('Error fetching prices:', error);
       toast.error('Kunne ikke hente priser');
     } finally {
-      setLoading(false);
+      setPricesLoading(false);
     }
   }, [product]);
 
@@ -1151,7 +1145,7 @@ export function ProductPriceManager() {
     }
   };
 
-  if (loading) {
+  if (loading && !product) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin" />
@@ -1189,6 +1183,9 @@ export function ProductPriceManager() {
       <div>
         <h1 className="text-3xl font-bold">Produktkonfiguration</h1>
         <p className="text-muted-foreground text-sm">Konfigurer produktets indhold, attributter og priser</p>
+        {pricesLoading && (
+          <p className="text-xs text-muted-foreground mt-1">Indlæser priser...</p>
+        )}
       </div>
 
 

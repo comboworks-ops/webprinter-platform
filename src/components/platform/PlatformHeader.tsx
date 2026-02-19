@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useRef } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X, LogOut, User, Shield, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +25,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useUserRole } from "@/hooks/useUserRole";
+import { setPostLogoutPath } from "@/lib/auth/logoutRedirect";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 // Platform feature pages for Funktioner dropdown
@@ -39,6 +40,7 @@ const PlatformHeader = () => {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [user, setUser] = useState<SupabaseUser | null>(null);
     const location = useLocation();
+    const navigate = useNavigate();
     const { toast } = useToast();
     const { isAdmin } = useUserRole();
     const headerRef = useRef<HTMLElement>(null);
@@ -56,6 +58,7 @@ const PlatformHeader = () => {
     }, []);
 
     const handleLogout = async () => {
+        setPostLogoutPath("/platform");
         const { error } = await supabase.auth.signOut();
         if (error) {
             toast({
@@ -68,6 +71,7 @@ const PlatformHeader = () => {
                 title: "Succes",
                 description: "Du er nu logget ud",
             });
+            navigate("/platform", { replace: true });
         }
     };
 

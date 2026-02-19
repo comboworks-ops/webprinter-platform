@@ -12,9 +12,16 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { SITE_PACKAGE_MAP, type SitePackage } from '@/lib/sites/sitePackages';
+import { supabase } from '@/integrations/supabase/client';
+import { isProductAssignedToSite } from '@/lib/sites/productSiteFrontends';
+import {
+  cloneStandardDeliveryMethods,
+  resolveDeliveryMethodCost,
+} from '@/lib/delivery/defaults';
 
 interface SitePackagePreviewProps {
   siteId: string;
+  tenantId?: string | null;
 }
 
 type SitePreviewManifest = {
@@ -39,6 +46,309 @@ type PreviewPalette = {
   secondary: string;
   heroImage: string;
 };
+
+type RuntimeSiteProduct = {
+  id: string;
+  slug: string;
+  name: string;
+  pricingType?: string | null;
+  description?: string | null;
+  iconText?: string | null;
+  imageUrl?: string | null;
+  buttonKey?: string | null;
+  buttonOrder?: number | null;
+  buttonLabel?: string | null;
+  buttonDescription?: string | null;
+  buttonImageUrl?: string | null;
+  activeFinishIds?: string[];
+  activeProductItemIds?: string[];
+  deliveryMethods?: RuntimeSiteDeliveryMethod[];
+  storformat?: RuntimeSiteStorformatData | null;
+};
+
+type RuntimeSiteDeliveryMethod = {
+  id: string;
+  name: string;
+  description?: string | null;
+  leadTimeDays?: number | null;
+  cutoffTime?: string | null;
+  cutoffLabel?: string | null;
+  submission?: string | null;
+  deliveryDate?: string | null;
+  price: number;
+};
+
+type RuntimeSiteStorformatConfig = {
+  roundingStep: number;
+  globalMarkupPct: number;
+  quantities: number[];
+};
+
+type RuntimeSiteStorformatMaterial = {
+  id: string;
+  name: string;
+  interpolationEnabled: boolean;
+  markupPct: number;
+  minPrice: number;
+  maxWidthMm: number | null;
+  maxHeightMm: number | null;
+  allowSplit: boolean;
+  sortOrder: number;
+};
+
+type RuntimeSiteStorformatM2Price = {
+  materialId: string;
+  fromM2: number;
+  toM2: number | null;
+  pricePerM2: number;
+  isAnchor: boolean;
+};
+
+type RuntimeSiteStorformatFinish = {
+  id: string;
+  name: string;
+  tags: string[];
+  pricingMode: 'fixed' | 'per_m2';
+  fixedPricePerUnit: number;
+  interpolationEnabled: boolean;
+  markupPct: number;
+  sortOrder: number;
+};
+
+type RuntimeSiteStorformatFinishPrice = {
+  finishId: string;
+  pricingMode: 'fixed' | 'per_m2';
+  fixedPrice: number;
+  pricePerM2: number;
+};
+
+type RuntimeSiteStorformatProductItem = {
+  id: string;
+  name: string;
+  pricingType: 'fixed' | 'per_item' | 'percentage' | 'm2';
+  pricingMode: string;
+  initialPrice: number;
+  percentageMarkup: number;
+  minPrice: number;
+  interpolationEnabled: boolean;
+  markupPct: number;
+  sortOrder: number;
+};
+
+type RuntimeSiteStorformatProductFixedPrice = {
+  productItemId: string;
+  quantity: number;
+  price: number;
+};
+
+type RuntimeSiteStorformatProductPriceTier = {
+  productItemId: string;
+  fromM2: number;
+  toM2: number | null;
+  pricePerM2: number;
+  isAnchor: boolean;
+};
+
+type RuntimeSiteStorformatData = {
+  config: RuntimeSiteStorformatConfig | null;
+  materials: RuntimeSiteStorformatMaterial[];
+  m2Prices: RuntimeSiteStorformatM2Price[];
+  finishes: RuntimeSiteStorformatFinish[];
+  finishPrices: RuntimeSiteStorformatFinishPrice[];
+  productItems: RuntimeSiteStorformatProductItem[];
+  productFixedPrices: RuntimeSiteStorformatProductFixedPrice[];
+  productPriceTiers: RuntimeSiteStorformatProductPriceTier[];
+};
+
+type RuntimeSiteConfig = {
+  siteId: string;
+  tenantId: string;
+  generatedAt: string;
+  products: RuntimeSiteProduct[];
+};
+
+function runtimeConfigStorageKey(siteId: string, tenantId: string): string {
+  return `wp_site_preview_runtime:${siteId}:${tenantId}`;
+}
+
+function withQueryParams(url: string, params: Record<string, string | null | undefined>): string {
+  const hashIndex = url.indexOf('#');
+  const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+  const hash = hashIndex >= 0 ? url.slice(hashIndex) : '';
+  const parsed = new URL(base, window.location.origin);
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (!value) return;
+    parsed.searchParams.set(key, value);
+  });
+
+  return `${parsed.pathname}${parsed.search}${hash}`;
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function asNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function asBoolean(value: unknown, fallback = false): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1') return true;
+    if (normalized === 'false' || normalized === '0') return false;
+  }
+  return fallback;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function normalizePricingType(
+  value: unknown,
+): 'fixed' | 'per_item' | 'percentage' | 'm2' {
+  const normalized = asString(value)?.toLowerCase() || '';
+  if (normalized === 'per_item' || normalized === 'per-item') return 'per_item';
+  if (normalized === 'percentage') return 'percentage';
+  if (normalized === 'm2' || normalized === 'per_m2' || normalized === 'sqm') return 'm2';
+  return 'fixed';
+}
+
+function normalizeFinishPricingMode(value: unknown): 'fixed' | 'per_m2' {
+  const normalized = asString(value)?.toLowerCase() || '';
+  if (normalized === 'per_m2' || normalized === 'm2' || normalized === 'per_m2_price') {
+    return 'per_m2';
+  }
+  return 'fixed';
+}
+
+function readSiteButtonConfig(
+  technicalSpecs: unknown,
+  siteId: string,
+): {
+  buttonKey: string | null;
+  buttonOrder: number | null;
+  buttonLabel: string | null;
+  buttonDescription: string | null;
+  buttonImageUrl: string | null;
+} {
+  const specs = asObject(technicalSpecs);
+  const siteFrontends = asObject(specs?.site_frontends);
+
+  const globalButton = asObject(siteFrontends?.button);
+  const siteButtons = asObject(siteFrontends?.buttons);
+  const bySite = asObject(siteButtons?.[siteId]) || asObject(siteFrontends?.[siteId]);
+  const merged = {
+    ...(globalButton || {}),
+    ...(bySite || {}),
+  } as Record<string, unknown>;
+
+  return {
+    buttonKey: asString(merged.button_key ?? merged.buttonKey),
+    buttonOrder: asNumber(merged.button_order ?? merged.buttonOrder),
+    buttonLabel: asString(merged.button_label ?? merged.buttonLabel),
+    buttonDescription: asString(merged.button_description ?? merged.buttonDescription),
+    buttonImageUrl: asString(merged.button_image_url ?? merged.buttonImageUrl),
+  };
+}
+
+function readSitePricingConfig(
+  technicalSpecs: unknown,
+  siteId: string,
+): {
+  activeFinishIds: string[];
+  activeProductItemIds: string[];
+} {
+  const specs = asObject(technicalSpecs);
+  const siteFrontends = asObject(specs?.site_frontends);
+  const siteButtons = asObject(siteFrontends?.buttons);
+  const bySite = asObject(siteButtons?.[siteId]) || asObject(siteFrontends?.[siteId]);
+  const pricing = asObject(bySite?.pricing) || asObject(siteFrontends?.pricing);
+
+  return {
+    activeFinishIds: asStringArray(pricing?.active_finish_ids ?? pricing?.activeFinishIds),
+    activeProductItemIds: asStringArray(
+      pricing?.active_product_item_ids ?? pricing?.activeProductItemIds,
+    ),
+  };
+}
+
+function readDeliveryMethods(
+  bannerConfig: unknown,
+): RuntimeSiteDeliveryMethod[] {
+  const fallbackMethods = cloneStandardDeliveryMethods();
+  const fallbackById = new Map(
+    fallbackMethods.map((method) => [String(method.id || '').toLowerCase(), method]),
+  );
+  const config = asObject(bannerConfig);
+  const orderDelivery = asObject(config?.order_delivery);
+  const delivery = asObject(orderDelivery?.delivery);
+  const methods = delivery?.methods;
+  if (!Array.isArray(methods)) return [];
+
+  const normalized = methods
+    .map((rawMethod, index) => {
+      const method = asObject(rawMethod);
+      if (!method) return null;
+      const name = asString(method.name);
+      if (!name) return null;
+      const id = asString(method.id) || `delivery-${index + 1}`;
+      const fallback = fallbackById.get(id.toLowerCase());
+      return {
+        id,
+        name,
+        description: asString(method.description) ?? fallback?.description ?? null,
+        leadTimeDays: asNumber(method.lead_time_days) ?? fallback?.lead_time_days ?? null,
+        cutoffTime:
+          asString(method.cutoff_time ?? method.cutoffTime) ?? fallback?.cutoff_time ?? null,
+        cutoffLabel:
+          asString(method.cutoff_label ?? method.cutoffLabel) ?? fallback?.cutoff_label ?? null,
+        submission: asString(method.submission),
+        deliveryDate: asString(method.delivery_date ?? method.deliveryDate),
+        price:
+          asNumber(method.price)
+          ?? fallback?.price
+          ?? resolveDeliveryMethodCost(1, { id, price: null }),
+      } as RuntimeSiteDeliveryMethod;
+    })
+    .filter((value): value is RuntimeSiteDeliveryMethod => !!value);
+
+  const deduped = new Map<string, RuntimeSiteDeliveryMethod>();
+  normalized.forEach((method) => {
+    if (!deduped.has(method.id)) {
+      deduped.set(method.id, method);
+    }
+  });
+  return Array.from(deduped.values());
+}
 
 function hasTag(sitePackage: SitePackage, tag: string): boolean {
   return sitePackage.tags.some((value) => value.toLowerCase() === tag.toLowerCase());
@@ -169,7 +479,7 @@ function previewPrice(name: string, index: number): number {
   return 49 + ((seed + index * 17) % 18) * 10;
 }
 
-export function SitePackagePreview({ siteId }: SitePackagePreviewProps) {
+export function SitePackagePreview({ siteId, tenantId }: SitePackagePreviewProps) {
   const sitePackage = SITE_PACKAGE_MAP[siteId];
 
   if (!sitePackage) {
@@ -189,6 +499,7 @@ export function SitePackagePreview({ siteId }: SitePackagePreviewProps) {
 
   const [manifest, setManifest] = useState<SitePreviewManifest | null>(null);
   const [manifestStatus, setManifestStatus] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
+  const [runtimeConfig, setRuntimeConfig] = useState<RuntimeSiteConfig | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -223,6 +534,342 @@ export function SitePackagePreview({ siteId }: SitePackagePreviewProps) {
     };
   }, [siteId]);
 
+  useEffect(() => {
+    let active = true;
+
+    const loadRuntimeConfig = async () => {
+      if (!tenantId) {
+        setRuntimeConfig(null);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select(
+            'id, slug, name, description, icon_text, image_url, technical_specs, pricing_type, banner_config',
+          )
+          .eq('tenant_id', tenantId)
+          .order('name', { ascending: true });
+
+        if (error) throw error;
+        if (!active) return;
+
+        const rows = (data || []) as Array<{
+          id: string;
+          slug: string;
+          name: string;
+          description: string | null;
+          icon_text: string | null;
+          image_url: string | null;
+          pricing_type?: string | null;
+          technical_specs?: unknown;
+          banner_config?: unknown;
+        }>;
+
+        const mapped = rows.filter((row) =>
+          isProductAssignedToSite(row.technical_specs, siteId)
+        );
+        const legacyButtonMapped = rows.filter((row) => {
+          const buttonConfig = readSiteButtonConfig(row.technical_specs, siteId);
+          return (
+            !!buttonConfig.buttonKey ||
+            buttonConfig.buttonOrder !== null ||
+            !!buttonConfig.buttonLabel ||
+            !!buttonConfig.buttonDescription
+          );
+        });
+        const sourceRows =
+          mapped.length > 0
+            ? mapped
+            : legacyButtonMapped.length > 0
+              ? legacyButtonMapped
+              : siteId === "banner-builder-pro"
+                ? []
+                : rows;
+        const sourceProductIds = sourceRows.map((row) => row.id).filter(Boolean);
+        const storformatByProductId = new Map<string, RuntimeSiteStorformatData>();
+
+        if (sourceProductIds.length > 0) {
+          const readStorformatTable = async (
+            table: string,
+            orderBy?: string,
+          ): Promise<Array<Record<string, unknown>>> => {
+            let query = supabase
+              .from(table as any)
+              .select('*')
+              .in('product_id', sourceProductIds);
+            if (orderBy) {
+              query = query.order(orderBy, { ascending: true });
+            }
+            const { data: tableRows, error: tableError } = await query;
+            if (tableError) {
+              console.warn(`[SitePackagePreview] Failed loading ${table}:`, tableError.message);
+              return [];
+            }
+            return (tableRows || []) as Array<Record<string, unknown>>;
+          };
+
+          const [
+            configRows,
+            materialRows,
+            m2PriceRows,
+            finishRows,
+            finishPriceRows,
+            productRows,
+            productFixedPriceRows,
+            productPriceTierRows,
+          ] = await Promise.all([
+            readStorformatTable('storformat_configs'),
+            readStorformatTable('storformat_materials', 'sort_order'),
+            readStorformatTable('storformat_m2_prices', 'from_m2'),
+            readStorformatTable('storformat_finishes', 'sort_order'),
+            readStorformatTable('storformat_finish_prices'),
+            readStorformatTable('storformat_products', 'sort_order'),
+            readStorformatTable('storformat_product_fixed_prices', 'quantity'),
+            readStorformatTable('storformat_product_price_tiers', 'from_m2'),
+          ]);
+
+          const groupByProductId = (
+            rowsToGroup: Array<Record<string, unknown>>,
+          ): Map<string, Array<Record<string, unknown>>> => {
+            const grouped = new Map<string, Array<Record<string, unknown>>>();
+            rowsToGroup.forEach((row) => {
+              const productId = asString(row.product_id);
+              if (!productId) return;
+              const current = grouped.get(productId) || [];
+              current.push(row);
+              grouped.set(productId, current);
+            });
+            return grouped;
+          };
+
+          const configByProductId = new Map<string, Record<string, unknown>>();
+          configRows.forEach((row) => {
+            const productId = asString(row.product_id);
+            if (!productId || configByProductId.has(productId)) return;
+            configByProductId.set(productId, row);
+          });
+
+          const materialsByProductId = groupByProductId(materialRows);
+          const m2PricesByProductId = groupByProductId(m2PriceRows);
+          const finishesByProductId = groupByProductId(finishRows);
+          const finishPricesByProductId = groupByProductId(finishPriceRows);
+          const productItemsByProductId = groupByProductId(productRows);
+          const productFixedPricesByProductId = groupByProductId(productFixedPriceRows);
+          const productPriceTiersByProductId = groupByProductId(productPriceTierRows);
+
+          sourceProductIds.forEach((productId) => {
+            const configRow = configByProductId.get(productId) || null;
+            const config: RuntimeSiteStorformatConfig | null = configRow
+              ? {
+                roundingStep: asNumber(configRow.rounding_step) ?? 1,
+                globalMarkupPct: asNumber(configRow.global_markup_pct) ?? 0,
+                quantities: Array.isArray(configRow.quantities)
+                  ? configRow.quantities
+                    .map((value) => asNumber(value))
+                    .filter((value): value is number => value !== null && value > 0)
+                  : [1],
+              }
+              : null;
+
+            const materials: RuntimeSiteStorformatMaterial[] = (
+              materialsByProductId.get(productId) || []
+            )
+              .map((row) => {
+                const id = asString(row.id);
+                const name = asString(row.name);
+                if (!id || !name) return null;
+                return {
+                  id,
+                  name,
+                  interpolationEnabled: asBoolean(row.interpolation_enabled, true),
+                  markupPct: asNumber(row.markup_pct) ?? 0,
+                  minPrice: asNumber((row as any).min_price) ?? 0,
+                  maxWidthMm: asNumber(row.max_width_mm),
+                  maxHeightMm: asNumber(row.max_height_mm),
+                  allowSplit: asBoolean(row.allow_split, true),
+                  sortOrder: asNumber(row.sort_order) ?? 0,
+                };
+              })
+              .filter((value): value is RuntimeSiteStorformatMaterial => !!value);
+
+            const m2Prices: RuntimeSiteStorformatM2Price[] = (
+              m2PricesByProductId.get(productId) || []
+            )
+              .map((row) => {
+                const materialId = asString(row.material_id);
+                const fromM2 = asNumber(row.from_m2);
+                const pricePerM2 = asNumber(row.price_per_m2);
+                if (!materialId || fromM2 === null || pricePerM2 === null) return null;
+                return {
+                  materialId,
+                  fromM2,
+                  toM2: asNumber(row.to_m2),
+                  pricePerM2,
+                  isAnchor: asBoolean(row.is_anchor, false),
+                };
+              })
+              .filter((value): value is RuntimeSiteStorformatM2Price => !!value);
+
+            const finishes: RuntimeSiteStorformatFinish[] = (
+              finishesByProductId.get(productId) || []
+            )
+              .map((row) => {
+                const id = asString(row.id);
+                const name = asString(row.name);
+                if (!id || !name) return null;
+                return {
+                  id,
+                  name,
+                  tags: asStringArray((row as any).tags),
+                  pricingMode: normalizeFinishPricingMode(row.pricing_mode),
+                  fixedPricePerUnit: asNumber(row.fixed_price_per_unit) ?? 0,
+                  interpolationEnabled: asBoolean(row.interpolation_enabled, true),
+                  markupPct: asNumber(row.markup_pct) ?? 0,
+                  sortOrder: asNumber(row.sort_order) ?? 0,
+                };
+              })
+              .filter((value): value is RuntimeSiteStorformatFinish => !!value);
+
+            const finishPrices: RuntimeSiteStorformatFinishPrice[] = (
+              finishPricesByProductId.get(productId) || []
+            )
+              .map((row) => {
+                const finishId = asString(row.finish_id);
+                if (!finishId) return null;
+                return {
+                  finishId,
+                  pricingMode: normalizeFinishPricingMode(row.pricing_mode),
+                  fixedPrice: asNumber(row.fixed_price) ?? 0,
+                  pricePerM2: asNumber(row.price_per_m2) ?? 0,
+                };
+              })
+              .filter((value): value is RuntimeSiteStorformatFinishPrice => !!value);
+
+            const productItems: RuntimeSiteStorformatProductItem[] = (
+              productItemsByProductId.get(productId) || []
+            )
+              .map((row) => {
+                const id = asString(row.id);
+                const name = asString(row.name);
+                if (!id || !name) return null;
+                return {
+                  id,
+                  name,
+                  pricingType: normalizePricingType((row as any).pricing_type || row.pricing_mode),
+                  pricingMode: asString(row.pricing_mode) || 'fixed',
+                  initialPrice: asNumber(row.initial_price) ?? 0,
+                  percentageMarkup: asNumber((row as any).percentage_markup) ?? 0,
+                  minPrice: asNumber((row as any).min_price) ?? 0,
+                  interpolationEnabled: asBoolean(row.interpolation_enabled, true),
+                  markupPct: asNumber(row.markup_pct) ?? 0,
+                  sortOrder: asNumber(row.sort_order) ?? 0,
+                };
+              })
+              .filter((value): value is RuntimeSiteStorformatProductItem => !!value);
+
+            const productFixedPrices: RuntimeSiteStorformatProductFixedPrice[] = (
+              productFixedPricesByProductId.get(productId) || []
+            )
+              .map((row) => {
+                const productItemId = asString((row as any).product_item_id || (row as any).storformat_product_id);
+                const quantity = asNumber(row.quantity);
+                const price = asNumber(row.price);
+                if (!productItemId || quantity === null || price === null) return null;
+                return {
+                  productItemId,
+                  quantity,
+                  price,
+                };
+              })
+              .filter((value): value is RuntimeSiteStorformatProductFixedPrice => !!value);
+
+            const productPriceTiers: RuntimeSiteStorformatProductPriceTier[] = (
+              productPriceTiersByProductId.get(productId) || []
+            )
+              .map((row) => {
+                const productItemId = asString((row as any).product_item_id || (row as any).storformat_product_id);
+                const fromM2 = asNumber(row.from_m2);
+                const pricePerM2 = asNumber(row.price_per_m2);
+                if (!productItemId || fromM2 === null || pricePerM2 === null) return null;
+                return {
+                  productItemId,
+                  fromM2,
+                  toM2: asNumber(row.to_m2),
+                  pricePerM2,
+                  isAnchor: asBoolean(row.is_anchor, false),
+                };
+              })
+              .filter((value): value is RuntimeSiteStorformatProductPriceTier => !!value);
+
+            storformatByProductId.set(productId, {
+              config,
+              materials,
+              m2Prices,
+              finishes,
+              finishPrices,
+              productItems,
+              productFixedPrices,
+              productPriceTiers,
+            });
+          });
+        }
+
+        const products = sourceRows.map((row) => {
+          const buttonConfig = readSiteButtonConfig(row.technical_specs, siteId);
+          const sitePricingConfig = readSitePricingConfig(row.technical_specs, siteId);
+          const deliveryMethods = readDeliveryMethods(row.banner_config);
+          return {
+            id: row.id,
+            slug: row.slug,
+            name: row.name,
+            pricingType: row.pricing_type || null,
+            description: row.description,
+            iconText: row.icon_text,
+            imageUrl: row.image_url,
+            buttonKey: buttonConfig.buttonKey,
+            buttonOrder: buttonConfig.buttonOrder,
+            buttonLabel: buttonConfig.buttonLabel,
+            buttonDescription: buttonConfig.buttonDescription,
+            buttonImageUrl: buttonConfig.buttonImageUrl,
+            activeFinishIds: sitePricingConfig.activeFinishIds,
+            activeProductItemIds: sitePricingConfig.activeProductItemIds,
+            deliveryMethods,
+            storformat: storformatByProductId.get(row.id) || null,
+          };
+        });
+
+        const nextConfig: RuntimeSiteConfig = {
+          siteId,
+          tenantId,
+          generatedAt: new Date().toISOString(),
+          products,
+        };
+
+        const storageKey = runtimeConfigStorageKey(siteId, tenantId);
+        sessionStorage.setItem(storageKey, JSON.stringify(nextConfig));
+        setRuntimeConfig(nextConfig);
+      } catch {
+        if (!active) return;
+        setRuntimeConfig(null);
+      }
+    };
+
+    loadRuntimeConfig();
+    const refreshTimer = window.setInterval(loadRuntimeConfig, 15000);
+    const onFocus = () => {
+      loadRuntimeConfig();
+    };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      active = false;
+      window.clearInterval(refreshTimer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [siteId, tenantId]);
+
   const palette = useMemo(
     () => ({
       ...resolvePalette(sitePackage),
@@ -239,18 +886,29 @@ export function SitePackagePreview({ siteId }: SitePackagePreviewProps) {
   const heroImage = manifestHeroImage || palette.heroImage;
   const galleryImages = (manifest?.galleryImages || []).map(normalizeAssetPath).filter(Boolean) as string[];
   const entryPath = normalizeAssetPath(manifest?.entry);
+  const runtimeStorageKey =
+    runtimeConfig && runtimeConfig.tenantId
+      ? runtimeConfigStorageKey(siteId, runtimeConfig.tenantId)
+      : null;
+  const iframeEntryPath = entryPath
+    ? withQueryParams(entryPath, {
+      wpPreviewConfigKey: runtimeStorageKey,
+      wpSiteId: siteId,
+      tenantId: tenantId || null,
+    })
+    : null;
 
   const visualProducts =
     products.length > 0
       ? products.slice(0, 8)
       : [
-          { id: `${sitePackage.id}-starter-1`, name: 'Starter Produkt', templateType: 'product' as const },
-          { id: `${sitePackage.id}-starter-2`, name: 'Featured Produkt', templateType: 'product' as const },
-          { id: `${sitePackage.id}-starter-3`, name: 'Premium Produkt', templateType: 'product' as const },
-          { id: `${sitePackage.id}-starter-4`, name: 'Custom Produkt', templateType: 'product' as const },
-        ];
+        { id: `${sitePackage.id}-starter-1`, name: 'Starter Produkt', templateType: 'product' as const },
+        { id: `${sitePackage.id}-starter-2`, name: 'Featured Produkt', templateType: 'product' as const },
+        { id: `${sitePackage.id}-starter-3`, name: 'Premium Produkt', templateType: 'product' as const },
+        { id: `${sitePackage.id}-starter-4`, name: 'Custom Produkt', templateType: 'product' as const },
+      ];
 
-  if (manifest?.mode === 'iframe' && entryPath) {
+  if (manifest?.mode === 'iframe' && iframeEntryPath) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100">
         <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl">
@@ -261,7 +919,7 @@ export function SitePackagePreview({ siteId }: SitePackagePreviewProps) {
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" asChild>
-                <a href={entryPath} target="_blank" rel="noreferrer noopener">
+                <a href={iframeEntryPath} target="_blank" rel="noreferrer noopener">
                   <ExternalLink className="h-4 w-4 mr-2" />
                   Aabn bundle
                 </a>
@@ -278,7 +936,7 @@ export function SitePackagePreview({ siteId }: SitePackagePreviewProps) {
         <main className="h-[calc(100vh-73px)]">
           <iframe
             title={`${sitePackage.name} preview`}
-            src={entryPath}
+            src={iframeEntryPath}
             className="w-full h-full border-0 bg-white"
             loading="lazy"
           />

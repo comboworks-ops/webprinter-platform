@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { CenterSlider } from "@/components/ui/center-slider";
 import { Slider } from "@/components/ui/slider";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Trash2, Plus, Save, Library, Wand2, CloudUpload, ImageIcon, LayoutGrid, RotateCcw, ChevronLeft, ChevronRight, X, Search, Link2, RefreshCw } from "lucide-react";
+import { Trash2, Plus, Save, Library, Wand2, CloudUpload, ImageIcon, LayoutGrid, RotateCcw, ChevronLeft, ChevronRight, X, Search, Link2, RefreshCw, Settings2, Loader2, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { TagInput } from "@/components/ui/tag-input";
 import { DesignLibrarySelector } from "./DesignLibrarySelector";
@@ -24,6 +24,10 @@ import {
   type StorformatTier,
   calculateStorformatM2Price
 } from "@/utils/storformatPricing";
+import {
+  isProductAssignedToSite,
+  isSiteExclusiveProduct,
+} from "@/lib/sites/productSiteFrontends";
 import { cn } from "@/lib/utils";
 import { AddonLibraryImportDialog } from "./AddonLibraryImportDialog";
 import { useProductAddons } from "@/hooks/useProductAddons";
@@ -66,6 +70,14 @@ type ProductLibraryItem = {
   name: string;
   tags?: string[] | null;
   created_at?: string | null;
+};
+
+type LibraryTemplateFallbackRow = {
+  id: string;
+  name: string;
+  category: string | null;
+  width_mm: number | null;
+  height_mm: number | null;
 };
 
 type ValueSettings = {
@@ -125,9 +137,150 @@ type FinishPriceDraft = {
   price_per_m2: number;
 };
 
+type BannerBuilderPricingSelection = {
+  activeFinishIds: string[];
+  activeProductItemIds: string[];
+};
+
 const defaultQuantities = Array.from({ length: 20 }, (_, i) => i + 1);
 const PREVIEW_COLS = 10;
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
+const BANNER_BUILDER_SITE_ID = "banner-builder-pro";
+const BANNER_BUILDER_SYNC_SOURCE = "banner-builder-pro-defaults-v1";
+const BANNER_BUILDER_DEFAULT_FINISHES = [
+  "Ringe / Øskner",
+  "Kantforstærkning",
+  "Tunnel",
+  "Keder",
+  "4+4 print",
+  "UV-laminering",
+];
+const EMPTY_BANNER_BUILDER_SELECTION: BannerBuilderPricingSelection = {
+  activeFinishIds: [],
+  activeProductItemIds: [],
+};
+const normalizeLibraryName = (value: string) => value.trim().toLowerCase();
+
+const asJsonObject = (value: unknown): Record<string, unknown> | null => {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+};
+
+const toUniqueIdArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  const normalized = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return Array.from(new Set(normalized));
+};
+
+const readBannerBuilderSyncSource = (technicalSpecs: unknown): string | null => {
+  const specs = asJsonObject(technicalSpecs);
+  const siteFrontends = asJsonObject(specs?.site_frontends);
+  const buttons = asJsonObject(siteFrontends?.buttons);
+  const bySite =
+    asJsonObject(buttons?.[BANNER_BUILDER_SITE_ID]) ||
+    asJsonObject(siteFrontends?.[BANNER_BUILDER_SITE_ID]);
+
+  const source =
+    bySite?.sync_source ||
+    bySite?.syncSource ||
+    bySite?.source ||
+    null;
+
+  return typeof source === "string" ? source : null;
+};
+
+const normalizeSiteText = (value: unknown): string =>
+  typeof value === "string" ? value.trim().toLowerCase() : "";
+
+const isBannerBuilderManagedProduct = (
+  technicalSpecs: unknown,
+  slug: unknown,
+): boolean => {
+  const hasBannerBuilderSlug = normalizeSiteText(slug).startsWith("banner-builder-");
+  if (!hasBannerBuilderSlug) return false;
+
+  return (
+    isProductAssignedToSite(technicalSpecs, BANNER_BUILDER_SITE_ID) &&
+    isSiteExclusiveProduct(technicalSpecs) &&
+    readBannerBuilderSyncSource(technicalSpecs) === BANNER_BUILDER_SYNC_SOURCE
+  );
+};
+
+const readBannerBuilderPricingSelection = (
+  technicalSpecs: unknown,
+): BannerBuilderPricingSelection => {
+  const specs = asJsonObject(technicalSpecs);
+  const siteFrontends = asJsonObject(specs?.site_frontends);
+  if (!siteFrontends) return EMPTY_BANNER_BUILDER_SELECTION;
+
+  const buttons = asJsonObject(siteFrontends.buttons);
+  const bySite =
+    asJsonObject(buttons?.[BANNER_BUILDER_SITE_ID]) ||
+    asJsonObject(siteFrontends[BANNER_BUILDER_SITE_ID]);
+  const pricing =
+    asJsonObject(bySite?.pricing) || asJsonObject(siteFrontends.pricing);
+
+  return {
+    activeFinishIds: toUniqueIdArray(
+      pricing?.active_finish_ids ?? pricing?.activeFinishIds,
+    ),
+    activeProductItemIds: toUniqueIdArray(
+      pricing?.active_product_item_ids ?? pricing?.activeProductItemIds,
+    ),
+  };
+};
+
+const writeBannerBuilderPricingSelection = (
+  technicalSpecs: unknown,
+  selection: BannerBuilderPricingSelection,
+): Record<string, unknown> => {
+  const specs = asJsonObject(technicalSpecs) || {};
+  const siteFrontends = asJsonObject(specs.site_frontends) || {};
+  const buttons = asJsonObject(siteFrontends.buttons) || {};
+  const currentSiteConfig =
+    asJsonObject(buttons[BANNER_BUILDER_SITE_ID]) ||
+    asJsonObject(siteFrontends[BANNER_BUILDER_SITE_ID]) ||
+    {};
+  const currentPricing = asJsonObject(currentSiteConfig.pricing) || {};
+
+  return {
+    ...specs,
+    site_frontends: {
+      ...siteFrontends,
+      buttons: {
+        ...buttons,
+        [BANNER_BUILDER_SITE_ID]: {
+          ...currentSiteConfig,
+          pricing: {
+            ...currentPricing,
+            active_finish_ids: toUniqueIdArray(selection.activeFinishIds),
+            active_product_item_ids: toUniqueIdArray(
+              selection.activeProductItemIds,
+            ),
+          },
+        },
+      },
+      updatedAt: new Date().toISOString(),
+    },
+  };
+};
 
 const createTier = (overrides: Partial<StorformatTier> = {}): StorformatTier => ({
   id: crypto.randomUUID(),
@@ -338,6 +491,12 @@ export function StorformatManager({
   const [uploadTarget, setUploadTarget] = useState<UploadTarget | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [isBannerBuilderProduct, setIsBannerBuilderProduct] = useState(false);
+  const [productTechnicalSpecs, setProductTechnicalSpecs] = useState<unknown>(null);
+  const [bannerBuilderPricingSelection, setBannerBuilderPricingSelection] =
+    useState<BannerBuilderPricingSelection>(EMPTY_BANNER_BUILDER_SELECTION);
+  const [savingBannerBuilderSelection, setSavingBannerBuilderSelection] = useState(false);
+  const [showMatrixLayoutTools, setShowMatrixLayoutTools] = useState(false);
 
   // Design library selector state
   const [showDesignLibrarySelector, setShowDesignLibrarySelector] = useState(false);
@@ -370,6 +529,12 @@ export function StorformatManager({
   const [savingProductLibrary, setSavingProductLibrary] = useState(false);
   const [productLibrarySearch, setProductLibrarySearch] = useState("");
   const [productLibraryTagFilter, setProductLibraryTagFilter] = useState("");
+
+  // Tag management dialog state
+  const [showTagManagementDialog, setShowTagManagementDialog] = useState(false);
+  const [tagManagementType, setTagManagementType] = useState<LayoutSectionType>("materials");
+  const [deletingTag, setDeletingTag] = useState<string | null>(null);
+  const [copyingItemId, setCopyingItemId] = useState<string | null>(null);
 
   // Global price adjustment slider state per material
   const [globalAdjustPct, setGlobalAdjustPct] = useState(0);
@@ -445,6 +610,27 @@ export function StorformatManager({
     setAllTemplates(data || []);
   };
 
+  const fetchTemplateLibraryFallback = useCallback(
+    async (templateType: "material" | "finish" | "product") => {
+      if (!tenantId) return [] as LibraryTemplateFallbackRow[];
+      try {
+        const { data, error } = await supabase
+          .from("designer_templates" as any)
+          .select("id, name, category, width_mm, height_mm")
+          .eq("tenant_id", tenantId)
+          .eq("is_active", true)
+          .eq("template_type", templateType)
+          .order("name");
+        if (error) throw error;
+        return (data || []) as LibraryTemplateFallbackRow[];
+      } catch (error) {
+        console.error(`Error fetching ${templateType} template fallback:`, error);
+        return [] as LibraryTemplateFallbackRow[];
+      }
+    },
+    [tenantId]
+  );
+
   const fetchMaterialLibrary = useCallback(async () => {
     if (!tenantId) return;
     setMaterialLibraryLoading(true);
@@ -455,13 +641,43 @@ export function StorformatManager({
         .eq("tenant_id", tenantId)
         .order("name");
       if (error) throw error;
-      setMaterialLibrary((data || []) as MaterialLibraryItem[]);
+
+      const tableRows = ((data || []) as MaterialLibraryItem[]).filter(
+        (item) => !!item?.name
+      );
+      const fallbackRows = await fetchTemplateLibraryFallback("material");
+      const merged = new Map<string, MaterialLibraryItem>();
+
+      tableRows.forEach((item) => {
+        merged.set(normalizeLibraryName(item.name), item);
+      });
+
+      fallbackRows.forEach((templateRow) => {
+        const key = normalizeLibraryName(templateRow.name || "");
+        if (!key || merged.has(key)) return;
+        merged.set(key, {
+          id: `template-${templateRow.id}`,
+          name: templateRow.name,
+          max_width_mm:
+            typeof templateRow.width_mm === "number" && templateRow.width_mm > 0
+              ? templateRow.width_mm
+              : null,
+          max_height_mm:
+            typeof templateRow.height_mm === "number" && templateRow.height_mm > 0
+              ? templateRow.height_mm
+              : null,
+          tags: templateRow.category ? [templateRow.category] : [],
+          created_at: null,
+        });
+      });
+
+      setMaterialLibrary(Array.from(merged.values()));
     } catch (error) {
       console.error("Error fetching material library:", error);
     } finally {
       setMaterialLibraryLoading(false);
     }
-  }, [tenantId]);
+  }, [tenantId, fetchTemplateLibraryFallback]);
 
   const fetchFinishLibrary = useCallback(async () => {
     if (!tenantId) return;
@@ -473,13 +689,35 @@ export function StorformatManager({
         .eq("tenant_id", tenantId)
         .order("name");
       if (error) throw error;
-      setFinishLibrary((data || []) as FinishLibraryItem[]);
+
+      const tableRows = ((data || []) as FinishLibraryItem[]).filter(
+        (item) => !!item?.name
+      );
+      const fallbackRows = await fetchTemplateLibraryFallback("finish");
+      const merged = new Map<string, FinishLibraryItem>();
+
+      tableRows.forEach((item) => {
+        merged.set(normalizeLibraryName(item.name), item);
+      });
+
+      fallbackRows.forEach((templateRow) => {
+        const key = normalizeLibraryName(templateRow.name || "");
+        if (!key || merged.has(key)) return;
+        merged.set(key, {
+          id: `template-${templateRow.id}`,
+          name: templateRow.name,
+          tags: templateRow.category ? [templateRow.category] : [],
+          created_at: null,
+        });
+      });
+
+      setFinishLibrary(Array.from(merged.values()));
     } catch (error) {
       console.error("Error fetching finish library:", error);
     } finally {
       setFinishLibraryLoading(false);
     }
-  }, [tenantId]);
+  }, [tenantId, fetchTemplateLibraryFallback]);
 
   const fetchProductLibrary = useCallback(async () => {
     if (!tenantId) return;
@@ -491,17 +729,64 @@ export function StorformatManager({
         .eq("tenant_id", tenantId)
         .order("name");
       if (error) throw error;
-      setProductLibrary((data || []) as ProductLibraryItem[]);
+
+      const tableRows = ((data || []) as ProductLibraryItem[]).filter(
+        (item) => !!item?.name
+      );
+      const fallbackRows = await fetchTemplateLibraryFallback("product");
+      const merged = new Map<string, ProductLibraryItem>();
+
+      tableRows.forEach((item) => {
+        merged.set(normalizeLibraryName(item.name), item);
+      });
+
+      fallbackRows.forEach((templateRow) => {
+        const key = normalizeLibraryName(templateRow.name || "");
+        if (!key || merged.has(key)) return;
+        merged.set(key, {
+          id: `template-${templateRow.id}`,
+          name: templateRow.name,
+          tags: templateRow.category ? [templateRow.category] : [],
+          created_at: null,
+        });
+      });
+
+      setProductLibrary(Array.from(merged.values()));
     } catch (error) {
       console.error("Error fetching product library:", error);
     } finally {
       setProductLibraryLoading(false);
     }
-  }, [tenantId]);
+  }, [tenantId, fetchTemplateLibraryFallback]);
 
   const fetchStorformat = async () => {
     setLoading(true);
     try {
+      const { data: productRow, error: productError } = await supabase
+        .from("products")
+        .select("slug, technical_specs")
+        .eq("id", productId)
+        .maybeSingle();
+
+      const bannerBuilderManagedProduct =
+        !productError &&
+        isBannerBuilderManagedProduct(productRow?.technical_specs, productRow?.slug);
+
+      if (productError) {
+        console.error("Storformat product fetch error", productError);
+        setIsBannerBuilderProduct(false);
+        setProductTechnicalSpecs(null);
+        setBannerBuilderPricingSelection(EMPTY_BANNER_BUILDER_SELECTION);
+      } else {
+        setIsBannerBuilderProduct(bannerBuilderManagedProduct);
+        setProductTechnicalSpecs(productRow?.technical_specs || null);
+        setBannerBuilderPricingSelection(
+          bannerBuilderManagedProduct
+            ? readBannerBuilderPricingSelection(productRow?.technical_specs)
+            : EMPTY_BANNER_BUILDER_SELECTION,
+        );
+      }
+
       const { data: cfg } = await supabase
         .from("storformat_configs" as any)
         .select("*")
@@ -549,11 +834,59 @@ export function StorformatManager({
         .order("from_m2");
       setM2Prices((m2PriceRows || []) as M2PriceDraft[]);
 
-      const { data: finishRows } = await supabase
+      const { data: finishRowsRaw } = await supabase
         .from("storformat_finishes" as any)
         .select("*")
         .eq("product_id", productId)
         .order("sort_order");
+
+      let finishRows = (finishRowsRaw || []) as any[];
+      if (bannerBuilderManagedProduct) {
+        const existingNames = new Set(
+          finishRows
+            .map((row: any) => normalizeLibraryName(String(row?.name || "")))
+            .filter(Boolean)
+        );
+        const missingFinishNames = BANNER_BUILDER_DEFAULT_FINISHES.filter(
+          (finishName) => !existingNames.has(normalizeLibraryName(finishName))
+        );
+
+        if (missingFinishNames.length > 0) {
+          const sortBase = finishRows.reduce((maxSort, row: any) => {
+            const sortOrder = Number(row?.sort_order);
+            return Number.isFinite(sortOrder) ? Math.max(maxSort, sortOrder) : maxSort;
+          }, -1);
+
+          const insertRows = missingFinishNames.map((finishName, index) => ({
+            id: crypto.randomUUID(),
+            tenant_id: tenantId,
+            product_id: productId,
+            name: finishName,
+            group_label: null,
+            tags: [],
+            thumbnail_url: null,
+            visibility: "tenant",
+            pricing_mode: "fixed",
+            fixed_price_per_unit: 0,
+            interpolation_enabled: true,
+            markup_pct: 0,
+            sort_order: sortBase + index + 1,
+          }));
+
+          const { data: insertedFinishRows, error: insertFinishError } = await supabase
+            .from("storformat_finishes" as any)
+            .insert(insertRows)
+            .select("*");
+
+          if (insertFinishError) {
+            console.error("Error seeding default banner finishes:", insertFinishError);
+          } else {
+            finishRows = [...finishRows, ...((insertedFinishRows || []) as any[])].sort(
+              (a: any, b: any) => (Number(a?.sort_order) || 0) - (Number(b?.sort_order) || 0)
+            );
+          }
+        }
+      }
 
       const finishesSimple = (finishRows || []).map((f: any) => ({
         ...f,
@@ -563,10 +896,46 @@ export function StorformatManager({
       }));
       setFinishes(finishesSimple);
 
-      const { data: finishPriceRows } = await supabase
+      const { data: finishPriceRowsRaw } = await supabase
         .from("storformat_finish_prices" as any)
         .select("*")
         .eq("product_id", productId);
+
+      let finishPriceRows = (finishPriceRowsRaw || []) as any[];
+      if (finishRows.length > 0) {
+        const existingPriceIds = new Set(
+          finishPriceRows
+            .map((row: any) => (typeof row?.finish_id === "string" ? row.finish_id : ""))
+            .filter(Boolean)
+        );
+        const missingFinishPriceRows = finishRows
+          .filter((row: any) => !!row?.id && !existingPriceIds.has(row.id))
+          .map((row: any) => ({
+            tenant_id: tenantId,
+            product_id: productId,
+            finish_id: row.id,
+            pricing_mode: row.pricing_mode || "fixed",
+            fixed_price: 0,
+            price_per_m2: 0,
+          }));
+
+        if (missingFinishPriceRows.length > 0) {
+          const { error: insertFinishPriceError } = await supabase
+            .from("storformat_finish_prices" as any)
+            .insert(missingFinishPriceRows);
+
+          if (insertFinishPriceError) {
+            console.error("Error ensuring finish price rows:", insertFinishPriceError);
+          } else {
+            const { data: refreshedFinishPriceRows } = await supabase
+              .from("storformat_finish_prices" as any)
+              .select("*")
+              .eq("product_id", productId);
+            finishPriceRows = (refreshedFinishPriceRows || []) as any[];
+          }
+        }
+      }
+
       const nextFinishPrices: Record<string, FinishPriceDraft> = {};
       (finishPriceRows || []).forEach((row: any) => {
         nextFinishPrices[row.finish_id] = {
@@ -602,6 +971,10 @@ export function StorformatManager({
   useEffect(() => {
     fetchStorformat();
     fetchTemplates();
+  }, [productId]);
+
+  useEffect(() => {
+    setShowMatrixLayoutTools(false);
   }, [productId]);
 
   useEffect(() => {
@@ -870,6 +1243,262 @@ export function StorformatManager({
     } catch (error) {
       console.error("Delete product error", error);
       toast.error("Kunne ikke slette produkt");
+    }
+  };
+
+  // Delete a tag from ALL items of a specific type
+  const handleDeleteTagFromAll = async (tag: string, type: LayoutSectionType) => {
+    const typeLabel = type === "materials" ? "materialer" : type === "finishes" ? "efterbehandlinger" : "produkter";
+    if (!confirm(`Er du sikker på at du vil fjerne tagget "${tag}" fra alle ${typeLabel}?`)) return;
+
+    setDeletingTag(tag);
+    try {
+      const items = type === "materials" ? materials : type === "finishes" ? finishes : products;
+      const itemsWithTag = items.filter((item) => item.tags?.includes(tag));
+
+      if (itemsWithTag.length === 0) {
+        toast.info("Ingen elementer har dette tag");
+        setDeletingTag(null);
+        return;
+      }
+
+      const tableName = type === "materials"
+        ? "storformat_materials"
+        : type === "finishes"
+          ? "storformat_finishes"
+          : "storformat_products";
+
+      // Update each item to remove the tag
+      for (const item of itemsWithTag) {
+        const newTags = (item.tags || []).filter((t) => t !== tag);
+        await supabase
+          .from(tableName as any)
+          .update({ tags: newTags })
+          .eq("id", item.id);
+      }
+
+      // Update local state
+      if (type === "materials") {
+        setMaterials((prev) => prev.map((m) => ({
+          ...m,
+          tags: (m.tags || []).filter((t) => t !== tag)
+        })));
+      } else if (type === "finishes") {
+        setFinishes((prev) => prev.map((f) => ({
+          ...f,
+          tags: (f.tags || []).filter((t) => t !== tag)
+        })));
+      } else {
+        setProducts((prev) => prev.map((p) => ({
+          ...p,
+          tags: (p.tags || []).filter((t) => t !== tag)
+        })));
+      }
+
+      toast.success(`Tagget "${tag}" fjernet fra ${itemsWithTag.length} ${typeLabel}`);
+    } catch (error) {
+      console.error("Delete tag error", error);
+      toast.error("Kunne ikke fjerne tag");
+    } finally {
+      setDeletingTag(null);
+    }
+  };
+
+  // Copy/duplicate a material with all its M2 prices
+  const handleCopyMaterial = async (material: StorformatMaterial) => {
+    setCopyingItemId(material.id);
+    try {
+      const newId = crypto.randomUUID();
+      const newMaterial: StorformatMaterial = {
+        ...material,
+        id: newId,
+        name: `${material.name} (kopi)`,
+        tiers: material.tiers.map((t) => ({ ...t, id: crypto.randomUUID() }))
+      };
+
+      // Insert new material
+      const { error: materialError } = await supabase
+        .from("storformat_materials" as any)
+        .insert({
+          id: newId,
+          tenant_id: tenantId,
+          name: newMaterial.name,
+          tags: newMaterial.tags,
+          thumbnail_url: newMaterial.thumbnail_url,
+          max_width_mm: newMaterial.max_width_mm,
+          max_height_mm: newMaterial.max_height_mm,
+          bleed_mm: newMaterial.bleed_mm,
+          safe_area_mm: newMaterial.safe_area_mm,
+          interpolation_enabled: newMaterial.interpolation_enabled,
+          interpolation_step_m2: newMaterial.interpolation_step_m2,
+          tiers: newMaterial.tiers
+        });
+      if (materialError) throw materialError;
+
+      // Copy M2 prices
+      const materialM2Prices = m2Prices.filter((p) => p.material_id === material.id);
+      if (materialM2Prices.length > 0) {
+        const newM2Prices = materialM2Prices.map((p) => ({
+          id: crypto.randomUUID(),
+          material_id: newId,
+          from_m2: p.from_m2,
+          to_m2: p.to_m2,
+          price_per_m2: p.price_per_m2,
+          is_anchor: p.is_anchor
+        }));
+
+        const { error: m2Error } = await supabase
+          .from("storformat_m2_prices" as any)
+          .insert(newM2Prices);
+        if (m2Error) throw m2Error;
+
+        setM2Prices((prev) => [...prev, ...newM2Prices]);
+      }
+
+      setMaterials((prev) => [...prev, newMaterial]);
+      setExpandedMaterialId(newId);
+      toast.success("Materiale kopieret");
+    } catch (error) {
+      console.error("Copy material error", error);
+      toast.error("Kunne ikke kopiere materiale");
+    } finally {
+      setCopyingItemId(null);
+    }
+  };
+
+  // Copy/duplicate a finish with its pricing
+  const handleCopyFinish = async (finish: StorformatFinish) => {
+    setCopyingItemId(finish.id);
+    try {
+      const newId = crypto.randomUUID();
+      const newFinish: StorformatFinish = {
+        ...finish,
+        id: newId,
+        name: `${finish.name} (kopi)`,
+        tiers: finish.tiers.map((t) => ({ ...t, id: crypto.randomUUID() }))
+      };
+
+      // Insert new finish
+      const { error: finishError } = await supabase
+        .from("storformat_finishes" as any)
+        .insert({
+          id: newId,
+          tenant_id: tenantId,
+          name: newFinish.name,
+          tags: newFinish.tags,
+          thumbnail_url: newFinish.thumbnail_url,
+          max_width_mm: newFinish.max_width_mm,
+          max_height_mm: newFinish.max_height_mm,
+          tiers: newFinish.tiers
+        });
+      if (finishError) throw finishError;
+
+      // Copy finish prices
+      const existingPrice = finishPrices[finish.id];
+      if (existingPrice) {
+        const { error: priceError } = await supabase
+          .from("storformat_finish_prices" as any)
+          .insert({
+            id: crypto.randomUUID(),
+            finish_id: newId,
+            pricing_mode: existingPrice.pricing_mode,
+            fixed_price: existingPrice.fixed_price,
+            price_per_m2: existingPrice.price_per_m2
+          });
+        if (priceError) throw priceError;
+
+        setFinishPrices((prev) => ({
+          ...prev,
+          [newId]: { ...existingPrice }
+        }));
+      }
+
+      setFinishes((prev) => [...prev, newFinish]);
+      setExpandedFinishId(newId);
+      toast.success("Efterbehandling kopieret");
+    } catch (error) {
+      console.error("Copy finish error", error);
+      toast.error("Kunne ikke kopiere efterbehandling");
+    } finally {
+      setCopyingItemId(null);
+    }
+  };
+
+  // Copy/duplicate a product with all its prices and tiers
+  const handleCopyProduct = async (product: StorformatProduct) => {
+    setCopyingItemId(product.id);
+    try {
+      const newId = crypto.randomUUID();
+      const newProduct: StorformatProduct = {
+        ...product,
+        id: newId,
+        name: `${product.name} (kopi)`,
+        tiers: product.tiers.map((t) => ({ ...t, id: crypto.randomUUID() }))
+      };
+
+      // Insert new product
+      const { error: productError } = await supabase
+        .from("storformat_products" as any)
+        .insert({
+          id: newId,
+          tenant_id: tenantId,
+          name: newProduct.name,
+          tags: newProduct.tags,
+          thumbnail_url: newProduct.thumbnail_url,
+          max_width_mm: newProduct.max_width_mm,
+          max_height_mm: newProduct.max_height_mm,
+          pricing_mode: newProduct.pricing_mode,
+          tiers: newProduct.tiers
+        });
+      if (productError) throw productError;
+
+      // Copy fixed prices
+      const existingFixedPrices = productFixedPrices.filter((p) => p.product_item_id === product.id);
+      if (existingFixedPrices.length > 0) {
+        const newFixedPrices = existingFixedPrices.map((p) => ({
+          id: crypto.randomUUID(),
+          product_item_id: newId,
+          width_mm: p.width_mm,
+          height_mm: p.height_mm,
+          price: p.price
+        }));
+
+        const { error: fixedError } = await supabase
+          .from("storformat_product_fixed_prices" as any)
+          .insert(newFixedPrices);
+        if (fixedError) throw fixedError;
+
+        setProductFixedPrices((prev) => [...prev, ...newFixedPrices]);
+      }
+
+      // Copy price tiers
+      const existingTiers = productPriceTiers.filter((t) => t.product_item_id === product.id);
+      if (existingTiers.length > 0) {
+        const newTiers = existingTiers.map((t) => ({
+          id: crypto.randomUUID(),
+          product_item_id: newId,
+          from_m2: t.from_m2,
+          to_m2: t.to_m2,
+          price_per_m2: t.price_per_m2,
+          is_anchor: t.is_anchor
+        }));
+
+        const { error: tierError } = await supabase
+          .from("storformat_product_price_tiers" as any)
+          .insert(newTiers);
+        if (tierError) throw tierError;
+
+        setProductPriceTiers((prev) => [...prev, ...newTiers]);
+      }
+
+      setProducts((prev) => [...prev, newProduct]);
+      setExpandedProductId(newId);
+      toast.success("Produkt kopieret");
+    } catch (error) {
+      console.error("Copy product error", error);
+      toast.error("Kunne ikke kopiere produkt");
+    } finally {
+      setCopyingItemId(null);
     }
   };
 
@@ -1367,6 +1996,78 @@ export function StorformatManager({
     }
   };
 
+  const saveBannerBuilderPricingSelection = useCallback(
+    async (nextSelection: BannerBuilderPricingSelection) => {
+      if (!isBannerBuilderProduct) return;
+
+      const previousSpecs = productTechnicalSpecs;
+      const previousSelection = bannerBuilderPricingSelection;
+      const nextSpecs = writeBannerBuilderPricingSelection(
+        previousSpecs,
+        nextSelection,
+      );
+
+      setProductTechnicalSpecs(nextSpecs);
+      setBannerBuilderPricingSelection(nextSelection);
+      setSavingBannerBuilderSelection(true);
+
+      const { error } = await supabase
+        .from("products")
+        .update({ technical_specs: nextSpecs as any })
+        .eq("id", productId);
+
+      if (error) {
+        console.error("Error updating Banner Builder pricing selection:", error);
+        setProductTechnicalSpecs(previousSpecs);
+        setBannerBuilderPricingSelection(previousSelection);
+        toast.error("Kunne ikke gemme aktive frontend-valg");
+      }
+
+      setSavingBannerBuilderSelection(false);
+    },
+    [
+      bannerBuilderPricingSelection,
+      isBannerBuilderProduct,
+      productId,
+      productTechnicalSpecs,
+    ],
+  );
+
+  const toggleBannerBuilderSelection = useCallback(
+    async (type: "finish" | "product", id: string) => {
+      if (!id || !isBannerBuilderProduct) return;
+
+      if (type === "finish") {
+        const isActive = bannerBuilderPricingSelection.activeFinishIds.includes(id);
+        const activeFinishIds = isActive
+          ? bannerBuilderPricingSelection.activeFinishIds.filter((value) => value !== id)
+          : [...bannerBuilderPricingSelection.activeFinishIds, id];
+        await saveBannerBuilderPricingSelection({
+          ...bannerBuilderPricingSelection,
+          activeFinishIds,
+        });
+        return;
+      }
+
+      const isActive =
+        bannerBuilderPricingSelection.activeProductItemIds.includes(id);
+      const activeProductItemIds = isActive
+        ? bannerBuilderPricingSelection.activeProductItemIds.filter(
+            (value) => value !== id,
+          )
+        : [...bannerBuilderPricingSelection.activeProductItemIds, id];
+      await saveBannerBuilderPricingSelection({
+        ...bannerBuilderPricingSelection,
+        activeProductItemIds,
+      });
+    },
+    [
+      bannerBuilderPricingSelection,
+      isBannerBuilderProduct,
+      saveBannerBuilderPricingSelection,
+    ],
+  );
+
   const toggleCatalogSearch = (type: LayoutSectionType) => {
     setCatalogSearchOpen((prev) => ({ ...prev, [type]: !prev[type] }));
   };
@@ -1779,7 +2480,11 @@ export function StorformatManager({
             created_by: user?.id
           });
       if (error) throw error;
-      toast.success(overwriteId ? "Skabelon overskrevet" : "Skabelon gemt i banken");
+      toast.success(
+        overwriteId
+          ? "Skabelon overskrevet (bank). Brug Gem kladde/Publicer for live priser."
+          : "Skabelon gemt i banken. Brug Gem kladde/Publicer for live priser."
+      );
       setSaveName("");
       setShowSaveDialog(false);
       fetchTemplates();
@@ -2227,6 +2932,20 @@ export function StorformatManager({
   const activeM2PricesUnsorted = activeM2Material
     ? m2Prices.filter((p) => p.material_id === activeM2Material.id!)
     : [];
+  const matrixLayoutBypassed = isBannerBuilderProduct;
+  const showMatrixLayoutToolsForProduct = !matrixLayoutBypassed || showMatrixLayoutTools;
+  const activeFinishIdSet = new Set(
+    bannerBuilderPricingSelection.activeFinishIds.filter(Boolean),
+  );
+  const activeProductItemIdSet = new Set(
+    bannerBuilderPricingSelection.activeProductItemIds.filter(Boolean),
+  );
+  const activeFrontendFinishes = finishes.filter(
+    (finish) => !!finish.id && activeFinishIdSet.has(finish.id),
+  );
+  const activeFrontendProducts = products.filter(
+    (item) => !!item.id && activeProductItemIdSet.has(item.id),
+  );
 
   return (
     <div className="space-y-6">
@@ -2278,10 +2997,22 @@ export function StorformatManager({
                         <Label className="text-sm font-medium">Materialer</Label>
                         <p className="text-xs text-muted-foreground">Materialer med max mål og produktionsindstillinger. Priser sættes i prisgeneratoren.</p>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setTagManagementType("materials");
+                            setShowTagManagementDialog(true);
+                          }}
+                          title="Administrer tags"
+                        >
+                          <Settings2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
                           const newMaterial = createMaterial();
                           newMaterial.name = "Nyt materiale";
                           try {
@@ -2321,8 +3052,9 @@ export function StorformatManager({
                         }}
                       >
                         <Plus className="h-3.5 w-3.5 mr-1" />
-                        Opret nyt
-                      </Button>
+                          Opret nyt
+                        </Button>
+                      </div>
                     </div>
 
                     {expandedMaterialId && (() => {
@@ -2343,6 +3075,19 @@ export function StorformatManager({
                             <div className="flex items-center gap-1">
                               <Button variant="ghost" size="icon" onClick={() => setExpandedMaterialId(null)}>
                                 <X className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleCopyMaterial(material)}
+                                disabled={copyingItemId === material.id}
+                                title="Kopier materiale"
+                              >
+                                {copyingItemId === material.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Copy className="h-4 w-4" />
+                                )}
                               </Button>
                               <Button
                                 variant="ghost"
@@ -2722,10 +3467,22 @@ export function StorformatManager({
                         <Label className="text-sm font-medium">Efterbehandling</Label>
                         <p className="text-xs text-muted-foreground">Efterbehandlinger som navnevalg. Priser sættes i prisgeneratoren.</p>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setTagManagementType("finishes");
+                            setShowTagManagementDialog(true);
+                          }}
+                          title="Administrer tags"
+                        >
+                          <Settings2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
                           const newFinish = createFinish();
                           newFinish.name = "Ny efterbehandling";
                           try {
@@ -2780,8 +3537,9 @@ export function StorformatManager({
                         }}
                       >
                         <Plus className="h-3.5 w-3.5 mr-1" />
-                        Opret ny
-                      </Button>
+                          Opret ny
+                        </Button>
+                      </div>
                     </div>
 
                     {expandedFinishId && (() => {
@@ -2802,6 +3560,19 @@ export function StorformatManager({
                             <div className="flex items-center gap-1">
                               <Button variant="ghost" size="icon" onClick={() => setExpandedFinishId(null)}>
                                 <X className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleCopyFinish(finish)}
+                                disabled={copyingItemId === finish.id}
+                                title="Kopier efterbehandling"
+                              >
+                                {copyingItemId === finish.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Copy className="h-4 w-4" />
+                                )}
                               </Button>
                               <Button
                                 variant="ghost"
@@ -2939,6 +3710,20 @@ export function StorformatManager({
                                   </div>
                                 </div>
                                 <div className={cn("flex items-center gap-1", isSelected ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                                  {isBannerBuilderProduct && (
+                                    <Button
+                                      variant={activeFinishIdSet.has(finish.id || "") ? "default" : "outline"}
+                                      size="sm"
+                                      className="h-6 text-[10px] px-2"
+                                      disabled={savingBannerBuilderSelection}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleBannerBuilderSelection("finish", finish.id!);
+                                      }}
+                                    >
+                                      {activeFinishIdSet.has(finish.id || "") ? "Aktiv" : "Aktiv i frontend"}
+                                    </Button>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -3064,7 +3849,18 @@ export function StorformatManager({
                           Produkterne bruges som valg i layoutet. Priser styres i prisgeneratoren.
                         </p>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setTagManagementType("products");
+                            setShowTagManagementDialog(true);
+                          }}
+                          title="Administrer tags"
+                        >
+                          <Settings2 className="h-4 w-4" />
+                        </Button>
                         <Button
                           size="sm"
                           variant="outline"
@@ -3154,6 +3950,19 @@ export function StorformatManager({
                             <div className="flex items-center gap-1">
                               <Button variant="ghost" size="icon" onClick={() => setExpandedProductId(null)}>
                                 <X className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleCopyProduct(productItem)}
+                                disabled={copyingItemId === productItem.id}
+                                title="Kopier produkt"
+                              >
+                                {copyingItemId === productItem.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Copy className="h-4 w-4" />
+                                )}
                               </Button>
                               <Button
                                 variant="ghost"
@@ -3368,6 +4177,20 @@ export function StorformatManager({
                                   </div>
                                 </div>
                                 <div className={cn("flex items-center gap-1", isSelected ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                                  {isBannerBuilderProduct && (
+                                    <Button
+                                      variant={activeProductItemIdSet.has(productItem.id || "") ? "default" : "outline"}
+                                      size="sm"
+                                      className="h-6 text-[10px] px-2"
+                                      disabled={savingBannerBuilderSelection}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleBannerBuilderSelection("product", productItem.id!);
+                                      }}
+                                    >
+                                      {activeProductItemIdSet.has(productItem.id || "") ? "Aktiv" : "Aktiv i frontend"}
+                                    </Button>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -3486,6 +4309,60 @@ export function StorformatManager({
               </CardContent>
             </Card>
 
+            {isBannerBuilderProduct && (
+              <Card className="border-sky-200 bg-sky-50/40">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    Frontend aktive valg (Banner Builder Pro)
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Vælg hvilke efterbehandlinger og produkter der er aktive i live banner-preview.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">Aktive efterbehandlinger</Label>
+                      {activeFrontendFinishes.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Ingen aktive valg endnu. Klik "Aktiv i frontend" pa kortene i Efterbehandling.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {activeFrontendFinishes.map((finish) => (
+                            <Badge key={finish.id} variant="secondary">
+                              {finish.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">Aktive produkter</Label>
+                      {activeFrontendProducts.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Ingen aktive valg endnu. Klik "Aktiv i frontend" pa kortene i Produkter.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {activeFrontendProducts.map((productItem) => (
+                            <Badge key={productItem.id} variant="secondary">
+                              {productItem.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {savingBannerBuilderSelection && (
+                    <p className="text-xs text-muted-foreground">
+                      Gemmer frontend-valg...
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Antal</CardTitle>
@@ -3538,6 +4415,30 @@ export function StorformatManager({
               </CardContent>
             </Card>
 
+            {matrixLayoutBypassed && !showMatrixLayoutTools && (
+              <Card className="border-dashed border-slate-300/90 bg-slate-100/40">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2 text-slate-700">
+                    <LayoutGrid className="h-4 w-4" />
+                    Prisliste layout (matrix) skjult
+                  </CardTitle>
+                  <CardDescription className="text-xs text-slate-600">
+                    Banner Builder Pro bruger prisgeneratoren som live-kilde til frontend.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-slate-600 max-w-3xl">
+                    Matrix-layout og matrix-forhåndsvisning er skjult for at undgå forvirring.
+                    Brug prisgeneratoren nedenfor til priserne, som sendes videre til shoppen.
+                  </p>
+                  <Button size="sm" variant="outline" onClick={() => setShowMatrixLayoutTools(true)}>
+                    Vis matrix-værktøjer
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {showMatrixLayoutToolsForProduct && (
             <Card ref={layoutRef}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-4">
@@ -3545,10 +4446,17 @@ export function StorformatManager({
                     <LayoutGrid className="h-4 w-4" />
                     Prisliste Layout
                   </CardTitle>
-                  <Button variant="outline" size="sm" onClick={handleResetLayoutConfig}>
-                    <RotateCcw className="h-3.5 w-3.5 mr-2" />
-                    Nulstil layout
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {matrixLayoutBypassed && (
+                      <Button variant="ghost" size="sm" onClick={() => setShowMatrixLayoutTools(false)}>
+                        Skjul matrix-værktøjer
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm" onClick={handleResetLayoutConfig}>
+                      <RotateCcw className="h-3.5 w-3.5 mr-2" />
+                      Nulstil layout
+                    </Button>
+                  </div>
                 </div>
                 <CardDescription className="text-xs">
                   Organiser materialer, efterbehandling og produkter i rækker og sektioner.
@@ -3929,6 +4837,7 @@ export function StorformatManager({
                 </div>
               </CardContent>
             </Card>
+            )}
 
             <Card>
               <CardHeader className="pb-3">
@@ -4400,6 +5309,7 @@ export function StorformatManager({
               </CardContent>
             </Card>
 
+            {showMatrixLayoutToolsForProduct && (
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex flex-wrap items-center justify-between gap-4">
@@ -4865,6 +5775,7 @@ export function StorformatManager({
                 )}
               </CardContent>
             </Card>
+            )}
 
             <Card className="border-slate-200 bg-slate-50/50">
               <CardHeader>
@@ -4928,7 +5839,7 @@ export function StorformatManager({
                     className="whitespace-nowrap"
                   >
                     <Save className="h-3.5 w-3.5 mr-1.5" />
-                    Gem som ny
+                    Gem i bank
                   </Button>
                 </div>
 
@@ -4997,6 +5908,81 @@ export function StorformatManager({
           await handleDeleteTemplate(id);
         }}
       />
+
+      {/* Tag Management Dialog */}
+      <Dialog open={showTagManagementDialog} onOpenChange={setShowTagManagementDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              Administrer tags -{" "}
+              {tagManagementType === "materials"
+                ? "Materialer"
+                : tagManagementType === "finishes"
+                  ? "Efterbehandlinger"
+                  : "Produkter"}
+            </DialogTitle>
+            <DialogDescription>
+              Fjern et tag fra alle elementer ved at klikke på slet-knappen.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {(() => {
+              const tags = tagOptionsByType[tagManagementType];
+              if (tags.length === 0) {
+                return (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    Ingen tags oprettet endnu.
+                  </p>
+                );
+              }
+              return (
+                <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                  {tags.sort().map((tag) => {
+                    const items =
+                      tagManagementType === "materials"
+                        ? materials
+                        : tagManagementType === "finishes"
+                          ? finishes
+                          : products;
+                    const count = items.filter((item) => item.tags?.includes(tag)).length;
+                    return (
+                      <div
+                        key={tag}
+                        className="flex items-center justify-between p-2 border rounded-lg hover:bg-muted/50"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary">{tag}</Badge>
+                          <span className="text-xs text-muted-foreground">
+                            ({count} {count === 1 ? "element" : "elementer"})
+                          </span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteTagFromAll(tag, tagManagementType)}
+                          disabled={deletingTag === tag}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          {deletingTag === tag ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowTagManagementDialog(false)}>
+              Luk
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

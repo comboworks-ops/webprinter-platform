@@ -95,6 +95,10 @@ All colors MUST be HSL.
     --text-dark: 0 0% 96%;
     --text-muted: 215 20% 70%;
   }
+  .theme {
+    --animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite alternate;
+    --animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
+  }
 }
 
 @layer base {
@@ -451,8 +455,6 @@ All colors MUST be HSL.
   animation: badge-pulse 2s ease-in-out infinite;
 }
 
-
-
 /* ====== DARK MODE OVERRIDES ====== */
 /* Override hard-coded dark text colors in dark mode */
 .dark .text-gray-900,
@@ -531,4 +533,29 @@ All colors MUST be HSL.
 .dark input::placeholder,
 .dark textarea::placeholder {
   color: #9CA3AF;
+}
+
+/* ---break---
+*/
+
+@theme inline {
+  @keyframes shimmer-slide {
+  to {
+    transform: translate(calc(100cqw - 100%), 0);
+    }
+  }
+  @keyframes spin-around {
+  0% {
+    transform: translateZ(0) rotate(0);
+    }
+  15%, 35% {
+    transform: translateZ(0) rotate(90deg);
+    }
+  65%, 85% {
+    transform: translateZ(0) rotate(270deg);
+    }
+  100% {
+    transform: translateZ(0) rotate(360deg);
+    }
+  }
 }

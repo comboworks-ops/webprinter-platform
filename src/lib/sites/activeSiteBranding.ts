@@ -29,9 +29,20 @@ export function applyActiveSiteThemeToBranding(
 
   if (!activeSiteThemeId) return branding;
 
+  const shouldForceRecommendedTheme = typeof overrideSiteId === 'string' && overrideSiteId.length > 0;
+
+  const sitePackage = activeSiteId ? SITE_PACKAGE_MAP[activeSiteId] : null;
+  const headerOverride = sitePackage?.headerOverride;
+
   return {
     ...branding,
-    themeId: activeSiteThemeId,
+    // Only force the recommended site theme for explicit site previews.
+    // For normal published storefronts, preserve the tenant's selected theme.
+    themeId: shouldForceRecommendedTheme ? activeSiteThemeId : branding.themeId,
+    header: {
+      ...(branding.header || {}),
+      ...(headerOverride || {}),
+    },
     themeSettings: {
       ...(branding.themeSettings || {}),
       activeSiteId,

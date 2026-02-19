@@ -113,11 +113,13 @@ function PreviewNavigationGuard({ children }: { children: React.ReactNode }) {
 function ThemedPreviewContent({
     currentPage,
     siteId,
-    sitePreviewMode
+    sitePreviewMode,
+    tenantId,
 }: {
     currentPage: string;
     siteId?: string | null;
     sitePreviewMode?: boolean;
+    tenantId?: string | null;
 }) {
     const { branding } = usePreviewBranding();
     const themeId = branding?.themeId || 'classic';
@@ -125,7 +127,12 @@ function ThemedPreviewContent({
 
     return (
         <ThemeProvider themeId={themeId} themeSettings={themeSettings}>
-            <PreviewShopContent currentPage={currentPage} siteId={siteId} sitePreviewMode={sitePreviewMode} />
+            <PreviewShopContent
+                currentPage={currentPage}
+                siteId={siteId}
+                sitePreviewMode={sitePreviewMode}
+                tenantId={tenantId}
+            />
         </ThemeProvider>
     );
 }
@@ -139,11 +146,13 @@ function ThemedPreviewContent({
 function PreviewShopContent({
     currentPage,
     siteId,
-    sitePreviewMode
+    sitePreviewMode,
+    tenantId,
 }: {
     currentPage: string;
     siteId?: string | null;
     sitePreviewMode?: boolean;
+    tenantId?: string | null;
 }) {
     const { branding, tenantName } = usePreviewBranding();
     const { components: Theme } = useTheme();
@@ -228,8 +237,8 @@ function PreviewShopContent({
     } as CSSProperties;
     const pageBackgroundStyle = getPageBackgroundStyle(branding);
 
-    if (sitePreviewMode && siteId) {
-        return <SitePackagePreview siteId={siteId} />;
+    if (sitePreviewMode && siteId && currentPage === '/') {
+        return <SitePackagePreview siteId={siteId} tenantId={tenantId} />;
     }
 
     // Render page content based on virtual navigation
@@ -495,6 +504,8 @@ export default function PreviewShop() {
         searchParams.get("sitePreview") === "1" ||
         (useSessionSiteContext && previewSession?.sitePreviewMode === true);
     const isPreviewContext = isDraft || isPreviewModeQuery || window.self !== window.top;
+    const sitePreviewTenantId = sitePreviewMode ? MASTER_TENANT_ID : null;
+    const effectiveTenantIdParam = sitePreviewTenantId || tenantIdParam;
 
     useEffect(() => {
         if (!isPreviewContext) return;
@@ -520,8 +531,8 @@ export default function PreviewShop() {
                     .from('tenants' as any)
                     .select('id, name, settings');
 
-                if (tenantIdParam) {
-                    query = query.eq('id', tenantIdParam);
+                if (effectiveTenantIdParam) {
+                    query = query.eq('id', effectiveTenantIdParam);
                 } else {
                     query = query.eq('owner_id', user.id);
                 }
@@ -555,19 +566,27 @@ export default function PreviewShop() {
         if (!roleLoading) {
             loadInitialBranding();
         }
-    }, [isDraft, roleLoading, siteIdParam, tenantIdParam]);
+    }, [isDraft, roleLoading, siteIdParam, effectiveTenantIdParam]);
 
     useEffect(() => {
         if (!isPreviewModeQuery && !sitePreviewMode) return;
         writePreviewSession({
-            tenantId: resolvedTenantId || tenantIdParam || null,
+            tenantId: sitePreviewTenantId || resolvedTenantId || tenantIdParam || null,
             siteId: siteIdParam || null,
             sitePreviewMode,
         });
-    }, [isPreviewModeQuery, resolvedTenantId, tenantIdParam, siteIdParam, sitePreviewMode]);
+    }, [
+        isPreviewModeQuery,
+        sitePreviewTenantId,
+        resolvedTenantId,
+        tenantIdParam,
+        siteIdParam,
+        sitePreviewMode,
+    ]);
 
     useEffect(() => {
         if (roleLoading || !isAdmin) return;
+        if (sitePreviewMode) return;
         if (!tenantIdParam || tenantIdParam !== MASTER_TENANT_ID) return;
 
         const resolveAndRedirect = async () => {
@@ -597,7 +616,7 @@ export default function PreviewShop() {
         };
 
         resolveAndRedirect();
-    }, [tenantIdParam, roleLoading, isAdmin, searchParams]);
+    }, [tenantIdParam, roleLoading, isAdmin, searchParams, sitePreviewMode]);
 
     const [editMode, setEditMode] = useState(false);
 
@@ -791,6 +810,7 @@ export default function PreviewShop() {
                 currentPage={currentPage}
                 siteId={siteIdParam}
                 sitePreviewMode={sitePreviewMode}
+                tenantId={sitePreviewTenantId || resolvedTenantId || tenantIdParam || null}
             />
         </PreviewBrandingProvider>
     );

@@ -10,6 +10,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Menu, X, Search, User, ShoppingCart } from 'lucide-react';
 import type { ThemeComponentProps } from '@/lib/themes/types';
 import { cn } from '@/lib/utils';
+import { BorderBeam } from '@/components/ui/border-beam';
 
 export function GlassHeader({ branding, tenantName }: ThemeComponentProps) {
     const navigate = useNavigate();
@@ -34,12 +35,22 @@ export function GlassHeader({ branding, tenantName }: ThemeComponentProps) {
     return (
         <header
             className={cn(
-                "fixed top-0 left-0 right-0 z-50 transition-all duration-300",
+                "fixed top-0 left-0 right-0 z-50 transition-all duration-300 overflow-hidden",
                 isScrolled
-                    ? "bg-white/70 backdrop-blur-xl shadow-lg border-b border-white/20"
+                    ? "bg-white/70 backdrop-blur-xl shadow-lg"
                     : "bg-white/30 backdrop-blur-md"
             )}
         >
+            {/* Animated border beam when scrolled */}
+            {isScrolled && (
+                <BorderBeam
+                    size={100}
+                    duration={8}
+                    colorFrom={primaryColor}
+                    colorTo={`${primaryColor}66`}
+                    borderWidth={2}
+                />
+            )}
             <div className="container mx-auto px-4">
                 <div className="h-16 flex items-center justify-between">
                     {/* Logo */}
@@ -99,7 +110,7 @@ export function GlassHeader({ branding, tenantName }: ThemeComponentProps) {
                                 "text-gray-600 hover:text-gray-900",
                                 "hover:bg-white/50 hover:shadow-sm"
                             )}
-                            onClick={() => navigate('/konto')}
+                            onClick={() => navigate('/min-konto')}
                         >
                             <User className="h-5 w-5" />
                         </button>

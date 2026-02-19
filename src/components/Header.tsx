@@ -17,6 +17,8 @@ import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { WebprinterLogo } from "@/components/WebprinterLogo";
+import { getPostLogoutPath, setPostLogoutPath } from "@/lib/auth/logoutRedirect";
+import { isSiteManagedProduct } from "@/lib/sites/productSiteFrontends";
 
 interface DbProduct {
   id: string;
@@ -25,6 +27,7 @@ interface DbProduct {
   slug: string;
   image_url: string | null;
   category: 'tryksager' | 'storformat';
+  technical_specs?: unknown;
 }
 
 const Header = () => {
@@ -284,14 +287,17 @@ const Header = () => {
 
       const { data } = await (supabase
         .from('products') as any)
-        .select('id, name, icon_text, slug, image_url, category')
+        .select('id, name, icon_text, slug, image_url, category, technical_specs')
         .eq('is_published', true)
         .eq('tenant_id', tenantId) // Filter by resolved tenant ID (Domain or User or Master)
         .order('category', { ascending: true })
         .order('name');
 
       if (data) {
-        setAllProducts(data as DbProduct[]);
+        const visibleProducts = (data as DbProduct[]).filter(
+          (product) => !isSiteManagedProduct(product.technical_specs)
+        );
+        setAllProducts(visibleProducts);
       }
     }
     fetchProducts();
@@ -324,6 +330,9 @@ const Header = () => {
   }, [searchOpen]);
 
   const handleLogout = async () => {
+    const redirectPath = getPostLogoutPath(settings.data?.id);
+    setPostLogoutPath(redirectPath);
+
     const { error } = await supabase.auth.signOut();
     if (error) {
       toast({
@@ -336,6 +345,7 @@ const Header = () => {
         title: t("success"),
         description: t("loggedOut"),
       });
+      navigate(redirectPath, { replace: true });
     }
   };
 

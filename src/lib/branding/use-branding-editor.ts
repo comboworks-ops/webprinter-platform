@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
     type BrandingData,
@@ -70,6 +71,7 @@ export interface UseBrandingEditorReturn {
 
 export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandingEditorReturn {
     const { adapter, capabilities } = options;
+    const queryClient = useQueryClient();
 
     const [draft, setDraft] = useState<BrandingData>(DEFAULT_BRANDING);
     const [published, setPublished] = useState<BrandingData>(DEFAULT_BRANDING);
@@ -354,6 +356,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             await adapter.publish(draft, label);
             setPublished(draft);
             setOriginalDraft(draft);
+            await queryClient.invalidateQueries({ queryKey: ['shop-settings'] });
             toast.success('Branding publiceret!');
         } catch (error) {
             console.error('Error publishing:', error);
@@ -362,7 +365,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         } finally {
             setIsSaving(false);
         }
-    }, [adapter, draft]);
+    }, [adapter, draft, queryClient]);
 
     // Reset to default
     const resetToDefault = useCallback(async () => {
@@ -372,6 +375,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             setDraft(defaultData);
             setPublished(defaultData);
             setOriginalDraft(defaultData);
+            await queryClient.invalidateQueries({ queryKey: ['shop-settings'] });
             toast.success('Nulstillet til standard');
         } catch (error) {
             console.error('Error resetting:', error);
@@ -380,7 +384,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         } finally {
             setIsSaving(false);
         }
-    }, [adapter]);
+    }, [adapter, queryClient]);
 
     // Load history
     const loadHistory = useCallback(async () => {

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -9,6 +9,10 @@ import { getProductImage } from "@/utils/productImages";
 import { Info } from "lucide-react";
 import { ProductBadge, type ProductBadgeConfig } from "@/components/ProductBadge";
 import { cn } from "@/lib/utils";
+import {
+  isProductAssignedToSite,
+  isSiteManagedProduct,
+} from "@/lib/sites/productSiteFrontends";
 
 interface Product {
   id: string;
@@ -24,6 +28,7 @@ interface Product {
   banner_config: any;
   tooltip_product: string | null;
   tooltip_price: string | null;
+  technical_specs?: unknown;
   displayPrice?: string;
 }
 
@@ -59,6 +64,7 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const settings = useShopSettings();
+  const location = useLocation();
 
   useEffect(() => {
     const fetchAndLoadPrices = async () => {
@@ -81,6 +87,7 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
             pricing_type,
             default_variant,
             default_quantity,
+            technical_specs,
             banner_config,
             tooltip_product,
             tooltip_price
@@ -112,7 +119,34 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
     fetchAndLoadPrices();
   }, [settings.data?.id, settings.isLoading]);
 
-  const filteredProducts = products.filter((p) => p.category === category);
+  const resolvedSiteId = useMemo(() => {
+    const path = location.pathname;
+    const isSitePreviewContext =
+      path.startsWith("/preview-shop") ||
+      path.startsWith("/preview-storefront") ||
+      path.startsWith("/preview");
+    if (!isSitePreviewContext) return null;
+
+    const params = new URLSearchParams(location.search);
+    return params.get("siteId") || params.get("site_id");
+  }, [location.pathname, location.search]);
+
+  const siteScopedProducts = useMemo(() => {
+    if (!resolvedSiteId) {
+      // Default storefront catalog should not include site-managed products
+      return products.filter((product) => !isSiteManagedProduct(product.technical_specs));
+    }
+
+    const mappedProducts = products.filter((product) =>
+      isProductAssignedToSite(product.technical_specs, resolvedSiteId)
+    );
+
+    // Backward compatibility: if no product has explicit site mapping yet, show full list.
+    if (mappedProducts.length === 0) return products;
+    return mappedProducts;
+  }, [products, resolvedSiteId]);
+
+  const filteredProducts = siteScopedProducts.filter((p) => p.category === category);
 
   if (loading) {
     return <div className="text-center py-8">Indlæser produkter...</div>;

@@ -11,12 +11,13 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Trash2, GripVertical, Library, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings2, Loader2, Search, Package, Copy, Pencil, Check, X, Wand2, LayoutGrid, Save, Download, AlertTriangle, Lock, Unlock, Upload, FolderOpen, Image as ImageIcon, CloudUpload, FileInput, RotateCcw } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
+import { Plus, Trash2, GripVertical, Library, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings2, Loader2, Search, Package, Copy, Pencil, Check, X, Wand2, LayoutGrid, Save, Download, AlertTriangle, Lock, Unlock, Upload, FolderOpen, Image as ImageIcon, CloudUpload, FileInput, RotateCcw, MoveRight } from "lucide-react";
 import { toast } from "sonner";
 import { useAttributeLibrary, LibraryGroup } from "@/hooks/useAttributeLibrary";
 import { useProductAttributes, ProductAttributeGroup } from "@/hooks/useProductAttributes";
 import { cn } from "@/lib/utils";
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverEvent, DragOverlay, useDroppable } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { supabase } from "@/integrations/supabase/client";
@@ -41,10 +42,31 @@ interface ValueSetting {
 
 // Config storage key
 const CONFIG_STORAGE_KEY = 'product_config_';
+const MAX_PERSISTED_GENERATOR_PRICE_ENTRIES = 1500;
 
 // Preset quantities for oplag
 const PRESET_QUANTITIES = [10, 25, 50, 100, 250, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000];
 const MAX_PREVIEW_ROWS = 500;
+
+function isQuotaExceededError(error: unknown): boolean {
+    if (!(error instanceof DOMException)) return false;
+    return (
+        error.name === 'QuotaExceededError'
+        || error.name === 'NS_ERROR_DOM_QUOTA_REACHED'
+        || error.code === 22
+        || error.code === 1014
+    );
+}
+
+function trimGeneratorPricesForStorage(
+    prices: Record<string, { price: number; markup: number; isLocked?: boolean; excludeFromCurve?: boolean }>
+) {
+    const entries = Object.entries(prices || {});
+    if (entries.length <= MAX_PERSISTED_GENERATOR_PRICE_ENTRIES) {
+        return prices;
+    }
+    return Object.fromEntries(entries.slice(0, MAX_PERSISTED_GENERATOR_PRICE_ENTRIES));
+}
 
 interface ProductAttributeBuilderProps {
     productId: string;
@@ -137,6 +159,248 @@ interface SortableGroupItemProps {
     onEditValue: (valueId: string) => void;
 }
 
+// Draggable Layout Row Component
+interface DraggableLayoutRowProps {
+    row: LayoutRow;
+    rowIndex: number;
+    isOver: boolean;
+    isColumnDragging: boolean;
+    activeDragRowId?: string | null;
+    children: React.ReactNode;
+}
+
+function DraggableLayoutRow({ row, rowIndex, isOver, isColumnDragging, activeDragRowId, children }: DraggableLayoutRowProps) {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging
+    } = useSortable({
+        id: row.id,
+        data: { type: 'row' }
+    });
+
+    // Drop zone for columns being dragged from other rows
+    const { setNodeRef: setDropRef, isOver: isDropOver } = useDroppable({
+        id: `drop-${row.id}`,
+        data: { type: 'row-drop-zone', rowId: row.id }
+    });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition: transition || 'transform 150ms ease',
+        opacity: isDragging ? 0.3 : 1,
+    };
+
+    // Show drop indicator only if a column from another row is being dragged over this row
+    const showDropIndicator = isColumnDragging && isDropOver && activeDragRowId !== row.id && row.sections.length < 6;
+
+    return (
+        <div
+            ref={(node) => {
+                setNodeRef(node);
+                setDropRef(node);
+            }}
+            style={style}
+            className={cn(
+                "space-y-2 relative transition-all duration-150",
+                isOver && !isDragging && "ring-2 ring-primary ring-offset-2 rounded-lg"
+            )}
+        >
+            {/* Drag Handle */}
+            <div
+                {...attributes}
+                {...listeners}
+                className="absolute -left-7 top-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
+                title="Træk række"
+            >
+                <GripVertical className="h-4 w-4" />
+            </div>
+            {/* Drop indicator badge */}
+            {showDropIndicator && (
+                <div className="absolute -right-2 top-1/2 -translate-y-1/2 z-20 animate-pulse">
+                    <div className="bg-primary text-primary-foreground text-[10px] font-medium px-2 py-1 rounded-full shadow-lg">
+                        + Tilføj her
+                    </div>
+                </div>
+            )}
+            {children}
+        </div>
+    );
+}
+
+// Draggable Column Component (for sections within a row)
+// Uses useDraggable instead of useSortable to prevent layout shifts
+interface DraggableColumnProps {
+    section: LayoutSection;
+    sectionIndex: number;
+    rowId: string;
+    canDrag: boolean;
+    isDragging: boolean;
+    children: React.ReactNode;
+}
+
+function DraggableColumn({ section, sectionIndex, rowId, canDrag, isDragging, children }: DraggableColumnProps) {
+    const { attributes, listeners, setNodeRef } = useSortable({
+        id: section.id,
+        data: { type: 'column', rowId, sectionIndex },
+        disabled: !canDrag
+    });
+
+    return (
+        <div
+            ref={setNodeRef}
+            className={cn(
+                "relative group/column transition-opacity duration-150",
+                isDragging && "opacity-30"
+            )}
+        >
+            {/* Column Drag Handle */}
+            {canDrag && (
+                <div
+                    {...attributes}
+                    {...listeners}
+                    className={cn(
+                        "absolute -top-2.5 left-1/2 -translate-x-1/2 cursor-grab active:cursor-grabbing",
+                        "px-2 py-0.5 flex items-center justify-center gap-1",
+                        "bg-background border border-border rounded-full shadow-sm",
+                        "opacity-60 group-hover/column:opacity-100 hover:bg-muted transition-all z-10",
+                        "text-[10px] text-muted-foreground"
+                    )}
+                    title="Træk kolonne til anden række"
+                >
+                    <GripVertical className="h-3 w-3 rotate-90" />
+                </div>
+            )}
+            {children}
+        </div>
+    );
+}
+
+// Column drag overlay preview
+function ColumnDragPreview({ sectionType }: { sectionType: string }) {
+    const label = sectionType === 'products' ? 'Produkter'
+        : sectionType === 'formats' ? 'Formater'
+        : sectionType === 'materials' ? 'Materialer'
+        : 'Efterbehandling';
+
+    return (
+        <div className="w-32 p-3 bg-background border-2 border-primary rounded-lg shadow-xl opacity-90">
+            <div className="text-xs font-medium text-center text-primary">{label}</div>
+            <div className="text-[10px] text-muted-foreground text-center mt-1">Slip i en række</div>
+        </div>
+    );
+}
+
+// Sortable Value Component (for items within a section)
+interface SortableValueProps {
+    value: { id: string; name: string };
+    rowId: string;
+    sectionId: string;
+    settings?: ValueSetting;
+    onEdit: () => void;
+    onToggleThumbnail: () => void;
+    onUpload: () => void;
+    onRemove: () => void;
+}
+
+function SortableValue({ value, rowId, sectionId, settings, onEdit, onToggleThumbnail, onUpload, onRemove }: SortableValueProps) {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging
+    } = useSortable({
+        id: value.id,
+        data: { type: 'value', rowId, sectionId }
+    });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+    };
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            className={cn(
+                "group flex items-center justify-between p-1 rounded border bg-card/50 text-[10px]",
+                isDragging && "shadow-md ring-1 ring-primary"
+            )}
+        >
+            <div className="flex items-center gap-1 truncate">
+                <div
+                    {...attributes}
+                    {...listeners}
+                    className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-0.5 rounded hover:bg-muted"
+                >
+                    <GripVertical className="h-3 w-3" />
+                </div>
+                <span className="truncate">{value.name}</span>
+                {settings?.showThumbnail && <ImageIcon className="h-3 w-3 text-primary" />}
+            </div>
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-4 w-4"
+                    onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                    title="Rediger"
+                >
+                    <Pencil className="h-2.5 w-2.5" />
+                </Button>
+                <Button
+                    variant={settings?.showThumbnail ? "default" : "ghost"}
+                    size="icon"
+                    className="h-4 w-4"
+                    onClick={(e) => { e.stopPropagation(); onToggleThumbnail(); }}
+                >
+                    <ImageIcon className="h-2.5 w-2.5" />
+                </Button>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-4 w-4"
+                    onClick={(e) => { e.stopPropagation(); onUpload(); }}
+                >
+                    <CloudUpload className="h-2.5 w-2.5" />
+                </Button>
+                <div
+                    className="h-4 w-4 flex items-center justify-center rounded hover:bg-destructive/10 cursor-pointer text-muted-foreground hover:text-destructive"
+                    onClick={(e) => { e.stopPropagation(); onRemove(); }}
+                >
+                    <X className="h-2.5 w-2.5" />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+interface LayoutRow {
+    id: string;
+    title?: string;
+    description?: string;
+    sections: LayoutSection[];
+}
+
+interface LayoutSection {
+    id: string;
+    groupId: string;
+    sectionType: AttributeType;
+    valueIds?: string[];
+    ui_mode: DisplayMode;
+    selection_mode: SelectionMode;
+    valueSettings?: Record<string, ValueSetting>;
+    thumbnailsEnabled?: boolean;
+    title?: string;
+    description?: string;
+}
 
 function SortableGroupItem({
     group,
@@ -477,6 +741,194 @@ export function ProductAttributeBuilder({
         { id: 'row-1', sections: [{ id: 'section-1', groupId: '', sectionType: 'formats', ui_mode: 'buttons', selection_mode: 'required' }] }
     ]);
 
+    // Unified drag and drop state
+    const [activeDragItem, setActiveDragItem] = useState<{ id: string; type: 'row' | 'column' | 'value'; data?: any } | null>(null);
+    const [overTargetId, setOverTargetId] = useState<string | null>(null);
+
+    const unifiedSensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    );
+
+    // Unified drag start handler
+    const handleUnifiedDragStart = (event: DragStartEvent) => {
+        const { active } = event;
+        const data = active.data.current as { type: 'row' | 'column' | 'value'; rowId?: string; sectionId?: string } | undefined;
+        setActiveDragItem({
+            id: active.id as string,
+            type: data?.type || 'row',
+            data
+        });
+    };
+
+    // Unified drag over handler
+    const handleUnifiedDragOver = (event: DragOverEvent) => {
+        const { over, active } = event;
+        if (!over) {
+            setOverTargetId(null);
+            return;
+        }
+
+        const activeData = active.data.current as { type: string; rowId?: string } | undefined;
+        const overData = over.data.current as { type: string; rowId?: string } | undefined;
+
+        // Column being dragged over another row
+        if (activeData?.type === 'column' && overData?.type === 'row-drop-zone') {
+            setOverTargetId(over.id as string);
+        } else if (activeData?.type === 'row') {
+            setOverTargetId(over.id as string);
+        } else {
+            setOverTargetId(over.id as string);
+        }
+    };
+
+    // Unified drag end handler
+    const handleUnifiedDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        setActiveDragItem(null);
+        setOverTargetId(null);
+
+        if (!over || active.id === over.id) return;
+
+        const activeData = active.data.current as { type: 'row' | 'column' | 'value'; rowId?: string; sectionId?: string } | undefined;
+        const overData = over.data.current as { type: 'row' | 'column' | 'value' | 'row-drop-zone'; rowId?: string; sectionId?: string } | undefined;
+
+        // Handle ROW drag
+        if (activeData?.type === 'row') {
+            const activeIndex = layoutRows.findIndex(r => r.id === active.id);
+            const overIndex = layoutRows.findIndex(r => r.id === over.id);
+
+            if (activeIndex !== -1 && overIndex !== -1) {
+                const activeRow = layoutRows[activeIndex];
+                const overRow = layoutRows[overIndex];
+                const totalSectionsAfterMerge = activeRow.sections.length + overRow.sections.length;
+
+                if (totalSectionsAfterMerge <= 6) {
+                    setLayoutRows(prev => {
+                        const newRows = prev.map(r => {
+                            if (r.id === over.id) {
+                                return { ...r, sections: [...r.sections, ...activeRow.sections] };
+                            }
+                            return r;
+                        }).filter(r => r.id !== active.id);
+                        return newRows;
+                    });
+                    toast.success(`Rækker sammenlagt til ${totalSectionsAfterMerge} kolonner`);
+                } else {
+                    setLayoutRows(prev => arrayMove(prev, activeIndex, overIndex));
+                }
+            }
+            return;
+        }
+
+        // Handle COLUMN drag
+        if (activeData?.type === 'column') {
+            const fromRowId = activeData.rowId;
+
+            // Check if dropping onto a row drop zone (different row)
+            if (overData?.type === 'row-drop-zone' || overData?.type === 'row') {
+                const toRowId = over.id as string;
+                if (fromRowId && toRowId && fromRowId !== toRowId) {
+                    handleMoveColumnToRow(active.id as string, fromRowId, toRowId);
+                    return;
+                }
+            }
+
+            // Check if dropping onto another column in a different row
+            if (overData?.type === 'column' && overData.rowId && fromRowId !== overData.rowId) {
+                handleMoveColumnToRow(active.id as string, fromRowId!, overData.rowId);
+                return;
+            }
+
+            // Same row - reorder columns
+            if (overData?.type === 'column' && fromRowId === overData.rowId) {
+                setLayoutRows(prev => prev.map(r => {
+                    if (r.id === fromRowId) {
+                        const oldIndex = r.sections.findIndex(s => s.id === active.id);
+                        const newIndex = r.sections.findIndex(s => s.id === over.id);
+                        if (oldIndex !== -1 && newIndex !== -1) {
+                            return { ...r, sections: arrayMove(r.sections, oldIndex, newIndex) };
+                        }
+                    }
+                    return r;
+                }));
+            }
+            return;
+        }
+
+        // Handle VALUE drag (within same section)
+        if (activeData?.type === 'value' && overData?.type === 'value') {
+            if (activeData.rowId === overData.rowId && activeData.sectionId === overData.sectionId) {
+                handleValueReorder(activeData.rowId!, activeData.sectionId!, active.id as string, over.id as string);
+            }
+        }
+    };
+
+    // Move column to a different row
+    const handleMoveColumnToRow = (sectionId: string, fromRowId: string, toRowId: string) => {
+        // Handle drop zone IDs (they have "drop-" prefix)
+        const actualToRowId = toRowId.startsWith('drop-') ? toRowId.replace('drop-', '') : toRowId;
+
+        setLayoutRows(prev => {
+            const fromRow = prev.find(r => r.id === fromRowId);
+            const toRow = prev.find(r => r.id === actualToRowId);
+            if (!fromRow || !toRow) return prev;
+
+            const section = fromRow.sections.find(s => s.id === sectionId);
+            if (!section) return prev;
+
+            if (toRow.sections.length >= 6) {
+                toast.error('Mål-rækken har allerede 6 kolonner');
+                return prev;
+            }
+
+            // If moving the last column from a row, delete the empty row
+            if (fromRow.sections.length === 1) {
+                return prev
+                    .map(r => {
+                        if (r.id === actualToRowId) {
+                            return { ...r, sections: [...r.sections, section] };
+                        }
+                        return r;
+                    })
+                    .filter(r => r.id !== fromRowId); // Remove the now-empty row
+            }
+
+            return prev.map(r => {
+                if (r.id === fromRowId) {
+                    return { ...r, sections: r.sections.filter(s => s.id !== sectionId) };
+                }
+                if (r.id === actualToRowId) {
+                    return { ...r, sections: [...r.sections, section] };
+                }
+                return r;
+            });
+        });
+        toast.success('Kolonne flyttet');
+    };
+
+    // Value reorder handler
+    const handleValueReorder = (rowId: string, sectionId: string, activeId: string, overId: string) => {
+        setLayoutRows(prev => prev.map(r => {
+            if (r.id === rowId) {
+                return {
+                    ...r,
+                    sections: r.sections.map(s => {
+                        if (s.id === sectionId && s.valueIds) {
+                            const oldIndex = s.valueIds.indexOf(activeId);
+                            const newIndex = s.valueIds.indexOf(overId);
+                            if (oldIndex !== -1 && newIndex !== -1) {
+                                return { ...s, valueIds: arrayMove(s.valueIds, oldIndex, newIndex) };
+                            }
+                        }
+                        return s;
+                    })
+                };
+            }
+            return r;
+        }));
+    };
+
     // Vertical Axis Configuration
     const [verticalAxisConfig, setVerticalAxisConfig] = useState<VerticalAxisConfig>({
         sectionId: 'vertical-axis',
@@ -632,12 +1084,35 @@ export function ProductAttributeBuilder({
                 row.sections.forEach(section => {
                     if (!section.valueIds || section.valueIds.length === 0) return;
                     const current = next[section.id];
-                    if (!current || !section.valueIds.includes(current)) {
-                        next[section.id] = section.valueIds[0];
-                        changed = true;
+                    const isOptional = section.selection_mode === 'optional';
+                    const isValid = !!current && section.valueIds.includes(current);
+
+                    if (!isValid) {
+                        if (isOptional) {
+                            if (current) {
+                                delete next[section.id];
+                                changed = true;
+                            }
+                        } else {
+                            next[section.id] = section.valueIds[0];
+                            changed = true;
+                        }
                     }
                 });
             });
+
+            // Keep optional finish rows mutually exclusive (at most one selected).
+            const optionalFinishSectionIds = layoutRows
+                .flatMap(row => row.sections)
+                .filter(section => section.sectionType === 'finishes' && section.selection_mode === 'optional')
+                .map(section => section.id);
+            const selectedOptionalFinishIds = optionalFinishSectionIds.filter(sectionId => !!next[sectionId]);
+            if (selectedOptionalFinishIds.length > 1) {
+                selectedOptionalFinishIds.slice(1).forEach(sectionId => {
+                    delete next[sectionId];
+                    changed = true;
+                });
+            }
 
             const validSectionIds = new Set<string>([verticalSectionId]);
             layoutRows.forEach(row => {
@@ -656,15 +1131,42 @@ export function ProductAttributeBuilder({
 
     const getVariantKeyFromSelections = (selections: Record<string, string>) => {
         const ids: string[] = [];
+        const finishSections = layoutRows
+            .flatMap(row => row.sections)
+            .filter(section => section.sectionType === 'finishes' && section.ui_mode !== 'hidden');
+
+        let activeFinish: string | null = null;
+        const optionalFinishSections = finishSections.filter(section => section.selection_mode === 'optional');
+        for (const section of optionalFinishSections) {
+            const selected = selections[section.id];
+            if (selected) {
+                activeFinish = selected;
+                break;
+            }
+        }
+        if (!activeFinish) {
+            const requiredFinish = finishSections.find(section => section.selection_mode !== 'optional');
+            if (requiredFinish && selections[requiredFinish.id]) {
+                activeFinish = selections[requiredFinish.id];
+            } else {
+                for (const section of finishSections) {
+                    if (selections[section.id]) {
+                        activeFinish = selections[section.id];
+                        break;
+                    }
+                }
+            }
+        }
 
         layoutRows.forEach(row => {
             row.sections.forEach(section => {
-                if (section.sectionType === 'formats' || section.sectionType === 'materials') return;
+                if (section.sectionType === 'formats' || section.sectionType === 'materials' || section.sectionType === 'finishes') return;
                 const selected = selections[section.id];
                 if (selected) ids.push(selected);
             });
         });
 
+        if (activeFinish) ids.push(activeFinish);
         if (ids.length === 0) return genSelectedVariant || 'none';
         return ids.sort().join('|');
     };
@@ -791,6 +1293,8 @@ export function ProductAttributeBuilder({
     const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
     const hasLoadedStructureRef = useRef(false);
     const hasLoadedPublishedPricesRef = useRef(false);
+    const storageTrimWarnedRef = useRef(false);
+    const storageQuotaWarnedRef = useRef(false);
     const [savingMaterialLibrary, setSavingMaterialLibrary] = useState(false);
     const [savingFormatLibrary, setSavingFormatLibrary] = useState(false);
 
@@ -803,6 +1307,30 @@ export function ProductAttributeBuilder({
     const [showAllTemplates, setShowAllTemplates] = useState(false);
     const lastImportedPricesRef = useRef<Record<string, any>>({});
     const lastImportedOplagRef = useRef<number[]>([]);
+
+    const fetchAllGenericProductPrices = useCallback(async () => {
+        if (!productId) return [] as any[];
+        const pageSize = 1000;
+        let offset = 0;
+        const allRows: any[] = [];
+
+        while (true) {
+            const { data, error } = await supabase
+                .from('generic_product_prices')
+                .select('quantity, price_dkk, extra_data')
+                .eq('product_id', productId)
+                .range(offset, offset + pageSize - 1);
+
+            if (error) throw error;
+            if (!data || data.length === 0) break;
+
+            allRows.push(...data);
+            if (data.length < pageSize) break;
+            offset += pageSize;
+        }
+
+        return allRows;
+    }, [productId]);
 
     const fetchTemplates = async () => {
         if (!productId) return;
@@ -1000,7 +1528,15 @@ export function ProductAttributeBuilder({
 
     // Load persisted config on mount (includes generator prices for persistence)
     useEffect(() => {
-        const stored = localStorage.getItem(CONFIG_STORAGE_KEY + productId);
+        const storageKey = CONFIG_STORAGE_KEY + productId;
+        let stored: string | null = null;
+        try {
+            stored = localStorage.getItem(storageKey);
+        } catch (error) {
+            console.warn('[ProductAttributeBuilder] Could not read localStorage config', error);
+            return;
+        }
+
         if (stored) {
             try {
                 const cfg = JSON.parse(stored);
@@ -1025,6 +1561,9 @@ export function ProductAttributeBuilder({
     // Persist config changes (including generator state for full persistence)
     useEffect(() => {
         if (!hasLoadedStructureRef.current) return;
+        const trimmedGeneratorPrices = trimGeneratorPricesForStorage(generatorPrices);
+        const generatorWasTrimmed = Object.keys(trimmedGeneratorPrices).length < Object.keys(generatorPrices).length;
+
         const cfg = {
             sizeMode,
             formatDisplayMode,
@@ -1035,12 +1574,49 @@ export function ProductAttributeBuilder({
             layoutRows,
             // Generator state for persistence
             selectedOplag,
-            generatorPrices,
+            generatorPrices: trimmedGeneratorPrices,
             productMarkups,
             masterMarkup,
             genRounding,
         };
-        localStorage.setItem(CONFIG_STORAGE_KEY + productId, JSON.stringify(cfg));
+        const storageKey = CONFIG_STORAGE_KEY + productId;
+        try {
+            localStorage.setItem(storageKey, JSON.stringify(cfg));
+            if (generatorWasTrimmed && !storageTrimWarnedRef.current) {
+                storageTrimWarnedRef.current = true;
+                console.info('[ProductAttributeBuilder] Local product cache was trimmed to stay within browser limits.');
+            }
+        } catch (error) {
+            if (!isQuotaExceededError(error)) {
+                console.warn('[ProductAttributeBuilder] Failed to persist local config', error);
+                return;
+            }
+
+            // Quota fallback: persist a compact config instead of crashing render.
+            const compactCfg = {
+                sizeMode,
+                formatDisplayMode,
+                maxWidthMm,
+                maxHeightMm,
+                pricingVariantGroupId,
+                verticalAxisConfig,
+                layoutRows,
+                selectedOplag,
+                masterMarkup,
+                genRounding,
+            };
+
+            try {
+                localStorage.setItem(storageKey, JSON.stringify(compactCfg));
+            } catch (fallbackError) {
+                console.warn('[ProductAttributeBuilder] Failed to persist compact local config', fallbackError);
+            }
+
+            if (!storageQuotaWarnedRef.current) {
+                storageQuotaWarnedRef.current = true;
+                toast.warning('Browser-lager er næsten fuldt. Lokal cache blev gjort mindre for dette produkt.');
+            }
+        }
     }, [sizeMode, formatDisplayMode, maxWidthMm, maxHeightMm, pricingVariantGroupId, verticalAxisConfig, layoutRows, productId, selectedOplag, generatorPrices, productMarkups, masterMarkup, genRounding]);
 
     const buildPricingStructure = useCallback(() => {
@@ -1425,11 +2001,6 @@ export function ProductAttributeBuilder({
 
     useEffect(() => {
         if (!productId || hasLoadedStructureRef.current) return;
-        const stored = localStorage.getItem(CONFIG_STORAGE_KEY + productId);
-        if (stored) {
-            hasLoadedStructureRef.current = true;
-            return;
-        }
 
         const loadStructure = async () => {
             const { data } = await supabase
@@ -1439,6 +2010,8 @@ export function ProductAttributeBuilder({
                 .maybeSingle();
 
             const structure = (data as any)?.pricing_structure;
+            // Always prefer persisted DB structure over local draft snapshot.
+            // This avoids empty/broken layouts when stale localStorage points to removed group/value IDs.
             if (structure?.mode === 'matrix_layout_v1') {
                 applyPricingStructure(structure);
             }
@@ -1470,21 +2043,104 @@ export function ProductAttributeBuilder({
         }
     }, [verticalAxisConfig.sectionType, verticalAxisConfig.valueIds, productAttrs.groups]);
 
+    const hasUsableLocalGeneratorPrices = useMemo(() => {
+        const keys = Object.keys(generatorPrices || {});
+        if (keys.length === 0) return false;
+
+        const formatValueIds = new Set<string>();
+        const materialValueIds = new Set<string>();
+        const nonAxisValueIds = new Set<string>();
+        const seenFormatIds = new Set<string>();
+        const seenMaterialIds = new Set<string>();
+
+        productAttrs.groups.forEach(group => {
+            (group.values || []).forEach(value => {
+                if (group.kind === 'format') {
+                    formatValueIds.add(value.id);
+                    return;
+                }
+                if (group.kind === 'material') {
+                    materialValueIds.add(value.id);
+                    return;
+                }
+                nonAxisValueIds.add(value.id);
+            });
+        });
+
+        let validCount = 0;
+        let invalidCount = 0;
+
+        keys.forEach((key) => {
+            const parts = key.split('::');
+            if (parts.length < 4) {
+                invalidCount += 1;
+                return;
+            }
+
+            const [formatId, materialId, variantId, qtyStr] = parts;
+            const qty = Number(qtyStr);
+            const row = generatorPrices[key] as any;
+            const price = typeof row === 'number' ? row : Number(row?.price || 0);
+
+            // Ignore empty/non-price entries; we only validate real price rows.
+            if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(qty) || qty <= 0) {
+                return;
+            }
+
+            let valid = true;
+            if (!formatValueIds.has(formatId) || !materialValueIds.has(materialId)) {
+                valid = false;
+            }
+
+            if (variantId && variantId !== 'none') {
+                const variantIds = variantId.split('|').filter(Boolean);
+                if (variantIds.length === 0 || variantIds.some(id => !nonAxisValueIds.has(id))) {
+                    valid = false;
+                }
+            }
+
+            if (valid) validCount += 1;
+            else invalidCount += 1;
+
+            if (valid) {
+                seenFormatIds.add(formatId);
+                seenMaterialIds.add(materialId);
+            }
+        });
+
+        // Local cache must cover all known formats/materials or it is likely stale/partial.
+        if (formatValueIds.size > 0 && seenFormatIds.size < formatValueIds.size) {
+            return false;
+        }
+        if (materialValueIds.size > 0 && seenMaterialIds.size < materialValueIds.size) {
+            return false;
+        }
+
+        // If we have at least one valid mapped price row, keep local cache.
+        if (validCount > 0) return true;
+
+        // If no valid rows exist, this cache is stale for current layout/IDs.
+        return false;
+    }, [generatorPrices, productAttrs.groups]);
+
     useEffect(() => {
         if (!productId || productAttrs.loading) return;
         if (hasLoadedPublishedPricesRef.current) return;
-        if (Object.keys(generatorPrices).length > 0) {
-            hasLoadedPublishedPricesRef.current = true;
-            return;
+
+        if (Object.keys(generatorPrices).length > 0 && !hasUsableLocalGeneratorPrices) {
+            console.warn('[ProductAttributeBuilder] Ignoring stale local generator cache and reloading published prices');
         }
 
         const loadPublishedPrices = async () => {
-            const { data, error } = await supabase
-                .from('generic_product_prices')
-                .select('quantity, price_dkk, extra_data')
-                .eq('product_id', productId);
+            let data: any[] = [];
+            try {
+                data = await fetchAllGenericProductPrices();
+            } catch {
+                hasLoadedPublishedPricesRef.current = true;
+                return;
+            }
 
-            if (error || !data || data.length === 0) {
+            if (!data || data.length === 0) {
                 hasLoadedPublishedPricesRef.current = true;
                 return;
             }
@@ -1526,7 +2182,15 @@ export function ProductAttributeBuilder({
             });
 
             if (Object.keys(fallbackPrices).length > 0) {
-                setGeneratorPrices(normalizeGeneratorPrices(fallbackPrices));
+                // Merge published prices into local draft cache so missing combinations
+                // are restored without overwriting in-progress local edits.
+                setGeneratorPrices(prev => {
+                    const merged = {
+                        ...fallbackPrices,
+                        ...(prev || {}),
+                    };
+                    return normalizeGeneratorPrices(merged);
+                });
                 if (selectedOplag.length === 0) {
                     setSelectedOplag(Array.from(fallbackOplag).sort((a, b) => a - b));
                 }
@@ -1535,7 +2199,7 @@ export function ProductAttributeBuilder({
         };
 
         loadPublishedPrices();
-    }, [productId, productAttrs.loading, generatorPrices, normalizeGeneratorPrices, selectedOplag.length]);
+    }, [fetchAllGenericProductPrices, productId, productAttrs.loading, generatorPrices, hasUsableLocalGeneratorPrices, normalizeGeneratorPrices, selectedOplag.length]);
 
     // Transition for non-blocking updates (prevents UI blinking)
     const [isPending, startTransition] = useTransition();
@@ -3884,12 +4548,9 @@ export function ProductAttributeBuilder({
 
         if (sourceKeys.length === 0 && productId) {
             try {
-                const { data, error } = await supabase
-                    .from('generic_product_prices')
-                    .select('quantity, price_dkk, extra_data')
-                    .eq('product_id', productId);
+                const data = await fetchAllGenericProductPrices();
 
-                if (!error && data && data.length > 0) {
+                if (data && data.length > 0) {
                     const formatValueIds = new Set<string>();
                     const materialValueIds = new Set<string>();
                     productAttrs.groups.forEach(group => {
@@ -4187,11 +4848,13 @@ export function ProductAttributeBuilder({
         }
 
         if (productId) {
-            const { data, error } = await supabase
-                .from('generic_product_prices')
-                .select('quantity, price_dkk, extra_data')
-                .eq('product_id', productId);
-            if (!error && data && data.length > 0) {
+            let data: any[] = [];
+            try {
+                data = await fetchAllGenericProductPrices();
+            } catch {
+                data = [];
+            }
+            if (data && data.length > 0) {
                 const fallbackPrices: Record<string, any> = {};
                 const fallbackOplag = new Set<number>();
                 data.forEach((row: any) => {
@@ -4756,6 +5419,25 @@ export function ProductAttributeBuilder({
                                                             <Tooltip>
                                                                 <TooltipTrigger asChild>
                                                                     <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-5 w-5"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setEditingValueId(v.id);
+                                                                        }}
+                                                                    >
+                                                                        <Pencil className="h-3 w-3" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent side="top">Rediger</TooltipContent>
+                                                            </Tooltip>
+                                                        </TooltipProvider>
+
+                                                        <TooltipProvider>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button
                                                                         variant={settings?.showThumbnail ? "default" : "ghost"}
                                                                         size="icon"
                                                                         className="h-5 w-5"
@@ -4823,12 +5505,40 @@ export function ProductAttributeBuilder({
                             </div>
 
                             {/* === RIGHT: HORIZONTAL ROWS === */}
-                            <div className="flex-1 space-y-4">
+                            <DndContext
+                                sensors={unifiedSensors}
+                                collisionDetection={closestCenter}
+                                onDragStart={handleUnifiedDragStart}
+                                onDragOver={handleUnifiedDragOver}
+                                onDragEnd={handleUnifiedDragEnd}
+                            >
+                            <SortableContext items={layoutRows.map(r => r.id)} strategy={verticalListSortingStrategy}>
+                            {/* Drag overlay for smooth column dragging */}
+                            <DragOverlay dropAnimation={{ duration: 150, easing: 'ease-out' }}>
+                                {activeDragItem?.type === 'column' && (
+                                    <ColumnDragPreview sectionType={
+                                        layoutRows.flatMap(r => r.sections).find(s => s.id === activeDragItem.id)?.sectionType || 'materials'
+                                    } />
+                                )}
+                            </DragOverlay>
+                            <div className="flex-1 space-y-6 pl-8">
                                 {layoutRows.map((row, rowIndex) => (
-                                    <div key={row.id} className="space-y-2">
+                                    <DraggableLayoutRow
+                                        key={row.id}
+                                        row={row}
+                                        rowIndex={rowIndex}
+                                        isOver={overTargetId === row.id && activeDragItem?.type === 'row' && activeDragItem?.id !== row.id}
+                                        isColumnDragging={activeDragItem?.type === 'column'}
+                                        activeDragRowId={activeDragItem?.type === 'column' ? activeDragItem?.data?.rowId : null}
+                                    >
                                         <div className="flex flex-col gap-2 mb-2">
                                             <div className="flex items-center justify-between">
                                                 <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Række {rowIndex + 1}</Label>
+                                                {row.sections.length > 1 && (
+                                                    <Badge variant="secondary" className="text-[10px]">
+                                                        {row.sections.length} kolonner
+                                                    </Badge>
+                                                )}
                                             </div>
                                             <div className="flex gap-2">
                                                 <Input
@@ -4845,7 +5555,7 @@ export function ProductAttributeBuilder({
                                                 />
                                             </div>
                                             <div className="flex gap-1">
-                                                {row.sections.length < 3 && (
+                                                {row.sections.length < 6 && (
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
@@ -4876,14 +5586,24 @@ export function ProductAttributeBuilder({
                                         </div>
 
                                         <div className={cn(
-                                            "grid gap-2 p-2 bg-muted/30 rounded-lg border-2 border-dashed",
+                                            "grid gap-3 p-3 pt-5 bg-muted/30 rounded-lg border-2 border-dashed",
                                             row.sections.length === 1 && "grid-cols-1",
                                             row.sections.length === 2 && "grid-cols-2",
-                                            row.sections.length === 3 && "grid-cols-3"
+                                            row.sections.length === 3 && "grid-cols-3",
+                                            row.sections.length === 4 && "grid-cols-4",
+                                            row.sections.length === 5 && "grid-cols-5",
+                                            row.sections.length >= 6 && "grid-cols-6"
                                         )}>
                                             {row.sections.map((section, sectionIndex) => (
-                                                <div
+                                                <DraggableColumn
                                                     key={section.id}
+                                                    section={section}
+                                                    sectionIndex={sectionIndex}
+                                                    rowId={row.id}
+                                                    canDrag={layoutRows.length > 1 || row.sections.length > 1}
+                                                    isDragging={activeDragItem?.id === section.id}
+                                                >
+                                                <div
                                                     className={cn(
                                                         "min-h-[120px] p-2 bg-background rounded border flex flex-col gap-2 transition-all cursor-pointer",
                                                         sectionIndex > 0 && "border-l-4 border-l-muted",
@@ -4915,6 +5635,29 @@ export function ProductAttributeBuilder({
                                                             </SelectContent>
                                                         </Select>
 
+                                                        {/* Move column to another row */}
+                                                        {row.sections.length > 1 && layoutRows.length > 1 && (
+                                                            <DropdownMenu>
+                                                                <DropdownMenuTrigger asChild>
+                                                                    <Button variant="ghost" size="icon" className="h-5 w-5" onClick={e => e.stopPropagation()}>
+                                                                        <MoveRight className="h-3 w-3" />
+                                                                    </Button>
+                                                                </DropdownMenuTrigger>
+                                                                <DropdownMenuContent align="end" onClick={e => e.stopPropagation()}>
+                                                                    <DropdownMenuLabel className="text-xs">Flyt til række</DropdownMenuLabel>
+                                                                    <DropdownMenuSeparator />
+                                                                    {layoutRows.filter(r => r.id !== row.id && r.sections.length < 6).map((targetRow, idx) => (
+                                                                        <DropdownMenuItem
+                                                                            key={targetRow.id}
+                                                                            onClick={() => handleMoveColumnToRow(section.id, row.id, targetRow.id)}
+                                                                        >
+                                                                            Række {layoutRows.findIndex(r => r.id === targetRow.id) + 1}
+                                                                            {targetRow.title && ` - ${targetRow.title}`}
+                                                                        </DropdownMenuItem>
+                                                                    ))}
+                                                                </DropdownMenuContent>
+                                                            </DropdownMenu>
+                                                        )}
                                                         {row.sections.length > 1 && (
                                                             <Button
                                                                 variant="ghost" size="icon" className="h-5 w-5"
@@ -4996,88 +5739,68 @@ export function ProductAttributeBuilder({
                                                         </Select>
                                                     </div>
 
-                                                    {/* Values */}
+                                                    {/* Values - Sortable */}
+                                                    <SortableContext items={section.valueIds || []} strategy={verticalListSortingStrategy}>
                                                     <div className="flex-1 flex flex-col gap-1 p-1 min-h-[60px]">
-                                                        {(productAttrs.groups || [])
-                                                            .flatMap(g => (g.values || []))
-                                                            .filter(v => section.valueIds?.includes(v.id))
-                                                            .map(v => {
-                                                                const settings = section.valueSettings?.[v.id];
-                                                                return (
-                                                                    <div key={v.id} className="group flex items-center justify-between p-1 rounded border bg-card/50 text-[10px]">
-                                                                        <div className="flex items-center gap-2 truncate">
-                                                                            <span className="truncate">{v.name}</span>
-                                                                            {settings?.showThumbnail && <ImageIcon className="h-3 w-3 text-primary" />}
-                                                                        </div>
-                                                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                            <Button
-                                                                                variant={settings?.showThumbnail ? "default" : "ghost"}
-                                                                                size="icon"
-                                                                                className="h-4 w-4"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    setLayoutRows(prev => prev.map(r =>
-                                                                                        r.id === row.id
-                                                                                            ? {
-                                                                                                ...r, sections: r.sections.map(s => s.id === section.id
-                                                                                                    ? {
-                                                                                                        ...s,
-                                                                                                        valueSettings: {
-                                                                                                            ...s.valueSettings,
-                                                                                                            [v.id]: { ...settings, showThumbnail: !settings?.showThumbnail }
-                                                                                                        }
-                                                                                                    }
-                                                                                                    : s)
+                                                        {/* Render values in the order of valueIds */}
+                                                        {(section.valueIds || []).map(valueId => {
+                                                            const v = (productAttrs.groups || [])
+                                                                .flatMap(g => (g.values || []))
+                                                                .find(val => val.id === valueId);
+                                                            if (!v) return null;
+                                                            const settings = section.valueSettings?.[v.id];
+                                                            return (
+                                                                <SortableValue
+                                                                    key={v.id}
+                                                                    value={v}
+                                                                    rowId={row.id}
+                                                                    sectionId={section.id}
+                                                                    settings={settings}
+                                                                    onEdit={() => setEditingValueId(v.id)}
+                                                                    onToggleThumbnail={() => {
+                                                                        setLayoutRows(prev => prev.map(r =>
+                                                                            r.id === row.id
+                                                                                ? {
+                                                                                    ...r, sections: r.sections.map(s => s.id === section.id
+                                                                                        ? {
+                                                                                            ...s,
+                                                                                            valueSettings: {
+                                                                                                ...s.valueSettings,
+                                                                                                [v.id]: { ...settings, showThumbnail: !settings?.showThumbnail }
                                                                                             }
-                                                                                            : r
-                                                                                    ));
-                                                                                }}
-                                                                            >
-                                                                                <ImageIcon className="h-2.5 w-2.5" />
-                                                                            </Button>
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="icon"
-                                                                                className="h-4 w-4"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    triggerUpload(section.id, v.id);
-                                                                                }}
-                                                                            >
-                                                                                <CloudUpload className="h-2.5 w-2.5" />
-                                                                            </Button>
-                                                                            <div
-                                                                                className="h-4 w-4 flex items-center justify-center rounded hover:bg-destructive/10 cursor-pointer text-muted-foreground hover:text-destructive"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    setLayoutRows(prev => prev.map(r =>
-                                                                                        r.id === row.id
-                                                                                            ? {
-                                                                                                ...r, sections: r.sections.map(s => s.id === section.id
-                                                                                                    ? { ...s, valueIds: s.valueIds?.filter(id => id !== v.id) }
-                                                                                                    : s)
-                                                                                            }
-                                                                                            : r
-                                                                                    ));
-                                                                                }}
-                                                                            >
-                                                                                <X className="h-2.5 w-2.5" />
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            })
-                                                        }
+                                                                                        }
+                                                                                        : s)
+                                                                                }
+                                                                                : r
+                                                                        ));
+                                                                    }}
+                                                                    onUpload={() => triggerUpload(section.id, v.id)}
+                                                                    onRemove={() => {
+                                                                        setLayoutRows(prev => prev.map(r =>
+                                                                            r.id === row.id
+                                                                                ? {
+                                                                                    ...r, sections: r.sections.map(s => s.id === section.id
+                                                                                        ? { ...s, valueIds: s.valueIds?.filter(id => id !== v.id) }
+                                                                                        : s)
+                                                                                }
+                                                                                : r
+                                                                        ));
+                                                                    }}
+                                                                />
+                                                            );
+                                                        })}
                                                         {(!section.valueIds || section.valueIds.length === 0) && (
                                                             <span className="text-[10px] text-muted-foreground italic p-1 text-center mt-2">
                                                                 Klik for at vælg
                                                             </span>
                                                         )}
                                                     </div>
+                                                    </SortableContext>
                                                 </div>
+                                                </DraggableColumn>
                                             ))}
                                         </div>
-                                    </div>
+                                    </DraggableLayoutRow>
                                 ))}
 
                                 {/* Add new row button */}
@@ -5098,6 +5821,8 @@ export function ProductAttributeBuilder({
                                     </Button>
                                 )}
                             </div>
+                            </SortableContext>
+                            </DndContext>
                         </div>
                     </CardContent>
                 </Card>
@@ -5291,9 +6016,58 @@ export function ProductAttributeBuilder({
                                                         const values = (productAttrs.groups || [])
                                                             .flatMap(g => (g.values || []))
                                                             .filter(v => section.valueIds?.includes(v.id));
-                                                        const selectedValue = selectedSectionValues[section.id] || values[0]?.id || '';
+                                                        const isOptional = section.selection_mode === 'optional';
+                                                        const selectedValue = isOptional
+                                                            ? (selectedSectionValues[section.id] || '')
+                                                            : (selectedSectionValues[section.id] || values[0]?.id || '');
                                                         const setSelectedValue = (val: string) => {
-                                                            setSelectedSectionValues(prev => ({ ...prev, [section.id]: val }));
+                                                            setSelectedSectionValues(prev => {
+                                                                const next = { ...prev };
+                                                                const current = prev[section.id];
+                                                                if (isOptional && current === val) {
+                                                                    delete next[section.id];
+                                                                } else {
+                                                                    next[section.id] = val;
+                                                                    if (section.sectionType === 'finishes') {
+                                                                        const allFinishSections = layoutRows.flatMap(r => r.sections).filter(s => s.sectionType === 'finishes');
+                                                                        if (isOptional) {
+                                                                            allFinishSections.forEach(finishSection => {
+                                                                                if (finishSection.id !== section.id && finishSection.selection_mode === 'optional') {
+                                                                                    delete next[finishSection.id];
+                                                                                }
+                                                                            });
+                                                                        } else {
+                                                                            allFinishSections.forEach(finishSection => {
+                                                                                if (finishSection.selection_mode === 'optional') {
+                                                                                    delete next[finishSection.id];
+                                                                                }
+                                                                            });
+                                                                        }
+
+                                                                        // Two-sided finishes require 4+4 print.
+                                                                        const selectedName = (values.find(v => v.id === val)?.name || '').toLowerCase();
+                                                                        const requiresFourFour = selectedName.includes('2 sider') || selectedName.includes('2 side');
+                                                                        if (requiresFourFour) {
+                                                                            const printSection = layoutRows
+                                                                                .flatMap(r => r.sections)
+                                                                                .find(s => s.sectionType === 'products' && s.ui_mode !== 'hidden');
+                                                                            if (printSection) {
+                                                                                const printValues = (productAttrs.groups || [])
+                                                                                    .flatMap(g => g.values || [])
+                                                                                    .filter(v => printSection.valueIds?.includes(v.id));
+                                                                                const fourFourValue = printValues.find(v => {
+                                                                                    const n = (v.name || '').toLowerCase();
+                                                                                    return n.includes('4+4') || n.includes('4/4');
+                                                                                });
+                                                                                if (fourFourValue) {
+                                                                                    next[printSection.id] = fourFourValue.id;
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                return next;
+                                                            });
                                                         };
 
                                                         const displayMode = section.ui_mode || 'buttons';
@@ -5307,11 +6081,27 @@ export function ProductAttributeBuilder({
                                                                 </Label>
 
                                                                 {displayMode === 'dropdown' ? (
-                                                                    <Select value={selectedValue} onValueChange={setSelectedValue}>
+                                                                    <Select
+                                                                        value={selectedValue || (isOptional ? '__none__' : '')}
+                                                                        onValueChange={(val) => {
+                                                                            if (isOptional && val === '__none__') {
+                                                                                setSelectedSectionValues(prev => {
+                                                                                    const next = { ...prev };
+                                                                                    delete next[section.id];
+                                                                                    return next;
+                                                                                });
+                                                                                return;
+                                                                            }
+                                                                            setSelectedValue(val);
+                                                                        }}
+                                                                    >
                                                                         <SelectTrigger className="w-full">
                                                                             <SelectValue placeholder="Vælg..." />
                                                                         </SelectTrigger>
                                                                         <SelectContent>
+                                                                            {isOptional && (
+                                                                                <SelectItem value="__none__">Ingen</SelectItem>
+                                                                            )}
                                                                             {values.map(v => {
                                                                                 const settings = section.valueSettings?.[v.id];
                                                                                 return (
@@ -5334,7 +6124,7 @@ export function ProductAttributeBuilder({
                                                                             const settings = section.valueSettings?.[v.id];
                                                                             return (
                                                                                 <div key={v.id} className="flex items-center space-x-2 border p-2 rounded cursor-pointer hover:bg-muted/50" onClick={() => setSelectedValue(v.id)}>
-                                                                                    <Checkbox checked={isSelected} onCheckedChange={() => setSelectedValue(v.id)} />
+                                                                                    <Checkbox checked={isSelected} />
                                                                                     <div className="flex items-center gap-2">
                                                                                         {settings?.showThumbnail && settings.customImage && (
                                                                                             <img src={settings.customImage} className="w-6 h-6 object-cover rounded" />
@@ -5951,26 +6741,88 @@ export function ProductAttributeBuilder({
                                                                         .filter(v => section.valueIds?.includes(v.id));
                                                                     const uiMode = section.ui_mode || 'buttons';
 
-                                                                    const selectedValueId = selectedSectionValues[section.id] || sectionValues[0]?.id;
+                                                                    const isOptional = section.selection_mode === 'optional';
+                                                                    const selectedValueId = isOptional
+                                                                        ? (selectedSectionValues[section.id] || '')
+                                                                        : (selectedSectionValues[section.id] || sectionValues[0]?.id);
 
                                                                     if (sectionValues.length === 0) {
                                                                         return <span className="text-[10px] text-muted-foreground italic">Ingen værdier tilføjet til denne sektion</span>;
                                                                     }
 
                                                                     const handleValueSelect = (valueId: string) => {
-                                                                        setSelectedSectionValues(prev => ({ ...prev, [section.id]: valueId }));
+                                                                        setSelectedSectionValues(prev => {
+                                                                            const next = { ...prev };
+                                                                            const current = prev[section.id];
+                                                                            if (isOptional && current === valueId) {
+                                                                                delete next[section.id];
+                                                                            } else {
+                                                                                next[section.id] = valueId;
+                                                                                if (section.sectionType === 'finishes') {
+                                                                                    const allFinishSections = layoutRows.flatMap(r => r.sections).filter(s => s.sectionType === 'finishes');
+                                                                                    if (isOptional) {
+                                                                                        allFinishSections.forEach(finishSection => {
+                                                                                            if (finishSection.id !== section.id && finishSection.selection_mode === 'optional') {
+                                                                                                delete next[finishSection.id];
+                                                                                            }
+                                                                                        });
+                                                                                    } else {
+                                                                                        allFinishSections.forEach(finishSection => {
+                                                                                            if (finishSection.selection_mode === 'optional') {
+                                                                                                delete next[finishSection.id];
+                                                                                            }
+                                                                                        });
+                                                                                    }
+
+                                                                                    // Two-sided finishes require 4+4 print.
+                                                                                    const selectedName = (sectionValues.find(v => v.id === valueId)?.name || '').toLowerCase();
+                                                                                    const requiresFourFour = selectedName.includes('2 sider') || selectedName.includes('2 side');
+                                                                                    if (requiresFourFour) {
+                                                                                        const printSection = layoutRows
+                                                                                            .flatMap(r => r.sections)
+                                                                                            .find(s => s.sectionType === 'products' && s.ui_mode !== 'hidden');
+                                                                                        if (printSection) {
+                                                                                            const printValues = (productAttrs.groups || [])
+                                                                                                .flatMap(g => g.values || [])
+                                                                                                .filter(v => printSection.valueIds?.includes(v.id));
+                                                                                            const fourFourValue = printValues.find(v => {
+                                                                                                const n = (v.name || '').toLowerCase();
+                                                                                                return n.includes('4+4') || n.includes('4/4');
+                                                                                            });
+                                                                                            if (fourFourValue) {
+                                                                                                next[printSection.id] = fourFourValue.id;
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                            return next;
+                                                                        });
                                                                     };
 
                                                                     if (uiMode === 'dropdown') {
                                                                         return (
                                                                             <Select
-                                                                                value={selectedValueId}
-                                                                                onValueChange={handleValueSelect}
+                                                                                value={selectedValueId || (isOptional ? '__none__' : '')}
+                                                                                onValueChange={(val) => {
+                                                                                    if (isOptional && val === '__none__') {
+                                                                                        setSelectedSectionValues(prev => {
+                                                                                            const next = { ...prev };
+                                                                                            delete next[section.id];
+                                                                                            return next;
+                                                                                        });
+                                                                                        return;
+                                                                                    }
+                                                                                    handleValueSelect(val);
+                                                                                }}
                                                                             >
                                                                                 <SelectTrigger className="h-8 text-xs">
                                                                                     <SelectValue placeholder="Vælg værdi" />
                                                                                 </SelectTrigger>
                                                                                 <SelectContent>
+                                                                                    {isOptional && (
+                                                                                        <SelectItem value="__none__">Ingen</SelectItem>
+                                                                                    )}
                                                                                     {sectionValues.map((v: any) => (
                                                                                         <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
                                                                                     ))}
@@ -6460,17 +7312,21 @@ export function ProductAttributeBuilder({
                         open={!!editingValueId}
                         onOpenChange={(open) => !open && setEditingValueId(null)}
                         onUpdate={(id, data) => productAttrs.updateValue(id, data)}
-                    />
-                )
-            }
-
-            {
-                editingValueId && (
-                    <EditValueDialog
-                        value={productAttrs.groups.flatMap(g => g.values || []).find(v => v.id === editingValueId)}
-                        open={!!editingValueId}
-                        onOpenChange={(open) => !open && setEditingValueId(null)}
-                        onUpdate={(id, data) => productAttrs.updateValue(id, data)}
+                        libraryGroups={library.groups.map(g => ({ id: g.id, name: g.name, kind: g.kind }))}
+                        libraryValues={library.groups.flatMap(g =>
+                            (g.values || []).map(v => ({ id: v.id, name: v.name, groupName: g.name }))
+                        )}
+                        onSaveToLibrary={async (valueData, groupId) => {
+                            await library.addValue(groupId, {
+                                name: valueData.name,
+                                key: valueData.key,
+                                sort_order: 999,
+                                enabled: true,
+                                width_mm: valueData.width_mm,
+                                height_mm: valueData.height_mm,
+                                meta: valueData.meta
+                            });
+                        }}
                     />
                 )
             }
@@ -6956,6 +7812,8 @@ function AttributeLibraryBrowser({
     const [loading, setLoading] = useState(false);
     const [filterCategory, setFilterCategory] = useState<string | null>(null);
     const [editingItem, setEditingItem] = useState<any | null>(null);
+    const [copyingItemId, setCopyingItemId] = useState<string | null>(null);
+    const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
 
     const labels = ATTRIBUTE_TYPE_LABELS[type];
 
@@ -6976,6 +7834,52 @@ function AttributeLibraryBrowser({
             console.error(`Error fetching ${type} library:`, err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleCopyItem = async (item: any) => {
+        setCopyingItemId(item.id);
+        try {
+            const { data, error } = await supabase
+                .from('designer_templates' as any)
+                .insert({
+                    name: `${item.name} (kopi)`,
+                    description: item.description,
+                    category: item.category,
+                    template_type: item.template_type,
+                    weight_gsm: item.weight_gsm,
+                    image_url: item.image_url,
+                    is_active: true
+                })
+                .select()
+                .single();
+            if (error) throw error;
+            toast.success(`${labels.singular} kopieret`);
+            fetchItems();
+        } catch (err) {
+            console.error('Copy error:', err);
+            toast.error(`Kunne ikke kopiere ${labels.singular.toLowerCase()}`);
+        } finally {
+            setCopyingItemId(null);
+        }
+    };
+
+    const handleDeleteItem = async (item: any) => {
+        if (!confirm(`Er du sikker på at du vil slette "${item.name}"?`)) return;
+        setDeletingItemId(item.id);
+        try {
+            const { error } = await supabase
+                .from('designer_templates' as any)
+                .update({ is_active: false })
+                .eq('id', item.id);
+            if (error) throw error;
+            toast.success(`${labels.singular} slettet`);
+            fetchItems();
+        } catch (err) {
+            console.error('Delete error:', err);
+            toast.error(`Kunne ikke slette ${labels.singular.toLowerCase()}`);
+        } finally {
+            setDeletingItemId(null);
         }
     };
 
@@ -7043,14 +7947,45 @@ function AttributeLibraryBrowser({
                                 </span>
                             </div>
                         </div>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={(e) => { e.stopPropagation(); setEditingItem(item); }}
-                        >
-                            <Pencil className="h-3 w-3" />
-                        </Button>
+                        <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={(e) => { e.stopPropagation(); handleCopyItem(item); }}
+                                disabled={copyingItemId === item.id}
+                                title="Kopier"
+                            >
+                                {copyingItemId === item.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                    <Copy className="h-3 w-3" />
+                                )}
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={(e) => { e.stopPropagation(); setEditingItem(item); }}
+                                title="Rediger"
+                            >
+                                <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-destructive hover:text-destructive"
+                                onClick={(e) => { e.stopPropagation(); handleDeleteItem(item); }}
+                                disabled={deletingItemId === item.id}
+                                title="Slet"
+                            >
+                                {deletingItemId === item.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                    <Trash2 className="h-3 w-3" />
+                                )}
+                            </Button>
+                        </div>
                     </div>
                 ))}
             </div>
@@ -7627,20 +8562,57 @@ function EditTemplateDialog({ open, template, onOpenChange, onSuccess }: { open:
     );
 }
 
-function EditValueDialog({ value, open, onOpenChange, onUpdate }: { value: any, open: boolean, onOpenChange: (open: boolean) => void, onUpdate: (id: string, data: any) => void }) {
+function EditValueDialog({
+    value,
+    open,
+    onOpenChange,
+    onUpdate,
+    onSaveToLibrary,
+    libraryGroups,
+    libraryValues
+}: {
+    value: any,
+    open: boolean,
+    onOpenChange: (open: boolean) => void,
+    onUpdate: (id: string, data: any) => void,
+    onSaveToLibrary?: (value: any, groupId: string) => Promise<void>,
+    libraryGroups?: { id: string; name: string; kind: string; values?: { id: string; name: string }[] }[],
+    libraryValues?: { id: string; name: string; groupName: string }[]
+}) {
+    const [name, setName] = useState('');
     const [priceType, setPriceType] = useState<'free' | 'fixed' | 'calculated' | 'multiplier'>('free');
     const [fixedPrice, setFixedPrice] = useState('');
     const [multiplier, setMultiplier] = useState('1');
     const [bleed, setBleed] = useState('3');
     const [safeArea, setSafeArea] = useState('3');
+    const [showSaveToLibrary, setShowSaveToLibrary] = useState(false);
+    const [selectedLibraryGroupId, setSelectedLibraryGroupId] = useState<string>('');
+    const [savingToLibrary, setSavingToLibrary] = useState(false);
+    const [librarySearch, setLibrarySearch] = useState('');
+    const [showSwapFromLibrary, setShowSwapFromLibrary] = useState(false);
+
+    // Filter library values based on search
+    const filteredLibraryValues = useMemo(() => {
+        if (!libraryValues || !librarySearch.trim()) return libraryValues || [];
+        const search = librarySearch.toLowerCase();
+        return libraryValues.filter(v =>
+            v.name.toLowerCase().includes(search) ||
+            v.groupName.toLowerCase().includes(search)
+        );
+    }, [libraryValues, librarySearch]);
 
     useEffect(() => {
         if (value) {
+            setName(value.name || '');
             setPriceType(value.meta?.price_type || 'free');
             setFixedPrice(value.meta?.fixed_price || '');
             setMultiplier(value.meta?.multiplier || '1');
             setBleed(String(value.meta?.bleed_mm ?? 3));
             setSafeArea(String(value.meta?.safe_area_mm ?? 3));
+            setShowSaveToLibrary(false);
+            setSelectedLibraryGroupId('');
+            setLibrarySearch('');
+            setShowSwapFromLibrary(false);
         }
     }, [value]);
 
@@ -7648,6 +8620,7 @@ function EditValueDialog({ value, open, onOpenChange, onUpdate }: { value: any, 
         if (!value) return;
         const isFormatValue = !!value.width_mm && !!value.height_mm;
         onUpdate(value.id, {
+            name: name.trim() || value.name,
             meta: {
                 ...value.meta,
                 price_type: priceType,
@@ -7661,6 +8634,23 @@ function EditValueDialog({ value, open, onOpenChange, onUpdate }: { value: any, 
         onOpenChange(false);
     };
 
+    const handleSaveToLibrary = async () => {
+        if (!value || !onSaveToLibrary || !selectedLibraryGroupId) return;
+        setSavingToLibrary(true);
+        try {
+            await onSaveToLibrary({
+                ...value,
+                name: name.trim() || value.name
+            }, selectedLibraryGroupId);
+            toast.success("Gemt til bibliotek");
+            setShowSaveToLibrary(false);
+        } catch (error) {
+            toast.error("Kunne ikke gemme til bibliotek");
+        } finally {
+            setSavingToLibrary(false);
+        }
+    };
+
     if (!value) return null;
     const isFormatValue = !!value.width_mm && !!value.height_mm;
 
@@ -7668,10 +8658,74 @@ function EditValueDialog({ value, open, onOpenChange, onUpdate }: { value: any, 
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Rediger: {value.name}</DialogTitle>
-                    <DialogDescription>Indstil prissætning for denne valgmulighed.</DialogDescription>
+                    <DialogTitle>Rediger værdi</DialogTitle>
+                    <DialogDescription>Rediger navn og indstillinger for denne valgmulighed.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
+                    {/* Name field with swap option */}
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <Label>Navn</Label>
+                            {libraryValues && libraryValues.length > 0 && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 text-xs"
+                                    onClick={() => setShowSwapFromLibrary(!showSwapFromLibrary)}
+                                >
+                                    <RotateCcw className="h-3 w-3 mr-1" />
+                                    {showSwapFromLibrary ? 'Skjul bibliotek' : 'Byt fra bibliotek'}
+                                </Button>
+                            )}
+                        </div>
+                        <Input
+                            value={name}
+                            onChange={e => setName(e.target.value)}
+                            placeholder="Indtast navn..."
+                        />
+
+                        {/* Swap from library picker */}
+                        {showSwapFromLibrary && libraryValues && (
+                            <div className="border rounded-lg p-3 bg-muted/30 space-y-2">
+                                <div className="relative">
+                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Søg i bibliotek..."
+                                        value={librarySearch}
+                                        onChange={e => setLibrarySearch(e.target.value)}
+                                        className="pl-8 h-8 text-sm"
+                                    />
+                                </div>
+                                <div className="max-h-32 overflow-y-auto space-y-1">
+                                    {filteredLibraryValues.length === 0 ? (
+                                        <p className="text-xs text-muted-foreground text-center py-2">
+                                            {librarySearch ? 'Ingen resultater' : 'Ingen værdier i biblioteket'}
+                                        </p>
+                                    ) : (
+                                        filteredLibraryValues.slice(0, 20).map(lv => (
+                                            <button
+                                                key={lv.id}
+                                                type="button"
+                                                className={cn(
+                                                    "w-full text-left px-2 py-1.5 rounded text-sm hover:bg-primary/10 transition-colors",
+                                                    name === lv.name && "bg-primary/20 font-medium"
+                                                )}
+                                                onClick={() => {
+                                                    setName(lv.name);
+                                                    setShowSwapFromLibrary(false);
+                                                    setLibrarySearch('');
+                                                }}
+                                            >
+                                                <span>{lv.name}</span>
+                                                <span className="text-xs text-muted-foreground ml-2">({lv.groupName})</span>
+                                            </button>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     <div className="space-y-2">
                         <Label>Pris type</Label>
                         <Select value={priceType} onValueChange={(v: any) => setPriceType(v)}>
@@ -7736,10 +8790,60 @@ function EditValueDialog({ value, open, onOpenChange, onUpdate }: { value: any, 
                             </div>
                         </div>
                     )}
+
+                    {/* Save to Library section */}
+                    {onSaveToLibrary && libraryGroups && libraryGroups.length > 0 && (
+                        <div className="border-t pt-4 mt-4">
+                            {!showSaveToLibrary ? (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full"
+                                    onClick={() => setShowSaveToLibrary(true)}
+                                >
+                                    <Library className="h-4 w-4 mr-2" />
+                                    Gem til bibliotek
+                                </Button>
+                            ) : (
+                                <div className="space-y-3 p-3 bg-muted/50 rounded-lg">
+                                    <Label className="text-sm font-medium">Vælg biblioteksgruppe</Label>
+                                    <Select value={selectedLibraryGroupId} onValueChange={setSelectedLibraryGroupId}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Vælg gruppe..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {libraryGroups.map(g => (
+                                                <SelectItem key={g.id} value={g.id}>
+                                                    {g.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <div className="flex gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setShowSaveToLibrary(false)}
+                                        >
+                                            Annuller
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            onClick={handleSaveToLibrary}
+                                            disabled={!selectedLibraryGroupId || savingToLibrary}
+                                        >
+                                            {savingToLibrary && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                                            Gem til bibliotek
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Annuller</Button>
-                    <Button onClick={handleSave}>Gem</Button>
+                    <Button onClick={handleSave}>Gem ændringer</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

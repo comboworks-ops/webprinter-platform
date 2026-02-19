@@ -15,6 +15,8 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { resolveAdminTenant } from "@/lib/adminTenant";
+import { getPostLogoutPath, setPostLogoutPath } from "@/lib/auth/logoutRedirect";
 
 const ADMIN_DARK_MODE_KEY = 'admin_dark_mode';
 
@@ -108,9 +110,18 @@ export function AdminHeader() {
     }, [unreadCount, navigate]);
 
     const handleLogout = async () => {
-        await supabase.auth.signOut();
-        navigate("/");
+        const { tenantId: adminTenantId } = await resolveAdminTenant();
+        const redirectPath = getPostLogoutPath(adminTenantId || tenant?.id);
+        setPostLogoutPath(redirectPath);
+
+        const { error } = await supabase.auth.signOut();
+        if (error) {
+            toast.error("Kunne ikke logge ud");
+            return;
+        }
+
         toast.success("Du er nu logget ud");
+        navigate(redirectPath, { replace: true });
     };
 
     const handleVisitShop = () => {

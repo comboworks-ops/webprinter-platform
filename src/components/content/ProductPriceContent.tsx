@@ -533,7 +533,6 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
             let newMatrixData: MatrixData = { rows: [], columns: [], cells: {} };
 
             if (isGenericPricing && dbProductId && selectedVariantName) {
-                console.log(`Loading generic matrix for product: ${product.id}, variant: ${selectedVariantName}`);
                 const { matrixData } = await getGenericMatrixDataFromDB(dbProductId, selectedVariantName);
                 newMatrixData = matrixData;
                 if (Object.keys(valueNameById).length > 0 && matrixData.rows.length > 0) {
@@ -609,7 +608,6 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                 }
             }
 
-            console.log(`Matrix updated with ${newMatrixData.rows.length} rows and ${newMatrixData.columns.length} columns`);
             setMatrixData(newMatrixData);
 
             // Deep linking & Selection preservation logic

@@ -203,7 +203,7 @@ export default function DesignResources() {
         if (!targetTenantId) return;
         setStorformatLoading(true);
         try {
-            const [materialsRes, finishesRes, productsRes] = await Promise.all([
+            const [materialsRes, finishesRes, productsRes, materialTemplatesRes, finishTemplatesRes, productTemplatesRes] = await Promise.all([
                 supabase
                     .from('storformat_material_library' as any)
                     .select('*')
@@ -219,13 +219,99 @@ export default function DesignResources() {
                     .select('*')
                     .eq('tenant_id', targetTenantId)
                     .order('name'),
+                supabase
+                    .from('designer_templates' as any)
+                    .select('id, name, category, width_mm, height_mm')
+                    .eq('tenant_id', targetTenantId)
+                    .eq('is_active', true)
+                    .eq('template_type', 'material')
+                    .order('name'),
+                supabase
+                    .from('designer_templates' as any)
+                    .select('id, name, category')
+                    .eq('tenant_id', targetTenantId)
+                    .eq('is_active', true)
+                    .eq('template_type', 'finish')
+                    .order('name'),
+                supabase
+                    .from('designer_templates' as any)
+                    .select('id, name, category')
+                    .eq('tenant_id', targetTenantId)
+                    .eq('is_active', true)
+                    .eq('template_type', 'product')
+                    .order('name'),
             ]);
             if (materialsRes.error) throw materialsRes.error;
             if (finishesRes.error) throw finishesRes.error;
             if (productsRes.error) throw productsRes.error;
-            setStorformatMaterials((materialsRes.data as StorformatMaterialLibraryItem[]) || []);
-            setStorformatFinishes((finishesRes.data as StorformatFinishLibraryItem[]) || []);
-            setStorformatProducts((productsRes.data as StorformatProductLibraryItem[]) || []);
+            if (materialTemplatesRes.error) throw materialTemplatesRes.error;
+            if (finishTemplatesRes.error) throw finishTemplatesRes.error;
+            if (productTemplatesRes.error) throw productTemplatesRes.error;
+
+            const normalizeName = (value: string) => value.trim().toLowerCase();
+
+            const materialMap = new Map<string, StorformatMaterialLibraryItem>();
+            ((materialsRes.data as StorformatMaterialLibraryItem[]) || [])
+                .filter((item) => !!item?.name)
+                .forEach((item) => {
+                    materialMap.set(normalizeName(item.name), item);
+                });
+            ((materialTemplatesRes.data as Array<any>) || [])
+                .filter((item) => !!item?.name)
+                .forEach((item) => {
+                    const key = normalizeName(item.name);
+                    if (!key || materialMap.has(key)) return;
+                    materialMap.set(key, {
+                        id: `template-${item.id}`,
+                        name: item.name,
+                        max_width_mm: typeof item.width_mm === 'number' && item.width_mm > 0 ? item.width_mm : null,
+                        max_height_mm: typeof item.height_mm === 'number' && item.height_mm > 0 ? item.height_mm : null,
+                        tags: item.category ? [item.category] : [],
+                        created_at: null,
+                    });
+                });
+
+            const finishMap = new Map<string, StorformatFinishLibraryItem>();
+            ((finishesRes.data as StorformatFinishLibraryItem[]) || [])
+                .filter((item) => !!item?.name)
+                .forEach((item) => {
+                    finishMap.set(normalizeName(item.name), item);
+                });
+            ((finishTemplatesRes.data as Array<any>) || [])
+                .filter((item) => !!item?.name)
+                .forEach((item) => {
+                    const key = normalizeName(item.name);
+                    if (!key || finishMap.has(key)) return;
+                    finishMap.set(key, {
+                        id: `template-${item.id}`,
+                        name: item.name,
+                        tags: item.category ? [item.category] : [],
+                        created_at: null,
+                    });
+                });
+
+            const productMap = new Map<string, StorformatProductLibraryItem>();
+            ((productsRes.data as StorformatProductLibraryItem[]) || [])
+                .filter((item) => !!item?.name)
+                .forEach((item) => {
+                    productMap.set(normalizeName(item.name), item);
+                });
+            ((productTemplatesRes.data as Array<any>) || [])
+                .filter((item) => !!item?.name)
+                .forEach((item) => {
+                    const key = normalizeName(item.name);
+                    if (!key || productMap.has(key)) return;
+                    productMap.set(key, {
+                        id: `template-${item.id}`,
+                        name: item.name,
+                        tags: item.category ? [item.category] : [],
+                        created_at: null,
+                    });
+                });
+
+            setStorformatMaterials(Array.from(materialMap.values()));
+            setStorformatFinishes(Array.from(finishMap.values()));
+            setStorformatProducts(Array.from(productMap.values()));
         } catch (error) {
             console.error('Error fetching storformat libraries:', error);
         } finally {

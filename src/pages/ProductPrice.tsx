@@ -74,10 +74,6 @@ const ProductPrice = () => {
   const [podShippingError, setPodShippingError] = useState<string | null>(null);
   const [orderDeliveryConfig, setOrderDeliveryConfig] = useState<any>(null);
 
-  // Debug: Track productPrice state changes
-  useEffect(() => {
-    console.log('[ProductPrice] productPrice state changed to:', productPrice);
-  }, [productPrice]);;
   const [dbProductId, setDbProductId] = useState<string | null>(null);
   const [genericVariantNames, setGenericVariantNames] = useState<string[]>([]);
   const [selectedVariantName, setSelectedVariantName] = useState<string>("");
@@ -125,7 +121,6 @@ const ProductPrice = () => {
     async function fetchDbProduct() {
       if (!slug) return;
       setLoading(true);
-      console.log('[ProductPrice] Fetching product with slug:', slug);
       const result = await supabase
         .from('products')
         .select('id, name, description, image_url, technical_specs, pricing_structure, pricing_type, banner_config' as any)
@@ -133,12 +128,8 @@ const ProductPrice = () => {
         .maybeSingle();
 
       const data = result.data as any;
-      const error = result.error;
-
-      console.log('[ProductPrice] Database result:', { data, error });
 
       if (data) {
-        console.log('[ProductPrice] Setting dbProductId to:', data.id);
         setDbProductId(data.id);
         setDbProduct(data);
         setOrderDeliveryConfig((data as any).banner_config?.order_delivery || null);
@@ -160,15 +151,19 @@ const ProductPrice = () => {
           setPricingStructure(null);
         }
 
-        // Fetch MPA Config if available
-        const { data: cfg } = await supabase
+        // Avoid blocking page render on optional MPA config lookup.
+        supabase
           .from('product_pricing_configs' as any)
           .select('*')
           .eq('product_id', data.id)
           .eq('pricing_type', 'MACHINE_PRICED')
-          .maybeSingle();
-
-        if (cfg) setMpaConfig(cfg);
+          .maybeSingle()
+          .then(({ data: cfg }) => {
+            if (cfg) setMpaConfig(cfg);
+          })
+          .catch(() => {
+            // Ignore optional MPA fetch failures on storefront load.
+          });
       } else {
         console.warn('[ProductPrice] No product found for slug:', slug);
       }
@@ -313,7 +308,6 @@ const ProductPrice = () => {
       let newMatrixData: MatrixData = { rows: [], columns: [], cells: {} };
 
       if (dbProductId && selectedVariantName) {
-        console.log(`Loading generic matrix for product: ${product.id}, variant: ${selectedVariantName}`);
         const { matrixData } = await getGenericMatrixDataFromDB(dbProductId, selectedVariantName);
         newMatrixData = matrixData;
         if (Object.keys(valueNameById).length > 0 && matrixData.rows.length > 0) {
@@ -326,7 +320,6 @@ const ProductPrice = () => {
         }
       }
 
-      console.log(`Matrix updated with ${newMatrixData.rows.length} rows and ${newMatrixData.columns.length} columns`);
       setMatrixData(newMatrixData);
 
       // Deep linking & Selection preservation logic
@@ -818,7 +811,6 @@ const ProductPrice = () => {
                 width={0}
                 height={0}
                 onPriceUpdate={(data) => {
-                  console.log('[ProductPrice] Received from MachineConfigurator:', data);
                   setProductPrice(data.totalPrice);
                   // Update selected cell mock to satisfy ProductPricePanel
                   setSelectedCell({ row: data.materialName || "Special", column: data.quantity });

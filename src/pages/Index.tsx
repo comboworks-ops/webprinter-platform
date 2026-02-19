@@ -7,7 +7,7 @@
  */
 
 import { Link } from "react-router-dom";
-import { ArrowRight, BarChart, Check, Globe, Layers, Package, PenTool, Users } from "lucide-react";
+import { ArrowRight, BarChart, Globe, Layers, Package, PenTool, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import PlatformHeader from "@/components/platform/PlatformHeader";
 import PlatformFooter from "@/components/platform/PlatformFooter";

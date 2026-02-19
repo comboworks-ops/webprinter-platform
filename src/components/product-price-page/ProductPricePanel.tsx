@@ -3,11 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { deliveryFee } from "@/utils/productPricing";
 import { Download, CheckCircle2 } from "lucide-react";
 import jsPDF from "jspdf";
 import { cn } from "@/lib/utils";
 import { DEFAULT_BRANDING, type BrandingData } from "@/hooks/useBrandingDraft";
+import {
+  cloneStandardDeliveryMethods,
+  resolveDeliveryMethodCost,
+} from "@/lib/delivery/defaults";
 
 type ProductPricePanelProps = {
   productId: string;
@@ -73,38 +76,9 @@ export type DeliveryMethod = {
   transit_duration?: number;
 };
 
-const DEFAULT_DELIVERY_METHODS: DeliveryMethod[] = [
-  {
-    id: "standard",
-    name: "Standard",
-    description: "",
-    lead_time_days: 4,
-    production_days: 2,
-    shipping_days: 2,
-    delivery_window_days: 0,
-    auto_mark_delivered: false,
-    auto_mark_days: 0,
-    price: 0,
-    cutoff_time: "12:00",
-    cutoff_label: "deadline",
-    cutoff_text: ""
-  },
-  {
-    id: "express",
-    name: "Express",
-    description: "",
-    lead_time_days: 2,
-    production_days: 1,
-    shipping_days: 1,
-    delivery_window_days: 0,
-    auto_mark_delivered: false,
-    auto_mark_days: 0,
-    price: 0,
-    cutoff_time: "12:00",
-    cutoff_label: "deadline",
-    cutoff_text: ""
-  }
-];
+const DEFAULT_DELIVERY_METHODS: DeliveryMethod[] = cloneStandardDeliveryMethods().map(
+  (method) => ({ ...method }),
+);
 
 export function ProductPricePanel({
   productId,
@@ -290,14 +264,7 @@ export function ProductPricePanel({
   const activeDeliveryMethod = activeDeliveryMethods.find(method => method.id === shippingSelected) || activeDeliveryMethods[0];
 
   const computeShippingCost = (method: DeliveryMethod | undefined) => {
-    if (!method || baseTotal <= 0) return 0;
-    if ((method.price ?? 0) > 0) {
-      return Math.round(method.price ?? 0);
-    }
-    if (method.id === "standard" || method.id === "express") {
-      return deliveryFee(baseTotal, method.id);
-    }
-    return 0;
+    return resolveDeliveryMethodCost(baseTotal, method);
   };
 
   const parseCutoffTime = (time?: string) => {

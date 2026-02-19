@@ -2,10 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { applyActiveSiteThemeToBranding } from "@/lib/sites/activeSiteBranding";
+import { resolveAdminTenant } from "@/lib/adminTenant";
 
 // Define the root domain for subdomain parsing
 const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
+const ACTIVE_TENANT_STORAGE_KEY = "wp_active_tenant_id";
 
 /**
  * Helper to extract the correct branding object.
@@ -36,11 +38,16 @@ function extractPublishedBranding(settings: any): any {
 function normalizeSettings(tenant: any, forceSiteId?: string | null): any {
     const settings = tenant?.settings || {};
     const publishedBranding = extractPublishedBranding(settings);
-    const siteAwareBranding = applyActiveSiteThemeToBranding(
-        publishedBranding,
-        settings,
-        forceSiteId
-    );
+    const shouldApplySiteTheme =
+        (!!forceSiteId && typeof forceSiteId === 'string') ||
+        tenant?.id === MASTER_TENANT_ID;
+    const siteAwareBranding = shouldApplySiteTheme
+        ? applyActiveSiteThemeToBranding(
+            publishedBranding,
+            settings,
+            forceSiteId
+        )
+        : publishedBranding;
 
     return {
         ...settings,
@@ -50,19 +57,100 @@ function normalizeSettings(tenant: any, forceSiteId?: string | null): any {
         _rawBranding: settings.branding,
         tenant_name: tenant?.name,
         id: tenant?.id,
-        subdomain: tenant?.subdomain,
+        subdomain: settings?.subdomain,
         domain: tenant?.domain,
         is_platform_owned: tenant?.is_platform_owned ?? false
     };
 }
 
+function normalizeDomainLike(value: string | null | undefined): string {
+    if (!value || typeof value !== "string") return "";
+
+    return value
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//, "")
+        .replace(/[/?#].*$/, "")
+        .replace(/:\d+$/, "")
+        .replace(/\.$/, "");
+}
+
+function canonicalDomain(value: string | null | undefined): string {
+    return normalizeDomainLike(value).replace(/^www\./, "");
+}
+
+function rememberTenantId(tenantId?: string | null) {
+    if (!tenantId || typeof window === "undefined") return;
+    try {
+        localStorage.setItem(ACTIVE_TENANT_STORAGE_KEY, tenantId);
+    } catch {
+        // Ignore storage write failures.
+    }
+}
+
+function readRememberedTenantId(): string | null {
+    if (typeof window === "undefined") return null;
+    try {
+        return localStorage.getItem(ACTIVE_TENANT_STORAGE_KEY);
+    } catch {
+        return null;
+    }
+}
+
+function normalizeAndRememberTenant(tenant: any, forceSiteId?: string | null) {
+    const normalized = normalizeSettings(tenant, forceSiteId);
+    rememberTenantId(normalized?.id || tenant?.id || null);
+    return normalized;
+}
+
+async function findTenantByHostname(hostnameInput: string): Promise<any | null> {
+    const normalizedHost = normalizeDomainLike(hostnameInput);
+    if (!normalizedHost) return null;
+
+    const canonicalHost = canonicalDomain(normalizedHost);
+    const candidateDomains = Array.from(
+        new Set(
+            [normalizedHost, canonicalHost, `www.${canonicalHost}`].filter(
+                (value) => Boolean(value)
+            )
+        )
+    );
+
+    const { data: exactMatch } = await supabase
+        .from("tenants" as any)
+        .select("*")
+        .in("domain", candidateDomains)
+        .maybeSingle();
+
+    if (exactMatch) return exactMatch;
+
+    const { data: tenantDomains } = await supabase
+        .from("tenants" as any)
+        .select("*")
+        .not("domain", "is", null);
+
+    if (!tenantDomains) return null;
+
+    return (
+        (tenantDomains as any[]).find(
+            (tenant) => canonicalDomain(tenant?.domain) === canonicalHost
+        ) || null
+    );
+}
+
 export function useShopSettings() {
+    const pathname = window.location.pathname;
     const searchParams = new URLSearchParams(window.location.search);
     const forceDomain = searchParams.get('force_domain');
     const forceSubdomain = searchParams.get('tenant_subdomain');
     const forceTenantId = searchParams.get('tenantId') || searchParams.get('tenant_id');
     const forceSiteId = searchParams.get('siteId') || searchParams.get('site_id');
     const hostname = window.location.hostname;
+    const routeContext = pathname.startsWith('/admin')
+        ? 'admin'
+        : pathname.startsWith('/preview-shop') || pathname.startsWith('/preview-storefront')
+            ? 'preview'
+            : 'shop';
 
     // Track auth state - distinguish between "not checked yet" and "checked, no user"
     const [authState, setAuthState] = useState<{ checked: boolean; userId: string | null }>({
@@ -89,6 +177,7 @@ export function useShopSettings() {
         queryKey: [
             "shop-settings",
             hostname,
+            routeContext,
             forceDomain,
             forceSubdomain,
             forceTenantId,
@@ -100,12 +189,14 @@ export function useShopSettings() {
         queryFn: async () => {
             const isVercel = hostname.endsWith('.vercel.app');
             const marketingDomains = [ROOT_DOMAIN, `www.${ROOT_DOMAIN}`];
-            const isPreviewRoute = window.location.pathname.startsWith('/preview-shop') || window.location.pathname.startsWith('/preview-storefront');
+            const currentPath = window.location.pathname;
+            const isPreviewRoute = currentPath.startsWith('/preview-shop') || currentPath.startsWith('/preview-storefront');
+            const isAdminRoute = currentPath.startsWith('/admin');
             const isDraftPreview = searchParams.get('draft') === '1' || searchParams.get('preview_mode') === '1';
 
             // Allow overriding hostname for local testing
             // Check if we're on /local-tenant route - if so, skip localhost check
-            const isLocalTenantRoute = window.location.pathname.startsWith('/local-tenant');
+            const isLocalTenantRoute = currentPath.startsWith('/local-tenant');
 
             // 0. Direct Tenant Lookup by ID (explicit override)
             if (forceTenantId) {
@@ -119,7 +210,7 @@ export function useShopSettings() {
                         .maybeSingle();
 
                     if (tenantById) {
-                        return normalizeSettings(tenantById, forceSiteId);
+                        return normalizeAndRememberTenant(tenantById, forceSiteId);
                     }
                 }
             }
@@ -134,26 +225,17 @@ export function useShopSettings() {
             }
 
             // If forcing a domain OR on /local-tenant, treat as a production tenant lookup
-            const effectiveHostname = forceDomain || hostname;
-            const isEffectiveLocalhost = !forceDomain && !isLocalTenantRoute && (effectiveHostname === 'localhost' || effectiveHostname === '127.0.0.1');
+            const effectiveHostname = normalizeDomainLike(forceDomain || hostname);
+            const isEffectiveLocalhost =
+                !forceDomain &&
+                !isLocalTenantRoute &&
+                (effectiveHostname === 'localhost' || effectiveHostname === '127.0.0.1');
 
             // 1. Production: Try to find tenant by Domain or Subdomain
             if (!isEffectiveLocalhost && !marketingDomains.includes(effectiveHostname)) {
-
-                // A. Custom Domain Match (e.g. tryk.dk)
-                // Normalize: Check both with and without 'www.' prefix to handle user input variations
-                const normalizedHost = effectiveHostname.replace(/^www\./, '');
-                const possibleDomains = [effectiveHostname, normalizedHost, `www.${normalizedHost}`];
-
-                // Use 'in' operator equivalent for Supabase
-                const { data: tenantByDomain } = await supabase
-                    .from('tenants' as any)
-                    .select('*')
-                    .in('domain', possibleDomains)
-                    .maybeSingle();
-
-                if (tenantByDomain) {
-                    return normalizeSettings(tenantByDomain, forceSiteId);
+                const tenantByHostname = await findTenantByHostname(effectiveHostname);
+                if (tenantByHostname) {
+                    return normalizeAndRememberTenant(tenantByHostname, forceSiteId);
                 }
 
                 // B. Subdomain Match (e.g. shop1.webprinter.dk or shop1.webprinter-platform.vercel.app)
@@ -176,7 +258,7 @@ export function useShopSettings() {
                         .maybeSingle();
 
                     if (tenantByDomain) {
-                        return normalizeSettings(tenantByDomain, forceSiteId);
+                        return normalizeAndRememberTenant(tenantByDomain, forceSiteId);
                     }
                 }
             }
@@ -185,36 +267,54 @@ export function useShopSettings() {
             // This allows you to see YOUR shop when logged into localhost or the master domain
             // Use the userId from state to ensure we have the latest session
             if (authState.userId) {
-                // 2a. Check for Master Admin Role first
-                // FIX: Commented out to prevent Master Admins (who also own shops like Salgsmapper)
-                // from being forced into the Master Tenant context on localhost.
-                /*
-                const { data: roles } = await supabase
-                    .from('user_roles' as any)
-                    .select('role')
-                    .eq('user_id', userId)
-                    .eq('role', 'master_admin');
+                // 2a. In admin routes, prefer the same tenant resolution used by admin modules.
+                if (isAdminRoute) {
+                    const { tenantId: adminTenantId } = await resolveAdminTenant();
 
-                if (roles && roles.length > 0) {
-                    const { data: master } = await supabase
-                        .from('tenants' as any)
-                        .select('*')
-                        .eq('id', MASTER_TENANT_ID)
-                        .maybeSingle();
+                    if (adminTenantId) {
+                        const { data: adminTenant } = await supabase
+                            .from('tenants' as any)
+                            .select('*')
+                            .eq('id', adminTenantId)
+                            .maybeSingle();
 
-                    if (master) {
-                        const normalized = normalizeSettings(master);
-                        // Explicitly set subdomain to master to match other master logic
-                        return { ...normalized, subdomain: 'master' };
+                        if (adminTenant) {
+                            return normalizeAndRememberTenant(adminTenant, forceSiteId);
+                        }
                     }
                 }
-                */
 
-                // 2b. If not master admin, show owned tenant
+                // 2b. Prefer role-bound tenant IDs for deterministic context in multi-tenant accounts.
+                const { data: roleRows } = await supabase
+                    .from('user_roles' as any)
+                    .select('tenant_id')
+                    .eq('user_id', authState.userId)
+                    .not('tenant_id', 'is', null);
+
+                const roleTenantRows = (roleRows || []) as Array<{ tenant_id: string | null }>;
+                const preferredRoleTenantId =
+                    roleTenantRows.find((row) => row.tenant_id && row.tenant_id !== MASTER_TENANT_ID)?.tenant_id ||
+                    roleTenantRows[0]?.tenant_id ||
+                    null;
+
+                if (preferredRoleTenantId) {
+                    const { data: roleTenant } = await supabase
+                        .from('tenants' as any)
+                        .select('*')
+                        .eq('id', preferredRoleTenantId)
+                        .maybeSingle();
+
+                    if (roleTenant) {
+                        return normalizeAndRememberTenant(roleTenant, forceSiteId);
+                    }
+                }
+
+                // 2c. Otherwise use owned tenant list.
                 const { data: tenantsByUser } = await supabase
                     .from('tenants' as any)
                     .select('*')
-                    .eq('owner_id', authState.userId);
+                    .eq('owner_id', authState.userId)
+                    .order('created_at', { ascending: true });
 
                 if (tenantsByUser && (tenantsByUser as any[]).length > 0) {
                     const list = tenantsByUser as any[];
@@ -224,16 +324,22 @@ export function useShopSettings() {
                     // instead of the Platform/Master tenant.
                     // NOTE: We allow is_platform_owned tenants (like Salgsmapper) as long as they are not the Master ID.
                     const realShops = list.filter(t => t.id !== MASTER_TENANT_ID);
+                    const rememberedTenantId = readRememberedTenantId();
+                    const rememberedTenant =
+                        realShops.find((tenant) => tenant.id === rememberedTenantId) ||
+                        list.find((tenant) => tenant.id === rememberedTenantId) ||
+                        null;
 
-                    console.log("[useShopSettings] Found owned tenants:", list.map(t => ({ id: t.id, name: t.name, is_platform_owned: t.is_platform_owned })));
-                    console.log("[useShopSettings] Filtered real shops (Fix Applied):", realShops.map(t => t.name));
+                    if (rememberedTenant) {
+                        return normalizeAndRememberTenant(rememberedTenant, forceSiteId);
+                    }
 
                     if (realShops.length > 0) {
-                        return normalizeSettings(realShops[0], forceSiteId);
+                        return normalizeAndRememberTenant(realShops[0], forceSiteId);
                     }
 
                     // Fallback: If they ONLY own Master (weird, but possible), show master.
-                    return normalizeSettings(list[0], forceSiteId);
+                    return normalizeAndRememberTenant(list[0], forceSiteId);
                 }
             }
 
@@ -247,6 +353,7 @@ export function useShopSettings() {
             if (master) {
                 // For master, override subdomain with 'master'
                 const normalized = normalizeSettings(master, forceSiteId);
+                rememberTenantId(master.id);
                 return { ...normalized, subdomain: 'master' };
             }
 
