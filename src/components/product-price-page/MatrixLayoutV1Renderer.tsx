@@ -317,45 +317,15 @@ export function MatrixLayoutV1Renderer({
         const verticalSectionId = pricingStructure.vertical_axis.sectionId;
         const verticalSectionType = pricingStructure.vertical_axis.sectionType;
 
-        let activeFinishValue: string | null = null;
-        const optionalFinishIds = finishSectionIds.filter(id => isOptionalSectionId(id));
-        for (const sectionId of optionalFinishIds) {
-            const selected = selections[sectionId];
-            if (selected) {
-                activeFinishValue = selected;
-                break;
-            }
-        }
-        if (!activeFinishValue && primaryFinishSectionId) {
-            activeFinishValue = selections[primaryFinishSectionId] || null;
-        }
-        if (!activeFinishValue) {
-            for (const sectionId of finishSectionIds) {
-                const selected = selections[sectionId];
-                if (selected) {
-                    activeFinishValue = selected;
-                    break;
-                }
-            }
-        }
-
         const values = Object.entries(selections)
             .filter(([secId]) => secId !== verticalSectionId)
             .filter(([secId]) => sectionTypeById[secId] !== verticalSectionType)
-            .filter(([secId]) => !finishSectionIds.includes(secId))
             .map(([_, valId]) => valId)
             .filter((valId): valId is string => !!valId);
-
-        if (activeFinishValue) {
-            values.push(activeFinishValue);
-        }
 
         if (values.length === 0) return 'none';
         return values.sort().join('|');
     }, [
-        finishSectionIds,
-        isOptionalSectionId,
-        primaryFinishSectionId,
         pricingStructure.vertical_axis.sectionId,
         pricingStructure.vertical_axis.sectionType,
         sectionTypeById,
@@ -973,7 +943,7 @@ export function MatrixLayoutV1Renderer({
             for (const qty of columns) {
                 const bucketKey = `${vertValueId}::${qty}`;
                 const candidateRows = priceIndexByVerticalQty.get(bucketKey) || [];
-                const matchingPrice = candidateRows.find(row =>
+                let matchingPrice = candidateRows.find(row =>
                     matchesPreparedPriceForSelection(row, {
                         variantKey: selectedVariantKey,
                         variantKeyNorm: selectedVariantKeyNorm,
@@ -984,6 +954,25 @@ export function MatrixLayoutV1Renderer({
                         quantity: qty,
                     })
                 );
+
+                // Fallback for legacy/partial variant keys: strict section-map equality for selected values.
+                if (!matchingPrice && candidateRows.length > 0) {
+                    matchingPrice = candidateRows.find(row => {
+                        for (const section of selectorSections) {
+                            if (section.id === pricingStructure.vertical_axis.sectionId) continue;
+                            if (!mappableSectionIds.has(section.id)) continue;
+
+                            const selectedValueId = selectedSectionValues[section.id];
+                            if (!selectedValueId) continue;
+
+                            const rowValueId = getSectionValueIdForPreparedRow(section.id, row);
+                            if (rowValueId !== selectedValueId) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    });
+                }
 
                 if (matchingPrice) {
                     cells[rowLabel][qty] = matchingPrice.price;
@@ -998,7 +987,47 @@ export function MatrixLayoutV1Renderer({
         });
 
         return { rows, columns, cells };
-    }, [computeVariantKey, getValueName, matchesPreparedPriceForSelection, normalizeVariantKey, priceIndexByVerticalQty, pricingStructure, selectedFormatId, selectedMaterialId, selectedVariantValueIds]);
+    }, [computeVariantKey, getSectionValueIdForPreparedRow, getValueName, matchesPreparedPriceForSelection, mappableSectionIds, normalizeVariantKey, priceIndexByVerticalQty, pricingStructure, selectedFormatId, selectedMaterialId, selectedSectionValues, selectedVariantValueIds, selectorSections]);
+
+    // If current format selection yields no matrix rows, pick the first available format for this selection context.
+    // This prevents a blank matrix while avoiding aggressive format auto-resets during normal interaction.
+    useEffect(() => {
+        if (matrixData.rows.length > 0) return;
+        if (formatSectionIds.length === 0) return;
+
+        setSelectedSectionValues(prev => {
+            let changed = false;
+            const next = { ...prev };
+
+            formatSectionIds.forEach(sectionId => {
+                const availableIds = availableValueIdsBySection.get(sectionId);
+                if (!availableIds || availableIds.size === 0) return;
+
+                const current = next[sectionId];
+                if (current && availableIds.has(current)) return;
+
+                const section = sectionById[sectionId];
+                if (!section) return;
+
+                const fallback = getSectionValues(section.groupId, section.valueIds)
+                    .find(value => availableIds.has(value.id));
+
+                if (!fallback) return;
+                if (fallback.id === current) return;
+
+                next[sectionId] = fallback.id;
+                changed = true;
+            });
+
+            return changed ? next : prev;
+        });
+    }, [
+        matrixData.rows.length,
+        formatSectionIds,
+        availableValueIdsBySection,
+        sectionById,
+        getSectionValues,
+    ]);
 
     // Ensure a default selection so the price panel can render totals.
     useEffect(() => {
