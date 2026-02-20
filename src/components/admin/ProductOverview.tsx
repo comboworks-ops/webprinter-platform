@@ -611,18 +611,27 @@ export function ProductOverview() {
   };
 
   const updateProductCategory = async (productId: string, newCategory: string) => {
+    console.log('updateProductCategory called:', { productId, newCategory, productsTenantId });
+    if (!newCategory || !productId) {
+      console.log('Missing required values');
+      return;
+    }
     try {
-      const { error } = await supabase
+      // Use simple update like togglePublish does (without tenant_id filter)
+      const { error, data } = await supabase
         .from('products')
         .update({ category: newCategory })
-        .eq('id', productId);
+        .eq('id', productId)
+        .select();
 
+      console.log('Update result:', { error, data });
       if (error) throw error;
       toast.success('Produkt flyttet til ny kategori');
       fetchProducts();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating product category:', error);
-      toast.error('Kunne ikke opdatere kategori');
+      console.error('Error details:', error?.message, error?.details, error?.hint);
+      toast.error('Kunne ikke opdatere kategori: ' + (error?.message || 'Ukendt fejl'));
     }
   };
 
