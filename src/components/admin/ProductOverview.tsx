@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -17,19 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
-import { SITE_PACKAGE_MAP, SITE_PACKAGES } from "@/lib/sites/sitePackages";
-import {
-  isProductAssignedToSite,
-  isSiteExclusiveProduct,
-  isSiteManagedProduct,
-  removeProductSiteAssignment,
-  readProductSiteIds,
-  writeSiteExclusiveProduct,
-  writeProductSiteIds,
-} from "@/lib/sites/productSiteFrontends";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,12 +48,10 @@ type Product = {
   description: string;
   category: string;
   pricing_type: string;
-  pricing_structure?: unknown;
   is_published: boolean;
   is_available_to_tenants?: boolean;
   is_ready?: boolean;
   image_url?: string | null;
-  technical_specs?: unknown;
 };
 
 type ProductCategory = {
@@ -96,66 +84,7 @@ type TenantOption = {
 
 type DeliveryMode = "price_list" | "pod_price_list";
 
-type SiteFrontendState = {
-  activeSiteId: string | null;
-  installedSiteIds: string[];
-};
-
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
-const BANNER_BUILDER_SITE_ID = "banner-builder-pro";
-const BANNER_BUILDER_SYNC_SOURCE = "banner-builder-pro-defaults-v1";
-type BannerBuilderDefaultProduct = {
-  name: string;
-  slug: string;
-  description: string;
-  buttonKey: string;
-  buttonOrder: number;
-};
-
-const BANNER_BUILDER_DEFAULT_PRODUCTS: BannerBuilderDefaultProduct[] = [
-  {
-    name: "PVC Banner",
-    slug: "pvc-banner",
-    description: "Holdbart banner til udendørs brug, 510g/m²",
-    buttonKey: "pvc",
-    buttonOrder: 0,
-  },
-  {
-    name: "Mesh Banner",
-    slug: "mesh-banner",
-    description: "Vindgennemtrængeligt banner til facader",
-    buttonKey: "mesh",
-    buttonOrder: 1,
-  },
-  {
-    name: "Tekstil Banner",
-    slug: "textile-banner",
-    description: "Eksklusivt stofbanner til indendørs brug",
-    buttonKey: "textile",
-    buttonOrder: 2,
-  },
-  {
-    name: "Vinduesfolie",
-    slug: "window-foil",
-    description: "Selvklæbende folie til vinduer og glas",
-    buttonKey: "foil",
-    buttonOrder: 3,
-  },
-  {
-    name: "Folietekst",
-    slug: "cutout-letters",
-    description: "Foliebogstaver til skilte og facader",
-    buttonKey: "cut-letters",
-    buttonOrder: 4,
-  },
-  {
-    name: "Storformat Plakat",
-    slug: "poster-large",
-    description: "Fotokvalitet op til 150 cm bred",
-    buttonKey: "default",
-    buttonOrder: 5,
-  },
-];
 const DELIVERY_MODES: { id: DeliveryMode; label: string; description: string }[] = [
   {
     id: "price_list",
@@ -168,82 +97,6 @@ const DELIVERY_MODES: { id: DeliveryMode; label: string; description: string }[]
     description: "Priser er låst (kun margen kan justeres); ordren håndteres gennem master.",
   },
 ];
-
-function parseSiteFrontendState(settings: any): SiteFrontendState {
-  const root = settings?.site_frontends || {};
-  return {
-    activeSiteId: typeof root.activeSiteId === "string" ? root.activeSiteId : null,
-    installedSiteIds: Array.isArray(root.installedSiteIds)
-      ? root.installedSiteIds.filter((value: unknown): value is string => typeof value === "string")
-      : [],
-  };
-}
-
-function normalizeSiteText(value: string | null | undefined): string {
-  return (value || "")
-    .toLowerCase()
-    .replace(/\u00e6/g, "ae")
-    .replace(/\u00f8/g, "o")
-    .replace(/\u00e5/g, "a")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
-}
-
-function asObject(value: unknown): Record<string, unknown> | null {
-  if (!value) return null;
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }
-  if (typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return null;
-}
-
-function slugifyProductName(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/æ/g, "ae")
-    .replace(/ø/g, "oe")
-    .replace(/å/g, "aa")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function ensureUniqueSlug(baseSlug: string, takenSlugs: Set<string>): string {
-  let suffix = 1;
-  let candidate = baseSlug;
-  while (takenSlugs.has(candidate)) {
-    suffix += 1;
-    candidate = `${baseSlug}-${suffix}`;
-  }
-  takenSlugs.add(candidate);
-  return candidate;
-}
-
-function readSiteSyncSource(technicalSpecs: unknown, siteId: string): string | null {
-  const specs = asObject(technicalSpecs);
-  const siteFrontends = asObject(specs?.site_frontends);
-  const buttons = asObject(siteFrontends?.buttons);
-  const siteConfig =
-    asObject(buttons?.[siteId]) || asObject(siteFrontends?.[siteId]);
-
-  const raw =
-    siteConfig?.sync_source ||
-    siteConfig?.syncSource ||
-    siteConfig?.source ||
-    null;
-  return typeof raw === "string" ? raw : null;
-}
 
 export function ProductOverview() {
   const navigate = useNavigate();
@@ -266,16 +119,6 @@ export function ProductOverview() {
   const [tenantFilter, setTenantFilter] = useState("");
   const [sending, setSending] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("price_list");
-  const [siteState, setSiteState] = useState<SiteFrontendState>({
-    activeSiteId: null,
-    installedSiteIds: [],
-  });
-  const [selectedSiteId, setSelectedSiteId] = useState<string>("all");
-  const [showOnlySelectedSite, setShowOnlySelectedSite] = useState(true);
-  const [showSiteManagedInAll, setShowSiteManagedInAll] = useState(false);
-  const [siteUpdateProductId, setSiteUpdateProductId] = useState<string | null>(null);
-  const [bulkSiteAssigning, setBulkSiteAssigning] = useState(false);
-  const [productsTenantId, setProductsTenantId] = useState<string | null>(null);
 
   // Clone Dialog State
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
@@ -291,15 +134,7 @@ export function ProductOverview() {
     const saved = localStorage.getItem('admin-product-categories-collapsed');
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
-
-  const resolveProductsTenantId = async (): Promise<string> => {
-    const { tenantId, isMasterAdmin: resolvedIsMasterAdmin } = await resolveAdminTenant();
-    if (resolvedIsMasterAdmin && selectedSiteId !== "all") {
-      return MASTER_TENANT_ID;
-    }
-    if (!tenantId) throw new Error("No tenant found");
-    return tenantId;
-  };
+  const [productsTenantId, setProductsTenantId] = useState<string | null>(null);
 
   const fetchUnreadMessages = async () => {
     try {
@@ -327,7 +162,7 @@ export function ProductOverview() {
     fetchCompanyHubs();
     fetchAdminCategories();
     fetchTenantsForRelease();
-  }, [roleIsMasterAdmin, selectedSiteId]);
+  }, [roleIsMasterAdmin]);
 
   useEffect(() => {
     if (isMasterAdmin) {
@@ -361,40 +196,20 @@ export function ProductOverview() {
 
   const fetchProducts = async () => {
     try {
-      const tenantId = await resolveProductsTenantId();
+      const { tenantId } = await resolveAdminTenant();
+      if (!tenantId) throw new Error("No tenant found");
       setProductsTenantId(tenantId);
 
-      const [{ data, error }, { data: tenantData, error: tenantError }] = await Promise.all([
-        supabase
-          .from('products')
-          .select('*')
-          .eq('tenant_id', tenantId)
-          .order('name'),
-        supabase
-          .from('tenants' as any)
-          .select('settings')
-          .eq('id', tenantId)
-          .maybeSingle(),
-      ]);
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .order('name');
 
       if (error) throw error;
-      if (tenantError) throw tenantError;
-
       setProducts(data || []);
-
-      const parsedSiteState = parseSiteFrontendState((tenantData as any)?.settings);
-      setSiteState(parsedSiteState);
-      setSelectedSiteId((current) => {
-        if (current === "all") return "all";
-        const siteStillExists =
-          current === parsedSiteState.activeSiteId ||
-          parsedSiteState.installedSiteIds.includes(current) ||
-          !!SITE_PACKAGE_MAP[current];
-        return siteStillExists ? current : "all";
-      });
     } catch (error) {
       console.error('Error fetching products:', error);
-      setProductsTenantId(null);
       toast.error('Kunne ikke hente produkter');
     } finally {
       setLoading(false);
@@ -403,7 +218,7 @@ export function ProductOverview() {
 
   const fetchCompanyHubs = async () => {
     try {
-      const tenantId = await resolveProductsTenantId();
+      const { tenantId } = await resolveAdminTenant();
       if (!tenantId) return;
 
       const [{ data: accounts }, { data: items }] = await Promise.all([
@@ -420,7 +235,7 @@ export function ProductOverview() {
 
   const fetchAdminCategories = async () => {
     try {
-      const tenantId = await resolveProductsTenantId();
+      const { tenantId } = await resolveAdminTenant();
       if (!tenantId) return;
 
       const { data, error } = await supabase
@@ -511,7 +326,7 @@ export function ProductOverview() {
   const addCategory = async () => {
     if (!newCategoryName.trim()) return;
     try {
-      const tenantId = await resolveProductsTenantId();
+      const { tenantId } = await resolveAdminTenant();
       const slug = newCategoryName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
       const maxSortOrder = Math.max(0, ...adminCategories.map(c => c.sort_order || 0));
 
@@ -611,26 +426,18 @@ export function ProductOverview() {
   };
 
   const updateProductCategory = async (productId: string, newCategory: string) => {
-    console.log('updateProductCategory called:', { productId, newCategory, productsTenantId });
-    if (!newCategory || !productId) {
-      console.log('Missing required values');
-      return;
-    }
+    if (!newCategory || !productId) return;
     try {
-      // Use simple update like togglePublish does (without tenant_id filter)
-      const { error, data } = await supabase
+      const { error } = await supabase
         .from('products')
         .update({ category: newCategory })
-        .eq('id', productId)
-        .select();
+        .eq('id', productId);
 
-      console.log('Update result:', { error, data });
       if (error) throw error;
       toast.success('Produkt flyttet til ny kategori');
       fetchProducts();
     } catch (error: any) {
       console.error('Error updating product category:', error);
-      console.error('Error details:', error?.message, error?.details, error?.hint);
       toast.error('Kunne ikke opdatere kategori: ' + (error?.message || 'Ukendt fejl'));
     }
   };
@@ -646,246 +453,6 @@ export function ProductOverview() {
       localStorage.setItem('admin-product-categories-collapsed', JSON.stringify([...next]));
       return next;
     });
-  };
-
-  const toggleProductSiteAssignment = async (product: Product, siteId: string, enabled: boolean) => {
-    if (!siteId || siteId === "all") return;
-    if (!isMasterAdmin) {
-      toast.error("Site-tilknytning styres af master-tenant.");
-      return;
-    }
-
-    setSiteUpdateProductId(product.id);
-    try {
-      let nextTechnicalSpecs = enabled
-        ? writeProductSiteIds(product.technical_specs, [
-            ...readProductSiteIds(product.technical_specs),
-            siteId,
-          ])
-        : removeProductSiteAssignment(product.technical_specs, siteId);
-
-      if (
-        !enabled &&
-        readProductSiteIds(nextTechnicalSpecs).length === 0 &&
-        isSiteExclusiveProduct(nextTechnicalSpecs)
-      ) {
-        nextTechnicalSpecs = writeSiteExclusiveProduct(nextTechnicalSpecs, false);
-      }
-      const { error } = await supabase
-        .from("products")
-        .update({ technical_specs: nextTechnicalSpecs as any })
-        .eq("id", product.id);
-
-      if (error) throw error;
-
-      setProducts((current) =>
-        current.map((entry) =>
-          entry.id === product.id
-            ? {
-                ...entry,
-                technical_specs: nextTechnicalSpecs,
-              }
-            : entry
-        )
-      );
-      toast.success(enabled ? "Produkt tilknyttet site" : "Produkt fjernet fra site");
-    } catch (error) {
-      console.error("Error updating product site assignment:", error);
-      toast.error("Kunne ikke opdatere site-tilknytning");
-    } finally {
-      setSiteUpdateProductId(null);
-    }
-  };
-
-  const withBannerBuilderButtonConfig = (
-    technicalSpecs: unknown,
-    siteId: string,
-    config: Pick<BannerBuilderDefaultProduct, "buttonKey" | "buttonOrder">,
-  ) => {
-    const currentSiteIds = readProductSiteIds(technicalSpecs);
-    const withSite = writeProductSiteIds(technicalSpecs, [...currentSiteIds, siteId]);
-    const withSiteExclusive = writeSiteExclusiveProduct(withSite, true);
-    const specs = asObject(withSiteExclusive) || {};
-    const siteFrontends = asObject(specs.site_frontends) || {};
-    const buttonConfigs = asObject(siteFrontends.buttons) || {};
-    const currentButtonConfig = asObject(buttonConfigs[siteId]) || {};
-
-    return {
-      ...specs,
-      site_frontends: {
-        ...siteFrontends,
-        buttons: {
-          ...buttonConfigs,
-          [siteId]: {
-            ...currentButtonConfig,
-            button_key: config.buttonKey,
-            button_order: config.buttonOrder,
-            sync_source: BANNER_BUILDER_SYNC_SOURCE,
-          },
-        },
-        updatedAt: new Date().toISOString(),
-      },
-    };
-  };
-
-  const syncBannerBuilderDefaultProducts = async () => {
-    if (!isMasterAdmin) {
-      toast.error("Banner Builder Pro styres af master-tenant.");
-      return;
-    }
-    const siteId = selectedSiteId === "all" ? BANNER_BUILDER_SITE_ID : selectedSiteId;
-    if (siteId !== BANNER_BUILDER_SITE_ID) {
-      toast.error("Vælg først Banner Builder Pro som site-kontekst.");
-      return;
-    }
-
-    setBulkSiteAssigning(true);
-    try {
-      const tenantId = await resolveProductsTenantId();
-      if (!tenantId) throw new Error("Ingen tenant fundet");
-
-      const takenSlugs = new Set(
-        products
-          .map((product) => normalizeSiteText(product.slug))
-          .filter((slug) => !!slug)
-      );
-      const siteAssignedProducts = products.filter((product) =>
-        isProductAssignedToSite(product.technical_specs, siteId)
-      );
-      const isBannerBuilderSlug = (slug: string) =>
-        normalizeSiteText(slug).startsWith("banner-builder-");
-      const syncManagedProducts = siteAssignedProducts.filter((product) => {
-        const syncSource = readSiteSyncSource(product.technical_specs, siteId);
-        return (
-          isSiteExclusiveProduct(product.technical_specs) &&
-          syncSource === BANNER_BUILDER_SYNC_SOURCE &&
-          isBannerBuilderSlug(product.slug)
-        );
-      });
-      const legacyContaminatedProducts = siteAssignedProducts.filter((product) => {
-        const syncSource = readSiteSyncSource(product.technical_specs, siteId);
-        return (
-          syncSource === BANNER_BUILDER_SYNC_SOURCE &&
-          !isBannerBuilderSlug(product.slug)
-        );
-      });
-      const usedProductIds = new Set<string>();
-      const keepProductIds = new Set<string>();
-      let createdCount = 0;
-      let updatedCount = 0;
-      let removedCount = 0;
-      let restoredCount = 0;
-
-      const findMatchingProduct = (defaults: BannerBuilderDefaultProduct): Product | null => {
-        const normalizedPrefixedSlug = normalizeSiteText(`banner-builder-${defaults.slug}`);
-        const matchBySlug = syncManagedProducts.find(
-          (product) =>
-            !usedProductIds.has(product.id) &&
-            normalizeSiteText(product.slug) === normalizedPrefixedSlug
-        );
-        if (matchBySlug) return matchBySlug;
-
-        return null;
-      };
-
-      for (const defaults of BANNER_BUILDER_DEFAULT_PRODUCTS) {
-        const match = findMatchingProduct(defaults);
-        if (match) {
-          usedProductIds.add(match.id);
-          keepProductIds.add(match.id);
-          const nextTechnicalSpecs = withBannerBuilderButtonConfig(
-            match.technical_specs,
-            siteId,
-            defaults
-          );
-          const { error } = await supabase
-            .from("products")
-            .update({
-              name: defaults.name,
-              description: defaults.description,
-              icon_text: defaults.name,
-              category: "storformat",
-              technical_specs: nextTechnicalSpecs as any,
-            } as any)
-            .eq("id", match.id);
-
-          if (error) throw error;
-          updatedCount += 1;
-          continue;
-        }
-
-        const baseSlug = slugifyProductName(`banner-builder-${defaults.slug || defaults.name}`);
-        const uniqueSlug = ensureUniqueSlug(baseSlug, takenSlugs);
-        const technicalSpecs = withBannerBuilderButtonConfig({}, siteId, defaults);
-        const { data: insertedProduct, error } = await supabase
-          .from("products")
-          .insert({
-            tenant_id: tenantId,
-            name: defaults.name,
-            icon_text: defaults.name,
-            slug: uniqueSlug,
-            description: defaults.description,
-            category: "storformat",
-            pricing_type: "STORFORMAT",
-            is_published: true,
-            technical_specs: technicalSpecs as any,
-          } as any)
-          .select("id")
-          .single();
-
-        if (error) throw error;
-        if (insertedProduct?.id) {
-          keepProductIds.add(insertedProduct.id);
-        }
-        createdCount += 1;
-      }
-
-      const toRemoveFromSite = syncManagedProducts.filter(
-        (product) => !keepProductIds.has(product.id)
-      );
-
-      for (const product of toRemoveFromSite) {
-        let nextTechnicalSpecs = removeProductSiteAssignment(
-          product.technical_specs,
-          siteId,
-        );
-        if (readProductSiteIds(nextTechnicalSpecs).length === 0) {
-          nextTechnicalSpecs = writeSiteExclusiveProduct(nextTechnicalSpecs, false);
-        }
-        const { error } = await supabase
-          .from("products")
-          .update({ technical_specs: nextTechnicalSpecs as any } as any)
-          .eq("id", product.id);
-        if (error) throw error;
-        removedCount += 1;
-      }
-
-      for (const product of legacyContaminatedProducts) {
-        let nextTechnicalSpecs = removeProductSiteAssignment(
-          product.technical_specs,
-          siteId,
-        );
-        if (readProductSiteIds(nextTechnicalSpecs).length === 0) {
-          nextTechnicalSpecs = writeSiteExclusiveProduct(nextTechnicalSpecs, false);
-        }
-        const { error } = await supabase
-          .from("products")
-          .update({ technical_specs: nextTechnicalSpecs as any } as any)
-          .eq("id", product.id);
-        if (error) throw error;
-        restoredCount += 1;
-      }
-
-      await fetchProducts();
-      toast.success(
-        `Banner Builder Pro synkroniseret: ${updatedCount} opdateret, ${createdCount} oprettet, ${removedCount} fjernet fra site, ${restoredCount} gendannet til master.`
-      );
-    } catch (error) {
-      console.error("Error syncing Banner Builder Pro products:", error);
-      toast.error("Kunne ikke synkronisere standardprodukter for Banner Builder Pro.");
-    } finally {
-      setBulkSiteAssigning(false);
-    }
   };
 
   const deleteProduct = async (id: string, name: string) => {
@@ -1029,69 +596,22 @@ export function ProductOverview() {
     }
   };
 
-  const siteOptions = useMemo(() => {
-    const orderedSiteIds = Array.from(
-      new Set(
-        [
-          siteState.activeSiteId,
-          ...siteState.installedSiteIds,
-          ...SITE_PACKAGES.map((sitePackage) => sitePackage.id),
-        ].filter((value): value is string => typeof value === "string" && value.length > 0)
-      )
-    );
-
-    return orderedSiteIds
-      .map((id) => SITE_PACKAGE_MAP[id])
-      .filter(Boolean) as Array<(typeof SITE_PACKAGES)[number]>;
-  }, [siteState.activeSiteId, siteState.installedSiteIds]);
-
-  const selectedSitePackage = selectedSiteId !== "all" ? SITE_PACKAGE_MAP[selectedSiteId] : null;
-  const productsSectionTitle = selectedSitePackage
-    ? `${selectedSitePackage.name} produkter`
-    : "Produkter";
-  const productsSectionDescription = selectedSitePackage
-    ? `Site-katalog for ${selectedSitePackage.name}. Marker produkter som skal vises i dette frontend-site.`
-    : "Administrer dine produkter og priser";
-
   // Extract unique categories for filter chips
-  const categories = ["Alle", ...Array.from(new Set(products.map((p) => p.category || "Øvrige")))];
+  const categories = ["Alle", ...Array.from(new Set(products.map(p => p.category || "Øvrige")))];
 
   // Filter products by search query and category
-  const searchFilteredProducts = products.filter((product) => {
-    const matchesSearch =
-      searchQuery === "" ||
+  const filteredProducts = products.filter(product => {
+    const matchesSearch = searchQuery === "" ||
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       product.slug.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory =
-      selectedCategory === "Alle" ||
+    const matchesCategory = selectedCategory === "Alle" ||
       (product.category || "Øvrige") === selectedCategory;
     return matchesSearch && matchesCategory;
   });
 
-  const nonSiteManagedSearchFilteredProducts = searchFilteredProducts.filter(
-    (product) => !isSiteManagedProduct(product.technical_specs)
-  );
-
-  const visibleProducts =
-    selectedSiteId !== "all" && showOnlySelectedSite
-      ? searchFilteredProducts.filter((product) =>
-          isProductAssignedToSite(product.technical_specs, selectedSiteId)
-        )
-      : selectedSiteId === "all" && !showSiteManagedInAll
-        ? nonSiteManagedSearchFilteredProducts
-        : searchFilteredProducts;
-  const bannerBuilderProductCount = products.filter((product) =>
-    isProductAssignedToSite(product.technical_specs, BANNER_BUILDER_SITE_ID) &&
-    isSiteExclusiveProduct(product.technical_specs)
-  ).length;
-  const hiddenSiteManagedCount =
-    selectedSiteId === "all" && !showSiteManagedInAll
-      ? searchFilteredProducts.length - nonSiteManagedSearchFilteredProducts.length
-      : 0;
-
   // Group filtered products by category dynamically
-  const groupedProducts = visibleProducts.reduce((acc, product) => {
-    const category = product.category || "Ukategoriseret";
+  const groupedProducts = filteredProducts.reduce((acc, product) => {
+    const category = product.category || 'Ukategoriseret';
     if (!acc[category]) {
       acc[category] = [];
     }
@@ -1135,11 +655,6 @@ export function ProductOverview() {
     );
   });
   const tenantCount = tenants.length;
-  const siteManagementLocked = !isMasterAdmin;
-  const isMasterSiteWorkspace =
-    isMasterAdmin &&
-    selectedSiteId !== "all" &&
-    productsTenantId === MASTER_TENANT_ID;
 
   // Handle search open/close
   const handleSearchToggle = () => {
@@ -1389,110 +904,22 @@ export function ProductOverview() {
             </div>
           </div>
 
-          <Card className="border-dashed">
-            <CardContent className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">Site-kontekst</p>
-                <p className="text-xs text-muted-foreground">
-                  Vælg et site og styr hvilke produkter der skal vises på den frontend.
-                </p>
-                {selectedSiteId === "all" && !showSiteManagedInAll ? (
-                  <p className="text-xs text-slate-600">
-                    Site-produkter er skjult i "Alle sites" for at holde master-kataloget rent.
-                  </p>
-                ) : null}
-                {siteManagementLocked ? (
-                  <p className="text-xs text-amber-700">
-                    Site-styring er låst for tenant-konti. Site-pakker administreres centralt i master-tenant.
-                  </p>
-                ) : isMasterSiteWorkspace ? (
-                  <p className="text-xs text-emerald-700">
-                    Master site-workspace aktiv. Du redigerer nu site-produkter i master-tenant.
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <select
-                  className="h-9 rounded-md border bg-background px-3 text-sm"
-                  value={selectedSiteId}
-                  onChange={(event) => setSelectedSiteId(event.target.value)}
-                >
-                  <option value="all">Alle sites</option>
-                  {siteOptions.map((sitePackage) => (
-                    <option key={sitePackage.id} value={sitePackage.id}>
-                      {sitePackage.name}
-                      {siteState.activeSiteId === sitePackage.id ? " (aktiv)" : ""}
-                    </option>
-                  ))}
-                </select>
-                {selectedSitePackage && (
-                  <>
-                    <Badge variant="outline">{selectedSitePackage.name}</Badge>
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={showOnlySelectedSite}
-                        onCheckedChange={setShowOnlySelectedSite}
-                        className="scale-90"
-                      />
-                      <span className="text-xs text-muted-foreground">Vis kun site-produkter</span>
-                    </div>
-                    {selectedSitePackage.id === BANNER_BUILDER_SITE_ID && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={syncBannerBuilderDefaultProducts}
-                        disabled={bulkSiteAssigning || siteManagementLocked}
-                      >
-                        {bulkSiteAssigning
-                          ? "Synkroniserer..."
-                          : "Synkroniser standardprodukter"}
-                      </Button>
-                    )}
-                  </>
-                )}
-                {selectedSiteId === "all" && (
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={showSiteManagedInAll}
-                      onCheckedChange={setShowSiteManagedInAll}
-                      className="scale-90"
-                    />
-                    <span className="text-xs text-muted-foreground">Vis site-produkter i backend</span>
-                  </div>
-                )}
-                <Button variant="outline" size="sm" asChild>
-                  <Link to="/admin/sites">Sites</Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Products Section */}
           <Card className="overflow-hidden">
             <div className="bg-gradient-to-r from-primary/10 to-primary/5 px-6 py-4 border-b">
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <Package className="h-5 w-5" />
-                {productsSectionTitle}
+                Produkter
                 <span className="text-sm font-normal text-muted-foreground ml-2">
-                  ({visibleProducts.length} af {products.length})
+                  ({filteredProducts.length} af {products.length})
                 </span>
               </h2>
-              <p className="text-sm text-muted-foreground">{productsSectionDescription}</p>
-              {selectedSiteId === "all" && isMasterAdmin && bannerBuilderProductCount > 0 && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Banner Builder Pro produkter: {bannerBuilderProductCount} (site-separeret katalog)
-                </p>
-              )}
-              {hiddenSiteManagedCount > 0 && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  {hiddenSiteManagedCount} site-produkt(er) skjult i "Alle sites". Vælg et site for at redigere dem.
-                </p>
-              )}
+              <p className="text-sm text-muted-foreground">Administrer dine produkter og priser</p>
             </div>
             <CardContent className="p-0">
               {sortedGroupedProducts.length === 0 && (
                 <div className="p-8 text-center text-muted-foreground">
-                  {searchQuery || selectedCategory !== "Alle" || (selectedSiteId !== "all" && showOnlySelectedSite)
+                  {searchQuery || selectedCategory !== "Alle"
                     ? "Ingen produkter matcher din søgning."
                     : "Ingen produkter fundet."}
                 </div>
@@ -1515,119 +942,80 @@ export function ProductOverview() {
                   </button>
                   {!isCollapsed && (
                   <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                    {categoryProducts.map((product) => {
-                      const assignedSiteIds = readProductSiteIds(product.technical_specs);
-                      const assignedSiteBadges = assignedSiteIds
-                        .map((siteId) => SITE_PACKAGE_MAP[siteId]?.name || siteId)
-                        .slice(0, 2);
-                      const isAssignedToSelectedSite =
-                        selectedSiteId !== "all"
-                          ? isProductAssignedToSite(product.technical_specs, selectedSiteId)
-                          : false;
+                    {categoryProducts.map((product) => (
+                      <Card
+                        key={product.id}
+                        className="hover:border-primary transition-colors overflow-hidden relative"
+                      >
+                        {/* Ready Status Dot */}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              className={`absolute top-2 right-2 z-10 w-3 h-3 rounded-full cursor-pointer transition-colors ${
+                                product.is_ready
+                                  ? 'bg-green-500 hover:bg-green-600'
+                                  : 'bg-red-500 hover:bg-red-600'
+                              }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleReady(product.id, !!product.is_ready);
+                              }}
+                            />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {product.is_ready
+                              ? 'Klik for at markere som ikke færdig'
+                              : 'Klik for at markere som færdig'}
+                          </TooltipContent>
+                        </Tooltip>
+                        <CardContent className="p-0">
+                          {/* Thumbnail + Name */}
+                          <div
+                            className="cursor-pointer flex items-center gap-3 p-3 border-b"
+                            onClick={() => navigate(`/admin/product/${product.slug}`)}
+                          >
+                            <div className="w-10 h-10 rounded bg-muted flex-shrink-0 flex items-center justify-center overflow-hidden">
+                              {product.image_url ? (
+                                <img
+                                  src={product.image_url}
+                                  alt={product.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium truncate" title={product.name}>
+                                {product.name}
+                              </p>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {getPricingTypeLabel(product.pricing_type)}
+                              </p>
+                            </div>
+                          </div>
 
-                      return (
-                        <Card
-                          key={product.id}
-                          className="hover:border-primary transition-colors overflow-hidden relative"
-                        >
-                          {/* Ready Status Dot */}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                className={`absolute top-2 right-2 z-10 w-3 h-3 rounded-full cursor-pointer transition-colors ${
-                                  product.is_ready
-                                    ? 'bg-green-500 hover:bg-green-600'
-                                    : 'bg-red-500 hover:bg-red-600'
-                                }`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleReady(product.id, !!product.is_ready);
-                                }}
-                              />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {product.is_ready
-                                ? 'Klik for at markere som ikke færdig'
-                                : 'Klik for at markere som færdig'}
-                            </TooltipContent>
-                          </Tooltip>
-                          <CardContent className="p-0">
-                            {/* Thumbnail + Name */}
-                            <div
-                              className="cursor-pointer flex items-center gap-3 p-3 border-b"
-                              onClick={() => navigate(`/admin/product/${product.slug}`)}
+                          {/* Category Dropdown */}
+                          <div className="px-3 py-1.5 border-b">
+                            <Select
+                              value={product.category || ''}
+                              onValueChange={(value) => updateProductCategory(product.id, value)}
                             >
-                              <div className="w-10 h-10 rounded bg-muted flex-shrink-0 flex items-center justify-center overflow-hidden">
-                                {product.image_url ? (
-                                  <img
-                                    src={product.image_url}
-                                    alt={product.name}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <ImageIcon className="h-5 w-5 text-muted-foreground" />
-                                )}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium truncate" title={product.name}>
-                                  {product.name}
-                                </p>
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {getPricingTypeLabel(product.pricing_type)}
-                                </p>
-                              </div>
-                            </div>
+                              <SelectTrigger className="h-7 text-xs">
+                                <SelectValue placeholder="Vælg kategori" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {allCategoryNames.map((catName) => (
+                                  <SelectItem key={catName} value={catName} className="text-xs">
+                                    {catName}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
 
-                            {/* Category Dropdown */}
-                            <div className="px-3 py-1.5 border-b">
-                              <Select
-                                value={product.category || ''}
-                                onValueChange={(value) => updateProductCategory(product.id, value)}
-                              >
-                                <SelectTrigger className="h-7 text-xs">
-                                  <SelectValue placeholder="Vælg kategori" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {allCategoryNames.map((catName) => (
-                                    <SelectItem key={catName} value={catName} className="text-xs">
-                                      {catName}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            {selectedSitePackage && (
-                              <div className="border-b px-3 py-2 space-y-2 bg-muted/30">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-[11px] text-muted-foreground">
-                                    Vis på {selectedSitePackage.name}
-                                  </span>
-                                  <Switch
-                                    className="scale-90"
-                                    checked={isAssignedToSelectedSite}
-                                    onCheckedChange={(enabled) =>
-                                      toggleProductSiteAssignment(product, selectedSitePackage.id, enabled)
-                                    }
-                                    disabled={siteUpdateProductId === product.id || siteManagementLocked}
-                                  />
-                                </div>
-                                <div className="flex flex-wrap gap-1">
-                                  {assignedSiteBadges.length ? (
-                                    assignedSiteBadges.map((label) => (
-                                      <Badge key={label} variant="outline" className="text-[10px] px-1.5 py-0">
-                                        {label}
-                                      </Badge>
-                                    ))
-                                  ) : (
-                                    <span className="text-[11px] text-muted-foreground">Ingen site-tilknytning</span>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Actions Row */}
-                            <div className="flex items-center justify-between px-3 py-2">
+                          {/* Actions Row */}
+                          <div className="flex items-center justify-between px-3 py-2">
                             {/* Publish toggle with tooltip */}
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -1762,8 +1150,7 @@ export function ProductOverview() {
                           )}
                         </CardContent>
                       </Card>
-                      );
-                    })}
+                    ))}
                   </div>
                   )}
                 </div>
