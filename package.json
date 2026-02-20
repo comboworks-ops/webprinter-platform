@@ -13,6 +13,8 @@
     "product:import": "node scripts/product-blueprint-cli.js import",
     "product:import:folders": "node scripts/fetch-folders-import.js import",
     "product:import:folders:dry": "node scripts/fetch-folders-import.js import --dry-run",
+    "product:import:m65-folder-midterfalset": "node scripts/fetch-m65-folder-midterfalset-import.js import",
+    "product:import:m65-folder-midterfalset:dry": "node scripts/fetch-m65-folder-midterfalset-import.js import --dry-run",
     "test:product-import": "node --test scripts/product-import/__tests__/ul-prices.test.js"
   },
   "dependencies": {

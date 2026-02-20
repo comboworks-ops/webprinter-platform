@@ -296,23 +296,6 @@ export function MatrixLayoutV1Renderer({
         return ids;
     }, [pricingStructure, isHiddenColumn]);
 
-    const formatSectionIds = useMemo(() => {
-        const ids: string[] = [];
-        pricingStructure.layout_rows.forEach(row => {
-            row.columns.forEach(col => {
-                if (col.sectionType === 'formats' && !isHiddenColumn(col)) {
-                    ids.push(col.id);
-                }
-            });
-        });
-        return ids;
-    }, [pricingStructure, isHiddenColumn]);
-
-    const primaryFinishSectionId = useMemo(() => {
-        const nonOptional = finishSectionIds.find(id => !isOptionalSectionId(id));
-        return nonOptional || finishSectionIds[0] || null;
-    }, [finishSectionIds, isOptionalSectionId]);
-
     const buildVariantKeyFromSelections = useCallback((selections: Record<string, string | null>) => {
         const verticalSectionId = pricingStructure.vertical_axis.sectionId;
         const verticalSectionType = pricingStructure.vertical_axis.sectionType;
@@ -559,8 +542,14 @@ export function MatrixLayoutV1Renderer({
     const getSectionValueIdForPreparedRow = useCallback((sectionId: string, row: PreparedPriceRow): string | null => {
         const extra = row.raw?.extra_data || {};
         const sectionType = sectionTypeById[sectionId];
-        const groupId = sectionById[sectionId]?.groupId;
-        const groupName = (attributeGroups.find(group => group.id === groupId)?.name || '').toLowerCase();
+        const section = sectionById[sectionId];
+        const groupName = (attributeGroups.find(group => group.id === section?.groupId)?.name || '').toLowerCase();
+        const selectionMap = extra.selectionMap || {};
+        const variantValueIds = Array.isArray(selectionMap.variantValueIds)
+            ? selectionMap.variantValueIds.map((id: unknown) => String(id))
+            : Array.isArray(extra.variantValueIds)
+                ? extra.variantValueIds.map((id: unknown) => String(id))
+                : [];
 
         if (sectionType === 'formats') {
             return row.selectionMapFormat || extra.formatId || null;
@@ -570,6 +559,13 @@ export function MatrixLayoutV1Renderer({
             return row.selectionMapMaterial || extra.materialId || row.raw?.variant_value || null;
         }
 
+        // Preferred path for matrix-v1 imports: section values are encoded in selectionMap.variantValueIds.
+        if (section?.valueIds?.length) {
+            const matched = section.valueIds.find(valueId => variantValueIds.includes(String(valueId)));
+            if (matched) return matched;
+        }
+
+        // Legacy fallback path for older imports using explicit keys.
         if (groupName === 'papirfinish') {
             return extra.surfaceId || null;
         }
@@ -599,63 +595,6 @@ export function MatrixLayoutV1Renderer({
 
         return ids;
     }, [selectorSections, preparedPrices, getSectionValueIdForPreparedRow]);
-
-    const availableValueIdsBySection = useMemo(() => {
-        const bySection = new Map<string, Set<string>>();
-        const activeSectionIds = selectorSections
-            .map(section => section.id)
-            .filter(sectionId => mappableSectionIds.has(sectionId));
-
-        if (activeSectionIds.length === 0) return bySection;
-
-        const comboKeys = new Set<string>();
-        const combos: Record<string, string>[] = [];
-
-        preparedPrices.forEach(row => {
-            const combo: Record<string, string> = {};
-            activeSectionIds.forEach(sectionId => {
-                const valueId = getSectionValueIdForPreparedRow(sectionId, row);
-                if (valueId) combo[sectionId] = valueId;
-            });
-
-            const key = activeSectionIds.map(sectionId => combo[sectionId] || '').join('|');
-            if (!comboKeys.has(key)) {
-                comboKeys.add(key);
-                combos.push(combo);
-            }
-        });
-
-        activeSectionIds.forEach(targetSectionId => {
-            const available = new Set<string>();
-
-            combos.forEach(combo => {
-                let matches = true;
-                for (const sectionId of activeSectionIds) {
-                    if (sectionId === targetSectionId) continue;
-                    const selectedValueId = selectedSectionValues[sectionId];
-                    if (!selectedValueId) continue;
-                    if ((combo[sectionId] || null) !== selectedValueId) {
-                        matches = false;
-                        break;
-                    }
-                }
-
-                if (!matches) return;
-                const targetValueId = combo[targetSectionId];
-                if (targetValueId) available.add(targetValueId);
-            });
-
-            bySection.set(targetSectionId, available);
-        });
-
-        return bySection;
-    }, [
-        selectorSections,
-        mappableSectionIds,
-        preparedPrices,
-        getSectionValueIdForPreparedRow,
-        selectedSectionValues,
-    ]);
 
     const priceIndexByVerticalQty = useMemo(() => {
         const index = new Map<string, PreparedPriceRow[]>();
@@ -846,53 +785,6 @@ export function MatrixLayoutV1Renderer({
         getAllowedFolderPageNames,
     ]);
 
-    // Keep selector values aligned with combinations that exist in imported prices.
-    useEffect(() => {
-        if (availableValueIdsBySection.size === 0) return;
-
-        setSelectedSectionValues(prev => {
-            let changed = false;
-            const next = { ...prev };
-
-            selectorSections.forEach(section => {
-                if (sectionTypeById[section.id] === 'formats') return;
-                if (!mappableSectionIds.has(section.id)) return;
-
-                const availableIds = availableValueIdsBySection.get(section.id);
-                if (!availableIds || availableIds.size === 0) return;
-
-                const current = next[section.id];
-                const currentAllowed = !!current && availableIds.has(current);
-                if (currentAllowed) return;
-
-                const allowedValues = getSectionValues(section.groupId, section.valueIds)
-                    .filter(value => availableIds.has(value.id));
-
-                if (allowedValues.length === 0) return;
-
-                if (isOptionalSectionId(section.id)) {
-                    if (current != null) {
-                        next[section.id] = null;
-                        changed = true;
-                    }
-                    return;
-                }
-
-                next[section.id] = allowedValues[0].id;
-                changed = true;
-            });
-
-            return changed ? next : prev;
-        });
-    }, [
-        availableValueIdsBySection,
-        selectorSections,
-        mappableSectionIds,
-        getSectionValues,
-        sectionTypeById,
-        isOptionalSectionId,
-    ]);
-
     // Get section type label
     const getSectionLabel = useCallback((sectionType: string, groupId: string, labelOverride?: string, title?: string): string => {
         if (title) return title;
@@ -924,6 +816,14 @@ export function MatrixLayoutV1Renderer({
         const quantities = pricingStructure.quantities || [];
         const selectedVariantKey = computeVariantKey;
         const selectedVariantKeyNorm = normalizeVariantKey(selectedVariantKey);
+        const selectedSectionPairs = selectorSections
+            .filter(section => section.id !== pricingStructure.vertical_axis.sectionId)
+            .filter(section => mappableSectionIds.has(section.id))
+            .map(section => {
+                const valueId = selectedSectionValues[section.id];
+                return valueId ? { sectionId: section.id, valueId } : null;
+            })
+            .filter((entry): entry is { sectionId: string; valueId: string } => !!entry);
 
         // Row labels are vertical axis values
         const allRows: string[] = vertAxis.valueIds
@@ -944,6 +844,15 @@ export function MatrixLayoutV1Renderer({
                 const bucketKey = `${vertValueId}::${qty}`;
                 const candidateRows = priceIndexByVerticalQty.get(bucketKey) || [];
                 let matchingPrice = candidateRows.find(row =>
+                    selectedSectionPairs.every(({ sectionId, valueId }) => {
+                        const rowValueId = getSectionValueIdForPreparedRow(sectionId, row);
+                        return rowValueId === valueId;
+                    })
+                );
+
+                // Legacy fallback: variant-key matching for rows that don't map cleanly by section.
+                if (!matchingPrice) {
+                    matchingPrice = candidateRows.find(row =>
                     matchesPreparedPriceForSelection(row, {
                         variantKey: selectedVariantKey,
                         variantKeyNorm: selectedVariantKeyNorm,
@@ -953,25 +862,7 @@ export function MatrixLayoutV1Renderer({
                         verticalValueId: vertValueId,
                         quantity: qty,
                     })
-                );
-
-                // Fallback for legacy/partial variant keys: strict section-map equality for selected values.
-                if (!matchingPrice && candidateRows.length > 0) {
-                    matchingPrice = candidateRows.find(row => {
-                        for (const section of selectorSections) {
-                            if (section.id === pricingStructure.vertical_axis.sectionId) continue;
-                            if (!mappableSectionIds.has(section.id)) continue;
-
-                            const selectedValueId = selectedSectionValues[section.id];
-                            if (!selectedValueId) continue;
-
-                            const rowValueId = getSectionValueIdForPreparedRow(section.id, row);
-                            if (rowValueId !== selectedValueId) {
-                                return false;
-                            }
-                        }
-                        return true;
-                    });
+                    );
                 }
 
                 if (matchingPrice) {
@@ -988,46 +879,6 @@ export function MatrixLayoutV1Renderer({
 
         return { rows, columns, cells };
     }, [computeVariantKey, getSectionValueIdForPreparedRow, getValueName, matchesPreparedPriceForSelection, mappableSectionIds, normalizeVariantKey, priceIndexByVerticalQty, pricingStructure, selectedFormatId, selectedMaterialId, selectedSectionValues, selectedVariantValueIds, selectorSections]);
-
-    // If current format selection yields no matrix rows, pick the first available format for this selection context.
-    // This prevents a blank matrix while avoiding aggressive format auto-resets during normal interaction.
-    useEffect(() => {
-        if (matrixData.rows.length > 0) return;
-        if (formatSectionIds.length === 0) return;
-
-        setSelectedSectionValues(prev => {
-            let changed = false;
-            const next = { ...prev };
-
-            formatSectionIds.forEach(sectionId => {
-                const availableIds = availableValueIdsBySection.get(sectionId);
-                if (!availableIds || availableIds.size === 0) return;
-
-                const current = next[sectionId];
-                if (current && availableIds.has(current)) return;
-
-                const section = sectionById[sectionId];
-                if (!section) return;
-
-                const fallback = getSectionValues(section.groupId, section.valueIds)
-                    .find(value => availableIds.has(value.id));
-
-                if (!fallback) return;
-                if (fallback.id === current) return;
-
-                next[sectionId] = fallback.id;
-                changed = true;
-            });
-
-            return changed ? next : prev;
-        });
-    }, [
-        matrixData.rows.length,
-        formatSectionIds,
-        availableValueIdsBySection,
-        sectionById,
-        getSectionValues,
-    ]);
 
     // Ensure a default selection so the price panel can render totals.
     useEffect(() => {
@@ -1198,11 +1049,6 @@ export function MatrixLayoutV1Renderer({
                 const allowedSet = new Set(allowedPages.map(name => name.toLowerCase()));
                 visibleValues = visibleValues.filter(value => allowedSet.has(value.name.toLowerCase()));
             }
-        }
-
-        const availableIdsForSection = availableValueIdsBySection.get(sectionId);
-        if (sectionTypeById[sectionId] !== 'formats' && availableIdsForSection && availableIdsForSection.size > 0) {
-            visibleValues = visibleValues.filter(value => availableIdsForSection.has(value.id));
         }
 
         const selectedValue = selectedSectionValues[sectionId] ?? (isOptional ? "" : visibleValues[0]?.id || "");

@@ -1,0 +1,49 @@
+version: 1
+tenant_id: "00000000-0000-0000-0000-000000000000"
+
+product:
+  name: "Master Flyer"
+  slug: "master-flyer"
+  description: "Webprinter Master Tenant Flyer - Supplier import via Fetch skill"
+  category: "tryksager"
+  preset_key: "custom"
+  icon_text: "Flyer"
+  image_url: null
+  technical_specs:
+    width_mm: 210
+    height_mm: 297
+    bleed_mm: 3
+    min_dpi: 300
+    is_free_form: false
+    standard_format: "A4"
+
+matrix:
+  vertical_axis: "materials"
+  format:
+    group_name: "Format"
+    value_name: "A4"
+    width_mm: 210
+    height_mm: 297
+    image_url: null
+  material:
+    group_name: "Materiale"
+    value_name: "135g Silk"
+    image_url: null
+
+pricing_import:
+  type: "ul_prices"
+  url: "https://www.salgsmapper.dk/produkt/salgsmapper"
+  ul_selector: "ul.price-matrix, ul.prices, .pricing-list ul"
+  eur_to_dkk: 7.5
+  rounding_step: 1
+  default_quantity_start: 100
+  default_quantity_step: 100
+
+  tiers:
+    - max_dkk_base: 2000
+      multiplier: 1.6
+    - max_dkk_base: 5000
+      multiplier: 1.5
+    - max_dkk_base: 10000
+      multiplier: 1.4
+    - multiplier: 1.3
