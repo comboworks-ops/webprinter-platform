@@ -8,7 +8,9 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "log:push-ready": "node scripts/log-push-ready.mjs",
+    "notify:merge-main": "node scripts/log-push-ready.mjs --to-main"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
