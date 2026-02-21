@@ -4,6 +4,9 @@ import type { Database } from './types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const IS_LOCALHOST =
+  typeof window !== 'undefined'
+  && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
 // Validate environment variables to provide a helpful error message
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
@@ -27,14 +30,219 @@ if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(
+const isAuthRefreshRequest = (input: RequestInfo | URL) => {
+  const url = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+  return url.includes('/auth/v1/token') && url.includes('grant_type=refresh_token');
+};
+
+const AUTH_REFRESH_COOLDOWN_MS = 5 * 60_000;
+const SUPABASE_TRANSPORT_COOLDOWN_MS = 30_000;
+const SUPABASE_REQUEST_TIMEOUT_MS = 12_000;
+const MAX_REFRESH_FAILURES_BEFORE_LOCAL_SIGNOUT = 2;
+const SUPABASE_HOST = (() => {
+  try {
+    return new URL(SUPABASE_URL || 'https://placeholder.supabase.co').host;
+  } catch {
+    return 'placeholder.supabase.co';
+  }
+})();
+
+let refreshResumeTimer: number | null = null;
+let authRefreshCooldownUntil = 0;
+let supabaseTransportCooldownUntil = 0;
+let refreshFailureCount = 0;
+let supabaseClient: ReturnType<typeof createClient<Database>> | null = null;
+
+const getAuthStorageKey = () => {
+  try {
+    const host = new URL(SUPABASE_URL || 'https://placeholder.supabase.co').host;
+    const ref = host.split('.')[0];
+    return `sb-${ref}-auth-token`;
+  } catch {
+    return null;
+  }
+};
+
+const clearLocalSupabaseSession = () => {
+  if (typeof window !== 'undefined') {
+    const key = getAuthStorageKey();
+    if (key) {
+      window.localStorage.removeItem(key);
+      window.localStorage.removeItem(`${key}-code-verifier`);
+    }
+  }
+  if (supabaseClient) {
+    void supabaseClient.auth.signOut({ scope: 'local' });
+  }
+};
+
+const setAuthRefreshCooldown = (reason: 'http' | 'transport') => {
+  const now = Date.now();
+  const nextUntil = now + AUTH_REFRESH_COOLDOWN_MS;
+  const shouldExtend = nextUntil > authRefreshCooldownUntil;
+  authRefreshCooldownUntil = Math.max(authRefreshCooldownUntil, nextUntil);
+
+  if (refreshResumeTimer != null && typeof window !== 'undefined') {
+    window.clearTimeout(refreshResumeTimer);
+  }
+  supabaseClient?.auth.stopAutoRefresh();
+  if (typeof window !== 'undefined') {
+    refreshResumeTimer = window.setTimeout(() => {
+      refreshResumeTimer = null;
+      if (Date.now() >= authRefreshCooldownUntil) {
+        supabaseClient?.auth.startAutoRefresh();
+      }
+    }, AUTH_REFRESH_COOLDOWN_MS);
+  }
+
+  if (shouldExtend) {
+    refreshFailureCount += 1;
+    console.warn(
+      `[Supabase Auth] Refresh ${reason === 'http' ? 'request failed' : 'transport failed'}. Auto-refresh paused for ${AUTH_REFRESH_COOLDOWN_MS / 60000} minutes.`
+    );
+
+    if (refreshFailureCount >= MAX_REFRESH_FAILURES_BEFORE_LOCAL_SIGNOUT) {
+      console.warn('[Supabase Auth] Clearing stale local session after repeated refresh failures.');
+      clearLocalSupabaseSession();
+      refreshFailureCount = 0;
+    }
+  }
+};
+
+const isSupabaseRequest = (input: RequestInfo | URL) => {
+  const raw = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+
+  try {
+    return new URL(raw, SUPABASE_URL || 'https://placeholder.supabase.co').host === SUPABASE_HOST;
+  } catch {
+    return raw.includes(SUPABASE_HOST);
+  }
+};
+
+const setSupabaseTransportCooldown = (reason: 'http' | 'transport', status?: number) => {
+  const now = Date.now();
+  const nextUntil = now + SUPABASE_TRANSPORT_COOLDOWN_MS;
+  const shouldExtend = nextUntil > supabaseTransportCooldownUntil;
+  supabaseTransportCooldownUntil = Math.max(supabaseTransportCooldownUntil, nextUntil);
+  if (shouldExtend) {
+    const reasonText = reason === 'http' ? `HTTP ${status || ''}`.trim() : 'transport';
+    console.warn(
+      `[Supabase] Request ${reasonText} failure. Retrying after ${SUPABASE_TRANSPORT_COOLDOWN_MS / 1000}s cooldown.`
+    );
+  }
+};
+
+const supabaseFetch: typeof fetch = async (input, init) => {
+  const supabaseRequest = isSupabaseRequest(input);
+
+  if (supabaseRequest && Date.now() < supabaseTransportCooldownUntil) {
+    return new Response(
+      JSON.stringify({
+        error: 'temporarily_unavailable',
+        error_description: 'Supabase transport is temporarily paused after repeated network failures.',
+      }),
+      {
+        status: 503,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+  }
+
+  if (isAuthRefreshRequest(input) && Date.now() < authRefreshCooldownUntil) {
+    return new Response(
+      JSON.stringify({
+        error: 'temporarily_unavailable',
+        error_description: 'Auth refresh is temporarily paused after repeated network failures.',
+      }),
+      {
+        status: 503,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+  }
+
+  let requestInit: RequestInit | undefined = init;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let cleanupAbortListener: (() => void) | null = null;
+
+  if (supabaseRequest) {
+    const timeoutController = new AbortController();
+    const sourceSignal = init?.signal;
+    if (sourceSignal) {
+      if (sourceSignal.aborted) {
+        timeoutController.abort(sourceSignal.reason);
+      } else {
+        const onAbort = () => timeoutController.abort(sourceSignal.reason);
+        sourceSignal.addEventListener('abort', onAbort, { once: true });
+        cleanupAbortListener = () => sourceSignal.removeEventListener('abort', onAbort);
+      }
+    }
+
+    timeoutId = setTimeout(() => {
+      timeoutController.abort(new DOMException('Supabase request timeout', 'AbortError'));
+    }, SUPABASE_REQUEST_TIMEOUT_MS);
+
+    requestInit = {
+      ...init,
+      signal: timeoutController.signal,
+    };
+  }
+
+  try {
+    const response = await fetch(input, requestInit);
+    if (supabaseRequest && [522, 523, 524].includes(response.status)) {
+      setSupabaseTransportCooldown('http', response.status);
+    } else if (supabaseRequest && response.ok) {
+      supabaseTransportCooldownUntil = 0;
+    }
+    if (isAuthRefreshRequest(input) && !response.ok) {
+      setAuthRefreshCooldown('http');
+    } else if (isAuthRefreshRequest(input) && response.ok) {
+      refreshFailureCount = 0;
+    }
+    return response;
+  } catch (error) {
+    if (supabaseRequest) {
+      setSupabaseTransportCooldown('transport');
+    }
+    if (isAuthRefreshRequest(input)) {
+      setAuthRefreshCooldown('transport');
+    }
+    throw error;
+  } finally {
+    if (timeoutId != null) {
+      clearTimeout(timeoutId);
+    }
+    cleanupAbortListener?.();
+  }
+};
+
+supabaseClient = createClient<Database>(
   SUPABASE_URL || 'https://placeholder.supabase.co',
   SUPABASE_PUBLISHABLE_KEY || 'placeholder-key',
   {
+    global: {
+      fetch: supabaseFetch,
+    },
     auth: {
-      storage: typeof localStorage !== 'undefined' ? localStorage : undefined,
-      persistSession: true,
-      autoRefreshToken: true,
+      storage: !IS_LOCALHOST && typeof localStorage !== 'undefined' ? localStorage : undefined,
+      // Local dev fallback: avoid persisted stale refresh tokens breaking page loads.
+      persistSession: !IS_LOCALHOST,
+      autoRefreshToken: !IS_LOCALHOST,
     }
   }
 );
+
+export const supabase = supabaseClient;

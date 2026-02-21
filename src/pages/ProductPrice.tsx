@@ -16,6 +16,7 @@ import { getProductImage } from "@/utils/productImages";
 import { supabase } from "@/integrations/supabase/client";
 import { SEO } from "@/components/SEO";
 import { ProductSchema, BreadcrumbSchema } from "@/components/ProductSchema";
+import { useShopSettings } from "@/hooks/useShopSettings";
 import {
   type MatrixData
 } from "@/utils/productPricing";
@@ -28,10 +29,63 @@ import { getDimensionsFromVariant } from "@/utils/formatStandards";
 // Legacy product configurations removed on user request (2025-01-30)
 // specificPricingProducts and productConfigs were deleted to unify on the generic pricing system.
 
+const PRODUCT_DETAIL_CACHE_PREFIX = "product-price-detail-cache-v1";
+
+type ProductDetailCachePayload = {
+  at: number;
+  tenantId: string;
+  product: any;
+  mpaConfig: any | null;
+};
+
+const isTransportError = (error: unknown): boolean => {
+  const anyError = error as any;
+  const message = String(anyError?.message || "").toLowerCase();
+  const details = String(anyError?.details || "").toLowerCase();
+  const status = Number(anyError?.status || 0);
+  return (
+    message.includes("failed to fetch")
+    || message.includes("networkerror")
+    || message.includes("aborterror")
+    || details.includes("failed to fetch")
+    || details.includes("aborterror")
+    || status === 0
+    || status === 522
+    || status === 523
+    || status === 524
+    || status === 503
+  );
+};
+
+const detailCacheKey = (tenantId: string, slug: string) => `${PRODUCT_DETAIL_CACHE_PREFIX}:${tenantId}:${slug}`;
+
+const readDetailCache = (tenantId: string, slug: string): ProductDetailCachePayload | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(detailCacheKey(tenantId, slug));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ProductDetailCachePayload;
+    if (!parsed?.product || !parsed?.at) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const writeDetailCache = (tenantId: string, slug: string, payload: ProductDetailCachePayload) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(detailCacheKey(tenantId, slug), JSON.stringify(payload));
+  } catch {
+    // Ignore localStorage quota/storage errors.
+  }
+};
 
 const ProductPrice = () => {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
+  const shopSettings = useShopSettings();
+  const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 
   const staticProduct = slug ? getProductBySlug(slug) : null;
 
@@ -76,6 +130,7 @@ const ProductPrice = () => {
     banner_config?: any;
   } | null>(null);
   const [mpaConfig, setMpaConfig] = useState<any>(null);
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const isUuid = useCallback((value: string) => {
@@ -109,21 +164,22 @@ const ProductPrice = () => {
   useEffect(() => {
     async function fetchDbProduct() {
       if (!slug) return;
+      if (slug === "folder-project") {
+        // Temporary rollback: keep archived product unavailable on storefront route.
+        setDbProductId(null);
+        setDbProduct(null);
+        setPricingStructure(null);
+        setLoading(false);
+        return;
+      }
+      if (shopSettings.isLoading) return;
       setLoading(true);
+      setFallbackNotice(null);
+      setMpaConfig(null);
       console.log('[ProductPrice] Fetching product with slug:', slug);
-      const result = await supabase
-        .from('products')
-        .select('id, name, description, image_url, technical_specs, pricing_structure, pricing_type, banner_config' as any)
-        .eq('slug', slug)
-        .maybeSingle();
-
-      const data = result.data as any;
-      const error = result.error;
-
-      console.log('[ProductPrice] Database result:', { data, error });
-
-      if (data) {
-        console.log('[ProductPrice] Setting dbProductId to:', data.id);
+      const productSelect = 'id, name, description, image_url, technical_specs, pricing_structure, pricing_type, banner_config' as any;
+      const tenantId = shopSettings.data?.id || MASTER_TENANT_ID;
+      const applyProductData = (data: any) => {
         setDbProductId(data.id);
         setDbProduct(data);
         setOrderDeliveryConfig((data as any).banner_config?.order_delivery || null);
@@ -144,23 +200,113 @@ const ProductPrice = () => {
         } else {
           setPricingStructure(null);
         }
+      };
 
-        // Fetch MPA Config if available
-        const { data: cfg } = await supabase
-          .from('product_pricing_configs' as any)
-          .select('*')
-          .eq('product_id', data.id)
-          .eq('pricing_type', 'MACHINE_PRICED')
-          .maybeSingle();
+      const throwIfTransportError = (err: any, context: string) => {
+        if (!err) return;
+        if (!isTransportError(err)) return;
+        const transportError = new Error(`Product transport failure (${context})`);
+        (transportError as any).code = "PRODUCT_TRANSPORT";
+        throw transportError;
+      };
 
-        if (cfg) setMpaConfig(cfg);
-      } else {
-        console.warn('[ProductPrice] No product found for slug:', slug);
+      try {
+        const { data: tenantScopedRows, error: tenantScopedError } = await supabase
+          .from('products')
+          .select(productSelect)
+          .eq('slug', slug)
+          .eq('tenant_id', tenantId)
+          .limit(1);
+
+        if (tenantScopedError) {
+          console.warn('[ProductPrice] Tenant-scoped product query error:', tenantScopedError);
+          throwIfTransportError(tenantScopedError, 'tenantScoped');
+        }
+
+        let data = (tenantScopedRows && tenantScopedRows.length > 0) ? (tenantScopedRows[0] as any) : null;
+
+        if (!data && tenantId !== MASTER_TENANT_ID) {
+          const { data: masterRows, error: masterError } = await supabase
+            .from('products')
+            .select(productSelect)
+            .eq('slug', slug)
+            .eq('tenant_id', MASTER_TENANT_ID)
+            .limit(1);
+
+          if (masterError) {
+            console.warn('[ProductPrice] Master fallback product query error:', masterError);
+            throwIfTransportError(masterError, 'masterFallback');
+          }
+
+          data = (masterRows && masterRows.length > 0) ? (masterRows[0] as any) : null;
+        }
+
+        if (!data) {
+          const { data: publishedRows, error: publishedError } = await supabase
+            .from('products')
+            .select(productSelect)
+            .eq('slug', slug)
+            .eq('is_published', true)
+            .limit(1);
+
+          if (publishedError) {
+            console.warn('[ProductPrice] Published fallback product query error:', publishedError);
+            throwIfTransportError(publishedError, 'publishedFallback');
+          }
+
+          data = (publishedRows && publishedRows.length > 0) ? (publishedRows[0] as any) : null;
+        }
+
+        console.log('[ProductPrice] Database result:', { data });
+
+        if (data) {
+          console.log('[ProductPrice] Setting dbProductId to:', data.id);
+          applyProductData(data);
+
+          // Fetch MPA Config if available
+          const { data: cfg } = await supabase
+            .from('product_pricing_configs' as any)
+            .select('*')
+            .eq('product_id', data.id)
+            .eq('pricing_type', 'MACHINE_PRICED')
+            .maybeSingle();
+
+          if (cfg) {
+            setMpaConfig(cfg);
+          }
+
+          writeDetailCache(tenantId, slug, {
+            at: Date.now(),
+            tenantId,
+            product: data,
+            mpaConfig: cfg || null,
+          });
+        } else {
+          console.warn('[ProductPrice] No product found for slug:', slug);
+          const cached = readDetailCache(tenantId, slug) || readDetailCache(MASTER_TENANT_ID, slug);
+          if (cached) {
+            applyProductData(cached.product);
+            if (cached.mpaConfig) setMpaConfig(cached.mpaConfig);
+            setFallbackNotice('Viser senest gemte produktdata, fordi backend-forbindelsen fejler midlertidigt.');
+          }
+        }
+      } catch (error) {
+        console.warn('[ProductPrice] Product fetch failed:', error);
+        const isTransport = (error as any)?.code === "PRODUCT_TRANSPORT" || isTransportError(error);
+        if (isTransport) {
+          const cached = readDetailCache(tenantId, slug) || readDetailCache(MASTER_TENANT_ID, slug);
+          if (cached) {
+            applyProductData(cached.product);
+            if (cached.mpaConfig) setMpaConfig(cached.mpaConfig);
+            setFallbackNotice('Viser senest gemte produktdata, fordi backend-forbindelsen fejler midlertidigt.');
+          }
+        }
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
     fetchDbProduct();
-  }, [slug]);
+  }, [slug, shopSettings.data?.id, shopSettings.isLoading]);
 
   useEffect(() => {
     if (!dbProductId || !isGenericPricing) return;
@@ -878,6 +1024,11 @@ const ProductPrice = () => {
       />
       <Header />
       <main className="flex-1 container mx-auto px-4 py-8">
+        {fallbackNotice && (
+          <div className="mb-6 rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+            {fallbackNotice}
+          </div>
+        )}
         <div className="flex flex-col md:flex-row gap-6 mb-8">
           <div className="flex-1">
             <h1 className="text-3xl md:text-4xl font-heading font-bold mb-2">{product.name}</h1>

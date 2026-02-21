@@ -104,6 +104,7 @@ interface MatrixLayoutV1RendererProps {
 }
 
 const CACHE_TTL_MS = 120_000;
+const PERSISTED_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PRICE_PAGE_SIZE = 1000;
 
 const attributeGroupCache = new Map<string, { at: number; data: AttributeGroup[] }>();
@@ -114,25 +115,64 @@ const priceRowsInflight = new Map<string, Promise<any[]>>();
 
 const isFresh = (at: number) => (Date.now() - at) < CACHE_TTL_MS;
 
+function readPersistedCache<T>(key: string): { at: number; data: T } | null {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = window.localStorage.getItem(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { at?: number; data?: T };
+        if (typeof parsed?.at !== 'number' || parsed.data == null) return null;
+        if ((Date.now() - parsed.at) > PERSISTED_CACHE_TTL_MS) return null;
+        return { at: parsed.at, data: parsed.data };
+    } catch {
+        return null;
+    }
+}
+
+function writePersistedCache<T>(key: string, payload: { at: number; data: T }) {
+    if (typeof window === 'undefined') return;
+    try {
+        window.localStorage.setItem(key, JSON.stringify(payload));
+    } catch {
+        // Ignore localStorage quota/storage errors.
+    }
+}
+
 async function fetchAttributeGroupsCached(productId: string): Promise<AttributeGroup[]> {
+    const persistedKey = `matrix-v1:attribute-groups:${productId}`;
+    const persisted = readPersistedCache<AttributeGroup[]>(persistedKey);
     const cached = attributeGroupCache.get(productId);
     if (cached && isFresh(cached.at)) return cached.data;
+    if (!cached && persisted) {
+        attributeGroupCache.set(productId, persisted);
+        return persisted.data;
+    }
 
     const inflight = attributeGroupInflight.get(productId);
     if (inflight) return inflight;
 
     const request = (async () => {
-        const { data, error } = await supabase
-            .from('product_attribute_groups' as any)
-            .select('*, values:product_attribute_values(*)')
-            .eq('product_id', productId)
-            .order('sort_order');
+        try {
+            const { data, error } = await supabase
+                .from('product_attribute_groups' as any)
+                .select('*, values:product_attribute_values(*)')
+                .eq('product_id', productId)
+                .order('sort_order');
 
-        if (error) throw error;
+            if (error) throw error;
 
-        const rows = (data || []) as unknown as AttributeGroup[];
-        attributeGroupCache.set(productId, { at: Date.now(), data: rows });
-        return rows;
+            const rows = (data || []) as unknown as AttributeGroup[];
+            const payload = { at: Date.now(), data: rows };
+            attributeGroupCache.set(productId, payload);
+            writePersistedCache(persistedKey, payload);
+            return rows;
+        } catch (error) {
+            if (persisted) {
+                attributeGroupCache.set(productId, persisted);
+                return persisted.data;
+            }
+            throw error;
+        }
     })().finally(() => {
         attributeGroupInflight.delete(productId);
     });
@@ -142,35 +182,51 @@ async function fetchAttributeGroupsCached(productId: string): Promise<AttributeG
 }
 
 async function fetchPriceRowsCached(productId: string, forceRefresh = false): Promise<any[]> {
+    const persistedKey = `matrix-v1:price-rows:${productId}`;
+    const persisted = readPersistedCache<any[]>(persistedKey);
     const cached = priceRowsCache.get(productId);
     if (!forceRefresh && cached && isFresh(cached.at)) return cached.data;
+    if (!forceRefresh && !cached && persisted) {
+        priceRowsCache.set(productId, persisted);
+        return persisted.data;
+    }
 
     const inflight = priceRowsInflight.get(productId);
     if (inflight) return inflight;
 
     const request = (async () => {
-        let offset = 0;
-        const all: any[] = [];
+        try {
+            let offset = 0;
+            const all: any[] = [];
 
-        while (true) {
-            const { data, error } = await supabase
-                .from('generic_product_prices')
-                .select('variant_name, variant_value, quantity, price_dkk, extra_data')
-                .eq('product_id', productId)
-                .range(offset, offset + PRICE_PAGE_SIZE - 1);
+            while (true) {
+                const { data, error } = await supabase
+                    .from('generic_product_prices')
+                    .select('variant_name, variant_value, quantity, price_dkk, extra_data')
+                    .eq('product_id', productId)
+                    .range(offset, offset + PRICE_PAGE_SIZE - 1);
 
-            if (error) throw error;
+                if (error) throw error;
 
-            if (data && data.length > 0) {
-                all.push(...data);
+                if (data && data.length > 0) {
+                    all.push(...data);
+                }
+
+                if (!data || data.length === 0) break;
+                offset += data.length;
             }
 
-            if (!data || data.length === 0) break;
-            offset += data.length;
+            const payload = { at: Date.now(), data: all };
+            priceRowsCache.set(productId, payload);
+            writePersistedCache(persistedKey, payload);
+            return all;
+        } catch (error) {
+            if (persisted) {
+                priceRowsCache.set(productId, persisted);
+                return persisted.data;
+            }
+            throw error;
         }
-
-        priceRowsCache.set(productId, { at: Date.now(), data: all });
-        return all;
     })().finally(() => {
         priceRowsInflight.delete(productId);
     });
@@ -596,6 +652,69 @@ export function MatrixLayoutV1Renderer({
         return ids;
     }, [selectorSections, preparedPrices, getSectionValueIdForPreparedRow]);
 
+    const rowMatchesSelections = useCallback((row: PreparedPriceRow, selections: Record<string, string | null>, excludeSectionId?: string) => {
+        for (const section of selectorSections) {
+            if (section.id === excludeSectionId) continue;
+            if (!mappableSectionIds.has(section.id)) continue;
+
+            const selectedValueId = selections[section.id];
+            if (!selectedValueId) continue;
+
+            if (section.id === pricingStructure.vertical_axis.sectionId) {
+                if (!row.verticalIds.includes(selectedValueId)) return false;
+                continue;
+            }
+
+            const rowValueId = getSectionValueIdForPreparedRow(section.id, row);
+            if (rowValueId !== selectedValueId) return false;
+        }
+
+        return true;
+    }, [selectorSections, mappableSectionIds, pricingStructure.vertical_axis.sectionId, getSectionValueIdForPreparedRow]);
+
+    const availableValueIdsBySection = useMemo(() => {
+        const map: Record<string, Set<string>> = {};
+
+        selectorSections.forEach(section => {
+            const configuredIds = new Set((section.valueIds || []).map(id => String(id)));
+
+            // Sections not represented in price rows should keep all configured values visible.
+            if (!mappableSectionIds.has(section.id)) {
+                map[section.id] = configuredIds;
+                return;
+            }
+
+            const available = new Set<string>();
+            preparedPrices.forEach(row => {
+                if (!rowMatchesSelections(row, selectedSectionValues, section.id)) return;
+
+                if (section.id === pricingStructure.vertical_axis.sectionId) {
+                    row.verticalIds.forEach(valueId => {
+                        if (configuredIds.has(valueId)) available.add(valueId);
+                    });
+                    return;
+                }
+
+                const rowValueId = getSectionValueIdForPreparedRow(section.id, row);
+                if (rowValueId && configuredIds.has(rowValueId)) {
+                    available.add(rowValueId);
+                }
+            });
+
+            map[section.id] = available;
+        });
+
+        return map;
+    }, [
+        selectorSections,
+        mappableSectionIds,
+        preparedPrices,
+        rowMatchesSelections,
+        selectedSectionValues,
+        pricingStructure.vertical_axis.sectionId,
+        getSectionValueIdForPreparedRow,
+    ]);
+
     const priceIndexByVerticalQty = useMemo(() => {
         const index = new Map<string, PreparedPriceRow[]>();
         preparedPrices.forEach(row => {
@@ -674,13 +793,6 @@ export function MatrixLayoutV1Renderer({
         })?.[0] || null;
     }, [sectionById, sectionGroupNameById]);
 
-    const pagesSectionIdForFolders = useMemo(() => {
-        return Object.entries(sectionById).find(([sectionId]) => {
-            const groupName = (sectionGroupNameById[sectionId] || '').toLowerCase();
-            return groupName === 'sider';
-        })?.[0] || null;
-    }, [sectionById, sectionGroupNameById]);
-
     const attributeValueById = useMemo(() => {
         const map: Record<string, AttributeValue> = {};
         attributeGroups.forEach(group => {
@@ -741,48 +853,73 @@ export function MatrixLayoutV1Renderer({
         return null;
     }, []);
 
-    // For folder products, keep Sider choices aligned with selected Foldetype.
-    useEffect(() => {
-        if (!foldSectionIdForFolders || !pagesSectionIdForFolders) return;
+    const getVisibleValuesForSection = useCallback((
+        sectionId: string,
+        values: AttributeValue[],
+        selections: Record<string, string | null>,
+    ): AttributeValue[] => {
+        let visibleValues = values;
+        const groupName = (sectionGroupNameById[sectionId] || '').toLowerCase();
 
-        const foldValueId = selectedSectionValues[foldSectionIdForFolders];
-        if (!foldValueId) return;
+        if (groupName === 'sider' && foldSectionIdForFolders) {
+            const selectedFoldId = selections[foldSectionIdForFolders];
+            const selectedFoldName = selectedFoldId ? getValueName(selectedFoldId) : '';
+            const allowedPages = getAllowedFolderPageNames(selectedFoldName);
+            if (allowedPages && allowedPages.length > 0) {
+                const allowedSet = new Set(allowedPages.map(name => name.toLowerCase()));
+                visibleValues = visibleValues.filter(value => allowedSet.has(value.name.toLowerCase()));
+            }
+        }
 
-        const pagesSection = sectionById[pagesSectionIdForFolders];
-        if (!pagesSection) return;
+        const availableIds = availableValueIdsBySection[sectionId];
+        if (availableIds) {
+            visibleValues = visibleValues.filter(value => availableIds.has(value.id));
+        }
 
-        const pagesValues = getSectionValues(pagesSection.groupId, pagesSection.valueIds);
-        if (pagesValues.length === 0) return;
-
-        const foldName = getValueName(foldValueId);
-        const allowedNames = getAllowedFolderPageNames(foldName);
-        if (!allowedNames || allowedNames.length === 0) return;
-
-        const allowedSet = new Set(allowedNames.map(name => name.toLowerCase()));
-        const allowedValues = pagesValues.filter(value => allowedSet.has(value.name.toLowerCase()));
-        if (allowedValues.length === 0) return;
-
-        const currentPageId = selectedSectionValues[pagesSectionIdForFolders];
-        const isCurrentAllowed = !!currentPageId && allowedValues.some(value => value.id === currentPageId);
-        if (isCurrentAllowed) return;
-
-        setSelectedSectionValues(prev => {
-            const nextCurrent = prev[pagesSectionIdForFolders];
-            const stillAllowed = !!nextCurrent && allowedValues.some(value => value.id === nextCurrent);
-            if (stillAllowed) return prev;
-            return {
-                ...prev,
-                [pagesSectionIdForFolders]: allowedValues[0].id,
-            };
-        });
+        return visibleValues;
     }, [
+        sectionGroupNameById,
         foldSectionIdForFolders,
-        pagesSectionIdForFolders,
-        selectedSectionValues,
-        sectionById,
-        getSectionValues,
         getValueName,
         getAllowedFolderPageNames,
+        availableValueIdsBySection,
+    ]);
+
+    // Keep selections valid as folders/options/finishes change.
+    useEffect(() => {
+        setSelectedSectionValues(prev => {
+            let changed = false;
+            const next = { ...prev };
+
+            selectorSections.forEach(section => {
+                const allValues = getSectionValues(section.groupId, section.valueIds);
+                const visibleValues = getVisibleValuesForSection(section.id, allValues, next);
+                const currentValue = next[section.id];
+                const isCurrentVisible = !!currentValue && visibleValues.some(value => value.id === currentValue);
+
+                if (isCurrentVisible) return;
+
+                if (isOptionalSectionId(section.id)) {
+                    if (currentValue != null) {
+                        delete next[section.id];
+                        changed = true;
+                    }
+                    return;
+                }
+
+                if (visibleValues.length > 0) {
+                    next[section.id] = visibleValues[0].id;
+                    changed = true;
+                }
+            });
+
+            return changed ? next : prev;
+        });
+    }, [
+        selectorSections,
+        getSectionValues,
+        getVisibleValuesForSection,
+        isOptionalSectionId,
     ]);
 
     // Get section type label
@@ -1036,20 +1173,9 @@ export function MatrixLayoutV1Renderer({
         isOptionalEnabled: boolean
     ) => {
         const isOptional = isOptionalSectionId(sectionId);
-        let visibleValues = values;
+        const visibleValues = getVisibleValuesForSection(sectionId, values, selectedSectionValues);
         const valueSettings = valueSettingsById[sectionId] || {};
         const isActive = !isOptional || isOptionalEnabled;
-
-        const groupName = (sectionGroupNameById[sectionId] || '').toLowerCase();
-        if (groupName === 'sider' && foldSectionIdForFolders) {
-            const selectedFoldId = selectedSectionValues[foldSectionIdForFolders];
-            const selectedFoldName = selectedFoldId ? getValueName(selectedFoldId) : '';
-            const allowedPages = getAllowedFolderPageNames(selectedFoldName);
-            if (allowedPages && allowedPages.length > 0) {
-                const allowedSet = new Set(allowedPages.map(name => name.toLowerCase()));
-                visibleValues = visibleValues.filter(value => allowedSet.has(value.name.toLowerCase()));
-            }
-        }
 
         const selectedValue = selectedSectionValues[sectionId] ?? (isOptional ? "" : visibleValues[0]?.id || "");
 
@@ -1217,7 +1343,8 @@ export function MatrixLayoutV1Renderer({
                             )}>
                                 {filteredColumns.map((col, colIndex) => {
                                     const values = getSectionValues(col.groupId, col.valueIds);
-                                    if (values.length === 0) return null;
+                                    const visibleValues = getVisibleValuesForSection(col.id, values, selectedSectionValues);
+                                    if (visibleValues.length === 0) return null;
                                     const sectionLabel = col.title || getSectionTypeLabel(col.sectionType);
                                     const uiMode = col.ui_mode || 'buttons';
                                     const isOptional = isOptionalSectionId(col.id);
@@ -1226,8 +1353,8 @@ export function MatrixLayoutV1Renderer({
                                     const handleOptionalToggle = (checked: boolean) => {
                                         if (!isOptional) return;
                                         if (checked) {
-                                            if (!selectedSectionValues[col.id] && values.length > 0) {
-                                                handleSectionSelect(col.id, values[0].id);
+                                            if (!selectedSectionValues[col.id] && visibleValues.length > 0) {
+                                                handleSectionSelect(col.id, visibleValues[0].id);
                                             }
                                         } else {
                                             clearSectionSelection(col.id);
@@ -1257,7 +1384,7 @@ export function MatrixLayoutV1Renderer({
                                                 </span>
                                             </div>
                                             {col.description && <p className="text-[10px] text-muted-foreground">{col.description}</p>}
-                                            {renderValueSelector(col.id, values, uiMode, isOptionalEnabled)}
+                                            {renderValueSelector(col.id, visibleValues, uiMode, isOptionalEnabled)}
                                         </div>
                                     );
                                 })}

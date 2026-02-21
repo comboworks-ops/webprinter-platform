@@ -54,19 +54,78 @@ import { useShopSettings } from "@/hooks/useShopSettings";
 
 // ... (interfaces)
 
+const PRODUCT_CACHE_KEY_PREFIX = "product-grid-cache-v1";
+const PRODUCT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+type ProductCachePayload = {
+  at: number;
+  tenantId: string;
+  products: Product[];
+};
+
+const isTransportError = (error: unknown): boolean => {
+  const anyError = error as any;
+  const message = String(anyError?.message || "").toLowerCase();
+  const details = String(anyError?.details || "").toLowerCase();
+  const status = Number(anyError?.status || 0);
+  return (
+    message.includes("failed to fetch")
+    || message.includes("networkerror")
+    || message.includes("aborterror")
+    || details.includes("failed to fetch")
+    || details.includes("aborterror")
+    || status === 0
+    || status === 522
+    || status === 523
+    || status === 524
+    || status === 503
+  );
+};
+
+const cacheKeyForTenant = (tenantId: string) => `${PRODUCT_CACHE_KEY_PREFIX}:tenant:${tenantId}`;
+const cacheLastSuccessKey = `${PRODUCT_CACHE_KEY_PREFIX}:last-success`;
+
+const readProductCache = (key: string): ProductCachePayload | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ProductCachePayload;
+    if (!parsed?.at || !Array.isArray(parsed?.products)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const writeProductCache = (key: string, payload: ProductCachePayload) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(payload));
+  } catch {
+    // Ignore quota/storage errors
+  }
+};
+
 const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, layoutStyle = "cards" }: ProductGridProps) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [warningMessage, setWarningMessage] = useState<string | null>(null);
   const settings = useShopSettings();
 
   useEffect(() => {
     const fetchAndLoadPrices = async () => {
       // Wait for settings to load
       if (settings.isLoading) return;
+      setLoading(true);
 
       const tenantId = settings.data?.id || '00000000-0000-0000-0000-000000000000'; // Fallback to Master if critical failure
+      const tenantCacheKey = cacheKeyForTenant(tenantId);
 
       try {
+        setErrorMessage(null);
+        setWarningMessage(null);
         const { data, error } = await supabase
           .from('products')
           .select(`
@@ -85,6 +144,8 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
             tooltip_price
           `)
           .eq('is_published', true)
+          // Temporary rollback: hide merged folder-project from storefront.
+          .neq('slug', 'folder-project')
           .eq('tenant_id', tenantId) // Filter by resolved Tenant
           .order('name');
 
@@ -101,8 +162,34 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
         );
 
         setProducts(productsWithPrices);
+        const payload: ProductCachePayload = {
+          at: Date.now(),
+          tenantId,
+          products: productsWithPrices,
+        };
+        writeProductCache(tenantCacheKey, payload);
+        writeProductCache(cacheLastSuccessKey, payload);
       } catch (error) {
         console.error('Error fetching products:', error);
+        if (isTransportError(error)) {
+          const tenantCache = readProductCache(tenantCacheKey);
+          const globalCache = readProductCache(cacheLastSuccessKey);
+          const candidateCache = tenantCache || globalCache;
+          const isFresh = !!candidateCache && (Date.now() - candidateCache.at) <= PRODUCT_CACHE_TTL_MS;
+          if (isFresh && candidateCache) {
+            setProducts(candidateCache.products);
+            setWarningMessage('Viser senest gemte produkter, fordi backend-forbindelsen fejler midlertidigt.');
+            setErrorMessage(null);
+          } else {
+            setProducts([]);
+            setWarningMessage(null);
+            setErrorMessage('Kunne ikke hente produkter lige nu. Backend-forbindelsen fejler midlertidigt.');
+          }
+        } else {
+          setProducts([]);
+          setWarningMessage(null);
+          setErrorMessage('Kunne ikke hente produkter.');
+        }
       } finally {
         setLoading(false);
       }
@@ -115,6 +202,10 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
 
   if (loading) {
     return <div className="text-center py-8">Indlæser produkter...</div>;
+  }
+
+  if (errorMessage) {
+    return <div className="text-center py-8 text-sm text-muted-foreground">{errorMessage}</div>;
   }
 
   const gridColumnsClass = columns === 5 ? "lg:grid-cols-5" : columns === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4";
@@ -193,6 +284,11 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
         )}
         style={wrapperStyle}
       >
+        {warningMessage && (
+          <div className="mb-4 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
+            {warningMessage}
+          </div>
+        )}
         <div className={cn(
           "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3",
           gridColumnsClass,
