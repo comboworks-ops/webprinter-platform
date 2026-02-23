@@ -47,6 +47,7 @@ import Cookiepolitik from "./pages/platform/Cookiepolitik";
 
 // Platform SEO head injection (platform pages only)
 import { PlatformSeoHead } from "@/components/platform-seo/PlatformSeoHead";
+import { SupabaseDataSyncBridge } from "@/components/system/SupabaseDataSyncBridge";
 
 const queryClient = new QueryClient();
 
@@ -55,6 +56,7 @@ const App = () => (
     <LanguageProvider>
       <CookieConsentProvider>
         <TooltipProvider>
+          <SupabaseDataSyncBridge />
           <Toaster />
           <Sonner />
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
