@@ -8,6 +8,7 @@ import { StaticProductInfo } from "@/components/product-price-page/StaticProduct
 import { CustomDimensionsCalculator } from "@/components/product-price-page/CustomDimensionsCalculator";
 import { StorformatConfigurator, type StorformatSelection } from "@/components/product-price-page/StorformatConfigurator";
 import { DynamicProductOptions } from "@/components/product-price-page/DynamicProductOptions";
+import { Input } from "@/components/ui/input";
 import { getProductBySlug } from "@/utils/productMetadata";
 import { getProductImage } from "@/utils/productImages";
 import { supabase } from "@/integrations/supabase/client";
@@ -124,6 +125,11 @@ interface ProductPriceContentProps {
     slug?: string;
 }
 
+type SizeDistributionField = {
+    key: string;
+    label: string;
+};
+
 export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps) => {
     const { slug: paramSlug } = useParams<{ slug: string }>();
     const [searchParams] = useSearchParams();
@@ -147,6 +153,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
     const [basePricePerSqm, setBasePricePerSqm] = useState<Record<string, number>>({});
     const [optionExtraPrice, setOptionExtraPrice] = useState<number>(0);
     const [optionSelections, setOptionSelections] = useState<Record<string, { optionId: string; name: string; extraPrice: number; priceMode: "fixed" | "per_quantity" | "per_area" }>>({});
+    const [sizeDistributionValues, setSizeDistributionValues] = useState<Record<string, number>>({});
     const [dbProductId, setDbProductId] = useState<string | null>(null);
     const [genericVariantNames, setGenericVariantNames] = useState<string[]>([]);
     const [selectedVariantName, setSelectedVariantName] = useState<string>("");
@@ -181,6 +188,127 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
         && pricingStructure?.mode === "matrix_layout_v1"
         && (orderDeliveryConfig?.delivery?.pod_settings?.enabled ?? true);
     const shippingCountry = (shopSettings.data as any)?.address?.country || (shopSettings.data as any)?.country || "DK";
+
+    const sizeDistributionConfig = useMemo(() => {
+        const raw = (dbProduct?.technical_specs as any)?.size_distribution;
+        if (!raw?.enabled) return null;
+
+        const rawFields = Array.isArray(raw.fields) ? raw.fields : [];
+        const fields: SizeDistributionField[] = rawFields
+            .map((field: any, index: number) => {
+                if (typeof field === "string") {
+                    const label = field.trim();
+                    if (!label) return null;
+                    return {
+                        key: label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `field-${index + 1}`,
+                        label,
+                    };
+                }
+
+                if (field && typeof field === "object") {
+                    const label = String(field.label || field.name || field.key || "").trim();
+                    if (!label) return null;
+                    const key = String(field.key || "")
+                        .toLowerCase()
+                        .replace(/[^a-z0-9]+/g, "-")
+                        .replace(/^-+|-+$/g, "");
+                    return {
+                        key: key || label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `field-${index + 1}`,
+                        label,
+                    };
+                }
+
+                return null;
+            })
+            .filter(Boolean) as SizeDistributionField[];
+
+        if (fields.length === 0) return null;
+
+        return {
+            title: String(raw.title || "Størrelsesfordeling"),
+            enforceQuantityMatch: raw.enforce_quantity_match !== false,
+            fields,
+        };
+    }, [dbProduct?.technical_specs]);
+
+    const sizeDistributionFields = sizeDistributionConfig?.fields || [];
+
+    useEffect(() => {
+        if (!sizeDistributionConfig) {
+            setSizeDistributionValues((prev) => (Object.keys(prev).length > 0 ? {} : prev));
+            return;
+        }
+
+        const allowedKeys = new Set(sizeDistributionFields.map((field) => field.key));
+        setSizeDistributionValues((prev) => {
+            const next: Record<string, number> = {};
+            let changed = false;
+
+            sizeDistributionFields.forEach((field) => {
+                const current = Number(prev[field.key] || 0);
+                next[field.key] = Number.isFinite(current) && current > 0 ? Math.floor(current) : 0;
+            });
+
+            Object.keys(prev).forEach((key) => {
+                if (!allowedKeys.has(key)) changed = true;
+            });
+
+            if (!changed) {
+                changed = sizeDistributionFields.some((field) => (prev[field.key] || 0) !== next[field.key]);
+            }
+
+            return changed ? next : prev;
+        });
+    }, [sizeDistributionConfig, sizeDistributionFields]);
+
+    const sizeDistributionTotal = useMemo(() => {
+        if (!sizeDistributionConfig) return 0;
+        return sizeDistributionFields.reduce((sum, field) => sum + (Number(sizeDistributionValues[field.key] || 0) || 0), 0);
+    }, [sizeDistributionConfig, sizeDistributionFields, sizeDistributionValues]);
+
+    const sizeDistributionEntries = useMemo(() => {
+        if (!sizeDistributionConfig) return [] as Array<{ key: string; label: string; value: number }>;
+        return sizeDistributionFields
+            .map((field) => ({
+                key: field.key,
+                label: field.label,
+                value: Number(sizeDistributionValues[field.key] || 0) || 0,
+            }))
+            .filter((entry) => entry.value > 0);
+    }, [sizeDistributionConfig, sizeDistributionFields, sizeDistributionValues]);
+
+    const sizeDistributionSelectionQuantity = isStorformat
+        ? (storformatSelection?.quantity || 0)
+        : (selectedCell?.column || 0);
+
+    const sizeDistributionMismatch = useMemo(() => {
+        if (!sizeDistributionConfig?.enforceQuantityMatch) return false;
+        if (!sizeDistributionSelectionQuantity || sizeDistributionSelectionQuantity <= 0) return false;
+        return sizeDistributionTotal !== sizeDistributionSelectionQuantity;
+    }, [
+        sizeDistributionConfig?.enforceQuantityMatch,
+        sizeDistributionSelectionQuantity,
+        sizeDistributionTotal,
+    ]);
+
+    const orderValidationError = useMemo(() => {
+        if (!sizeDistributionMismatch) return null;
+        return `Fordel størrelser så summen er ${sizeDistributionSelectionQuantity} stk (nu ${sizeDistributionTotal}).`;
+    }, [sizeDistributionMismatch, sizeDistributionSelectionQuantity, sizeDistributionTotal]);
+
+    const sizeDistributionSummary = useMemo(() => {
+        if (!sizeDistributionConfig || sizeDistributionEntries.length === 0) return "";
+        const entries = sizeDistributionEntries.map((entry) => `${entry.label}: ${entry.value}`).join(", ");
+        const totalPart = sizeDistributionSelectionQuantity > 0
+            ? ` (sum ${sizeDistributionTotal}/${sizeDistributionSelectionQuantity})`
+            : ` (sum ${sizeDistributionTotal})`;
+        return `${sizeDistributionConfig.title}: ${entries}${totalPart}`;
+    }, [
+        sizeDistributionConfig,
+        sizeDistributionEntries,
+        sizeDistributionTotal,
+        sizeDistributionSelectionQuantity,
+    ]);
 
     const isUuid = useCallback((value: string) => {
         return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -256,12 +384,20 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
         _materialId?: string,
         meta?: { variantKey?: string; verticalValueId?: string },
     ) => {
-        if (formatId) setSelectedFormat(formatId);
+        if (formatId) {
+            setSelectedFormat(prev => (prev === formatId ? prev : formatId));
+        }
         if (meta?.variantKey || meta?.verticalValueId) {
-            setPodSelectionMeta({
-                variantKey: meta?.variantKey,
-                verticalValueId: meta?.verticalValueId,
-            });
+            const nextVariantKey = meta?.variantKey;
+            const nextVerticalValueId = meta?.verticalValueId;
+            setPodSelectionMeta(prev => (
+                prev?.variantKey === nextVariantKey && prev?.verticalValueId === nextVerticalValueId
+                    ? prev
+                    : {
+                        variantKey: nextVariantKey,
+                        verticalValueId: nextVerticalValueId,
+                    }
+            ));
         }
     }, []);
 
@@ -687,6 +823,34 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
         setOptionExtraPrice(totalExtra);
     }, [selectedCell, computeOptionExtras, customArea, isStorformat, storformatSelection]);
 
+    const handleSizeDistributionChange = useCallback((fieldKey: string, rawValue: string) => {
+        const parsed = Number(rawValue);
+        const nextValue = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+        setSizeDistributionValues((prev) => ({
+            ...prev,
+            [fieldKey]: nextValue,
+        }));
+    }, []);
+
+    const sizeDistributionOptionSelections = useMemo(() => {
+        const selections: Record<string, { optionId: string; name: string; extraPrice: number; priceMode: "fixed" | "per_quantity" | "per_area" }> = {};
+        sizeDistributionEntries.forEach((entry) => {
+            const optionId = `size-dist-${entry.key}`;
+            selections[optionId] = {
+                optionId,
+                name: `${entry.label}: ${entry.value}`,
+                extraPrice: 0,
+                priceMode: "fixed",
+            };
+        });
+        return selections;
+    }, [sizeDistributionEntries]);
+
+    const combinedOptionSelections = useMemo(
+        () => ({ ...optionSelections, ...sizeDistributionOptionSelections }),
+        [optionSelections, sizeDistributionOptionSelections]
+    );
+
     useEffect(() => {
         const qty = isStorformat ? (storformatSelection?.quantity || 0) : (selectedCell?.column ?? 1);
         const area = isStorformat ? (storformatSelection?.areaM2 || 1) : (customArea || 1);
@@ -713,9 +877,45 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
 
     const handleStorformatSelection = useCallback((selection: StorformatSelection | null) => {
         setStorformatSelection(selection);
-        setProductPrice(selection?.totalPrice || 0);
+        setProductPrice(Number(selection?.totalPrice) || 0);
         if (selection?.areaM2) setCustomArea(selection.areaM2);
     }, []);
+
+    const resolvedPanelPrice = useMemo(() => {
+        if (isStorformat) {
+            return Math.round(Number(storformatSelection?.totalPrice) || 0);
+        }
+
+        if (pricingStructure?.mode === "matrix_layout_v1") {
+            return Math.round(Number(productPrice) || 0);
+        }
+
+        if (selectedCell) {
+            const qty = selectedCell.column;
+            const isAreaBased = product?.id === "bannere" || product?.id === "skilte" || product?.id === "folie";
+            let base = Number(matrixData.cells[selectedCell.row]?.[qty]) || 0;
+
+            if (isAreaBased && basePricePerSqm[selectedCell.row]) {
+                base = Math.round((customArea || 1) * qty * basePricePerSqm[selectedCell.row]);
+            }
+
+            if (Number.isFinite(base) && base > 0) {
+                return Math.round(base);
+            }
+        }
+
+        return Math.round(Number(productPrice) || 0);
+    }, [
+        isStorformat,
+        storformatSelection?.totalPrice,
+        pricingStructure?.mode,
+        productPrice,
+        selectedCell,
+        product?.id,
+        matrixData.cells,
+        basePricePerSqm,
+        customArea,
+    ]);
 
     // Loading State
     if (loading) {
@@ -735,6 +935,37 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
         );
     }
 
+    const sizeDistributionBlock = sizeDistributionConfig ? (
+        <div className="rounded-lg border border-border/60 bg-muted/20 p-4 space-y-3">
+            <div>
+                <p className="text-sm font-semibold">{sizeDistributionConfig.title}</p>
+                <p className="text-xs text-muted-foreground">
+                    Ikke prispåvirkende. Brug felterne til at fordele størrelser på ordren.
+                </p>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {sizeDistributionFields.map((field) => (
+                    <label key={field.key} className="space-y-1">
+                        <span className="text-xs text-muted-foreground">{field.label}</span>
+                        <Input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={sizeDistributionValues[field.key] ?? 0}
+                            onChange={(event) => handleSizeDistributionChange(field.key, event.target.value)}
+                            className="h-9"
+                        />
+                    </label>
+                ))}
+            </div>
+            <div className={`text-xs ${sizeDistributionMismatch ? "text-destructive" : "text-muted-foreground"}`}>
+                Sum: {sizeDistributionTotal}
+                {sizeDistributionSelectionQuantity > 0 ? ` / ${sizeDistributionSelectionQuantity}` : ""} stk
+                {sizeDistributionMismatch ? " (matcher ikke valgt antal)" : ""}
+            </div>
+        </div>
+    ) : null;
+
     // Main Render
     const renderPricingInterface = () => {
         if (isStorformat && dbProductId) {
@@ -744,7 +975,8 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                 storformatSelection?.materialName,
                 storformatSelection?.finishName || null,
                 storformatSelection?.productName || null,
-                storformatSelection ? `${storformatSelection.quantity} stk` : null
+                storformatSelection ? `${storformatSelection.quantity} stk` : null,
+                sizeDistributionSummary || null,
             ].filter(Boolean);
 
             return (
@@ -762,13 +994,15 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                                 />
                             </div>
                         )}
+                        {sizeDistributionBlock}
                     </div>
                     <div className="lg:col-span-1 lg:self-end">
                         <ProductPricePanel
-                            productPrice={storformatSelection?.totalPrice || 0}
+                            productPrice={resolvedPanelPrice}
                             extraPrice={optionExtraPrice}
+                            orderValidationError={orderValidationError}
                             onShippingChange={handleShippingChange}
-                            optionSelections={optionSelections}
+                            optionSelections={combinedOptionSelections}
                             selectedVariant={storformatSelection?.materialName}
                             productName={product?.name || ''}
                             productId={dbProductId}
@@ -802,13 +1036,15 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                             onCellClick={handleMatrixCellClick}
                             onSelectionChange={handleMatrixSelectionChange}
                         />
+                        {sizeDistributionBlock}
                     </div>
                     <div className="lg:col-span-1 lg:self-end">
                         <ProductPricePanel
-                            productPrice={productPrice}
+                            productPrice={resolvedPanelPrice}
                             extraPrice={optionExtraPrice}
+                            orderValidationError={orderValidationError}
                             onShippingChange={handleShippingChange}
-                            optionSelections={optionSelections}
+                            optionSelections={combinedOptionSelections}
                             selectedVariant={selectedCell?.row}
                             productName={product?.name || ''}
                             productId={dbProductId}
@@ -823,7 +1059,8 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                             summary={[
                                 product?.name,
                                 selectedCell?.row,
-                                selectedCell ? `${selectedCell.column} stk` : ''
+                                selectedCell ? `${selectedCell.column} stk` : '',
+                                sizeDistributionSummary || "",
                             ].filter(Boolean).join(' • ')}
                         />
                     </div>
@@ -889,6 +1126,8 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                         {/* For area-based products, show options below width/height calculator (e.g., lamination) */}
                         {isAreaBased && optionsBlock}
 
+                        {sizeDistributionBlock}
+
                         <PriceMatrix
                             rows={matrixData.rows}
                             columns={matrixData.columns}
@@ -905,10 +1144,11 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                     <div className="lg:col-span-1 lg:self-end">
                         <div>
                             <ProductPricePanel
-                                productPrice={productPrice}
+                                productPrice={resolvedPanelPrice}
                                 extraPrice={optionExtraPrice}
+                                orderValidationError={orderValidationError}
                                 onShippingChange={handleShippingChange}
-                                optionSelections={optionSelections}
+                                optionSelections={combinedOptionSelections}
                                 selectedVariant={selectedCell?.row}
                                 productName={product.name}
                                 productId={dbProductId || ''}
@@ -933,7 +1173,8 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                                         : (selectedFormat ? config?.formats.find(f => f.id === selectedFormat)?.label : ""),
                                     selectedCell ? selectedCell.row : "",
                                     selectedExtraOption ? config?.extraOptions?.find(e => e.id === selectedExtraOption)?.label : "",
-                                    selectedCell ? `${selectedCell.column} stk` : ""
+                                    selectedCell ? `${selectedCell.column} stk` : "",
+                                    sizeDistributionSummary || "",
                                 ].filter(Boolean).join(" • ")}
                             />
                         </div>

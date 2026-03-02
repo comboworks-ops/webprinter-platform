@@ -20,6 +20,7 @@
 // Types
 export {
     type BrandingData,
+    type FeaturedProductConfig,
     type BrandingMode,
     type BrandingStorageAdapter,
     type BrandingHistoryEntry,

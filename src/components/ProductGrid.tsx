@@ -1,34 +1,22 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { supabase } from "@/integrations/supabase/client";
-import { getProductDisplayPrice } from "@/utils/productPriceDisplay";
 import { getProductImage } from "@/utils/productImages";
 import { Info } from "lucide-react";
 import { ProductBadge, type ProductBadgeConfig } from "@/components/ProductBadge";
 import { cn } from "@/lib/utils";
-
-interface Product {
-  id: string;
-  name: string;
-  icon_text?: string | null;
-  image_url: string | null;
-  description: string | null;
-  slug: string;
-  category: "tryksager" | "storformat";
-  pricing_type: string;
-  default_variant: string | null;
-  default_quantity: number | null;
-  banner_config: any;
-  tooltip_product: string | null;
-  tooltip_price: string | null;
-  displayPrice?: string;
-}
+import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
+import { useStorefrontCatalog, type StorefrontProduct } from "@/hooks/useStorefrontCatalog";
+import { normalizeProductCategoryKey } from "@/utils/productCategories";
+import { useShopSettings } from "@/hooks/useShopSettings";
 
 interface ProductGridProps {
-  category: "tryksager" | "storformat";
+  category: string;
+  products?: StorefrontProduct[];
+  loadingOverride?: boolean;
+  errorMessageOverride?: string | null;
+  warningMessageOverride?: string | null;
   columns?: 3 | 4 | 5;
   buttonConfig?: {
     style?: "default" | "bar" | "center" | "hidden";
@@ -50,155 +38,33 @@ interface ProductGridProps {
   };
 }
 
-import { useShopSettings } from "@/hooks/useShopSettings";
-
-// ... (interfaces)
-
-const PRODUCT_CACHE_KEY_PREFIX = "product-grid-cache-v1";
-const PRODUCT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-
-type ProductCachePayload = {
-  at: number;
-  tenantId: string;
-  products: Product[];
-};
-
-const isTransportError = (error: unknown): boolean => {
-  const anyError = error as any;
-  const message = String(anyError?.message || "").toLowerCase();
-  const details = String(anyError?.details || "").toLowerCase();
-  const status = Number(anyError?.status || 0);
-  return (
-    message.includes("failed to fetch")
-    || message.includes("networkerror")
-    || message.includes("aborterror")
-    || details.includes("failed to fetch")
-    || details.includes("aborterror")
-    || status === 0
-    || status === 522
-    || status === 523
-    || status === 524
-    || status === 503
-  );
-};
-
-const cacheKeyForTenant = (tenantId: string) => `${PRODUCT_CACHE_KEY_PREFIX}:tenant:${tenantId}`;
-const cacheLastSuccessKey = `${PRODUCT_CACHE_KEY_PREFIX}:last-success`;
-
-const readProductCache = (key: string): ProductCachePayload | null => {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as ProductCachePayload;
-    if (!parsed?.at || !Array.isArray(parsed?.products)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-};
-
-const writeProductCache = (key: string, payload: ProductCachePayload) => {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(payload));
-  } catch {
-    // Ignore quota/storage errors
-  }
-};
-
-const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, layoutStyle = "cards" }: ProductGridProps) => {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [warningMessage, setWarningMessage] = useState<string | null>(null);
+const ProductGrid = ({
+  category,
+  products: productsOverride,
+  loadingOverride,
+  errorMessageOverride,
+  warningMessageOverride,
+  columns = 4,
+  buttonConfig,
+  backgroundConfig,
+  layoutStyle = "cards",
+}: ProductGridProps) => {
+  const catalog = useStorefrontCatalog({ enabled: !productsOverride });
   const settings = useShopSettings();
+  const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
+  const activeBranding = (isPreviewMode && previewBranding)
+    ? previewBranding
+    : settings.data?.branding;
+  const selectedIconPackId = activeBranding?.selectedIconPackId || "classic";
+  const products = productsOverride ?? catalog.products;
+  const loading = loadingOverride ?? catalog.loading;
+  const errorMessage = errorMessageOverride ?? catalog.errorMessage;
+  const warningMessage = warningMessageOverride ?? catalog.warningMessage;
 
-  useEffect(() => {
-    const fetchAndLoadPrices = async () => {
-      // Wait for settings to load
-      if (settings.isLoading) return;
-      setLoading(true);
-
-      const tenantId = settings.data?.id || '00000000-0000-0000-0000-000000000000'; // Fallback to Master if critical failure
-      const tenantCacheKey = cacheKeyForTenant(tenantId);
-
-      try {
-        setErrorMessage(null);
-        setWarningMessage(null);
-        const { data, error } = await supabase
-          .from('products')
-          .select(`
-            id, 
-            name, 
-            icon_text,
-            description,
-            slug, 
-            image_url, 
-            category,
-            pricing_type,
-            default_variant,
-            default_quantity,
-            banner_config,
-            tooltip_product,
-            tooltip_price
-          `)
-          .eq('is_published', true)
-          // Temporary rollback: hide merged folder-project from storefront.
-          .neq('slug', 'folder-project')
-          .eq('tenant_id', tenantId) // Filter by resolved Tenant
-          .order('name');
-
-        if (error) throw error;
-
-        const productsData = (data || []) as Product[];
-
-        // Load prices for all products
-        const productsWithPrices = await Promise.all(
-          productsData.map(async (product) => ({
-            ...product,
-            displayPrice: await getProductDisplayPrice(product)
-          }))
-        );
-
-        setProducts(productsWithPrices);
-        const payload: ProductCachePayload = {
-          at: Date.now(),
-          tenantId,
-          products: productsWithPrices,
-        };
-        writeProductCache(tenantCacheKey, payload);
-        writeProductCache(cacheLastSuccessKey, payload);
-      } catch (error) {
-        console.error('Error fetching products:', error);
-        if (isTransportError(error)) {
-          const tenantCache = readProductCache(tenantCacheKey);
-          const globalCache = readProductCache(cacheLastSuccessKey);
-          const candidateCache = tenantCache || globalCache;
-          const isFresh = !!candidateCache && (Date.now() - candidateCache.at) <= PRODUCT_CACHE_TTL_MS;
-          if (isFresh && candidateCache) {
-            setProducts(candidateCache.products);
-            setWarningMessage('Viser senest gemte produkter, fordi backend-forbindelsen fejler midlertidigt.');
-            setErrorMessage(null);
-          } else {
-            setProducts([]);
-            setWarningMessage(null);
-            setErrorMessage('Kunne ikke hente produkter lige nu. Backend-forbindelsen fejler midlertidigt.');
-          }
-        } else {
-          setProducts([]);
-          setWarningMessage(null);
-          setErrorMessage('Kunne ikke hente produkter.');
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchAndLoadPrices();
-  }, [settings.data?.id, settings.isLoading]);
-
-  const filteredProducts = products.filter((p) => p.category === category);
+  const filteredProducts = products.filter((product) => {
+    const productCategory = product.categoryKey || normalizeProductCategoryKey(product.category);
+    return productCategory === normalizeProductCategoryKey(category);
+  });
 
   if (loading) {
     return <div className="text-center py-8">Indlæser produkter...</div>;
@@ -269,6 +135,7 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
   const isGroupedLayout = layoutStyle === "grouped";
   const isFlatLayout = layoutStyle === "flat";
   const isSlimLayout = layoutStyle === "slim";
+  const isCardLayout = layoutStyle === "cards";
   const useCardBackground = layoutStyle === "cards" || layoutStyle === "slim";
   const cardFrameClass = (isGroupedLayout || isFlatLayout) ? "bg-transparent border-transparent shadow-none" : "";
   const cardStyle = useCardBackground ? cardBackgroundStyle : undefined;
@@ -298,6 +165,45 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
             // Extract special badge config from banner_config
             const badgeConfig = (product.banner_config as any)?.special_badge as ProductBadgeConfig | undefined;
             const isHoverBadge = badgeConfig?.showOnHover;
+            const imageScalePct = Math.max(60, Math.min(140, Number((product.banner_config as any)?.image_scale_pct) || 100));
+            const hoverImageUrl = (product.banner_config as any)?.hover_image_url;
+
+            const productImage = (
+              <Link
+                to={`/produkt/${product.slug}`}
+                className={cn(
+                  "block overflow-hidden relative group flex items-center justify-center",
+                  !isFlatLayout && !isSlimLayout && "p-2",
+                  !isFlatLayout && !isSlimLayout && !isCardLayout && "bg-white",
+                  isSlimLayout
+                    ? "absolute -top-5 -right-3 w-36 h-36 z-0"
+                    : "w-full h-36 rounded-lg mb-1"
+                )}
+              >
+                <img
+                  src={getProductImage(product.slug, product.image_url)}
+                  alt={product.name}
+                  className={`w-full h-full object-contain transition-all duration-300 ${!hoverImageUrl ? 'hover:scale-110' : 'group-hover:opacity-0'}`}
+                  style={{
+                    filter: 'var(--product-filter)',
+                    width: `${imageScalePct}%`,
+                    height: `${imageScalePct}%`
+                  }}
+                />
+                {hoverImageUrl && (
+                  <img
+                    src={hoverImageUrl}
+                    alt={`${product.name} hover`}
+                    className="absolute inset-0 m-auto w-full h-full object-contain opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                    style={{
+                      filter: 'var(--product-filter)',
+                      width: `${imageScalePct}%`,
+                      height: `${imageScalePct}%`
+                    }}
+                  />
+                )}
+              </Link>
+            );
 
             return (
               <Tooltip key={product.id}>
@@ -306,7 +212,7 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
                     className={cn(
                       "hover:shadow-lg transition-shadow cursor-pointer w-full mx-auto relative overflow-visible group flex flex-col h-full",
                       cardWidthClass,
-                      isSlimLayout && "min-h-[150px]",
+                      isSlimLayout && "min-h-[165px]",
                       isFlatLayout && "shadow-none hover:shadow-none",
                       cardFrameClass,
                     )}
@@ -319,36 +225,8 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
                         className={isHoverBadge ? "opacity-0 group-hover:opacity-100 transition-opacity duration-300" : ""}
                       />
                     )}
-                    <CardHeader className={cn("p-4", isSlimLayout && "relative pt-9 pb-2 pl-5 pr-26")}>
-                      {(() => {
-                        const hoverImageUrl = (product.banner_config as any)?.hover_image_url;
-                        return (
-                          <Link
-                            to={`/produkt/${product.slug}`}
-                            className={cn(
-                              "block overflow-hidden relative group flex items-center justify-center",
-                              isSlimLayout
-                                ? "absolute -top-6 -right-3 w-32 h-32 rounded-lg"
-                                : "w-full h-36 rounded-lg mb-1"
-                            )}
-                          >
-                            <img
-                              src={getProductImage(product.slug, product.image_url)}
-                              alt={product.name}
-                              className={`w-full h-full object-contain transition-all duration-300 ${!hoverImageUrl ? 'hover:scale-110' : 'group-hover:opacity-0'}`}
-                              style={{ filter: 'var(--product-filter)' }}
-                            />
-                            {hoverImageUrl && (
-                              <img
-                                src={hoverImageUrl}
-                                alt={`${product.name} hover`}
-                                className="absolute inset-0 w-full h-full object-contain opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                                style={{ filter: 'var(--product-filter)' }}
-                              />
-                            )}
-                          </Link>
-                        );
-                      })()}
+                    <CardHeader className={cn("p-4", isSlimLayout && "relative z-10 pt-5 pb-2 pl-5 pr-28")}>
+                      {productImage}
                       <div className="flex items-center gap-2">
                         <CardTitle className="text-lg">{product.icon_text || product.name}</CardTitle>
                         {product.tooltip_product && (
@@ -356,7 +234,7 @@ const ProductGrid = ({ category, columns = 4, buttonConfig, backgroundConfig, la
                         )}
                       </div>
                     </CardHeader>
-                    <CardContent className={cn("px-4 pb-3", isSlimLayout && "pt-0 px-5 pb-3")}>
+                    <CardContent className={cn("px-4 pb-3", isSlimLayout && "relative z-10 pt-0 px-5 pb-3 pr-28")}>
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           {(() => {

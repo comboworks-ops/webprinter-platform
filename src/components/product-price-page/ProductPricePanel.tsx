@@ -13,6 +13,8 @@ type ProductPricePanelProps = {
   quantity: number;
   productPrice: number;
   extraPrice?: number;
+  deliveryBusinessDayOffset?: number;
+  orderValidationError?: string | null;
   onShippingChange?: (type: string | null, cost: number) => void;
   summary?: string;
   optionSelections?: Record<string, { optionId: string; name: string; extraPrice: number; priceMode: "fixed" | "per_quantity" | "per_area" }>;
@@ -108,6 +110,8 @@ export function ProductPricePanel({
   quantity,
   productPrice,
   extraPrice = 0,
+  deliveryBusinessDayOffset = 0,
+  orderValidationError,
   onShippingChange,
   summary,
   optionSelections,
@@ -131,7 +135,9 @@ export function ProductPricePanel({
   const [designReady, setDesignReady] = useState(false);
   const [now, setNow] = useState<Date>(() => new Date());
 
-  const baseTotal = Math.round(productPrice + extraPrice);
+  const normalizedProductPrice = Number.isFinite(Number(productPrice)) ? Math.round(Number(productPrice)) : 0;
+  const normalizedExtraPrice = Number.isFinite(Number(extraPrice)) ? Math.round(Number(extraPrice)) : 0;
+  const baseTotal = Math.round(normalizedProductPrice + normalizedExtraPrice);
   const manualDeliveryMethods: DeliveryMethod[] = (orderDeliveryConfig?.delivery?.methods || []).length > 0
     ? orderDeliveryConfig.delivery.methods
     : DEFAULT_DELIVERY_METHODS;
@@ -486,7 +492,7 @@ export function ProductPricePanel({
 
     // Price breakdown box
     doc.setFillColor(lightBlue[0], lightBlue[1], lightBlue[2]);
-    doc.roundedRect(15, yPos - 3, 180, 40 + (extraPrice > 0 ? 5 : 0), 2, 2, 'F');
+    doc.roundedRect(15, yPos - 3, 180, 40 + (normalizedExtraPrice > 0 ? 5 : 0), 2, 2, 'F');
 
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
@@ -498,12 +504,12 @@ export function ProductPricePanel({
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
     doc.text('Produktpris:', 20, yPos);
-    doc.text(`${productPrice} kr`, 180, yPos, { align: 'right' });
+    doc.text(`${normalizedProductPrice} kr`, 180, yPos, { align: 'right' });
     yPos += 6;
 
-    if (extraPrice > 0) {
+    if (normalizedExtraPrice > 0) {
       doc.text('Tilvalg i alt:', 20, yPos);
-      doc.text(`${extraPrice} kr`, 180, yPos, { align: 'right' });
+      doc.text(`${normalizedExtraPrice} kr`, 180, yPos, { align: 'right' });
       yPos += 6;
     }
 
@@ -545,6 +551,7 @@ export function ProductPricePanel({
   };
 
   const handleOrderClick = () => {
+    if (orderValidationError) return;
     navigate('/checkout/konfigurer', {
       state: {
         productId,
@@ -657,9 +664,15 @@ export function ProductPricePanel({
                 size="lg"
                 className="px-6 py-6 text-lg font-semibold"
                 onClick={handleOrderClick}
+                disabled={!!orderValidationError}
               >
                 Bestil nu!
               </Button>
+              {orderValidationError && (
+                <p className="text-xs text-destructive max-w-[260px]">
+                  {orderValidationError}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -687,6 +700,9 @@ export function ProductPricePanel({
               const minDays = baseDays > 0 ? baseDays : (typeof method.lead_time_days === "number" ? method.lead_time_days : 0);
               const windowDays = method.delivery_window_days ?? 0;
               const maxDays = minDays + Math.max(0, windowDays);
+              // Fast production can pull the estimate forward, but never below the shipping leg itself.
+              const adjustedMinDays = Math.max(Math.max(0, shippingDays), minDays - Math.max(0, deliveryBusinessDayOffset));
+              const adjustedMaxDays = Math.max(adjustedMinDays, maxDays - Math.max(0, deliveryBusinessDayOffset));
               const hasFixedDeliveryDate = !!method.delivery_date;
               const cutoffDate = hasFixedDeliveryDate ? null : getNextCutoffDate(method);
               const countdownLabel = cutoffDate ? formatCountdown(cutoffDate.getTime() - now.getTime()) : null;
@@ -707,10 +723,10 @@ export function ProductPricePanel({
               const fixedDeliveryDate = method.delivery_date ? new Date(method.delivery_date) : null;
               const earliestDelivery = fixedDeliveryDate
                 ? fixedDeliveryDate
-                : (minDays > 0 ? addBusinessDays(orderDate, minDays) : null);
+                : (adjustedMinDays > 0 ? addBusinessDays(orderDate, adjustedMinDays) : orderDate);
               const latestDelivery = fixedDeliveryDate
                 ? fixedDeliveryDate
-                : (maxDays > 0 ? addBusinessDays(orderDate, maxDays) : null);
+                : (adjustedMaxDays > 0 ? addBusinessDays(orderDate, adjustedMaxDays) : orderDate);
               const deliveryDateLabel = earliestDelivery && latestDelivery
                 ? earliestDelivery.toDateString() === latestDelivery.toDateString()
                   ? `Levering: ${formatDeliveryDateShort(earliestDelivery)}`

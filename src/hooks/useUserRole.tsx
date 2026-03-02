@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveAdminTenant, MASTER_TENANT_ID } from '@/lib/adminTenant';
 
@@ -12,27 +12,50 @@ const EMAIL_ROLE_MAP: Record<string, UserRole> = {
   'online-trukserre@gmail.com': 'admin',
 };
 
+const isAbortLikeError = (error: unknown) => {
+  const name = (error as any)?.name;
+  const message = String((error as any)?.message || '');
+  return name === 'AbortError' || message.toLowerCase().includes('signal is aborted');
+};
+
+const isTransientAuthFetchError = (error: unknown) => {
+  const name = String((error as any)?.name || '');
+  const message = String((error as any)?.message || '').toLowerCase();
+  return name === 'AuthRetryableFetchError' || message.includes('failed to fetch');
+};
+
 export const useUserRole = () => {
   const [role, setRole] = useState<UserRole>(null);
   const [loading, setLoading] = useState(true);
   const [serverVerified, setServerVerified] = useState(false);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
-    const fetchUserRole = async () => {
-      try {
-        // Try primary user fetch
-        let user = (await supabase.auth.getUser()).data.user;
+    let active = true;
 
-        // Fallback: try session if user is null (avoids occasional null from getUser)
+    const fetchUserRole = async () => {
+      const requestId = ++requestIdRef.current;
+      const setIfActive = (fn: () => void) => {
+        if (!active) return;
+        if (requestId !== requestIdRef.current) return;
+        fn();
+      };
+
+      try {
+        // Prefer session-based user lookup to avoid excessive auth network calls.
+        let user = (await supabase.auth.getSession()).data.session?.user ?? null;
+
+        // Fallback to remote user fetch only when no local session user is available.
         if (!user) {
-          const { data: sessionData } = await supabase.auth.getSession();
-          user = sessionData.session?.user ?? null;
+          user = (await supabase.auth.getUser()).data.user;
         }
 
         if (!user) {
-          setRole(null);
-          setServerVerified(false);
-          setLoading(false);
+          setIfActive(() => {
+            setRole(null);
+            setServerVerified(false);
+            setLoading(false);
+          });
           return;
         }
 
@@ -41,9 +64,11 @@ export const useUserRole = () => {
         const fallbackRole = EMAIL_ROLE_MAP[email] || null;
         if (fallbackRole) {
           // Whitelisted emails: trust the fallback and skip DB fetch to avoid lockouts
-          setRole(fallbackRole);
-          setServerVerified(true);
-          setLoading(false);
+          setIfActive(() => {
+            setRole(fallbackRole);
+            setServerVerified(true);
+            setLoading(false);
+          });
           return;
         }
 
@@ -62,11 +87,15 @@ export const useUserRole = () => {
             .maybeSingle();
 
           if (owned) {
-            setRole('admin');
-            setServerVerified(true);
+            setIfActive(() => {
+              setRole('admin');
+              setServerVerified(true);
+            });
           } else {
-            setRole(null);
-            setServerVerified(false);
+            setIfActive(() => {
+              setRole(null);
+              setServerVerified(false);
+            });
           }
         } else {
           const roles: UserRole[] = (data || []).map((r: any) => r.role);
@@ -81,14 +110,18 @@ export const useUserRole = () => {
               const { tenantId } = await resolveAdminTenant();
               if (tenantId && tenantId !== MASTER_TENANT_ID) {
                 console.log('[useUserRole] Masking Master Admin as Admin for tenant:', tenantId);
-                setRole('admin');
-                setServerVerified(true);
+                setIfActive(() => {
+                  setRole('admin');
+                  setServerVerified(true);
+                });
                 return;
               }
             }
 
-            setRole(userRole);
-            setServerVerified(userRole === 'admin' || userRole === 'master_admin');
+            setIfActive(() => {
+              setRole(userRole);
+              setServerVerified(userRole === 'admin' || userRole === 'master_admin');
+            });
           } else {
             const { data: owned } = await supabase
               .from('tenants' as any)
@@ -97,30 +130,43 @@ export const useUserRole = () => {
               .maybeSingle();
 
             if (owned) {
-              setRole('admin');
-              setServerVerified(true);
+              setIfActive(() => {
+                setRole('admin');
+                setServerVerified(true);
+              });
             } else {
-              setRole(null);
-              setServerVerified(false);
+              setIfActive(() => {
+                setRole(null);
+                setServerVerified(false);
+              });
             }
           }
         }
       } catch (error) {
-        console.error('Error in useUserRole:', error);
-        setRole(null);
-        setServerVerified(false);
+        if (!isAbortLikeError(error) && !isTransientAuthFetchError(error)) {
+          console.error('Error in useUserRole:', error);
+        }
+        setIfActive(() => {
+          setRole(null);
+          setServerVerified(false);
+        });
       } finally {
-        setLoading(false);
+        setIfActive(() => {
+          setLoading(false);
+        });
       }
     };
 
-    fetchUserRole();
+    void fetchUserRole();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-      fetchUserRole();
+      void fetchUserRole();
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   return {

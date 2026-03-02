@@ -52,3 +52,37 @@ dist-ssr
 !src/**/*.js
 !src/**/*.jsx
 !scripts/log-push-ready.mjs
+!scripts/fetch-pixart-flat-surface-adhesive-import.mjs
+!scripts/fetch2-wmd-roll-labels.mjs
+!scripts/fetch-tueranhaenger-modern-40-import.js
+!scripts/fetch-visit-card-import.js
+!scripts/fetch-roll-up-import.js
+!scripts/fetch-silketryk-tshirt-import.mjs
+!scripts/fetch-silketryk-tshirt-import.js
+!scripts/fetch-silketryk-tshirt2-import.mjs
+!scripts/fetch-silketryk-tshirt2-import.js
+!scripts/fetch-color-tshirt-import.mjs
+!scripts/fetch-color-tshirt-import.js
+!scripts/fetch-color-tshirt-4x4-import.mjs
+!scripts/fetch-color-tshirt-4x4-import.js
+!scripts/product-import/tshirt-size-distribution-lock.js
+
+# Local agent / scratch artifacts
+.playwright-mcp/
+.archive/
+.claude/
+node_modules_to_delete/
+.agent/SESSION_LOG_*.md
+.agent/SAFETY_AUDIT_*.md
+
+# Generated supplier exports
+pricing_raw/*
+!pricing_raw/.gitkeep
+pricing_clean/*
+!pricing_clean/.gitkeep
+
+# One-off scratch files
+diff_output.txt
+test-drop.ts
+webprinter_home.png
+Salgsmapper_A4_4plus4_pricinghub_import_ready.csv

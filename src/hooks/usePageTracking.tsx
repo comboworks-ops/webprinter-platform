@@ -1,22 +1,42 @@
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { useCookieConsent } from '@/components/consent';
 
 // Generate or get a persistent visitor ID
+const VISITOR_ID_STORAGE_KEY = 'visitor_id';
+
 const getVisitorId = (): string => {
-    let visitorId = localStorage.getItem('visitor_id');
+    let visitorId = localStorage.getItem(VISITOR_ID_STORAGE_KEY);
     if (!visitorId) {
         visitorId = crypto.randomUUID();
-        localStorage.setItem('visitor_id', visitorId);
+        localStorage.setItem(VISITOR_ID_STORAGE_KEY, visitorId);
     }
     return visitorId;
 };
 
-export function usePageTracking() {
+const clearVisitorId = () => {
+    localStorage.removeItem(VISITOR_ID_STORAGE_KEY);
+};
+
+export function usePageTracking(enabled: boolean) {
     const location = useLocation();
     const lastTrackedPath = useRef<string | null>(null);
+    const hostname = window.location.hostname;
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
 
     useEffect(() => {
+        if (!enabled) {
+            lastTrackedPath.current = null;
+            clearVisitorId();
+            return;
+        }
+
+        // Local development should not spam backend tracking endpoints.
+        if (isLocalhost) {
+            return;
+        }
+
         // Don't track admin pages
         if (location.pathname.startsWith('/admin')) {
             return;
@@ -46,10 +66,11 @@ export function usePageTracking() {
         };
 
         trackPageView();
-    }, [location.pathname]);
+    }, [enabled, location.pathname, isLocalhost]);
 }
 
 export function PageTracker() {
-    usePageTracking();
+    const { hasCategory } = useCookieConsent();
+    usePageTracking(hasCategory('statistics'));
     return null;
 }

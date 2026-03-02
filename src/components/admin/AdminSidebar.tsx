@@ -420,6 +420,14 @@ export function AdminSidebar() {
                     </AdminNavLink>
                   </SidebarMenuItem>
 
+                  {/* Sites */}
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/sites">
+                      <Globe className="h-4 w-4" />
+                      {!collapsed && <span>Sites</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+
                   {/* Maskin-beregning */}
                   <SidebarMenuItem>
                     <AdminNavLink to="/admin/machine-pricing">

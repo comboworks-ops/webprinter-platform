@@ -89,7 +89,8 @@ export function TenantUpdates() {
             fetchNotifications();
         } catch (error) {
             console.error('Error importing product:', error);
-            toast.error('Kunne ikke importere produkt');
+            const message = error instanceof Error ? error.message : 'Ukendt fejl';
+            toast.error(`Kunne ikke importere produkt: ${message}`);
         } finally {
             setProcessingId(null);
         }

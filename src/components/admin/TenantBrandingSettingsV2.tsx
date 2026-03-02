@@ -1,16 +1,17 @@
-
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { BrandingEditorV2 } from "@/components/admin/BrandingEditorV2";
 import { useSidebar } from "@/components/ui/sidebar";
+import { supabase } from "@/integrations/supabase/client";
+import { resolveAdminTenant } from "@/lib/adminTenant";
 import {
     createTenantAdapter,
     TENANT_CAPABILITIES,
 } from "@/lib/branding";
-import { useShopSettings } from "@/hooks/useShopSettings";
 
 export function TenantBrandingSettingsV2() {
-    const { data: tenant, isLoading } = useShopSettings();
+    const [tenant, setTenant] = useState<{ id: string; tenant_name: string } | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
     const { setOpen } = useSidebar();
     const hasOpenedSidebarRef = useRef(false);
 
@@ -22,6 +23,49 @@ export function TenantBrandingSettingsV2() {
         setOpen(true);
         hasOpenedSidebarRef.current = true;
     }, [setOpen]);
+
+    useEffect(() => {
+        let active = true;
+
+        const loadTenant = async () => {
+            try {
+                const { tenantId } = await resolveAdminTenant();
+                if (!tenantId) {
+                    if (active) setTenant(null);
+                    return;
+                }
+
+                const { data, error } = await (supabase.from("tenants") as any)
+                    .select("id, name")
+                    .eq("id", tenantId)
+                    .maybeSingle();
+
+                if (error) throw error;
+
+                if (!active) return;
+
+                if (data?.id) {
+                    setTenant({
+                        id: data.id,
+                        tenant_name: data.name || "Min Shop",
+                    });
+                } else {
+                    setTenant(null);
+                }
+            } catch (error) {
+                console.error("[TenantBrandingSettingsV2] Failed to resolve tenant context:", error);
+                if (active) setTenant(null);
+            } finally {
+                if (active) setIsLoading(false);
+            }
+        };
+
+        void loadTenant();
+
+        return () => {
+            active = false;
+        };
+    }, []);
 
     if (isLoading) {
         return (

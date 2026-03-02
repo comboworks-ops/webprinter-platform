@@ -72,7 +72,9 @@ type StorformatCalculationInput = {
   quantity: number;
   material: StorformatMaterial;
   finish?: StorformatFinish | null;
+  finishes?: StorformatFinish[] | null;
   product?: StorformatProduct | null;
+  products?: StorformatProduct[] | null;
   config: StorformatConfig;
 };
 
@@ -181,7 +183,9 @@ export const calculateStorformatPrice = ({
   quantity,
   material,
   finish,
+  finishes,
   product,
+  products,
   config
 }: StorformatCalculationInput): StorformatCalculationResult => {
   const areaM2 = (widthMm * heightMm) / 1_000_000;
@@ -196,40 +200,53 @@ export const calculateStorformatPrice = ({
 
   const materialCost = materialPricePerM2 * totalAreaM2;
 
+  const selectedFinishes = (
+    Array.isArray(finishes) && finishes.length ? finishes : finish ? [finish] : []
+  ).filter(Boolean);
+
   let finishPricePerM2 = 0;
   let finishCost = 0;
-  if (finish) {
-    if (finish.pricing_mode === "fixed") {
-      const base = (finish.fixed_price_per_unit || 0) * quantity;
-      finishCost = applyMarkup(base, finish.markup_pct);
-    } else {
-      finishPricePerM2 = resolveTierPricePerM2(
-        totalAreaM2,
-        finish.tiers || [],
-        !!finish.interpolation_enabled,
-        finish.markup_pct
-      );
-      finishCost = finishPricePerM2 * totalAreaM2;
+  selectedFinishes.forEach((selectedFinish) => {
+    if (selectedFinish.pricing_mode === "fixed") {
+      const base = (selectedFinish.fixed_price_per_unit || 0) * quantity;
+      finishCost += applyMarkup(base, selectedFinish.markup_pct);
+      return;
     }
-  }
+
+    const componentPricePerM2 = resolveTierPricePerM2(
+      totalAreaM2,
+      selectedFinish.tiers || [],
+      !!selectedFinish.interpolation_enabled,
+      selectedFinish.markup_pct
+    );
+    finishPricePerM2 += componentPricePerM2;
+    finishCost += componentPricePerM2 * totalAreaM2;
+  });
+
+  const selectedProducts = (
+    Array.isArray(products) && products.length ? products : product ? [product] : []
+  ).filter(Boolean);
 
   let productPricePerM2 = 0;
   let productCost = 0;
-  if (product) {
-    if (product.pricing_mode === "fixed") {
-      const fixedPrice = (product.fixed_prices || []).find((p) => p.quantity === quantity)?.price ?? 0;
-      const base = (product.initial_price || 0) + fixedPrice;
-      productCost = applyMarkup(base, product.markup_pct);
-    } else {
-      productPricePerM2 = resolveTierPricePerM2(
-        totalAreaM2,
-        product.tiers || [],
-        !!product.interpolation_enabled,
-        product.markup_pct
-      );
-      productCost = productPricePerM2 * totalAreaM2;
+  selectedProducts.forEach((selectedProduct) => {
+    if (selectedProduct.pricing_mode === "fixed") {
+      const fixedPrice =
+        (selectedProduct.fixed_prices || []).find((p) => p.quantity === quantity)?.price ?? 0;
+      const base = (selectedProduct.initial_price || 0) + fixedPrice;
+      productCost += applyMarkup(base, selectedProduct.markup_pct);
+      return;
     }
-  }
+
+    const componentPricePerM2 = resolveTierPricePerM2(
+      totalAreaM2,
+      selectedProduct.tiers || [],
+      !!selectedProduct.interpolation_enabled,
+      selectedProduct.markup_pct
+    );
+    productPricePerM2 += componentPricePerM2;
+    productCost += componentPricePerM2 * totalAreaM2;
+  });
 
   const subtotal = materialCost + finishCost + productCost;
   const markup = config.global_markup_pct || 0;

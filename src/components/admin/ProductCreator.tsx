@@ -20,6 +20,18 @@ interface Category {
   is_published?: boolean;
 }
 
+type DbErrorLike = {
+  code?: string | null;
+  message?: string | null;
+  details?: string | null;
+};
+
+const isMissingCategoryPublishedColumn = (error: unknown) => {
+  const e = (error || {}) as DbErrorLike;
+  const text = `${e.message || ''} ${e.details || ''}`.toLowerCase();
+  return e.code === '42703' || e.code === 'PGRST204' || text.includes('is_published');
+};
+
 // Default categories (always shown)
 const DEFAULT_CATEGORIES: Omit<Category, 'id'>[] = [
   { name: "Tryksager", slug: "tryksager", is_published: true },
@@ -39,7 +51,7 @@ export function ProductCreator() {
   const [formData, setFormData] = useState({
     name: "",
     slug: "",
-    category: "tryksager",
+    category: "Tryksager",
     presetKey: "custom" as PresetKey,
   });
 
@@ -58,7 +70,29 @@ export function ProductCreator() {
         .eq('tenant_id', tenantId)
         .order('sort_order');
 
-      if (error) throw error;
+      if (error) {
+        if (isMissingCategoryPublishedColumn(error)) {
+          const fallback = await supabase
+            .from('product_categories' as any)
+            .select('id, name, slug')
+            .eq('tenant_id', tenantId)
+            .order('sort_order');
+          if (fallback.error) throw fallback.error;
+          const fallbackCategories = ((fallback.data as unknown as Category[]) || []).map((c) => ({
+            ...c,
+            is_published: true,
+          }));
+          const mergedFallback: Category[] = [...fallbackCategories];
+          DEFAULT_CATEGORIES.forEach(defaultCat => {
+            if (!mergedFallback.find(c => c.slug === defaultCat.slug)) {
+              mergedFallback.push({ ...defaultCat, id: defaultCat.slug });
+            }
+          });
+          setCategories(mergedFallback);
+          return;
+        }
+        throw error;
+      }
 
       const dbCategories = (data as unknown as Category[]) || [];
       const mergedCategories: Category[] = [...dbCategories];
@@ -107,6 +141,30 @@ export function ProductCreator() {
         .single();
 
       if (error) {
+        if (isMissingCategoryPublishedColumn(error)) {
+          const fallbackInsert = await supabase
+            .from('product_categories' as any)
+            .insert({
+              tenant_id: tenantId,
+              name: newCategoryName.trim(),
+              slug,
+              sort_order: categories.length + 1,
+            })
+            .select()
+            .single();
+          if (fallbackInsert.error) throw fallbackInsert.error;
+          const newCat = {
+            ...(fallbackInsert.data as unknown as Category),
+            is_published: true,
+          };
+          toast.success(`Kategori "${newCategoryName}" oprettet`);
+          setCategories(prev => [...prev, newCat]);
+          setFormData(prev => ({ ...prev, category: newCat.slug }));
+          setNewCategoryName("");
+          setNewCategoryPublished(true);
+          setCategoryDialogOpen(false);
+          return;
+        }
         if (error.code === '23505') {
           throw new Error("Kategori med dette navn findes allerede");
         }

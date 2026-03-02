@@ -1,0 +1,43 @@
+version: 1
+tenant_id: "00000000-0000-0000-0000-000000000000"
+
+product:
+  name: "Example UL Produkt"
+  slug: "example-ul-product"
+  description: "Eksempelprodukt oprettet fra blueprint + UL-prisimport."
+  category: "tryksager"
+  preset_key: "custom"
+  icon_text: "Example UL Produkt"
+  technical_specs:
+    width_mm: 210
+    height_mm: 297
+    bleed_mm: 3
+    min_dpi: 300
+    is_free_form: false
+    standard_format: "A4"
+
+matrix:
+  vertical_axis: "materials"
+  format:
+    group_name: "Format"
+    value_name: "Standard"
+    width_mm: 210
+    height_mm: 297
+  material:
+    group_name: "Materiale"
+    value_name: "Standard"
+
+pricing_import:
+  type: "ul_prices"
+  url: "https://example.com/"
+  ul_selector: "ul"
+  eur_to_dkk: 7.5
+  rounding_step: 1
+  default_quantity_start: 1
+  default_quantity_step: 1
+  tiers:
+    - max_dkk_base: 3000
+      multiplier: 1.5
+    - max_dkk_base: 10000
+      multiplier: 1.4
+    - multiplier: 1.3

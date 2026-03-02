@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Loader2, Upload, AlertCircle, CheckCircle2, FileText, ArrowRight, Download, Info, Zap, Sparkles, Package, X } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
@@ -43,6 +44,20 @@ interface TemplateFile {
     uploadedAt: string;
 }
 
+type OptionPriceMode = "fixed" | "per_quantity" | "per_area";
+
+interface CheckoutOptionSelection {
+    optionId: string;
+    name: string;
+    extraPrice: number;
+    priceMode: OptionPriceMode;
+}
+
+interface SizeDistributionField {
+    key: string;
+    label: string;
+}
+
 const STANDARD_SPECS: Record<string, { width_mm: number; height_mm: number; min_dpi: number }> = {
     "A6": { width_mm: 105, height_mm: 148, min_dpi: 300 },
     "M65": { width_mm: 99, height_mm: 210, min_dpi: 300 },
@@ -54,6 +69,51 @@ const STANDARD_SPECS: Record<string, { width_mm: number; height_mm: number; min_
     "A0": { width_mm: 841, height_mm: 1189, min_dpi: 300 },
     "standard": { width_mm: 85, height_mm: 55, min_dpi: 300 }, // Visitkort
     "85x55": { width_mm: 85, height_mm: 55, min_dpi: 300 },
+};
+
+const SIZE_OPTION_PREFIX = "size-dist-";
+
+const toSafeKey = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+const parseSizeValueFromName = (name: string): number => {
+    const match = String(name || "").match(/:\s*([0-9]+)/);
+    if (!match) return 0;
+    const parsed = Number(match[1]);
+    if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+    return Math.floor(parsed);
+};
+
+const normalizeOptionSelections = (raw: unknown): Record<string, CheckoutOptionSelection> => {
+    if (!raw || typeof raw !== "object") return {};
+
+    const entries = Object.entries(raw as Record<string, any>);
+    const normalized: Record<string, CheckoutOptionSelection> = {};
+
+    entries.forEach(([entryKey, value], idx) => {
+        if (!value || typeof value !== "object") return;
+        const optionId = String(value.optionId || entryKey || `opt-${idx}`);
+        const name = String(value.name || "").trim();
+        if (!name) return;
+
+        const extraPriceRaw = Number(value.extraPrice || 0);
+        const extraPrice = Number.isFinite(extraPriceRaw) ? extraPriceRaw : 0;
+
+        const priceModeRaw = String(value.priceMode || "fixed");
+        const priceMode: OptionPriceMode =
+            priceModeRaw === "per_quantity" || priceModeRaw === "per_area"
+                ? priceModeRaw
+                : "fixed";
+
+        normalized[optionId] = {
+            optionId,
+            name,
+            extraPrice,
+            priceMode,
+        };
+    });
+
+    return normalized;
 };
 
 const FileUploadConfiguration = () => {
@@ -99,14 +159,185 @@ const FileUploadConfiguration = () => {
     const [orderPrice, setOrderPrice] = useState<number>(state?.totalPrice || 0);
     const [matrix, setMatrix] = useState<{ rows: string[], columns: number[], cells: any } | null>(null);
     const [upsellOptions, setUpsellOptions] = useState<{ quantity: number, price: number, savingPercent: number }[]>([]);
+    const [sizeDistributionValues, setSizeDistributionValues] = useState<Record<string, number>>({});
 
     // Stripe payment state
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null);
     const [paymentConnectedAccountId, setPaymentConnectedAccountId] = useState<string | null>(null);
     const [paymentSuccess, setPaymentSuccess] = useState(false);
+    const [createdOrderNumber, setCreatedOrderNumber] = useState<string | null>(null);
+    const [orderPersistWarning, setOrderPersistWarning] = useState<string | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const baseOptionSelections = useMemo(
+        () => normalizeOptionSelections(state?.optionSelections),
+        [state?.optionSelections]
+    );
+
+    const sizeDistributionConfig = useMemo(() => {
+        const raw = product?.technical_specs?.size_distribution;
+        if (!raw?.enabled) return null;
+
+        const rawFields = Array.isArray(raw.fields) ? raw.fields : [];
+        const fields: SizeDistributionField[] = rawFields
+            .map((field: any, index: number) => {
+                if (typeof field === "string") {
+                    const label = field.trim();
+                    if (!label) return null;
+                    return {
+                        key: toSafeKey(label) || `field-${index + 1}`,
+                        label,
+                    };
+                }
+
+                if (field && typeof field === "object") {
+                    const label = String(field.label || field.name || field.key || "").trim();
+                    if (!label) return null;
+                    const key = toSafeKey(String(field.key || "")) || toSafeKey(label) || `field-${index + 1}`;
+                    return { key, label };
+                }
+
+                return null;
+            })
+            .filter(Boolean) as SizeDistributionField[];
+
+        if (fields.length === 0) return null;
+
+        return {
+            title: String(raw.title || "Størrelsesfordeling"),
+            enforceQuantityMatch: raw.enforce_quantity_match !== false,
+            fields,
+        };
+    }, [product?.technical_specs?.size_distribution]);
+
+    const sizeDistributionFields = sizeDistributionConfig?.fields || [];
+
+    const nonSizeOptionSelections = useMemo(() => {
+        return Object.fromEntries(
+            Object.entries(baseOptionSelections).filter(([entryKey, option]) => {
+                const candidateId = String(option.optionId || entryKey);
+                return !candidateId.startsWith(SIZE_OPTION_PREFIX);
+            })
+        );
+    }, [baseOptionSelections]);
+
+    useEffect(() => {
+        if (!sizeDistributionConfig) {
+            setSizeDistributionValues((prev) => (Object.keys(prev).length > 0 ? {} : prev));
+            return;
+        }
+
+        const allowedKeys = new Set(sizeDistributionFields.map((field) => field.key));
+        setSizeDistributionValues((prev) => {
+            const next: Record<string, number> = {};
+            let changed = false;
+
+            sizeDistributionFields.forEach((field) => {
+                const current = Number(prev[field.key] || 0);
+                next[field.key] = Number.isFinite(current) && current > 0 ? Math.floor(current) : 0;
+            });
+
+            const hasExistingValues = sizeDistributionFields.some((field) => (next[field.key] || 0) > 0);
+            if (!hasExistingValues) {
+                Object.entries(baseOptionSelections).forEach(([entryKey, option]) => {
+                    const candidateId = String(option.optionId || entryKey);
+                    if (!candidateId.startsWith(SIZE_OPTION_PREFIX)) return;
+                    const fieldKey = candidateId.slice(SIZE_OPTION_PREFIX.length);
+                    if (!allowedKeys.has(fieldKey)) return;
+                    const parsedValue = parseSizeValueFromName(option.name);
+                    if (parsedValue > 0) {
+                        next[fieldKey] = parsedValue;
+                    }
+                });
+            }
+
+            Object.keys(prev).forEach((key) => {
+                if (!allowedKeys.has(key)) changed = true;
+            });
+
+            if (!changed) {
+                changed = Object.keys(next).some((key) => (prev[key] || 0) !== next[key]);
+            }
+
+            return changed ? next : prev;
+        });
+    }, [sizeDistributionConfig, sizeDistributionFields, baseOptionSelections]);
+
+    const sizeDistributionEntries = useMemo(() => {
+        if (!sizeDistributionConfig) return [] as Array<{ key: string; label: string; value: number }>;
+        return sizeDistributionFields
+            .map((field) => ({
+                key: field.key,
+                label: field.label,
+                value: Number(sizeDistributionValues[field.key] || 0) || 0,
+            }))
+            .filter((entry) => entry.value > 0);
+    }, [sizeDistributionConfig, sizeDistributionFields, sizeDistributionValues]);
+
+    const sizeDistributionTotal = useMemo(
+        () => sizeDistributionEntries.reduce((sum, entry) => sum + entry.value, 0),
+        [sizeDistributionEntries]
+    );
+
+    const sizeDistributionMismatch = useMemo(() => {
+        if (!sizeDistributionConfig?.enforceQuantityMatch) return false;
+        if (!orderQuantity || orderQuantity <= 0) return false;
+        return sizeDistributionTotal !== orderQuantity;
+    }, [sizeDistributionConfig?.enforceQuantityMatch, orderQuantity, sizeDistributionTotal]);
+
+    const sizeDistributionSummary = useMemo(() => {
+        if (!sizeDistributionConfig || sizeDistributionEntries.length === 0) return "";
+        return sizeDistributionEntries.map((entry) => `${entry.label}: ${entry.value}`).join(", ");
+    }, [sizeDistributionConfig, sizeDistributionEntries]);
+
+    const sizeDistributionOptionSelections = useMemo(() => {
+        const selections: Record<string, CheckoutOptionSelection> = {};
+        sizeDistributionEntries.forEach((entry) => {
+            const optionId = `${SIZE_OPTION_PREFIX}${entry.key}`;
+            selections[optionId] = {
+                optionId,
+                name: `${entry.label}: ${entry.value}`,
+                extraPrice: 0,
+                priceMode: "fixed",
+            };
+        });
+        return selections;
+    }, [sizeDistributionEntries]);
+
+    const effectiveOptionSelections = useMemo(
+        () => ({ ...nonSizeOptionSelections, ...sizeDistributionOptionSelections }),
+        [nonSizeOptionSelections, sizeDistributionOptionSelections]
+    );
+
+    const handleSizeDistributionChange = (fieldKey: string, rawValue: string) => {
+        const parsed = Number(rawValue);
+        const nextValue = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+        setSizeDistributionValues((prev) => ({
+            ...prev,
+            [fieldKey]: nextValue,
+        }));
+    };
+
+    const generateOrderNumber = () => {
+        const now = new Date();
+        const yy = String(now.getFullYear()).slice(-2);
+        const mm = String(now.getMonth() + 1).padStart(2, "0");
+        const dd = String(now.getDate()).padStart(2, "0");
+        const randomPart = Math.floor(100000 + Math.random() * 900000);
+        return `WP${yy}${mm}${dd}-${randomPart}`;
+    };
+
+    const isMissingOrderConfigurationColumn = (error: any) => {
+        const message = String(error?.message || "").toLowerCase();
+        return error?.code === "PGRST204" && message.includes("product_configuration");
+    };
+
+    const isOrderNumberCollision = (error: any) => {
+        return error?.code === "23505" || String(error?.message || "").includes("orders_order_number_key");
+    };
+
     const handleBackToConfiguration = () => {
         if (window.history.length > 1) {
             navigate(-1);
@@ -120,6 +351,11 @@ const FileUploadConfiguration = () => {
     };
 
     const handleProceedToPayment = async () => {
+        if (sizeDistributionMismatch) {
+            toast.error(`Størrelsesfordeling skal summere til ${orderQuantity} stk.`);
+            return;
+        }
+
         const tenantId = shopSettings.data?.id;
         if (!tenantId) {
             toast.error("Kunne ikke finde shop-id til betaling.");
@@ -130,6 +366,13 @@ const FileUploadConfiguration = () => {
         try {
             const totalPrice = orderPrice + (state?.shippingCost || 0);
             const amountOre = Math.round(totalPrice * 100);
+            const optionSummary = Object.values(effectiveOptionSelections)
+                .map((option) => option.name)
+                .filter(Boolean)
+                .join(" | ");
+            const sizeSummaryWithTotal = sizeDistributionSummary
+                ? `${sizeDistributionSummary} (sum ${sizeDistributionTotal}/${orderQuantity})`
+                : "";
 
             const { data, error } = await supabase.functions.invoke("stripe-create-payment-intent", {
                 body: {
@@ -140,6 +383,9 @@ const FileUploadConfiguration = () => {
                         product_id: state?.productId || "",
                         product_slug: state?.productSlug || "",
                         uploaded_file: uploadedFile?.path || "",
+                        quantity: String(orderQuantity || 0),
+                        option_summary: optionSummary.slice(0, 450),
+                        size_distribution: sizeSummaryWithTotal.slice(0, 450),
                     },
                 },
             });
@@ -168,11 +414,124 @@ const FileUploadConfiguration = () => {
         }
     };
 
-    const handlePaymentSuccess = (paymentIntentId: string) => {
-        setPaymentSuccess(true);
+    const handlePaymentSuccess = async (paymentIntentId: string) => {
         setShowPaymentModal(false);
+        setPaymentClientSecret(null);
+        setOrderPersistWarning(null);
+        setCreatedOrderNumber(null);
+
+        const productConfigurationText = sizeDistributionConfig && sizeDistributionEntries.length > 0
+            ? `${sizeDistributionConfig.title}: ${sizeDistributionSummary}`
+            : null;
+
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            const tenantId = shopSettings.data?.id || null;
+            const totalPrice = orderPrice + (state?.shippingCost || 0);
+            const customerEmail = user?.email || `guest-${Date.now()}@webprinter.local`;
+            const customerName =
+                String(user?.user_metadata?.full_name || "").trim()
+                || String(user?.user_metadata?.name || "").trim()
+                || customerEmail.split("@")[0]
+                || "Kunde";
+
+            let includeProductConfigurationColumn = !!productConfigurationText;
+            let insertedOrder: any = null;
+
+            for (let attempt = 0; attempt < 5; attempt += 1) {
+                const basePayload: Record<string, any> = {
+                    order_number: generateOrderNumber(),
+                    user_id: user?.id || null,
+                    customer_email: customerEmail,
+                    customer_name: customerName,
+                    product_name: state?.productName || product?.name || "Produkt",
+                    product_slug: state?.productSlug || product?.slug || null,
+                    quantity: orderQuantity || 1,
+                    total_price: totalPrice,
+                    currency: "DKK",
+                    status: "pending",
+                    delivery_type: state?.shippingSelected || null,
+                    tenant_id: tenantId,
+                };
+
+                if (includeProductConfigurationColumn && productConfigurationText) {
+                    basePayload.product_configuration = productConfigurationText;
+                } else if (productConfigurationText) {
+                    // Fallback for environments where product_configuration column is not migrated yet.
+                    basePayload.status_note = `[SIZE-DISTRIBUTION] ${productConfigurationText}`;
+                }
+
+                const { data: createdOrder, error: createOrderError } = await (supabase
+                    .from("orders" as any)
+                    .insert(basePayload)
+                    .select("id, order_number, customer_email, customer_name, product_name, quantity, total_price")
+                    .single() as any);
+
+                if (!createOrderError) {
+                    insertedOrder = createdOrder;
+                    break;
+                }
+
+                if (includeProductConfigurationColumn && isMissingOrderConfigurationColumn(createOrderError)) {
+                    includeProductConfigurationColumn = false;
+                    continue;
+                }
+
+                if (isOrderNumberCollision(createOrderError)) {
+                    continue;
+                }
+
+                throw createOrderError;
+            }
+
+            if (!insertedOrder) {
+                throw new Error("Ordren kunne ikke oprettes i databasen.");
+            }
+
+            setCreatedOrderNumber(insertedOrder.order_number);
+
+            if (uploadedFile?.url) {
+                const fileType = uploadedFile.name.includes(".")
+                    ? uploadedFile.name.split(".").pop()?.toLowerCase() || null
+                    : null;
+
+                const { error: orderFileError } = await supabase
+                    .from("order_files" as any)
+                    .insert({
+                        order_id: insertedOrder.id,
+                        file_name: uploadedFile.name,
+                        file_url: uploadedFile.url,
+                        file_type: fileType,
+                        is_current: true,
+                        uploaded_by: user?.id || null,
+                        notes: productConfigurationText ? `Konfiguration: ${productConfigurationText}` : null,
+                    });
+
+                if (orderFileError) {
+                    console.error("Order file save error:", orderFileError);
+                }
+            }
+
+            try {
+                const { sendOrderConfirmation } = await import("@/lib/emailService");
+                await sendOrderConfirmation({
+                    order_number: insertedOrder.order_number,
+                    product_name: insertedOrder.product_name,
+                    quantity: insertedOrder.quantity,
+                    total_price: insertedOrder.total_price,
+                    customer_email: insertedOrder.customer_email,
+                    customer_name: insertedOrder.customer_name || "Kunde",
+                });
+            } catch (emailError) {
+                console.error("Order confirmation email error:", emailError);
+            }
+        } catch (error: any) {
+            console.error("Order persist error after payment:", error);
+            setOrderPersistWarning(`Betaling gennemført, men ordren kunne ikke gemmes automatisk. Gem reference: ${paymentIntentId}`);
+        }
+
+        setPaymentSuccess(true);
         toast.success("Din ordre er modtaget! Vi sender en bekræftelse på email.");
-        // TODO: Create order record in database
         console.log("Payment successful:", paymentIntentId);
     };
 
@@ -890,13 +1249,43 @@ const FileUploadConfiguration = () => {
                                         <h4 className="font-bold text-lg">{state.productName}</h4>
                                         <p className="text-sm text-muted-foreground">{state.summary}</p>
                                         <div className="mt-2 space-y-1">
-                                            {state.optionSelections && Object.values(state.optionSelections).map((opt: any, idx: number) => (
+                                            {Object.values(nonSizeOptionSelections).map((opt: CheckoutOptionSelection, idx: number) => (
                                                 <p key={idx} className="text-xs text-slate-500 flex items-center gap-1">
                                                     <span className="w-1.5 h-1.5 bg-primary/40 rounded-full" />
                                                     {opt.name}
                                                 </p>
                                             ))}
                                         </div>
+
+                                        {sizeDistributionConfig && (
+                                            <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+                                                <div>
+                                                    <p className="text-xs font-semibold text-primary">{sizeDistributionConfig.title}</p>
+                                                    <p className="text-[11px] text-muted-foreground">
+                                                        Fordel størrelserne. Dette påvirker ikke prisen.
+                                                    </p>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    {sizeDistributionFields.map((field) => (
+                                                        <label key={field.key} className="space-y-1">
+                                                            <span className="text-[11px] text-muted-foreground">{field.label}</span>
+                                                            <Input
+                                                                type="number"
+                                                                min={0}
+                                                                step={1}
+                                                                value={sizeDistributionValues[field.key] ?? 0}
+                                                                onChange={(event) => handleSizeDistributionChange(field.key, event.target.value)}
+                                                                className="h-8 bg-white"
+                                                            />
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                                <p className={`text-[11px] ${sizeDistributionMismatch ? "text-destructive" : "text-muted-foreground"}`}>
+                                                    Sum: {sizeDistributionTotal} / {orderQuantity} stk
+                                                    {sizeDistributionMismatch ? " (matcher ikke antal)" : ""}
+                                                </p>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="space-y-2">
@@ -948,10 +1337,22 @@ const FileUploadConfiguration = () => {
                                         </div>
                                     )}
 
+                                    {sizeDistributionMismatch && (
+                                        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 flex items-start gap-2">
+                                            <AlertCircle className="h-4 w-4 mt-0.5" />
+                                            <div>
+                                                <p className="font-medium">Størrelsesfordeling mangler</p>
+                                                <p className="text-xs text-red-700">
+                                                    Summen af størrelser skal være {orderQuantity} stk før betaling.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <Button
                                         className="w-full h-12 text-lg font-bold mt-4 group shadow-md"
                                         onClick={handleProceedToPayment}
-                                        disabled={!uploadedFile || paymentLoading || platformPreflightBlocking}
+                                        disabled={!uploadedFile || paymentLoading || platformPreflightBlocking || sizeDistributionMismatch}
                                     >
                                         {paymentLoading ? (
                                             <>
@@ -1010,6 +1411,23 @@ const FileUploadConfiguration = () => {
                                 Vi har modtaget din betaling og begynder at behandle din ordre.
                                 Du modtager snart en bekræftelse på email.
                             </p>
+                            {createdOrderNumber && (
+                                <p className="text-sm font-medium text-slate-700 mb-3">
+                                    Ordrenummer: {createdOrderNumber}
+                                </p>
+                            )}
+                            {sizeDistributionSummary && (
+                                <div className="mb-6 rounded-lg border border-primary/20 bg-primary/5 p-3 text-left">
+                                    <p className="text-xs font-semibold text-primary">Størrelsesfordeling</p>
+                                    <p className="text-sm text-muted-foreground">{sizeDistributionSummary}</p>
+                                </div>
+                            )}
+                            {orderPersistWarning && (
+                                <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-left">
+                                    <p className="text-xs font-semibold text-amber-800">Bemærk</p>
+                                    <p className="text-sm text-amber-700">{orderPersistWarning}</p>
+                                </div>
+                            )}
                             <Button onClick={() => navigate("/")} className="w-full">
                                 Tilbage til forsiden
                             </Button>

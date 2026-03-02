@@ -8,7 +8,13 @@
 // ============ Section Types ============
 export type SectionType = 'formats' | 'materials' | 'finishes' | 'products';
 
-export type UiMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden';
+export type UiMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden' | 'small' | 'medium' | 'large' | 'xl' | 'xl_notext';
+
+export interface LayoutValueSetting {
+    showThumbnail?: boolean;
+    customImage?: string;
+    displayName?: string;
+}
 
 // ============ Vertical Axis Config ============
 export interface VerticalAxisConfig {
@@ -16,10 +22,13 @@ export interface VerticalAxisConfig {
     sectionType: SectionType;
     groupId: string;
     valueIds: string[];
+    valueSettings?: Record<string, LayoutValueSetting>;
     title?: string;       // User-defined Display Title
     description?: string; // User-defined Description
     labelOverride?: string; // Legacy: mapped to title
     ui_mode?: UiMode;
+    thumbnail_size?: 'small' | 'medium' | 'large' | 'xl';
+    thumbnail_custom_px?: number;
 }
 
 // ============ Layout Column (Section within a Row) ============
@@ -28,10 +37,13 @@ export interface LayoutColumn {
     sectionType: SectionType;
     groupId: string;
     valueIds: string[];
+    valueSettings?: Record<string, LayoutValueSetting>;
     ui_mode: UiMode;
     title?: string;
     description?: string;
     labelOverride?: string;
+    thumbnail_size?: 'small' | 'medium' | 'large' | 'xl';
+    thumbnail_custom_px?: number;
 }
 
 // ============ Layout Row ============

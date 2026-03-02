@@ -10,7 +10,7 @@
 export type StorformatPricingMode = 'legacy' | 'm2_rates';
 
 // Layout display modes: classic modes + picture size modes
-export type LayoutDisplayMode = 'buttons' | 'dropdown' | 'checkboxes' | 'small' | 'medium' | 'large' | 'xl';
+export type LayoutDisplayMode = 'buttons' | 'dropdown' | 'checkboxes' | 'small' | 'medium' | 'large' | 'xl' | 'xl_notext';
 
 // Picture size subset
 export type PictureSizeMode = 'small' | 'medium' | 'large' | 'xl';

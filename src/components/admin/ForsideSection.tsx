@@ -5,7 +5,7 @@
  * into a single "Forside" tab with collapsible subsections.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +50,12 @@ interface ForsideSectionProps {
     onRemoveSwatch?: (color: string) => void;
 }
 
+interface FeaturedProductOption {
+    id: string;
+    name: string;
+    slug: string;
+}
+
 export function ForsideSection({
     draft,
     updateDraft,
@@ -59,6 +65,8 @@ export function ForsideSection({
     onRemoveSwatch,
 }: ForsideSectionProps) {
     const [uploading, setUploading] = useState<string | null>(null);
+    const [featuredProducts, setFeaturedProducts] = useState<FeaturedProductOption[]>([]);
+    const [loadingFeaturedProducts, setLoadingFeaturedProducts] = useState(false);
 
     const forside = draft.forside;
     const contentBlocks = forside.contentBlocks || [];
@@ -80,6 +88,18 @@ export function ForsideSection({
         gradientEnd: '#F1F5F9',
         gradientAngle: 135,
         opacity: 1,
+    };
+    const featuredProductConfig = productsSection.featuredProductConfig || {
+        enabled: false,
+        productId: undefined,
+        quantityPresets: [200, 500, 1000, 2500, 5000],
+        showOptions: true,
+        showPrice: true,
+        overlapPx: 60,
+        cardStyle: 'default',
+        ctaLabel: 'Bestil nu',
+        ctaColor: '#0EA5E9',
+        ctaTextColor: '#FFFFFF',
     };
 
     // Update forside settings
@@ -106,6 +126,44 @@ export function ForsideSection({
             background: { ...backgroundConfig, ...updates },
         });
     }, [backgroundConfig, updateProductsSection]);
+
+    const updateFeaturedProductConfig = useCallback((updates: Partial<typeof featuredProductConfig>) => {
+        updateProductsSection({
+            featuredProductConfig: { ...featuredProductConfig, ...updates },
+        });
+    }, [featuredProductConfig, updateProductsSection]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        async function loadFeaturedProducts() {
+            if (!tenantId) return;
+            setLoadingFeaturedProducts(true);
+
+            const { data, error } = await supabase
+                .from('products')
+                .select('id, name, slug')
+                .eq('tenant_id', tenantId)
+                .order('name');
+
+            if (cancelled) return;
+
+            if (error) {
+                console.error('Error loading featured products:', error);
+                setFeaturedProducts([]);
+            } else {
+                setFeaturedProducts((data || []) as FeaturedProductOption[]);
+            }
+
+            setLoadingFeaturedProducts(false);
+        }
+
+        loadFeaturedProducts();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [tenantId]);
 
     // Update header
     const handleHeaderChange = useCallback((header: HeaderSettings) => {
@@ -507,6 +565,141 @@ export function ForsideSection({
                                 </div>
                             </div>
                         )}
+                    </div>
+                    <div className={cn("space-y-4 border-t pt-4", !productsSection.enabled && "opacity-50")}>
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <Label className="text-sm font-semibold">Fremhævet produkt</Label>
+                                <p className="text-xs text-muted-foreground">Stor produktboks over produktlisten</p>
+                            </div>
+                            <Switch
+                                checked={featuredProductConfig.enabled}
+                                onCheckedChange={(checked) => updateFeaturedProductConfig({ enabled: checked })}
+                                disabled={!productsSection.enabled}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Produkt</Label>
+                            <Select
+                                value={featuredProductConfig.productId || "none"}
+                                onValueChange={(value) => updateFeaturedProductConfig({
+                                    productId: value === "none" ? undefined : value,
+                                })}
+                                disabled={!productsSection.enabled || loadingFeaturedProducts}
+                            >
+                                <SelectTrigger className="w-full">
+                                    <SelectValue placeholder={loadingFeaturedProducts ? "Indlæser produkter..." : "Vælg produkt"} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">Ingen valgt</SelectItem>
+                                    {featuredProducts.map((product) => (
+                                        <SelectItem key={product.id} value={product.id}>
+                                            {product.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                            <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                                <div>
+                                    <Label>Vis optioner</Label>
+                                    <p className="text-xs text-muted-foreground">Viser valgknapper i boksen</p>
+                                </div>
+                                <Switch
+                                    checked={featuredProductConfig.showOptions}
+                                    onCheckedChange={(checked) => updateFeaturedProductConfig({ showOptions: checked })}
+                                    disabled={!productsSection.enabled}
+                                />
+                            </div>
+                            <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                                <div>
+                                    <Label>Vis pris</Label>
+                                    <p className="text-xs text-muted-foreground">Viser stor pris i boksen</p>
+                                </div>
+                                <Switch
+                                    checked={featuredProductConfig.showPrice}
+                                    onCheckedChange={(checked) => updateFeaturedProductConfig({ showPrice: checked })}
+                                    disabled={!productsSection.enabled}
+                                />
+                            </div>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                            <div className="space-y-2">
+                                <Label>Kort stil</Label>
+                                <Select
+                                    value={featuredProductConfig.cardStyle || "default"}
+                                    onValueChange={(value) => updateFeaturedProductConfig({
+                                        cardStyle: value as "default" | "glass",
+                                    })}
+                                    disabled={!productsSection.enabled}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="default">Standard</SelectItem>
+                                        <SelectItem value="glass">Glass</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>CTA tekst</Label>
+                                <Input
+                                    value={featuredProductConfig.ctaLabel || ""}
+                                    onChange={(event) => updateFeaturedProductConfig({ ctaLabel: event.target.value })}
+                                    placeholder="Bestil nu"
+                                    disabled={!productsSection.enabled}
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Mængdeknapper</Label>
+                            <Input
+                                value={(featuredProductConfig.quantityPresets || []).join(', ')}
+                                onChange={(event) => {
+                                    const quantityPresets = event.target.value
+                                        .split(',')
+                                        .map((value) => parseInt(value.trim(), 10))
+                                        .filter((value) => !Number.isNaN(value) && value > 0);
+                                    updateFeaturedProductConfig({ quantityPresets });
+                                }}
+                                placeholder="200, 500, 1000, 2500, 5000"
+                                disabled={!productsSection.enabled}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <Label>Overlap mod banner</Label>
+                                <span className="text-xs text-muted-foreground">{featuredProductConfig.overlapPx || 0}px</span>
+                            </div>
+                            <Slider
+                                value={[featuredProductConfig.overlapPx || 0]}
+                                onValueChange={([value]) => updateFeaturedProductConfig({ overlapPx: value })}
+                                min={0}
+                                max={140}
+                                step={5}
+                                className="py-1"
+                            />
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                            <ColorPickerWithSwatches
+                                label="CTA farve"
+                                value={featuredProductConfig.ctaColor || '#0EA5E9'}
+                                onChange={(value) => updateFeaturedProductConfig({ ctaColor: value })}
+                                savedSwatches={savedSwatches}
+                                onSaveSwatch={onSaveSwatch}
+                                onRemoveSwatch={onRemoveSwatch}
+                            />
+                            <ColorPickerWithSwatches
+                                label="CTA tekstfarve"
+                                value={featuredProductConfig.ctaTextColor || '#FFFFFF'}
+                                onChange={(value) => updateFeaturedProductConfig({ ctaTextColor: value })}
+                                savedSwatches={savedSwatches}
+                                onSaveSwatch={onSaveSwatch}
+                                onRemoveSwatch={onRemoveSwatch}
+                            />
+                        </div>
                     </div>
                 </div>
             </CollapsibleCard>

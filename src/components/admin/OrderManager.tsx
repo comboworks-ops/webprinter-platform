@@ -23,6 +23,7 @@ interface Order {
     customer_name: string | null;
     customer_phone: string | null;
     product_name: string;
+    product_configuration?: string | null;
     quantity: number;
     total_price: number;
     status: string;
@@ -285,6 +286,17 @@ export function OrderManager() {
         }).format(price);
     };
 
+    const getOrderConfigurationText = (order: Order) => {
+        const fromColumn = String(order.product_configuration || "").trim();
+        if (fromColumn) return fromColumn;
+        const statusNote = String(order.status_note || "").trim();
+        const prefix = "[SIZE-DISTRIBUTION]";
+        if (statusNote.startsWith(prefix)) {
+            return statusNote.slice(prefix.length).trim();
+        }
+        return null;
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
@@ -484,6 +496,11 @@ export function OrderManager() {
                                         <Label className="text-muted-foreground">Produkt</Label>
                                         <p className="font-medium">{selectedOrder.product_name}</p>
                                         <p className="text-sm">Antal: {selectedOrder.quantity}</p>
+                                        {getOrderConfigurationText(selectedOrder) && (
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                {getOrderConfigurationText(selectedOrder)}
+                                            </p>
+                                        )}
                                     </div>
                                     <div>
                                         <Label className="text-muted-foreground">Beløb</Label>

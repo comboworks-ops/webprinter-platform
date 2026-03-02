@@ -60,6 +60,15 @@ type ProductCategory = {
   name: string;
   slug: string;
   sort_order: number | null;
+  overview_id?: string | null;
+};
+
+type ProductOverviewGroup = {
+  id: string;
+  tenant_id: string;
+  name: string;
+  slug: string;
+  sort_order: number | null;
 };
 
 type CompanyAccount = {
@@ -85,6 +94,8 @@ type TenantOption = {
 type DeliveryMode = "price_list" | "pod_price_list";
 
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
+const FALLBACK_OVERVIEW_ID = "__default_overview__";
+const FALLBACK_OVERVIEW_NAME = "Produkter";
 const DELIVERY_MODES: { id: DeliveryMode; label: string; description: string }[] = [
   {
     id: "price_list",
@@ -97,6 +108,41 @@ const DELIVERY_MODES: { id: DeliveryMode; label: string; description: string }[]
     description: "Priser er låst (kun margen kan justeres); ordren håndteres gennem master.",
   },
 ];
+
+function toSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/æ/g, 'ae')
+    .replace(/ø/g, 'oe')
+    .replace(/å/g, 'aa')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function normalizeCategoryKey(categoryName?: string | null): string {
+  const normalized = String(categoryName || "").trim();
+  if (!normalized) return "ukategoriseret";
+  return toSlug(normalized) || normalized.toLowerCase();
+}
+
+type DbErrorLike = {
+  code?: string | null;
+  message?: string | null;
+  details?: string | null;
+  hint?: string | null;
+};
+
+const isMissingProductOverviewsTable = (error: unknown) => {
+  const e = (error || {}) as DbErrorLike;
+  const text = `${e.message || ''} ${e.details || ''}`.toLowerCase();
+  return e.code === '42P01' || e.code === 'PGRST205' || text.includes('product_overviews');
+};
+
+const isMissingOverviewColumn = (error: unknown) => {
+  const e = (error || {}) as DbErrorLike;
+  const text = `${e.message || ''} ${e.details || ''}`.toLowerCase();
+  return e.code === '42703' || e.code === 'PGRST204' || text.includes('overview_id');
+};
 
 export function ProductOverview() {
   const navigate = useNavigate();
@@ -126,15 +172,33 @@ export function ProductOverview() {
 
   // Admin Categories State
   const [adminCategories, setAdminCategories] = useState<ProductCategory[]>([]);
+  const [adminOverviews, setAdminOverviews] = useState<ProductOverviewGroup[]>([
+    {
+      id: FALLBACK_OVERVIEW_ID,
+      tenant_id: MASTER_TENANT_ID,
+      name: FALLBACK_OVERVIEW_NAME,
+      slug: "produkter",
+      sort_order: 0,
+    },
+  ]);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+  const [selectedOverviewId, setSelectedOverviewId] = useState<string>(FALLBACK_OVERVIEW_ID);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryOverviewId, setNewCategoryOverviewId] = useState<string>(FALLBACK_OVERVIEW_ID);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryName, setEditingCategoryName] = useState("");
+  const [newOverviewName, setNewOverviewName] = useState("");
+  const [editingOverviewId, setEditingOverviewId] = useState<string | null>(null);
+  const [editingOverviewName, setEditingOverviewName] = useState("");
+  const [overviewsLoaded, setOverviewsLoaded] = useState(false);
+  const [categoriesLoaded, setCategoriesLoaded] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('admin-product-categories-collapsed');
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
   const [productsTenantId, setProductsTenantId] = useState<string | null>(null);
+  // LOCK LF-005: Distribution actions are only valid in Master tenant context.
+  const canDistributeToTenants = isMasterAdmin && productsTenantId === MASTER_TENANT_ID;
 
   const fetchUnreadMessages = async () => {
     try {
@@ -160,21 +224,31 @@ export function ProductOverview() {
     checkMasterAdmin();
     fetchProducts();
     fetchCompanyHubs();
+    fetchAdminOverviews();
     fetchAdminCategories();
-    fetchTenantsForRelease();
   }, [roleIsMasterAdmin]);
 
   useEffect(() => {
-    if (isMasterAdmin) {
+    if (canDistributeToTenants) {
       fetchTenantsForRelease();
+    } else {
+      setTenants([]);
     }
-  }, [isMasterAdmin]);
+  }, [canDistributeToTenants]);
 
   useEffect(() => {
     fetchUnreadMessages();
     const interval = setInterval(fetchUnreadMessages, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (adminOverviews.length === 0) return;
+    const hasCurrent = adminOverviews.some((overview) => overview.id === newCategoryOverviewId);
+    if (!newCategoryOverviewId || !hasCurrent) {
+      setNewCategoryOverviewId(adminOverviews[0].id);
+    }
+  }, [adminOverviews, newCategoryOverviewId]);
 
   const checkMasterAdmin = async () => {
     if (roleIsMasterAdmin) {
@@ -233,26 +307,121 @@ export function ProductOverview() {
     }
   };
 
+  const fetchAdminOverviews = async () => {
+    try {
+      const { tenantId } = await resolveAdminTenant();
+      if (!tenantId) return;
+
+      const { data, error } = await supabase
+        .from('product_overviews' as any)
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .order('sort_order');
+
+      if (error) {
+        if (isMissingProductOverviewsTable(error)) {
+          // Migration not applied yet. Keep backward-compatible fallback.
+          setAdminOverviews([
+            {
+              id: FALLBACK_OVERVIEW_ID,
+              tenant_id: tenantId,
+              name: FALLBACK_OVERVIEW_NAME,
+              slug: "produkter",
+              sort_order: 0,
+            },
+          ]);
+          return;
+        }
+        throw error;
+      }
+
+      const rows = (data as ProductOverviewGroup[]) || [];
+      if (rows.length === 0) {
+        // Seed one default overview for this tenant if table exists but empty.
+        const { data: created } = await supabase
+          .from('product_overviews' as any)
+          .insert({
+            tenant_id: tenantId,
+            name: FALLBACK_OVERVIEW_NAME,
+            slug: "produkter",
+            sort_order: 0,
+          })
+          .select('*')
+          .single();
+
+        if (created) {
+          setAdminOverviews([created as ProductOverviewGroup]);
+          return;
+        }
+      }
+
+      setAdminOverviews(
+        rows.length > 0
+          ? rows
+          : [
+              {
+                id: FALLBACK_OVERVIEW_ID,
+                tenant_id: tenantId,
+                name: FALLBACK_OVERVIEW_NAME,
+                slug: "produkter",
+                sort_order: 0,
+              },
+            ]
+      );
+    } catch (error) {
+      console.error('Error fetching product overviews:', error);
+    } finally {
+      setOverviewsLoaded(true);
+    }
+  };
+
   const fetchAdminCategories = async () => {
     try {
       const { tenantId } = await resolveAdminTenant();
       if (!tenantId) return;
 
       const { data, error } = await supabase
-        .from('product_categories')
-        .select('*')
+        .from('product_categories' as any)
+        .select('id, tenant_id, name, slug, sort_order, overview_id')
         .eq('tenant_id', tenantId)
         .order('sort_order');
 
-      if (error) throw error;
-      setAdminCategories((data as ProductCategory[]) || []);
+      if (error) {
+        if (isMissingOverviewColumn(error)) {
+          const fallback = await supabase
+            .from('product_categories' as any)
+            .select('id, tenant_id, name, slug, sort_order')
+            .eq('tenant_id', tenantId)
+            .order('sort_order');
+
+          if (fallback.error) throw fallback.error;
+          setAdminCategories(
+            ((fallback.data as ProductCategory[]) || []).map((row) => ({
+              ...row,
+              overview_id: FALLBACK_OVERVIEW_ID,
+            }))
+          );
+          return;
+        }
+        throw error;
+      }
+
+      const rows = (data as ProductCategory[]) || [];
+      setAdminCategories(
+        rows.map((row) => ({
+          ...row,
+          overview_id: row.overview_id ?? FALLBACK_OVERVIEW_ID,
+        }))
+      );
     } catch (error) {
       console.error('Error fetching admin categories:', error);
+    } finally {
+      setCategoriesLoaded(true);
     }
   };
 
   const fetchTenantsForRelease = async () => {
-    if (!isMasterAdmin) return;
+    if (!canDistributeToTenants) return;
     setTenantLoading(true);
 
     try {
@@ -272,11 +441,14 @@ export function ProductOverview() {
   };
 
   const toggleAvailableToTenants = async (id: string, currentStatus: boolean) => {
+    // LOCK LF-004: Scope every mutation by tenant_id.
+    if (!productsTenantId) return;
     try {
       const { error } = await supabase
         .from('products')
         .update({ is_available_to_tenants: !currentStatus })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('tenant_id', productsTenantId);
 
       if (error) throw error;
 
@@ -289,11 +461,14 @@ export function ProductOverview() {
   };
 
   const togglePublish = async (id: string, currentStatus: boolean) => {
+    // LOCK LF-004: Scope every mutation by tenant_id.
+    if (!productsTenantId) return;
     try {
       const { error } = await supabase
         .from('products')
         .update({ is_published: !currentStatus })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('tenant_id', productsTenantId);
 
       if (error) throw error;
 
@@ -306,11 +481,14 @@ export function ProductOverview() {
   };
 
   const toggleReady = async (id: string, currentStatus: boolean) => {
+    // LOCK LF-004: Scope every mutation by tenant_id.
+    if (!productsTenantId) return;
     try {
       const { error } = await supabase
         .from('products')
         .update({ is_ready: !currentStatus })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('tenant_id', productsTenantId);
 
       if (error) throw error;
 
@@ -327,21 +505,44 @@ export function ProductOverview() {
     if (!newCategoryName.trim()) return;
     try {
       const { tenantId } = await resolveAdminTenant();
-      const slug = newCategoryName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const slug = toSlug(newCategoryName.trim());
       const maxSortOrder = Math.max(0, ...adminCategories.map(c => c.sort_order || 0));
+      const selectedOverviewId =
+        newCategoryOverviewId && newCategoryOverviewId !== FALLBACK_OVERVIEW_ID
+          ? newCategoryOverviewId
+          : null;
 
       const { error } = await supabase
-        .from('product_categories')
+        .from('product_categories' as any)
         .insert({
           tenant_id: tenantId,
           name: newCategoryName.trim(),
           slug,
           sort_order: maxSortOrder + 1,
+          overview_id: selectedOverviewId,
         });
 
-      if (error) throw error;
+      if (error) {
+        if (isMissingOverviewColumn(error)) {
+          const fallbackInsert = await supabase
+            .from('product_categories' as any)
+            .insert({
+              tenant_id: tenantId,
+              name: newCategoryName.trim(),
+              slug,
+              sort_order: maxSortOrder + 1,
+            });
+          if (fallbackInsert.error) throw fallbackInsert.error;
+        } else {
+          throw error;
+        }
+      }
       toast.success('Kategori oprettet');
       setNewCategoryName('');
+      if (adminOverviews.length > 0) {
+        setNewCategoryOverviewId(adminOverviews[0].id);
+      }
+      await fetchAdminOverviews();
       fetchAdminCategories();
     } catch (error) {
       console.error('Error adding category:', error);
@@ -351,12 +552,14 @@ export function ProductOverview() {
 
   const updateCategory = async (id: string, newName: string) => {
     if (!newName.trim()) return;
+    if (!productsTenantId) return;
     try {
-      const slug = newName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const slug = toSlug(newName.trim());
       const { error } = await supabase
-        .from('product_categories')
+        .from('product_categories' as any)
         .update({ name: newName.trim(), slug })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('tenant_id', productsTenantId);
 
       if (error) throw error;
 
@@ -366,7 +569,8 @@ export function ProductOverview() {
         await supabase
           .from('products')
           .update({ category: newName.trim() })
-          .eq('category', oldCategory.name);
+          .eq('category', oldCategory.name)
+          .eq('tenant_id', productsTenantId);
         fetchProducts();
       }
 
@@ -380,9 +584,12 @@ export function ProductOverview() {
   };
 
   const deleteCategory = async (id: string) => {
+    if (!productsTenantId) return;
     try {
       const category = adminCategories.find(c => c.id === id);
-      const productsInCategory = products.filter(p => p.category === category?.name);
+      const productsInCategory = products.filter(
+        (p) => normalizeCategoryKey(p.category) === normalizeCategoryKey(category?.name)
+      );
 
       if (productsInCategory.length > 0) {
         toast.error(`Kan ikke slette - ${productsInCategory.length} produkter bruger denne kategori`);
@@ -390,9 +597,10 @@ export function ProductOverview() {
       }
 
       const { error } = await supabase
-        .from('product_categories')
+        .from('product_categories' as any)
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('tenant_id', productsTenantId);
 
       if (error) throw error;
       toast.success('Kategori slettet');
@@ -404,6 +612,7 @@ export function ProductOverview() {
   };
 
   const moveCategoryOrder = async (id: string, direction: 'up' | 'down') => {
+    if (!productsTenantId) return;
     const currentIndex = adminCategories.findIndex(c => c.id === id);
     if (currentIndex === -1) return;
 
@@ -415,8 +624,8 @@ export function ProductOverview() {
 
     try {
       await Promise.all([
-        supabase.from('product_categories').update({ sort_order: target.sort_order }).eq('id', current.id),
-        supabase.from('product_categories').update({ sort_order: current.sort_order }).eq('id', target.id),
+        supabase.from('product_categories' as any).update({ sort_order: target.sort_order }).eq('id', current.id).eq('tenant_id', productsTenantId),
+        supabase.from('product_categories' as any).update({ sort_order: current.sort_order }).eq('id', target.id).eq('tenant_id', productsTenantId),
       ]);
       fetchAdminCategories();
     } catch (error) {
@@ -425,13 +634,155 @@ export function ProductOverview() {
     }
   };
 
+  const updateCategoryOverview = async (categoryId: string, overviewId: string) => {
+    if (!productsTenantId) return;
+    const nextOverviewId = overviewId === FALLBACK_OVERVIEW_ID ? null : overviewId;
+    try {
+      const { error } = await supabase
+        .from('product_categories' as any)
+        .update({ overview_id: nextOverviewId })
+        .eq('id', categoryId)
+        .eq('tenant_id', productsTenantId);
+
+      if (error) {
+        if (isMissingOverviewColumn(error)) {
+          toast.error('Overblik-funktionen kræver nyeste database migration.');
+          return;
+        }
+        throw error;
+      }
+
+      toast.success('Kategori flyttet til nyt overblik');
+      fetchAdminCategories();
+    } catch (error) {
+      console.error('Error updating category overview:', error);
+      toast.error('Kunne ikke flytte kategori til overblik');
+    }
+  };
+
+  const addOverview = async () => {
+    if (!newOverviewName.trim()) return;
+    try {
+      const { tenantId } = await resolveAdminTenant();
+      if (!tenantId) return;
+
+      const slug = toSlug(newOverviewName.trim());
+      const maxSortOrder = Math.max(0, ...adminOverviews.map((o) => o.sort_order || 0));
+
+      const { error } = await supabase
+        .from('product_overviews' as any)
+        .insert({
+          tenant_id: tenantId,
+          name: newOverviewName.trim(),
+          slug,
+          sort_order: maxSortOrder + 1,
+        });
+
+      if (error) {
+        if (isMissingProductOverviewsTable(error)) {
+          toast.error('Overblik-funktionen kræver nyeste database migration.');
+          return;
+        }
+        throw error;
+      }
+
+      toast.success('Overblik oprettet');
+      setNewOverviewName('');
+      fetchAdminOverviews();
+    } catch (error) {
+      console.error('Error adding overview:', error);
+      toast.error('Kunne ikke oprette overblik');
+    }
+  };
+
+  const updateOverview = async (id: string, newName: string) => {
+    if (!productsTenantId || !newName.trim()) return;
+    try {
+      const slug = toSlug(newName.trim());
+      const { error } = await supabase
+        .from('product_overviews' as any)
+        .update({ name: newName.trim(), slug })
+        .eq('id', id)
+        .eq('tenant_id', productsTenantId);
+
+      if (error) throw error;
+      toast.success('Overblik opdateret');
+      setEditingOverviewId(null);
+      fetchAdminOverviews();
+    } catch (error) {
+      if (isMissingProductOverviewsTable(error)) {
+        toast.error('Overblik-funktionen kræver nyeste database migration.');
+        return;
+      }
+      console.error('Error updating overview:', error);
+      toast.error('Kunne ikke opdatere overblik');
+    }
+  };
+
+  const deleteOverview = async (id: string) => {
+    if (!productsTenantId) return;
+    const categoriesInOverview = adminCategories.filter((cat) => (cat.overview_id || FALLBACK_OVERVIEW_ID) === id);
+    if (categoriesInOverview.length > 0) {
+      toast.error(`Kan ikke slette - ${categoriesInOverview.length} kategorier ligger i dette overblik`);
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('product_overviews' as any)
+        .delete()
+        .eq('id', id)
+        .eq('tenant_id', productsTenantId);
+
+      if (error) throw error;
+      toast.success('Overblik slettet');
+      fetchAdminOverviews();
+    } catch (error) {
+      if (isMissingProductOverviewsTable(error)) {
+        toast.error('Overblik-funktionen kræver nyeste database migration.');
+        return;
+      }
+      console.error('Error deleting overview:', error);
+      toast.error('Kunne ikke slette overblik');
+    }
+  };
+
+  const moveOverviewOrder = async (id: string, direction: 'up' | 'down') => {
+    if (!productsTenantId) return;
+    const currentIndex = adminOverviews.findIndex((o) => o.id === id);
+    if (currentIndex === -1) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= adminOverviews.length) return;
+
+    const current = adminOverviews[currentIndex];
+    const target = adminOverviews[targetIndex];
+
+    try {
+      await Promise.all([
+        supabase.from('product_overviews' as any).update({ sort_order: target.sort_order }).eq('id', current.id).eq('tenant_id', productsTenantId),
+        supabase.from('product_overviews' as any).update({ sort_order: current.sort_order }).eq('id', target.id).eq('tenant_id', productsTenantId),
+      ]);
+      fetchAdminOverviews();
+    } catch (error) {
+      if (isMissingProductOverviewsTable(error)) {
+        toast.error('Overblik-funktionen kræver nyeste database migration.');
+        return;
+      }
+      console.error('Error reordering overviews:', error);
+      toast.error('Kunne ikke ændre overbliks-rækkefølge');
+    }
+  };
+
   const updateProductCategory = async (productId: string, newCategory: string) => {
     if (!newCategory || !productId) return;
+    if (!productsTenantId) return;
     try {
       const { error } = await supabase
         .from('products')
         .update({ category: newCategory })
-        .eq('id', productId);
+        .eq('id', productId)
+        .eq('tenant_id', productsTenantId);
 
       if (error) throw error;
       toast.success('Produkt flyttet til ny kategori');
@@ -456,30 +807,36 @@ export function ProductOverview() {
   };
 
   const deleteProduct = async (id: string, name: string) => {
+    if (!productsTenantId) return;
     try {
       // Delete related data first to avoid foreign key constraints
       // 1. Delete generic prices
-      await supabase.from('generic_product_prices').delete().eq('product_id', id);
+      await supabase.from('generic_product_prices').delete().eq('product_id', id).eq('tenant_id', productsTenantId);
 
       // 2. Delete product attribute values
-      const { data: groups } = await supabase.from('product_attribute_groups' as any).select('id').eq('product_id', id);
+      const { data: groups } = await supabase
+        .from('product_attribute_groups' as any)
+        .select('id')
+        .eq('product_id', id)
+        .eq('tenant_id', productsTenantId);
       if (groups && groups.length > 0) {
         const groupIds = groups.map((g: any) => g.id);
-        await supabase.from('product_attribute_values' as any).delete().in('group_id', groupIds);
-        await supabase.from('product_attribute_groups' as any).delete().eq('product_id', id);
+        await supabase.from('product_attribute_values' as any).delete().in('group_id', groupIds).eq('tenant_id', productsTenantId);
+        await supabase.from('product_attribute_groups' as any).delete().eq('product_id', id).eq('tenant_id', productsTenantId);
       }
 
       // 3. Delete product pricing configs
-      await supabase.from('product_pricing_configs' as any).delete().eq('product_id', id);
+      await supabase.from('product_pricing_configs' as any).delete().eq('product_id', id).eq('tenant_id', productsTenantId);
 
       // 4. Delete company hub items
-      await supabase.from('company_hub_items' as any).delete().eq('product_id', id);
+      await supabase.from('company_hub_items' as any).delete().eq('product_id', id).eq('tenant_id', productsTenantId);
 
       // 4. Now delete the product itself
       const { error } = await supabase
         .from('products')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('tenant_id', productsTenantId);
 
       if (error) throw error;
 
@@ -492,12 +849,14 @@ export function ProductOverview() {
   };
 
   const duplicateProduct = async (product: Product) => {
+    if (!productsTenantId) return;
     try {
       // First fetch full product data
       const { data: fullProduct, error: fetchError } = await supabase
         .from('products')
         .select('*')
         .eq('id', product.id)
+        .eq('tenant_id', productsTenantId)
         .single();
 
       if (fetchError) throw fetchError;
@@ -512,6 +871,7 @@ export function ProductOverview() {
           .from('products')
           .select('id')
           .eq('slug', newSlug)
+          .eq('tenant_id', productsTenantId)
           .maybeSingle();
 
         if (!existing) {
@@ -523,11 +883,12 @@ export function ProductOverview() {
       }
 
       // Create duplicate product
-      const { id, created_at, updated_at, created_by, updated_by, ...productData } = fullProduct;
+      const { id, created_at, updated_at, created_by, updated_by, tenant_id, ...productData } = fullProduct;
       const { error: insertError } = await supabase
         .from('products')
         .insert({
           ...productData,
+          tenant_id: productsTenantId,
           name: `${product.name} (kopi)`,
           slug: newSlug,
           is_published: false,
@@ -544,6 +905,10 @@ export function ProductOverview() {
   };
 
   const openSendDialog = (product: Product) => {
+    if (!canDistributeToTenants) {
+      toast.error("Denne handling kræver Master-tenant kontekst.");
+      return;
+    }
     setDialogProduct(product);
     setSelectedTenantIds([]);
     setTenantFilter("");
@@ -558,6 +923,10 @@ export function ProductOverview() {
   };
 
   const openCloneDialog = (product: Product) => {
+    if (!canDistributeToTenants) {
+      toast.error("Denne handling kræver Master-tenant kontekst.");
+      return;
+    }
     setCloneProduct(product);
     setCloneDialogOpen(true);
   };
@@ -569,6 +938,10 @@ export function ProductOverview() {
   };
 
   const handleSendToTenants = async () => {
+    if (!canDistributeToTenants) {
+      toast.error("Denne handling kræver Master-tenant kontekst.");
+      return;
+    }
     if (!dialogProduct) return;
     if (selectedTenantIds.length === 0) {
       toast.error("Vælg mindst én lejer.");
@@ -590,53 +963,215 @@ export function ProductOverview() {
       closeSendDialog();
     } catch (error) {
       console.error("Error sending product notifications:", error);
-      toast.error("Kunne ikke sende produkt til lejere.");
+      const message = error instanceof Error ? error.message : "Ukendt fejl";
+      toast.error(`Kunne ikke sende produkt til lejere: ${message}`);
     } finally {
       setSending(false);
     }
   };
 
-  // Extract unique categories for filter chips
-  const categories = ["Alle", ...Array.from(new Set(products.map(p => p.category || "Øvrige")))];
-
-  // Filter products by search query and category
-  const filteredProducts = products.filter(product => {
+  // Filter products by search query
+  const searchFilteredProducts = products.filter(product => {
     const matchesSearch = searchQuery === "" ||
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       product.slug.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === "Alle" ||
-      (product.category || "Øvrige") === selectedCategory;
-    return matchesSearch && matchesCategory;
+    return matchesSearch;
   });
 
-  // Group filtered products by category dynamically
-  const groupedProducts = filteredProducts.reduce((acc, product) => {
-    const category = product.category || 'Ukategoriseret';
-    if (!acc[category]) {
-      acc[category] = [];
+  const allOverviewOptions = useMemo(() => {
+    if (adminOverviews.length > 0) return adminOverviews;
+    return [
+      {
+        id: FALLBACK_OVERVIEW_ID,
+        tenant_id: productsTenantId || MASTER_TENANT_ID,
+        name: FALLBACK_OVERVIEW_NAME,
+        slug: 'produkter',
+        sort_order: 0,
+      } satisfies ProductOverviewGroup,
+    ];
+  }, [adminOverviews, productsTenantId]);
+
+  useEffect(() => {
+    if (allOverviewOptions.length === 0) return;
+    const hasCurrent = allOverviewOptions.some((overview) => overview.id === selectedOverviewId);
+    if (!hasCurrent) {
+      setSelectedOverviewId(allOverviewOptions[0].id);
+      setSelectedCategory("Alle");
     }
-    acc[category].push(product);
-    return acc;
-  }, {} as Record<string, Product[]>);
+  }, [allOverviewOptions, selectedOverviewId]);
 
-  // Sort grouped products by admin category sort_order
-  const sortedGroupedProducts = useMemo(() => {
-    const entries = Object.entries(groupedProducts);
-    const categoryOrder = new Map(adminCategories.map((c, i) => [c.name, c.sort_order ?? i]));
-
-    return entries.sort(([a], [b]) => {
-      const orderA = categoryOrder.get(a) ?? 999;
-      const orderB = categoryOrder.get(b) ?? 999;
+  const sortedAdminCategories = useMemo(() => {
+    return [...adminCategories].sort((a, b) => {
+      const orderA = a.sort_order ?? 999;
+      const orderB = b.sort_order ?? 999;
       if (orderA !== orderB) return orderA - orderB;
-      return a.localeCompare(b, 'da');
+      return a.name.localeCompare(b.name, 'da');
     });
-  }, [groupedProducts, adminCategories]);
+  }, [adminCategories]);
+
+  const categoryOverviewByKey = useMemo(() => {
+    return new Map(
+      sortedAdminCategories.map((category) => [
+        normalizeCategoryKey(category.name),
+        category.overview_id || FALLBACK_OVERVIEW_ID,
+      ])
+    );
+  }, [sortedAdminCategories]);
+
+  const canonicalCategoryNameByKey = useMemo(() => {
+    return new Map(
+      sortedAdminCategories.map((category) => [normalizeCategoryKey(category.name), category.name])
+    );
+  }, [sortedAdminCategories]);
+
+  const getCanonicalCategoryName = useMemo(() => {
+    return (categoryName?: string | null) => {
+      const raw = String(categoryName || "").trim();
+      if (!raw) return 'Ukategoriseret';
+      return canonicalCategoryNameByKey.get(normalizeCategoryKey(raw)) || raw;
+    };
+  }, [canonicalCategoryNameByKey]);
+
+  const overviewAllProducts = useMemo(() => {
+    return searchFilteredProducts.filter((product) => {
+      const category = getCanonicalCategoryName(product.category);
+      const overviewId = categoryOverviewByKey.get(normalizeCategoryKey(category)) || FALLBACK_OVERVIEW_ID;
+      return overviewId === selectedOverviewId;
+    });
+  }, [searchFilteredProducts, categoryOverviewByKey, getCanonicalCategoryName, selectedOverviewId]);
+
+  const overviewFilteredProducts = useMemo(() => {
+    return overviewAllProducts.filter((product) => {
+      const category = getCanonicalCategoryName(product.category);
+      return selectedCategory === "Alle" || category === selectedCategory;
+    });
+  }, [overviewAllProducts, selectedCategory, getCanonicalCategoryName]);
+
+  const productsByCategory = useMemo(() => {
+    const map = new Map<string, Product[]>();
+    overviewFilteredProducts.forEach((product) => {
+      const category = getCanonicalCategoryName(product.category);
+      const existing = map.get(category) || [];
+      existing.push(product);
+      map.set(category, existing);
+    });
+    return map;
+  }, [overviewFilteredProducts, getCanonicalCategoryName]);
+
+  const categories = useMemo(() => {
+    const overviewCategoryNames = sortedAdminCategories
+      .filter((cat) => (cat.overview_id || FALLBACK_OVERVIEW_ID) === selectedOverviewId)
+      .map((cat) => cat.name);
+
+    const orphanNames = selectedOverviewId === FALLBACK_OVERVIEW_ID
+      ? Array.from(new Set(searchFilteredProducts
+          .map((product) => getCanonicalCategoryName(product.category))
+          .filter((categoryName) => !categoryOverviewByKey.has(normalizeCategoryKey(categoryName)))))
+      : [];
+
+    const allNames = new Set([...overviewCategoryNames, ...orphanNames]);
+    return [
+      "Alle",
+      ...Array.from(allNames).sort((a, b) => {
+        const orderA = sortedAdminCategories.find(c => c.name === a)?.sort_order ?? 999;
+        const orderB = sortedAdminCategories.find(c => c.name === b)?.sort_order ?? 999;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.localeCompare(b, 'da');
+      }),
+    ];
+  }, [selectedOverviewId, sortedAdminCategories, searchFilteredProducts, categoryOverviewByKey, getCanonicalCategoryName]);
+
+  useEffect(() => {
+    if (categories.includes(selectedCategory)) return;
+    setSelectedCategory("Alle");
+  }, [categories, selectedCategory]);
+
+  const isFilteringProducts = searchQuery !== "" || selectedCategory !== "Alle";
+
+  const categoriesByOverview = useMemo(() => {
+    const map = new Map<string, ProductCategory[]>();
+    sortedAdminCategories.forEach((category) => {
+      const overviewId = category.overview_id || FALLBACK_OVERVIEW_ID;
+      const existing = map.get(overviewId) || [];
+      existing.push(category);
+      map.set(overviewId, existing);
+    });
+    return map;
+  }, [sortedAdminCategories]);
+
+  const overviewSections = useMemo(() => {
+    const sortedOverviews = [...allOverviewOptions]
+      .sort((a, b) => {
+      const orderA = a.sort_order ?? 999;
+      const orderB = b.sort_order ?? 999;
+      if (orderA !== orderB) return orderA - orderB;
+      return a.name.localeCompare(b.name, 'da');
+      })
+      .filter((overview) => overview.id === selectedOverviewId);
+
+    const sections = sortedOverviews.map((overview) => {
+      const categories = sortedAdminCategories
+        .filter((cat) => (cat.overview_id || FALLBACK_OVERVIEW_ID) === overview.id)
+        .map((cat) => ({
+          categoryName: cat.name,
+          categoryOrder: cat.sort_order ?? 999,
+          products: productsByCategory.get(cat.name) || [],
+        }));
+
+      return {
+        overviewId: overview.id,
+        overviewName: overview.name,
+        categories,
+      };
+    });
+
+    // Show categories that exist on products but are not in admin_categories yet.
+    const knownCategoryNames = new Set(sortedAdminCategories.map((cat) => cat.name));
+    const orphanCategoryNames = Array.from(productsByCategory.keys())
+      .filter((categoryName) => !knownCategoryNames.has(categoryName))
+      .sort((a, b) => a.localeCompare(b, 'da'));
+
+    if (orphanCategoryNames.length > 0) {
+      const fallbackOverviewIndex = sections.findIndex((s) => s.overviewId === FALLBACK_OVERVIEW_ID);
+      const fallbackTarget = fallbackOverviewIndex >= 0
+        ? sections[fallbackOverviewIndex]
+        : {
+            overviewId: FALLBACK_OVERVIEW_ID,
+            overviewName: FALLBACK_OVERVIEW_NAME,
+            categories: [] as { categoryName: string; categoryOrder: number; products: Product[] }[],
+          };
+
+      orphanCategoryNames.forEach((categoryName, idx) => {
+        fallbackTarget.categories.push({
+          categoryName,
+          categoryOrder: 1000 + idx,
+          products: productsByCategory.get(categoryName) || [],
+        });
+      });
+
+      if (fallbackOverviewIndex < 0) {
+        sections.push(fallbackTarget);
+      }
+    }
+
+    return sections
+      .map((section) => ({
+        ...section,
+        categories: section.categories
+          .sort((a, b) => {
+            if (a.categoryOrder !== b.categoryOrder) return a.categoryOrder - b.categoryOrder;
+            return a.categoryName.localeCompare(b.categoryName, 'da');
+          })
+          .filter((category) => !isFilteringProducts || category.products.length > 0),
+      }))
+      .filter((section) => section.categories.length > 0 || !isFilteringProducts);
+  }, [allOverviewOptions, selectedOverviewId, sortedAdminCategories, productsByCategory, isFilteringProducts]);
 
   // Get all category names for the dropdown (from adminCategories + existing product categories)
   const allCategoryNames = useMemo(() => {
     const names = new Set([
       ...adminCategories.map(c => c.name),
-      ...products.map(p => p.category).filter(Boolean) as string[],
+      ...products.map(p => getCanonicalCategoryName(p.category)).filter(Boolean) as string[],
     ]);
     return Array.from(names).sort((a, b) => {
       const orderA = adminCategories.find(c => c.name === a)?.sort_order ?? 999;
@@ -644,7 +1179,35 @@ export function ProductOverview() {
       if (orderA !== orderB) return orderA - orderB;
       return a.localeCompare(b, 'da');
     });
-  }, [adminCategories, products]);
+  }, [adminCategories, products, getCanonicalCategoryName]);
+
+  const getOverviewIdForCategory = (categoryName?: string | null) => {
+    if (!categoryName) return FALLBACK_OVERVIEW_ID;
+    return categoryOverviewByKey.get(normalizeCategoryKey(categoryName)) || FALLBACK_OVERVIEW_ID;
+  };
+
+  const updateProductOverview = async (product: Product, targetOverviewId: string) => {
+    const currentOverviewId = getOverviewIdForCategory(product.category);
+    if (currentOverviewId === targetOverviewId) return;
+
+    const targetCategories = categoriesByOverview.get(targetOverviewId) || [];
+    if (targetCategories.length === 0) {
+      toast.error('Opret først en kategori i det valgte overblik');
+      return;
+    }
+
+    const preferredCategory =
+      targetCategories.find((category) => normalizeCategoryKey(category.name) === normalizeCategoryKey(product.category)) ||
+      [...targetCategories].sort((a, b) => {
+        const orderA = a.sort_order ?? 999;
+        const orderB = b.sort_order ?? 999;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.name.localeCompare(b.name, 'da');
+      })[0];
+
+    await updateProductCategory(product.id, preferredCategory.name);
+    toast.success(`Produkt flyttet til overblik "${allOverviewOptions.find((o) => o.id === targetOverviewId)?.name || ''}"`);
+  };
 
   const filteredTenants = tenants.filter((tenant) => {
     const search = tenantFilter.trim().toLowerCase();
@@ -655,6 +1218,7 @@ export function ProductOverview() {
     );
   });
   const tenantCount = tenants.length;
+  const taxonomyLoading = !overviewsLoaded || !categoriesLoaded;
 
   // Handle search open/close
   const handleSearchToggle = () => {
@@ -691,74 +1255,62 @@ export function ProductOverview() {
               Administrer Kategorier
             </DialogTitle>
             <DialogDescription>
-              Opret, omdøb og sorter dine produktkategorier
+              Opret, omdøb og sorter hovedoverblik og produktkategorier
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            {/* Add new category */}
-            <div className="flex gap-2">
-              <Input
-                placeholder="Ny kategori navn..."
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addCategory()}
-              />
-              <Button onClick={addCategory} size="icon" disabled={!newCategoryName.trim()}>
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-
-            {/* Category list */}
-            <div className="space-y-1 max-h-80 overflow-y-auto">
-              {adminCategories.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Ingen kategorier oprettet endnu
-                </p>
-              ) : (
-                adminCategories.map((cat, index) => {
-                  const productCount = products.filter(p => p.category === cat.name).length;
+          <div className="space-y-6 py-4">
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Hovedoversigter</p>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Nyt overblik navn..."
+                  value={newOverviewName}
+                  onChange={(e) => setNewOverviewName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && addOverview()}
+                />
+                <Button onClick={addOverview} size="icon" disabled={!newOverviewName.trim()}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="space-y-1 max-h-44 overflow-y-auto">
+                {allOverviewOptions.map((overview, index) => {
+                  const categoryCount = adminCategories.filter(
+                    (cat) => (cat.overview_id || FALLBACK_OVERVIEW_ID) === overview.id
+                  ).length;
                   return (
                     <div
-                      key={cat.id}
+                      key={overview.id}
                       className="flex items-center gap-2 p-2 rounded-lg border bg-card hover:bg-muted/50"
                     >
-                      {/* Reorder buttons */}
                       <div className="flex flex-col">
                         <button
-                          onClick={() => moveCategoryOrder(cat.id, 'up')}
-                          disabled={index === 0}
+                          onClick={() => moveOverviewOrder(overview.id, 'up')}
+                          disabled={index === 0 || overview.id === FALLBACK_OVERVIEW_ID}
                           className="p-0.5 hover:bg-muted rounded disabled:opacity-30"
                         >
                           <ChevronUp className="h-3 w-3" />
                         </button>
                         <button
-                          onClick={() => moveCategoryOrder(cat.id, 'down')}
-                          disabled={index === adminCategories.length - 1}
+                          onClick={() => moveOverviewOrder(overview.id, 'down')}
+                          disabled={index === allOverviewOptions.length - 1 || overview.id === FALLBACK_OVERVIEW_ID}
                           className="p-0.5 hover:bg-muted rounded disabled:opacity-30"
                         >
                           <ChevronDown className="h-3 w-3" />
                         </button>
                       </div>
-
-                      {/* Category name (editable) */}
                       <div className="flex-1 min-w-0">
-                        {editingCategoryId === cat.id ? (
+                        {editingOverviewId === overview.id ? (
                           <Input
-                            value={editingCategoryName}
-                            onChange={(e) => setEditingCategoryName(e.target.value)}
+                            value={editingOverviewName}
+                            onChange={(e) => setEditingOverviewName(e.target.value)}
                             onBlur={() => {
-                              if (editingCategoryName.trim()) {
-                                updateCategory(cat.id, editingCategoryName);
-                              }
-                              setEditingCategoryId(null);
+                              if (editingOverviewName.trim()) updateOverview(overview.id, editingOverviewName);
+                              setEditingOverviewId(null);
                             }}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                updateCategory(cat.id, editingCategoryName);
-                              } else if (e.key === 'Escape') {
-                                setEditingCategoryId(null);
-                              }
+                              if (e.key === 'Enter') updateOverview(overview.id, editingOverviewName);
+                              if (e.key === 'Escape') setEditingOverviewId(null);
                             }}
                             autoFocus
                             className="h-7 text-sm"
@@ -766,34 +1318,161 @@ export function ProductOverview() {
                         ) : (
                           <button
                             onClick={() => {
-                              setEditingCategoryId(cat.id);
-                              setEditingCategoryName(cat.name);
+                              if (overview.id === FALLBACK_OVERVIEW_ID) return;
+                              setEditingOverviewId(overview.id);
+                              setEditingOverviewName(overview.name);
                             }}
                             className="text-sm font-medium truncate w-full text-left hover:text-primary"
                           >
-                            {cat.name}
+                            {overview.name}
                           </button>
                         )}
                       </div>
-
-                      {/* Product count */}
                       <Badge variant="secondary" className="text-xs">
-                        {productCount}
+                        {categoryCount}
                       </Badge>
-
-                      {/* Delete button */}
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        onClick={() => deleteCategory(cat.id)}
+                        onClick={() => deleteOverview(overview.id)}
+                        disabled={overview.id === FALLBACK_OVERVIEW_ID}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   );
-                })
-              )}
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Kategorier</p>
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Ny kategori navn..."
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && addCategory()}
+                  />
+                  <Button onClick={addCategory} size="icon" disabled={!newCategoryName.trim()}>
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+                <Select value={newCategoryOverviewId} onValueChange={setNewCategoryOverviewId}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Vælg overblik" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allOverviewOptions.map((overview) => (
+                      <SelectItem key={overview.id} value={overview.id}>
+                        {overview.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1 max-h-80 overflow-y-auto">
+                {adminCategories.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    Ingen kategorier oprettet endnu
+                  </p>
+                ) : (
+                  adminCategories.map((cat, index) => {
+                    const productCount = products.filter(
+                      (p) => normalizeCategoryKey(p.category) === normalizeCategoryKey(cat.name)
+                    ).length;
+                    const overviewId = cat.overview_id || FALLBACK_OVERVIEW_ID;
+                    return (
+                      <div
+                        key={cat.id}
+                        className="flex items-center gap-2 p-2 rounded-lg border bg-card hover:bg-muted/50"
+                      >
+                        <div className="flex flex-col">
+                          <button
+                            onClick={() => moveCategoryOrder(cat.id, 'up')}
+                            disabled={index === 0}
+                            className="p-0.5 hover:bg-muted rounded disabled:opacity-30"
+                          >
+                            <ChevronUp className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={() => moveCategoryOrder(cat.id, 'down')}
+                            disabled={index === adminCategories.length - 1}
+                            className="p-0.5 hover:bg-muted rounded disabled:opacity-30"
+                          >
+                            <ChevronDown className="h-3 w-3" />
+                          </button>
+                        </div>
+
+                        <div className="flex-1 min-w-0 space-y-1">
+                          {editingCategoryId === cat.id ? (
+                            <Input
+                              value={editingCategoryName}
+                              onChange={(e) => setEditingCategoryName(e.target.value)}
+                              onBlur={() => {
+                                if (editingCategoryName.trim()) {
+                                  updateCategory(cat.id, editingCategoryName);
+                                }
+                                setEditingCategoryId(null);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  updateCategory(cat.id, editingCategoryName);
+                                } else if (e.key === 'Escape') {
+                                  setEditingCategoryId(null);
+                                }
+                              }}
+                              autoFocus
+                              className="h-7 text-sm"
+                            />
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setEditingCategoryId(cat.id);
+                                setEditingCategoryName(cat.name);
+                              }}
+                              className="text-sm font-medium truncate w-full text-left hover:text-primary"
+                            >
+                              {cat.name}
+                            </button>
+                          )}
+                          <Select
+                            value={overviewId}
+                            onValueChange={(value) => updateCategoryOverview(cat.id, value)}
+                          >
+                            <SelectTrigger className="h-7 text-xs">
+                              <SelectValue placeholder="Vælg overblik" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {allOverviewOptions.map((overview) => (
+                                <SelectItem key={overview.id} value={overview.id} className="text-xs">
+                                  {overview.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <Badge variant="secondary" className="text-xs">
+                          {productCount}
+                        </Badge>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => deleteCategory(cat.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
           </div>
 
@@ -838,19 +1517,19 @@ export function ProductOverview() {
                   {cat}
                 </button>
               ))}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8"
                     onClick={() => setCategoryDialogOpen(true)}
-                  >
-                    <Settings2 className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Administrer kategorier</TooltipContent>
-              </Tooltip>
+                    >
+                      <Settings2 className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                <TooltipContent>Administrer overblik og kategorier</TooltipContent>
+                </Tooltip>
             </div>
 
             {/* Expanding Search Control */}
@@ -911,38 +1590,99 @@ export function ProductOverview() {
                 <Package className="h-5 w-5" />
                 Produkter
                 <span className="text-sm font-normal text-muted-foreground ml-2">
-                  ({filteredProducts.length} af {products.length})
+                  ({overviewFilteredProducts.length} af {overviewAllProducts.length})
                 </span>
               </h2>
               <p className="text-sm text-muted-foreground">Administrer dine produkter og priser</p>
+              {!taxonomyLoading && allOverviewOptions.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {allOverviewOptions
+                    .slice()
+                    .sort((a, b) => {
+                      const orderA = a.sort_order ?? 999;
+                      const orderB = b.sort_order ?? 999;
+                      if (orderA !== orderB) return orderA - orderB;
+                      return a.name.localeCompare(b.name, 'da');
+                    })
+                    .map((overview) => (
+                      <button
+                        key={overview.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedOverviewId(overview.id);
+                          setSelectedCategory("Alle");
+                        }}
+                        className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+                          selectedOverviewId === overview.id
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background hover:bg-muted border-border"
+                        }`}
+                      >
+                        {overview.name}
+                      </button>
+                    ))}
+                </div>
+              )}
             </div>
             <CardContent className="p-0">
-              {sortedGroupedProducts.length === 0 && (
+              {taxonomyLoading ? (
+                <div className="p-8 text-center text-muted-foreground">
+                  Henter overblik...
+                </div>
+              ) : overviewSections.length === 0 && (
                 <div className="p-8 text-center text-muted-foreground">
                   {searchQuery || selectedCategory !== "Alle"
                     ? "Ingen produkter matcher din søgning."
                     : "Ingen produkter fundet."}
                 </div>
               )}
-              {sortedGroupedProducts.map(([category, categoryProducts]) => {
-                const isCollapsed = collapsedCategories.has(category);
+              {!taxonomyLoading && overviewSections.map((overviewSection) => {
                 return (
-                <div key={category} className="group border-b last:border-b-0">
-                  <button
-                    onClick={() => toggleCategoryCollapsed(category)}
-                    className="w-full cursor-pointer px-6 py-3 bg-muted/30 hover:bg-muted/50 transition-colors flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold capitalize">{category.replace('_', ' ')}</span>
-                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                        {categoryProducts.length} produkter
-                      </span>
+                <div key={overviewSection.overviewId} className="group border-b last:border-b-0">
+                  <div className="px-6 py-2 bg-primary/5 border-b">
+                    <p className="text-sm font-semibold text-primary">{overviewSection.overviewName}</p>
+                  </div>
+
+                  {overviewSection.categories.length === 0 ? (
+                    <div className="px-6 py-4 text-sm text-muted-foreground">
+                      Ingen kategorier i denne oversigt endnu.
                     </div>
-                    <span className={`text-muted-foreground text-sm transition-transform ${isCollapsed ? '' : 'rotate-180'}`}>▼</span>
-                  </button>
-                  {!isCollapsed && (
-                  <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                  ) : (
+                    overviewSection.categories.map((group) => {
+                      const category = group.categoryName;
+                      const categoryProducts = group.products;
+                      const collapseKey = `${overviewSection.overviewId}::${category}`;
+                      const isCollapsed = collapsedCategories.has(collapseKey);
+                      return (
+                      <div key={collapseKey}>
+                        <button
+                          onClick={() => toggleCategoryCollapsed(collapseKey)}
+                          className="w-full cursor-pointer px-6 py-3 bg-muted/30 hover:bg-muted/50 transition-colors flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold capitalize">{category.replace('_', ' ')}</span>
+                            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                              {categoryProducts.length} produkter
+                            </span>
+                          </div>
+                          <span className={`text-muted-foreground text-sm transition-transform ${isCollapsed ? '' : 'rotate-180'}`}>▼</span>
+                        </button>
+                        {!isCollapsed && (
+                        <>
+                        {categoryProducts.length === 0 ? (
+                          <div className="px-6 py-4 text-sm text-muted-foreground">
+                            Ingen produkter i denne kategori endnu.
+                          </div>
+                        ) : (
+                        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                     {categoryProducts.map((product) => (
+                      (() => {
+                        const productOverviewId = getOverviewIdForCategory(product.category);
+                        const productCategoryNames = (
+                          categoriesByOverview.get(productOverviewId) || []
+                        ).map((category) => category.name);
+
+                        return (
                       <Card
                         key={product.id}
                         className="hover:border-primary transition-colors overflow-hidden relative"
@@ -995,17 +1735,32 @@ export function ProductOverview() {
                             </div>
                           </div>
 
-                          {/* Category Dropdown */}
-                          <div className="px-3 py-1.5 border-b">
+                          {/* Overview + Category Controls */}
+                          <div className="px-3 py-1.5 border-b space-y-1.5">
                             <Select
-                              value={product.category || ''}
+                              value={productOverviewId}
+                              onValueChange={(value) => updateProductOverview(product, value)}
+                            >
+                              <SelectTrigger className="h-7 text-xs">
+                                <SelectValue placeholder="Vælg overblik" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {allOverviewOptions.map((overview) => (
+                                  <SelectItem key={overview.id} value={overview.id} className="text-xs">
+                                    {overview.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Select
+                              value={getCanonicalCategoryName(product.category) || ''}
                               onValueChange={(value) => updateProductCategory(product.id, value)}
                             >
                               <SelectTrigger className="h-7 text-xs">
                                 <SelectValue placeholder="Vælg kategori" />
                               </SelectTrigger>
                               <SelectContent>
-                                {allCategoryNames.map((catName) => (
+                                {(productCategoryNames.length > 0 ? productCategoryNames : allCategoryNames).map((catName) => (
                                   <SelectItem key={catName} value={catName} className="text-xs">
                                     {catName}
                                   </SelectItem>
@@ -1051,7 +1806,7 @@ export function ProductOverview() {
                               </Tooltip>
 
                               {/* Clone to Tenant (Master Only) */}
-                              {isMasterAdmin && (
+                              {canDistributeToTenants && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Button
@@ -1108,7 +1863,7 @@ export function ProductOverview() {
                           </div>
 
                           {/* Release to Tenants Toggle (Master only) */}
-                          {isMasterAdmin && (
+                          {canDistributeToTenants && (
                             <div className="border-t border-dashed bg-blue-50/30 px-3 py-2 space-y-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1150,8 +1905,16 @@ export function ProductOverview() {
                           )}
                         </CardContent>
                       </Card>
+                        );
+                      })()
                     ))}
-                  </div>
+                        </div>
+                        )}
+                        </>
+                        )}
+                      </div>
+                      );
+                    })
                   )}
                 </div>
                 );

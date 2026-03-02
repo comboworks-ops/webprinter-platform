@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
     type BrandingData,
@@ -69,6 +70,7 @@ export interface UseBrandingEditorReturn {
 
 export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandingEditorReturn {
     const { adapter, capabilities } = options;
+    const queryClient = useQueryClient();
 
     const [draft, setDraft] = useState<BrandingData>(DEFAULT_BRANDING);
     const [published, setPublished] = useState<BrandingData>(DEFAULT_BRANDING);
@@ -79,6 +81,27 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
     const [isSaving, setIsSaving] = useState(false);
 
     const hasUnsavedChanges = !brandingEquals(draft, originalDraft);
+
+    // LOCK LF-003: Publish must invalidate/refetch storefront settings immediately.
+    const refreshShopSettings = useCallback(async () => {
+        const stamp = String(Date.now());
+
+        if (typeof window !== 'undefined') {
+            try {
+                window.localStorage.setItem('branding-published-at', stamp);
+                window.dispatchEvent(
+                    new CustomEvent('branding-published', {
+                        detail: { at: stamp, entityId: adapter.entityId },
+                    })
+                );
+            } catch {
+                // Best effort only; cache invalidation below still runs.
+            }
+        }
+
+        await queryClient.invalidateQueries({ queryKey: ['shop-settings'] });
+        await queryClient.refetchQueries({ queryKey: ['shop-settings'], type: 'active' });
+    }, [adapter.entityId, queryClient]);
 
     // Load initial data
     const loadData = useCallback(async () => {
@@ -173,7 +196,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         try {
             await adapter.saveDraft(draft);
             setOriginalDraft(draft);
-            toast.success('Kladde gemt');
+            toast.success('Kladde gemt (ikke live endnu)');
         } catch (error) {
             console.error('Error saving draft:', error);
             toast.error('Kunne ikke gemme kladde');
@@ -208,7 +231,8 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             await adapter.publish(draft, label);
             setPublished(draft);
             setOriginalDraft(draft);
-            toast.success('Branding publiceret!');
+            await refreshShopSettings();
+            toast.success('Branding publiceret (live opdateret)');
         } catch (error) {
             console.error('Error publishing:', error);
             toast.error('Kunne ikke publicere');
@@ -216,7 +240,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         } finally {
             setIsSaving(false);
         }
-    }, [adapter, draft]);
+    }, [adapter, draft, refreshShopSettings]);
 
     // Reset to default
     const resetToDefault = useCallback(async () => {
@@ -226,6 +250,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             setDraft(defaultData);
             setPublished(defaultData);
             setOriginalDraft(defaultData);
+            await refreshShopSettings();
             toast.success('Nulstillet til standard');
         } catch (error) {
             console.error('Error resetting:', error);
@@ -234,7 +259,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         } finally {
             setIsSaving(false);
         }
-    }, [adapter]);
+    }, [adapter, refreshShopSettings]);
 
     // Load history
     const loadHistory = useCallback(async () => {
@@ -287,7 +312,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
                 // If no name, just save current draft state (standard save)
                 await adapter.saveDraft(draft);
                 setOriginalDraft(draft);
-                toast.success('Kladde gemt');
+                toast.success('Kladde gemt (ikke live endnu)');
             }
         } catch (error) {
             console.error('Error saving design:', error);

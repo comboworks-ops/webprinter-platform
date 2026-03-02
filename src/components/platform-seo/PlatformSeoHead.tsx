@@ -196,9 +196,34 @@ export function PlatformSeoHead() {
     const location = useLocation();
     const hostname = window.location.hostname;
     const pathname = location.pathname;
+    const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
 
     // Only run on platform hosts and non-excluded paths
-    const shouldApply = isPlatformHost(hostname) && !isExcludedPath(pathname);
+    const shouldApply = !isLocalhost && isPlatformHost(hostname) && !isExcludedPath(pathname);
+    const isNoRowsError = (error: any) => {
+        const code = String(error?.code || '');
+        const details = String(error?.details || '').toLowerCase();
+        const message = String(error?.message || '').toLowerCase();
+        return code === 'PGRST116' || details.includes('0 rows') || message.includes('0 rows');
+    };
+    const isAbortError = (error: any) => {
+        const message = String(error?.message || '').toLowerCase();
+        const details = String(error?.details || '').toLowerCase();
+        return message.includes('aborterror') || details.includes('aborterror') || message.includes('signal is aborted');
+    };
+    const isTransportError = (error: any) => {
+        const message = String(error?.message || '').toLowerCase();
+        const details = String(error?.details || '').toLowerCase();
+        const status = Number(error?.status || 0);
+        return (
+            message.includes('failed to fetch')
+            || message.includes('networkerror')
+            || details.includes('failed to fetch')
+            || details.includes('networkerror')
+            || status === 0
+            || status === 522
+        );
+    };
 
     // Fetch settings (only if should apply)
     const { data: settings } = useQuery({
@@ -207,9 +232,9 @@ export function PlatformSeoHead() {
             const { data, error } = await supabase
                 .from('platform_seo_settings')
                 .select('*')
-                .single();
+                .maybeSingle();
 
-            if (error && error.code !== 'PGRST116') {
+            if (error && !isNoRowsError(error) && !isAbortError(error) && !isTransportError(error)) {
                 console.warn('Platform SEO settings fetch error:', error);
                 return null;
             }
@@ -229,10 +254,10 @@ export function PlatformSeoHead() {
                 .select('*')
                 .eq('path', pathname)
                 .is('locale', null)
-                .single();
+                .maybeSingle();
 
-            if (error && error.code !== 'PGRST116') {
-                // Not found is OK
+            if (error && !isNoRowsError(error) && !isAbortError(error) && !isTransportError(error)) {
+                console.warn('Platform SEO page fetch error:', error);
                 return null;
             }
 

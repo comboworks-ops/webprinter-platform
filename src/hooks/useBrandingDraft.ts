@@ -485,11 +485,59 @@ export interface ContentBlock {
     textAlign: 'left' | 'center' | 'right';
 }
 
+export interface FeaturedSidePanelItem {
+    id: string;
+    mode: 'banner' | 'product';
+    productId?: string;
+    imageUrl?: string | null;
+    title?: string;
+    subtitle?: string;
+    ctaLabel?: string;
+    ctaHref?: string;
+}
+
+export interface FeaturedProductConfig {
+    enabled: boolean;
+    productId?: string;
+    quantityPresets?: number[];
+    showOptions: boolean;
+    showPrice: boolean;
+    overlapPx: number;
+    borderRadiusPx?: number;
+    position?: 'above' | 'below';
+    productSide?: 'left' | 'right';
+    imageMode?: 'contain' | 'full';
+    cardStyle?: 'default' | 'glass';
+    ctaLabel?: string;
+    ctaColor?: string;
+    ctaTextColor?: string;
+    sidePanel?: {
+        enabled: boolean;
+        mode?: 'banner' | 'product';
+        items?: FeaturedSidePanelItem[];
+        imageUrl?: string | null;
+        images?: string[];
+        slideshowIntervalMs?: number;
+        borderRadiusPx?: number;
+        title?: string;
+        subtitle?: string;
+        textAnimation?: HeroTextAnimation;
+        overlayColor?: string;
+        overlayOpacity?: number;
+        titleColor?: string;
+        subtitleColor?: string;
+        ctaLabel?: string;
+        ctaHref?: string;
+        productId?: string;
+    };
+}
+
 export interface ForsideProductsSection {
     enabled: boolean;
     columns: 3 | 4 | 5;
     layoutStyle: 'cards' | 'flat' | 'grouped' | 'slim';
     showStorformatTab: boolean;
+    featuredProductConfig: FeaturedProductConfig;
     button: {
         style: 'default' | 'bar' | 'center' | 'hidden';
         bgColor: string;
@@ -508,6 +556,42 @@ export interface ForsideProductsSection {
         opacity: number;
     };
 }
+
+const DEFAULT_FEATURED_PRODUCT_CONFIG: FeaturedProductConfig = {
+    enabled: false,
+    productId: undefined,
+    quantityPresets: [200, 500, 1000, 2500, 5000],
+    showOptions: true,
+    showPrice: true,
+    overlapPx: 60,
+    borderRadiusPx: 24,
+    position: 'above',
+    productSide: 'left',
+    imageMode: 'contain',
+    cardStyle: 'default',
+    ctaLabel: 'Bestil nu',
+    ctaColor: '#0EA5E9',
+    ctaTextColor: '#FFFFFF',
+    sidePanel: {
+        enabled: false,
+        mode: 'banner',
+        items: [],
+        imageUrl: null,
+        images: [],
+        slideshowIntervalMs: 6000,
+        borderRadiusPx: 24,
+        title: 'Fremhæv din kampagne',
+        subtitle: 'Brug denne flade til CTA, billede og ekstra budskab ved siden af det fremhævede produkt.',
+        textAnimation: 'slide-up',
+        overlayColor: '#000000',
+        overlayOpacity: 0.35,
+        titleColor: '#FFFFFF',
+        subtitleColor: 'rgba(255, 255, 255, 0.9)',
+        ctaLabel: 'Læs mere',
+        ctaHref: '/shop',
+        productId: undefined,
+    },
+};
 
 // Forside (front page) settings
 export interface ForsideSettings {
@@ -539,6 +623,7 @@ const DEFAULT_FORSIDE: ForsideSettings = {
         columns: 4,
         layoutStyle: 'cards',
         showStorformatTab: true,
+        featuredProductConfig: DEFAULT_FEATURED_PRODUCT_CONFIG,
         button: {
             style: 'default',
             bgColor: '#0EA5E9',
@@ -686,6 +771,14 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
             productsSection: {
                 ...DEFAULT_BRANDING.forside.productsSection,
                 ...(data.forside.productsSection || {}),
+                featuredProductConfig: {
+                    ...DEFAULT_BRANDING.forside.productsSection.featuredProductConfig,
+                    ...(data.forside.productsSection?.featuredProductConfig || {}),
+                    sidePanel: {
+                        ...DEFAULT_BRANDING.forside.productsSection.featuredProductConfig.sidePanel,
+                        ...(data.forside.productsSection?.featuredProductConfig?.sidePanel || {}),
+                    },
+                },
                 button: {
                     ...DEFAULT_BRANDING.forside.productsSection.button,
                     ...(data.forside.productsSection?.button || {}),

@@ -9,8 +9,8 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import HeroSlider from "@/components/HeroSlider";
 import html2canvas from "html2canvas";
-import ProductGrid from "@/components/ProductGrid";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FeaturedProductConfigurator } from "@/components/FeaturedProductConfigurator";
+import { StorefrontProductTabs } from "@/components/StorefrontProductTabs";
 import { Truck, Award, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { mergeBrandingWithDefaults, type BrandingData } from "@/hooks/useBrandingDraft";
@@ -20,6 +20,7 @@ import { ContactContent } from "@/components/content/ContactContent";
 import { AboutContent } from "@/components/content/AboutContent";
 import { ProductPriceContent } from "@/components/content/ProductPriceContent";
 import { TermsContent } from "@/components/content/TermsContent";
+import { SitePackagePreview } from "@/components/sites/SitePackagePreview";
 
 // List of ALLOWED customer-visible routes in preview mode
 // This prevents navigation to admin/backend routes
@@ -117,6 +118,9 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
     const productBackgroundConfig = productsSection?.background;
     const productLayoutStyle = productsSection?.layoutStyle;
     const showStorformatTab = productsSection?.showStorformatTab ?? true;
+    const featuredProductConfig = productsSection?.featuredProductConfig;
+    const hasFeaturedProduct = featuredProductConfig?.enabled && featuredProductConfig?.productId;
+    const featuredAboveCategories = (featuredProductConfig?.position || 'above') === 'above';
 
     // Generate CSS variables from branding
     const primaryColor = branding?.colors?.primary || "#0EA5E9";
@@ -178,39 +182,20 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
                     <div className="container mx-auto px-4">
                         <h1 className="text-3xl font-heading font-bold mb-8 text-center">Produkter</h1>
                         {showStorformatTab ? (
-                            <Tabs defaultValue="tryksager" className="w-full">
-                                <TabsList className="grid w-full max-w-md mx-auto grid-cols-2 mb-12">
-                                    <TabsTrigger value="tryksager">Tryksager</TabsTrigger>
-                                    <TabsTrigger value="storformat">Storformat print</TabsTrigger>
-                                </TabsList>
-
-                                <TabsContent value="tryksager" id="tryksager">
-                                    <ProductGrid
-                                        category="tryksager"
-                                        columns={productColumns}
-                                        buttonConfig={productButtonConfig}
-                                        backgroundConfig={productBackgroundConfig}
-                                        layoutStyle={productLayoutStyle}
-                                    />
-                                </TabsContent>
-
-                                <TabsContent value="storformat" id="storformat">
-                                    <ProductGrid
-                                        category="storformat"
-                                        columns={productColumns}
-                                        buttonConfig={productButtonConfig}
-                                        backgroundConfig={productBackgroundConfig}
-                                        layoutStyle={productLayoutStyle}
-                                    />
-                                </TabsContent>
-                            </Tabs>
-                        ) : (
-                            <ProductGrid
-                                category="tryksager"
+                            <StorefrontProductTabs
                                 columns={productColumns}
                                 buttonConfig={productButtonConfig}
                                 backgroundConfig={productBackgroundConfig}
                                 layoutStyle={productLayoutStyle}
+                                showCategoryTabs
+                            />
+                        ) : (
+                            <StorefrontProductTabs
+                                columns={productColumns}
+                                buttonConfig={productButtonConfig}
+                                backgroundConfig={productBackgroundConfig}
+                                layoutStyle={productLayoutStyle}
+                                showCategoryTabs={false}
                             />
                         )}
                     </div>
@@ -299,43 +284,48 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
 
                 {/* Products Section - MATCHES Shop.tsx */}
                 {showProducts && (
-                    <section className="py-16" id="produkter">
+                    <section
+                        className="py-16"
+                        id="produkter"
+                        style={{
+                            paddingTop: hasFeaturedProduct && featuredAboveCategories && featuredProductConfig?.overlapPx
+                                ? `${64 + featuredProductConfig.overlapPx}px`
+                                : undefined,
+                        }}
+                    >
                         <div className="container mx-auto px-4">
+                            {hasFeaturedProduct && featuredProductConfig && featuredAboveCategories && (
+                                <div className="mb-8 relative z-10">
+                                    <FeaturedProductConfigurator
+                                        config={featuredProductConfig}
+                                        branding={branding}
+                                    />
+                                </div>
+                            )}
                             {showStorformatTab ? (
-                                <Tabs defaultValue="tryksager" className="w-full">
-                                    <TabsList className="grid w-full max-w-md mx-auto grid-cols-2 mb-12">
-                                        <TabsTrigger value="tryksager">Tryksager</TabsTrigger>
-                                        <TabsTrigger value="storformat">Storformat print</TabsTrigger>
-                                    </TabsList>
-
-                                    <TabsContent value="tryksager" id="tryksager">
-                                        <ProductGrid
-                                            category="tryksager"
-                                            columns={productColumns}
-                                            buttonConfig={productButtonConfig}
-                                            backgroundConfig={productBackgroundConfig}
-                                            layoutStyle={productLayoutStyle}
-                                        />
-                                    </TabsContent>
-
-                                    <TabsContent value="storformat" id="storformat">
-                                        <ProductGrid
-                                            category="storformat"
-                                            columns={productColumns}
-                                            buttonConfig={productButtonConfig}
-                                            backgroundConfig={productBackgroundConfig}
-                                            layoutStyle={productLayoutStyle}
-                                        />
-                                    </TabsContent>
-                                </Tabs>
-                            ) : (
-                                <ProductGrid
-                                    category="tryksager"
+                                <StorefrontProductTabs
                                     columns={productColumns}
                                     buttonConfig={productButtonConfig}
                                     backgroundConfig={productBackgroundConfig}
                                     layoutStyle={productLayoutStyle}
+                                    showCategoryTabs
                                 />
+                            ) : (
+                                <StorefrontProductTabs
+                                    columns={productColumns}
+                                    buttonConfig={productButtonConfig}
+                                    backgroundConfig={productBackgroundConfig}
+                                    layoutStyle={productLayoutStyle}
+                                    showCategoryTabs={false}
+                                />
+                            )}
+                            {hasFeaturedProduct && featuredProductConfig && !featuredAboveCategories && (
+                                <div className="mt-8">
+                                    <FeaturedProductConfigurator
+                                        config={featuredProductConfig}
+                                        branding={branding}
+                                    />
+                                </div>
                             )}
                         </div>
                     </section>
@@ -479,9 +469,16 @@ export default function PreviewShop() {
 
     const isDraft = searchParams.get("draft") === "1";
     const tenantIdParam = searchParams.get("tenantId") || searchParams.get("tenant_id");
+    const siteIdParam = searchParams.get("siteId") || searchParams.get("site_id");
+    const isSitePreview = searchParams.get("sitePreview") === "1" && !!siteIdParam;
 
     // Load initial branding from database
     useEffect(() => {
+        if (isSitePreview) {
+            setIsLoading(false);
+            return;
+        }
+
         async function loadInitialBranding() {
             try {
                 const { data: { user } } = await supabase.auth.getUser();
@@ -491,7 +488,6 @@ export default function PreviewShop() {
                     .from('tenants' as any)
                     .select('id, name, settings');
 
-                const tenantIdParam = searchParams.get("tenantId");
                 if (tenantIdParam) {
                     query = query.eq('id', tenantIdParam);
                 } else {
@@ -523,9 +519,10 @@ export default function PreviewShop() {
         if (!roleLoading) {
             loadInitialBranding();
         }
-    }, [isDraft, roleLoading]);
+    }, [isDraft, roleLoading, tenantIdParam, isSitePreview]);
 
     useEffect(() => {
+        if (isSitePreview) return;
         if (roleLoading || !isAdmin) return;
         if (!tenantIdParam || tenantIdParam !== MASTER_TENANT_ID) return;
 
@@ -556,7 +553,7 @@ export default function PreviewShop() {
         };
 
         resolveAndRedirect();
-    }, [tenantIdParam, roleLoading, isAdmin, searchParams]);
+    }, [tenantIdParam, roleLoading, isAdmin, searchParams, isSitePreview]);
 
     const [editMode, setEditMode] = useState(false);
 
@@ -692,6 +689,10 @@ export default function PreviewShop() {
                 <Loader2 className="animate-spin h-8 w-8 text-primary" />
             </div>
         );
+    }
+
+    if (isSitePreview && siteIdParam) {
+        return <SitePackagePreview siteId={siteIdParam} tenantId={tenantIdParam || null} />;
     }
 
     return (

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import { PriceHierarchyFilter } from "./PriceHierarchyFilter";
 import { OptionGroupManager } from "./OptionGroupManager";
 import { resolveAdminTenant } from "@/lib/adminTenant";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -56,6 +57,30 @@ interface BasePrice {
   price_dkk?: number;
   updated_at?: string;
   updated_by?: string;
+}
+
+function createPriceFingerprint(rows: any[]): string | null {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+
+  let hash = 2166136261;
+  const normalized = rows
+    .map((row) => [
+      row?.variant_name || "",
+      row?.variant_value || "",
+      row?.quantity ?? "",
+      row?.price_dkk ?? "",
+      row?.updated_at || "",
+    ].join("|"))
+    .sort();
+
+  for (const entry of normalized) {
+    for (let i = 0; i < entry.length; i += 1) {
+      hash ^= entry.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+  }
+
+  return `${rows.length}:${(hash >>> 0).toString(16)}`;
 }
 
 interface FolderPrice extends BasePrice {
@@ -278,6 +303,7 @@ export function ProductPriceManager() {
   const [editedPriceBgEnabled, setEditedPriceBgEnabled] = useState(false);
   const [editedPriceFont, setEditedPriceFont] = useState("inherit");
   const [editedHoverImageUrl, setEditedHoverImageUrl] = useState<string | null>(null);
+  const [editedImageScalePct, setEditedImageScalePct] = useState<number>(100);
   const [editedSpecialBadge, setEditedSpecialBadge] = useState<ProductBadgeConfig | undefined>(undefined);
   const [configSectionThumbs, setConfigSectionThumbs] = useState({
     format: null as string | null,
@@ -342,6 +368,11 @@ export function ProductPriceManager() {
   const [hasOrderDeliveryEdits, setHasOrderDeliveryEdits] = useState(false);
   const [isMasterAdmin, setIsMasterAdmin] = useState(false);
   const [podCarrierUploadIndex, setPodCarrierUploadIndex] = useState<number | null>(null);
+
+  const publishedPricesFingerprint = useMemo(
+    () => createPriceFingerprint(prices),
+    [prices]
+  );
 
   // Hook for product attribute groups (used in pricing structure)
   const productAttrs = useProductAttributes(product?.id, product?.tenant_id);
@@ -516,6 +547,7 @@ export function ProductPriceManager() {
       setEditedPriceBgEnabled(bc.price_bg_enabled || false);
       setEditedPriceFont(bc.price_font || "inherit");
       setEditedHoverImageUrl(bc.hover_image_url || null);
+      setEditedImageScalePct(Math.max(60, Math.min(140, Number(bc.image_scale_pct) || 100)));
       setEditedSpecialBadge(bc.special_badge || undefined);
       setEditedPromoPrice(bc.promo_price?.toString() || "");
       setEditedOriginalPrice(bc.original_price?.toString() || "");
@@ -719,12 +751,36 @@ export function ProductPriceManager() {
       setLoading(true);
       const tableName = 'generic_product_prices';
 
-      // Always filter by product_id for generic pricing
-      const query = supabase.from(tableName as any).select('*').eq('product_id', product.id);
+      let data: any[] = [];
 
-      const { data, error } = await query;
+      if (tableName === 'generic_product_prices') {
+        const pageSize = 5000;
+        let offset = 0;
 
-      if (error) throw error;
+        while (true) {
+          const { data: pageData, error } = await supabase
+            .from(tableName as any)
+            .select('*')
+            .eq('product_id', product.id)
+            .order('id', { ascending: true })
+            .range(offset, offset + pageSize - 1);
+
+          if (error) throw error;
+          if (!pageData || pageData.length === 0) break;
+
+          data.push(...pageData);
+          if (pageData.length < pageSize) break;
+          offset += pageSize;
+        }
+      } else {
+        const { data: singlePageData, error } = await supabase
+          .from(tableName as any)
+          .select('*')
+          .eq('product_id', product.id);
+
+        if (error) throw error;
+        data = singlePageData || [];
+      }
 
       // Sort by quantity for products that have it, otherwise keep original order
       const sortedData = (data as any[] || []).sort((a, b) => {
@@ -841,6 +897,7 @@ export function ProductPriceManager() {
           price_bg_enabled: editedPriceBgEnabled,
           price_font: editedPriceFont,
           hover_image_url: hoverImg,
+          image_scale_pct: editedImageScalePct,
           special_badge: editedSpecialBadge
         }
       };
@@ -1350,6 +1407,7 @@ export function ProductPriceManager() {
               productName={product.name}
               tableName="generic_product_prices"
               productSlug={product.slug}
+              publishedPricesFingerprint={publishedPricesFingerprint}
               onPricesUpdated={fetchPrices}
             />
           )}
@@ -2794,6 +2852,25 @@ export function ProductPriceManager() {
                               Vises når musen holdes over produktkortet. Valgfrit.
                             </p>
                           </div>
+                          <div className="pt-2 border-t space-y-2">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-xs">Billedstørrelse på produktkort</Label>
+                              <span className="text-[10px] text-muted-foreground">{editedImageScalePct}%</span>
+                            </div>
+                            <Slider
+                              value={[editedImageScalePct]}
+                              min={60}
+                              max={140}
+                              step={5}
+                              onValueChange={([value]) => {
+                                setEditedImageScalePct(value);
+                                setHasProductEdits(true);
+                              }}
+                            />
+                            <p className="text-[10px] text-muted-foreground">
+                              Justerer billedets størrelse på forsidens produktkort uden at ændre selve kort-layoutet.
+                            </p>
+                          </div>
                         </div>
 
                         {/* Special Badge Editor */}
@@ -2819,6 +2896,7 @@ export function ProductPriceManager() {
                           priceBgEnabled={editedPriceBgEnabled}
                           priceFont={editedPriceFont}
                           hoverImageUrl={editedHoverImageUrl}
+                          imageScalePct={editedImageScalePct}
                           specialBadge={editedSpecialBadge}
                           promoPrice={editedPromoPrice}
                           originalPrice={editedOriginalPrice}

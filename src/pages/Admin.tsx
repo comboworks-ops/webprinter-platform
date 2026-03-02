@@ -48,6 +48,7 @@ import PodBetaling from '@/pages/admin/PodBetaling';
 import { Pod2Admin } from '@/pages/admin/Pod2Admin';
 import { Pod2Katalog } from '@/pages/admin/Pod2Katalog';
 import { ShopModules } from '@/components/admin/ShopModules';
+import SitesAdmin from '@/pages/admin/SitesAdmin';
 
 
 export default function Admin() {
@@ -123,6 +124,7 @@ export default function Admin() {
                 <Route path="/indstillinger" element={<ShopSettings />} />
                 <Route path="/indstillinger/betaling" element={<TenantPaymentSettings />} />
                 <Route path="/moduler" element={<ShopModules />} />
+                <Route path="/sites" element={<SitesAdmin />} />
                 {/* Platform Admin Routes */}
                 <Route path="/tenants" element={<TenantOverview />} />
                 <Route path="/updates" element={<AdminUpdates />} />

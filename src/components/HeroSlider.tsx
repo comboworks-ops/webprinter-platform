@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
+import { useShopSettings } from "@/hooks/useShopSettings";
 import {
   type HeroSettings,
   type HeroImage,
@@ -105,7 +106,11 @@ interface HeroSliderProps {
 }
 
 const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
-  const { branding, isPreviewMode } = usePreviewBranding();
+  const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
+  const shopSettings = useShopSettings();
+  const branding = (isPreviewMode && previewBranding)
+    ? previewBranding
+    : shopSettings.data?.branding;
   const [currentSlide, setCurrentSlide] = useState(0);
   const [scrollY, setScrollY] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -129,7 +134,6 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
     }
 
     // Inactive state (hidden) based on animation type
-    console.log('Animation:', animation);
     switch (animation) {
       case 'fade':
         return `${baseClasses} opacity-0`;

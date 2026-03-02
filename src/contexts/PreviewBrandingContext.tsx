@@ -3,6 +3,7 @@ import type { BrandingData } from "@/hooks/useBrandingDraft";
 import { mergeBrandingWithDefaults } from "@/hooks/useBrandingDraft";
 import { getGoogleFontsUrl } from "@/components/admin/FontSelector";
 import { applyFavicon } from "@/hooks/useFavicon";
+import { buildProductFilter } from "@/lib/branding/productAssets";
 
 interface PreviewBrandingContextValue {
     /** The branding data (draft in preview, published in production) */
@@ -217,8 +218,8 @@ export function PreviewBrandingProvider({
         const root = document.documentElement;
         root.style.setProperty('--product-hue-rotate', `${branding.productImages.hueRotate}deg`);
         root.style.setProperty('--product-saturate', `${branding.productImages.saturate}%`);
-        root.style.setProperty('--product-filter', `hue-rotate(${branding.productImages.hueRotate}deg) saturate(${branding.productImages.saturate}%)`);
-    }, [branding?.productImages?.hueRotate, branding?.productImages?.saturate]);
+        root.style.setProperty('--product-filter', buildProductFilter(branding.productImages));
+    }, [branding?.productImages?.setId, branding?.productImages?.hueRotate, branding?.productImages?.saturate]);
 
     // Apply favicon from branding
     useEffect(() => {

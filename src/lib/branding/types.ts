@@ -9,6 +9,7 @@
 
 import {
     type BrandingData,
+    type FeaturedProductConfig,
     type HeroSettings,
     type HeroImage,
     type HeroVideo,
@@ -41,6 +42,7 @@ import {
 // Re-export types for convenience
 export type {
     BrandingData,
+    FeaturedProductConfig,
     HeroSettings,
     HeroImage,
     HeroVideo,
@@ -336,6 +338,33 @@ export function mergeBrandingWithDefaults(data: Partial<BrandingData>): Branding
                 linkedin: { ...DEFAULT_FOOTER_SOCIAL.linkedin, ...data.footer?.social?.linkedin },
                 twitter: { ...DEFAULT_FOOTER_SOCIAL.twitter, ...data.footer?.social?.twitter },
                 youtube: { ...DEFAULT_FOOTER_SOCIAL.youtube, ...data.footer?.social?.youtube },
+            },
+        },
+        forside: {
+            ...DEFAULT_BRANDING.forside,
+            ...data.forside,
+            contentBlocks: data.forside?.contentBlocks || DEFAULT_BRANDING.forside.contentBlocks,
+            productsSection: {
+                ...DEFAULT_BRANDING.forside.productsSection,
+                ...data.forside?.productsSection,
+                featuredProductConfig: {
+                    ...DEFAULT_BRANDING.forside.productsSection.featuredProductConfig,
+                    ...data.forside?.productsSection?.featuredProductConfig,
+                    sidePanel: {
+                        ...DEFAULT_BRANDING.forside.productsSection.featuredProductConfig.sidePanel,
+                        ...data.forside?.productsSection?.featuredProductConfig?.sidePanel,
+                        items: data.forside?.productsSection?.featuredProductConfig?.sidePanel?.items
+                            || DEFAULT_BRANDING.forside.productsSection.featuredProductConfig.sidePanel.items,
+                    },
+                },
+                button: {
+                    ...DEFAULT_BRANDING.forside.productsSection.button,
+                    ...data.forside?.productsSection?.button,
+                },
+                background: {
+                    ...DEFAULT_BRANDING.forside.productsSection.background,
+                    ...data.forside?.productsSection?.background,
+                },
             },
         },
         navigation: { ...DEFAULT_BRANDING.navigation, ...data.navigation },

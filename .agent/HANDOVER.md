@@ -178,6 +178,60 @@ The dev server is typically running on `http://localhost:5173`
 |---------|-------------|
 | `/physical-scaling-import` | PROTECTED - Physical scaling on import (DO NOT MODIFY) |
 | `/color-picker` | How to add color pickers in branding/admin UI |
+| `$pixart` | Pixart wide-format extraction/import skill for storformat |
+
+---
+
+## Pixart Wide-Format Import (Current)
+
+Use this path for flat-surface adhesive imports:
+- Skill: `.agent/skills/pixart/SKILL.md`
+- Script: `scripts/fetch-pixart-flat-surface-adhesive-import.mjs`
+
+Current expected import setup:
+- Quantities: `1..20`
+- Area anchors (m²): `1,2,3,4,5,10,12,15,20`
+- Laminations/finishes:
+  - `None`
+  - `Standard Matt` -> `Standard matte`
+  - `Standard Gloss` -> `Standard gloss`
+  - `UV Filter 5 Matt` -> `UV matte`
+  - `UV Filter 5 Gloss` -> `UV gloss`
+- Price source in Pixart matrix: right column (cheapest / slowest delivery).
+- Conversion defaults in script: `EUR * 7.6`, then `+80%` markup (factor `13.68`).
+
+Import sequence:
+1. `extract` to `pricing_raw/*.json`
+2. `import --dry-run`
+3. `import` live with tenant/product args
+
+Do not fork a new Pixart import script unless this one is blocked by a structural source-site change.
+
+---
+
+## Books / Softbooks Import Notes (2026-03-02)
+
+Use `docs/BOOKS_FETCH_LOG.md` before importing the next similar book product.
+
+Important constraints now verified:
+- Dense page selectors should be `dropdown`, not buttons.
+- Page count must be treated as the final dependent selector in preview logic.
+- Admin preview and storefront must filter selector options from real published rows, not just the configured whitelist.
+- Different spine/binding families may start at different minimum page counts.
+
+Current concrete example:
+- `Bøger`
+  - `Klassisk ryg` starts at `48 pages`
+  - `Rund ryg` starts at `80 pages`
+
+Relevant runtime files:
+- `src/components/admin/ProductAttributeBuilder.tsx`
+- `src/components/product-price-page/MatrixLayoutV1Renderer.tsx`
+
+Relevant importer:
+- `scripts/fetch-boeger-import.js`
+
+If a future similar product looks like it has "missing prices" in preview, check selector dependency order and published-row filtering before changing the imported price data.
 
 ---
 

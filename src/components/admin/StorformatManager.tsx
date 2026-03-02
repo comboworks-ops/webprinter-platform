@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CenterSlider } from "@/components/ui/center-slider";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Trash2, Plus, Save, Library, Wand2, CloudUpload, ImageIcon, LayoutGrid, RotateCcw, ChevronLeft, ChevronRight, X, Search } from "lucide-react";
+import { Trash2, Plus, Save, Library, Wand2, CloudUpload, ImageIcon, LayoutGrid, RotateCcw, ChevronLeft, ChevronRight, X, Search, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -22,6 +23,16 @@ import {
   calculateStorformatPrice
 } from "@/utils/storformatPricing";
 import { cn } from "@/lib/utils";
+import {
+  THUMBNAIL_CUSTOM_PX_MAX,
+  THUMBNAIL_CUSTOM_PX_MIN,
+  THUMBNAIL_CUSTOM_PX_STEP,
+  THUMBNAIL_SIZE_OPTIONS,
+  normalizeThumbnailCustomPx,
+  normalizeThumbnailSize,
+  resolveThumbnailSizePx,
+  type ThumbnailSizeMode
+} from "@/lib/pricing/thumbnailSizes";
 
 type StorformatManagerProps = {
   productId: string;
@@ -32,12 +43,13 @@ type StorformatManagerProps = {
 };
 
 type LayoutSectionType = "materials" | "finishes" | "products";
-type LayoutDisplayMode = "buttons" | "dropdown" | "checkboxes";
+type LayoutDisplayMode = "buttons" | "dropdown" | "checkboxes" | "small" | "medium" | "large" | "xl" | "xl_notext";
 type SelectionMode = "required" | "optional";
 
 type ValueSettings = {
   showThumbnail?: boolean;
   customImage?: string;
+  displayName?: string;
 };
 
 type LayoutSection = {
@@ -45,6 +57,8 @@ type LayoutSection = {
   sectionType: LayoutSectionType;
   ui_mode?: LayoutDisplayMode;
   selection_mode?: SelectionMode;
+  thumbnail_size?: ThumbnailSizeMode;
+  thumbnail_custom_px?: number;
   title?: string;
   description?: string;
   valueIds?: string[];
@@ -61,6 +75,8 @@ type LayoutRow = {
 type VerticalAxisConfig = {
   id: string;
   sectionType: LayoutSectionType;
+  thumbnail_size?: ThumbnailSizeMode;
+  thumbnail_custom_px?: number;
   title?: string;
   description?: string;
   valueIds?: string[];
@@ -85,7 +101,7 @@ const createTier = (overrides: Partial<StorformatTier> = {}): StorformatTier => 
   from_m2: 0,
   to_m2: null,
   price_per_m2: 0,
-  is_anchor: true,
+  is_anchor: false,
   markup_pct: 0,
   ...overrides
 });
@@ -118,12 +134,23 @@ const getInterpolationInfo = (
   };
 };
 
+const normalizeDefaultAnchorState = <T extends StorformatTier>(tiers: T[]): T[] => {
+  if (!tiers.length) return tiers;
+  const normalized = tiers.map((tier) => ({ ...tier, is_anchor: Boolean(tier.is_anchor) }));
+  const allAnchorsSelected = normalized.every((tier) => tier.is_anchor);
+  if (allAnchorsSelected) {
+    // Treat legacy/all-selected state as default, so anchors are opt-in.
+    return normalized.map((tier) => ({ ...tier, is_anchor: false }));
+  }
+  return normalized;
+};
+
 const createDefaultTiers = (): StorformatTier[] => ([
-  createTier({ from_m2: 0, to_m2: 1, is_anchor: true }),
-  createTier({ from_m2: 1, to_m2: 3, is_anchor: false }),
-  createTier({ from_m2: 3, to_m2: 5, is_anchor: false }),
-  createTier({ from_m2: 5, to_m2: 10, is_anchor: true }),
-  createTier({ from_m2: 10, to_m2: null, is_anchor: true })
+  createTier({ from_m2: 0, to_m2: 1 }),
+  createTier({ from_m2: 1, to_m2: 3 }),
+  createTier({ from_m2: 3, to_m2: 5 }),
+  createTier({ from_m2: 5, to_m2: 10 }),
+  createTier({ from_m2: 10, to_m2: null })
 ]);
 
 const createMaterial = (): StorformatMaterial => ({
@@ -205,14 +232,15 @@ export function StorformatManager({
     {
       id: "row-1",
       sections: [
-        { id: "section-products", sectionType: "products", ui_mode: "buttons", selection_mode: "required", valueIds: [] },
-        { id: "section-finishes", sectionType: "finishes", ui_mode: "buttons", selection_mode: "required", valueIds: [] }
+        { id: "section-products", sectionType: "products", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [] },
+        { id: "section-finishes", sectionType: "finishes", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [] }
       ]
     }
   ]);
   const [verticalAxis, setVerticalAxis] = useState<VerticalAxisConfig>({
     id: "vertical-axis",
     sectionType: "materials",
+    thumbnail_size: "small",
     valueIds: [],
     valueSettings: {}
   });
@@ -230,25 +258,29 @@ export function StorformatManager({
   const [templates, setTemplates] = useState<any[]>([]);
   const [allTemplates, setAllTemplates] = useState<any[]>([]);
   const [showAllTemplates, setShowAllTemplates] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [overwriteTemplateId, setOverwriteTemplateId] = useState<string | null>(null);
+  const [legacyProductM2TableAvailable, setLegacyProductM2TableAvailable] = useState(true);
 
   const [previewWidthMm, setPreviewWidthMm] = useState(1000);
   const [previewHeightMm, setPreviewHeightMm] = useState(1000);
   const [previewAmountPage, setPreviewAmountPage] = useState(0);
+  const [previewMatrixEditEnabled, setPreviewMatrixEditEnabled] = useState(false);
 
+  const resolveSelectionForType = (type: LayoutSectionType, overrideId?: string) => {
+    if (verticalAxis.sectionType === type && overrideId) return overrideId;
+    const section = layoutRows.flatMap((r) => r.sections).find((s) => s.sectionType === type);
+    if (!section) return null;
+    const selected = selectedSectionValues[section.id];
+    if (section.selection_mode === "optional") {
+      return selected || null;
+    }
+    return selected || section.valueIds?.[0] || null;
+  };
 
   const previewResult = useMemo(() => {
     if (previewWidthMm <= 0 || previewHeightMm <= 0) return null;
     const verticalSelection = selectedSectionValues[verticalAxis.id];
-    const resolveSelectionForType = (type: LayoutSectionType, overrideId?: string) => {
-      if (verticalAxis.sectionType === type && overrideId) return overrideId;
-      const section = layoutRows.flatMap((r) => r.sections).find((s) => s.sectionType === type);
-      if (!section) return null;
-      const selected = selectedSectionValues[section.id];
-      if (section.selection_mode === "optional") {
-        return selected || null;
-      }
-      return selected || section.valueIds?.[0] || null;
-    };
 
     const materialId = resolveSelectionForType("materials", verticalSelection || undefined);
     if (!materialId) return null;
@@ -271,6 +303,18 @@ export function StorformatManager({
       config
     });
   }, [previewWidthMm, previewHeightMm, selectedSectionValues, verticalAxis, layoutRows, materials, finishes, products, config]);
+
+  const activeGeneratorSelection = useMemo(() => {
+    const verticalSelection = selectedSectionValues[verticalAxis.id] || verticalAxis.valueIds?.[0];
+    const materialId = resolveSelectionForType("materials", verticalSelection || undefined);
+    const finishId = resolveSelectionForType("finishes");
+    const productId = resolveSelectionForType("products");
+    return {
+      material: materials.find((m) => m.id === materialId) || null,
+      finish: finishes.find((f) => f.id === finishId) || null,
+      product: products.find((p) => p.id === productId) || null
+    };
+  }, [selectedSectionValues, verticalAxis, layoutRows, materials, finishes, products]);
 
   const fetchTemplates = async () => {
     const { data } = await supabase
@@ -298,101 +342,230 @@ export function StorformatManager({
         .select("*")
         .eq("product_id", productId)
         .maybeSingle();
+      const [
+        { data: materialRows },
+        { data: materialTiers },
+        { data: legacyMaterialPrices },
+        { data: finishRows },
+        { data: finishTiers },
+        { data: legacyFinishPrices },
+        { data: productRows },
+        { data: productTiers },
+        { data: productFixedPrices }
+      ] = await Promise.all([
+        supabase.from("storformat_materials" as any).select("*").eq("product_id", productId).order("sort_order"),
+        supabase.from("storformat_material_price_tiers" as any).select("*").eq("product_id", productId).order("sort_order"),
+        supabase.from("storformat_m2_prices" as any).select("*").eq("product_id", productId).order("from_m2"),
+        supabase.from("storformat_finishes" as any).select("*").eq("product_id", productId).order("sort_order"),
+        supabase.from("storformat_finish_price_tiers" as any).select("*").eq("product_id", productId).order("sort_order"),
+        supabase.from("storformat_finish_prices" as any).select("*").eq("product_id", productId),
+        supabase.from("storformat_products" as any).select("*").eq("product_id", productId).order("sort_order"),
+        supabase.from("storformat_product_price_tiers" as any).select("*").eq("product_id", productId).order("sort_order"),
+        supabase.from("storformat_product_fixed_prices" as any).select("*").eq("product_id", productId).order("sort_order")
+      ]);
 
-      if (cfg) {
-        const storedQuantities = cfg.quantities?.length ? cfg.quantities : defaultQuantities;
-        setConfig({
-          rounding_step: cfg.rounding_step || 1,
-          global_markup_pct: cfg.global_markup_pct || 0,
-          quantities: storedQuantities,
-          layout_rows: cfg.layout_rows || undefined,
-          vertical_axis: cfg.vertical_axis || undefined
-        });
-        if (cfg.layout_rows?.length) {
-          setLayoutRows(cfg.layout_rows);
+      let legacyProductM2Rows: any[] = [];
+      try {
+        const { data } = await supabase
+          .from("storformat_product_m2_prices" as any)
+          .select("*")
+          .eq("product_id", productId)
+          .order("from_m2");
+        legacyProductM2Rows = data || [];
+        setLegacyProductM2TableAvailable(true);
+      } catch {
+        legacyProductM2Rows = [];
+        setLegacyProductM2TableAvailable(false);
+      }
+
+      const materialsWithTiers = (materialRows || []).map((m: any) => {
+        const primaryTiers = (materialTiers || []).filter((t: any) => t.material_id === m.id);
+        const fallbackTiers = (legacyMaterialPrices || [])
+          .filter((t: any) => t.material_id === m.id)
+          .map((t: any, idx: number) => ({
+            id: t.id || `legacy-material-tier-${m.id}-${idx}`,
+            material_id: m.id,
+            from_m2: Number(t.from_m2) || 0,
+            to_m2: t.to_m2 ?? null,
+            price_per_m2: Number(t.price_per_m2) || 0,
+            is_anchor: t.is_anchor ?? false,
+            markup_pct: 0,
+            sort_order: t.sort_order ?? idx
+          }));
+        const resolvedTiers = (primaryTiers.length ? primaryTiers : fallbackTiers).map((t: any) => ({
+          ...t,
+          markup_pct: t.markup_pct ?? 0
+        }));
+        const normalizedTiers = normalizeDefaultAnchorState(resolvedTiers);
+        return {
+          ...m,
+          thumbnail_url: m.thumbnail_url ?? null,
+          bleed_mm: m.bleed_mm ?? 3,
+          safe_area_mm: m.safe_area_mm ?? 3,
+          markup_pct: m.markup_pct ?? 0,
+          tiers: normalizedTiers.length ? normalizedTiers : createDefaultTiers()
+        };
+      });
+
+      const finishesWithTiers = (finishRows || []).map((f: any) => {
+        const primaryTiers = (finishTiers || []).filter((t: any) => t.finish_id === f.id);
+        const legacyFinish = (legacyFinishPrices || []).find((row: any) => row.finish_id === f.id) || null;
+        const fallbackTiers = legacyFinish && Number(legacyFinish.price_per_m2) > 0
+          ? [{
+              id: legacyFinish.id || `legacy-finish-tier-${f.id}`,
+              finish_id: f.id,
+              from_m2: 0,
+              to_m2: null,
+              price_per_m2: Number(legacyFinish.price_per_m2) || 0,
+              is_anchor: false,
+              markup_pct: 0,
+              sort_order: 0
+            }]
+          : [];
+        const resolvedTiers = (primaryTiers.length ? primaryTiers : fallbackTiers).map((t: any) => ({
+          ...t,
+          markup_pct: t.markup_pct ?? 0
+        }));
+        const normalizedTiers = normalizeDefaultAnchorState(resolvedTiers);
+        return {
+          ...f,
+          thumbnail_url: f.thumbnail_url ?? null,
+          markup_pct: f.markup_pct ?? 0,
+          fixed_price_per_unit: f.fixed_price_per_unit ?? legacyFinish?.fixed_price ?? 0,
+          tiers: normalizedTiers.length ? normalizedTiers : createDefaultTiers()
+        };
+      });
+
+      const productsWithPricing: StorformatProduct[] = (productRows || []).map((p: any) => {
+        const primaryTiers = (productTiers || []).filter((t: any) => t.product_item_id === p.id);
+        const fallbackTiers = legacyProductM2Rows
+          .filter((t: any) => t.product_item_id === p.id || t.storformat_product_id === p.id)
+          .map((t: any, idx: number) => ({
+            id: t.id || `legacy-product-tier-${p.id}-${idx}`,
+            product_item_id: p.id,
+            from_m2: Number(t.from_m2) || 0,
+            to_m2: t.to_m2 ?? null,
+            price_per_m2: Number(t.price_per_m2) || 0,
+            is_anchor: t.is_anchor ?? false,
+            markup_pct: 0,
+            sort_order: t.sort_order ?? idx
+          }));
+        const resolvedTiers = (primaryTiers.length ? primaryTiers : fallbackTiers).map((t: any) => ({
+          ...t,
+          markup_pct: t.markup_pct ?? 0
+        }));
+        const normalizedTiers = normalizeDefaultAnchorState(resolvedTiers);
+        return {
+          ...p,
+          thumbnail_url: p.thumbnail_url ?? null,
+          markup_pct: p.markup_pct ?? 0,
+          tiers: p.pricing_mode === "per_m2" ? (normalizedTiers.length ? normalizedTiers : createDefaultTiers()) : normalizedTiers,
+          fixed_prices: (productFixedPrices || []).filter((fp: any) => fp.product_item_id === p.id)
+        };
+      });
+
+      const idsByType: Record<LayoutSectionType, string[]> = {
+        materials: materialsWithTiers.map((m) => m.id).filter(Boolean) as string[],
+        finishes: finishesWithTiers.map((f) => f.id).filter(Boolean) as string[],
+        products: productsWithPricing.map((p) => p.id).filter(Boolean) as string[]
+      };
+
+      const normalizeValueIds = (ids: unknown, available: string[]) => {
+        if (!available.length) return [] as string[];
+        const incoming = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+        const filtered = incoming.filter((id) => available.includes(id));
+        return filtered.length ? filtered : [...available];
+      };
+
+      const rawLayoutRows = Array.isArray(cfg?.layout_rows) ? cfg.layout_rows : [];
+      let nextLayoutRows: LayoutRow[] = rawLayoutRows
+        .map((row: any, rowIndex: number) => ({
+          id: row?.id || `row-${rowIndex + 1}`,
+          title: row?.title,
+          description: row?.description,
+          sections: Array.isArray(row?.sections)
+            ? row.sections
+                .map((section: any, sectionIndex: number) => {
+                  const type: LayoutSectionType = section?.sectionType === "materials" || section?.sectionType === "finishes" || section?.sectionType === "products"
+                    ? section.sectionType
+                    : "products";
+                  const available = idsByType[type];
+                  if (!available.length) return null;
+                  return {
+                    id: section?.id || `section-${rowIndex + 1}-${sectionIndex + 1}`,
+                    sectionType: type,
+                    ui_mode: section?.ui_mode || "buttons",
+                    selection_mode: section?.selection_mode || (type === "finishes" ? "optional" : "required"),
+                    thumbnail_size: normalizeThumbnailSize(section?.thumbnail_size),
+                    thumbnail_custom_px: normalizeThumbnailCustomPx(section?.thumbnail_custom_px),
+                    title: section?.title,
+                    description: section?.description,
+                    valueIds: normalizeValueIds(section?.valueIds, available),
+                    valueSettings: section?.valueSettings || {}
+                  } satisfies LayoutSection;
+                })
+                .filter(Boolean) as LayoutSection[]
+            : []
+        }))
+        .filter((row: LayoutRow) => row.sections.length > 0);
+
+      if (!nextLayoutRows.length) {
+        const defaultSections: LayoutSection[] = [];
+        if (idsByType.products.length) {
+          defaultSections.push({
+            id: "section-products",
+            sectionType: "products",
+            ui_mode: "buttons",
+            selection_mode: "required",
+            thumbnail_size: "small",
+            valueIds: [...idsByType.products],
+            valueSettings: {}
+          });
         }
-        if (cfg.vertical_axis) {
-          setVerticalAxis({ ...cfg.vertical_axis, id: cfg.vertical_axis.id || "vertical-axis" });
+        if (idsByType.finishes.length) {
+          defaultSections.push({
+            id: "section-finishes",
+            sectionType: "finishes",
+            ui_mode: "buttons",
+            selection_mode: "optional",
+            thumbnail_size: "small",
+            valueIds: [...idsByType.finishes],
+            valueSettings: {}
+          });
+        }
+        if (defaultSections.length) {
+          nextLayoutRows = [{ id: "row-1", sections: defaultSections }];
         }
       }
 
-      const { data: materialRows } = await supabase
-        .from("storformat_materials" as any)
-        .select("*")
-        .eq("product_id", productId)
-        .order("sort_order");
+      const cfgVertical = cfg?.vertical_axis;
+      const verticalType: LayoutSectionType = cfgVertical?.sectionType === "materials" || cfgVertical?.sectionType === "finishes" || cfgVertical?.sectionType === "products"
+        ? cfgVertical.sectionType
+        : "materials";
+      const nextVerticalAxis: VerticalAxisConfig = {
+        id: cfgVertical?.id || "vertical-axis",
+        sectionType: verticalType,
+        thumbnail_size: normalizeThumbnailSize(cfgVertical?.thumbnail_size),
+        thumbnail_custom_px: normalizeThumbnailCustomPx(cfgVertical?.thumbnail_custom_px),
+        title: cfgVertical?.title,
+        description: cfgVertical?.description,
+        valueIds: normalizeValueIds(cfgVertical?.valueIds, idsByType[verticalType]),
+        valueSettings: cfgVertical?.valueSettings || {}
+      };
 
-      const { data: materialTiers } = await supabase
-        .from("storformat_material_price_tiers" as any)
-        .select("*")
-        .eq("product_id", productId)
-        .order("sort_order");
-
-      const materialsWithTiers = (materialRows || []).map((m: any) => ({
-        ...m,
-        thumbnail_url: m.thumbnail_url ?? null,
-        bleed_mm: m.bleed_mm ?? 3,
-        safe_area_mm: m.safe_area_mm ?? 3,
-        markup_pct: m.markup_pct ?? 0,
-        tiers: (materialTiers || []).filter((t: any) => t.material_id === m.id).map((t: any) => ({
-          ...t,
-          markup_pct: t.markup_pct ?? 0
-        }))
-      }));
+      const storedQuantities = cfg?.quantities?.length ? cfg.quantities : defaultQuantities;
+      setConfig({
+        rounding_step: cfg?.rounding_step || 1,
+        global_markup_pct: cfg?.global_markup_pct || 0,
+        quantities: storedQuantities,
+        layout_rows: nextLayoutRows,
+        vertical_axis: nextVerticalAxis
+      });
       setMaterials(materialsWithTiers);
-
-      const { data: finishRows } = await supabase
-        .from("storformat_finishes" as any)
-        .select("*")
-        .eq("product_id", productId)
-        .order("sort_order");
-
-      const { data: finishTiers } = await supabase
-        .from("storformat_finish_price_tiers" as any)
-        .select("*")
-        .eq("product_id", productId)
-        .order("sort_order");
-
-      const finishesWithTiers = (finishRows || []).map((f: any) => ({
-        ...f,
-        thumbnail_url: f.thumbnail_url ?? null,
-        markup_pct: f.markup_pct ?? 0,
-        tiers: (finishTiers || []).filter((t: any) => t.finish_id === f.id).map((t: any) => ({
-          ...t,
-          markup_pct: t.markup_pct ?? 0
-        }))
-      }));
       setFinishes(finishesWithTiers);
-
-      const { data: productRows } = await supabase
-        .from("storformat_products" as any)
-        .select("*")
-        .eq("product_id", productId)
-        .order("sort_order");
-
-      const { data: productTiers } = await supabase
-        .from("storformat_product_price_tiers" as any)
-        .select("*")
-        .eq("product_id", productId)
-        .order("sort_order");
-
-      const { data: productFixedPrices } = await supabase
-        .from("storformat_product_fixed_prices" as any)
-        .select("*")
-        .eq("product_id", productId)
-        .order("sort_order");
-
-      const productsWithPricing: StorformatProduct[] = (productRows || []).map((p: any) => ({
-        ...p,
-        thumbnail_url: p.thumbnail_url ?? null,
-        markup_pct: p.markup_pct ?? 0,
-        tiers: (productTiers || []).filter((t: any) => t.product_item_id === p.id).map((t: any) => ({
-          ...t,
-          markup_pct: t.markup_pct ?? 0
-        })),
-        fixed_prices: (productFixedPrices || []).filter((fp: any) => fp.product_item_id === p.id)
-      }));
       setProducts(productsWithPricing);
+      setLayoutRows(nextLayoutRows);
+      setVerticalAxis(nextVerticalAxis);
     } catch (error) {
       console.error("Storformat fetch error", error);
       toast.error("Kunne ikke hente storformat data");
@@ -540,6 +713,175 @@ export function StorformatManager({
     );
   };
 
+  const findTierIdForTotalArea = (tiers: StorformatTier[], totalAreaM2: number) => {
+    if (!tiers.length) return null;
+    const sorted = [...tiers].sort((a, b) => a.from_m2 - b.from_m2);
+    const match = sorted.find((tier) => {
+      const to = tier.to_m2 ?? Number.POSITIVE_INFINITY;
+      return totalAreaM2 >= tier.from_m2 && totalAreaM2 <= to;
+    });
+    return (match || sorted[sorted.length - 1]).id || null;
+  };
+
+  const editPreviewMatrixCell = ({
+    quantity,
+    material,
+    finish,
+    product,
+    result
+  }: {
+    quantity: number;
+    material: StorformatMaterial;
+    finish: StorformatFinish | null;
+    product: StorformatProduct | null;
+    result: ReturnType<typeof calculateStorformatPrice>;
+  }) => {
+    const currentPrice = Math.round(result.totalPrice);
+    const input = window.prompt("Ny totalpris (kr)", String(currentPrice));
+    if (input === null) return;
+
+    const parsed = Number(String(input).replace(",", "."));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      toast.error("Indtast en gyldig pris");
+      return;
+    }
+
+    const globalFactor = 1 + (Number(config.global_markup_pct) || 0) / 100;
+    const targetSubtotal = parsed / globalFactor;
+    const subtotal = result.materialCost + result.finishCost + result.productCost;
+
+    if (!Number.isFinite(targetSubtotal)) {
+      toast.error("Kunne ikke beregne ny pris");
+      return;
+    }
+
+    const adjustPerM2Tier = (
+      tiers: StorformatTier[],
+      itemMarkupPct: number | null | undefined,
+      currentComponentCost: number
+    ) => {
+      const tierId = findTierIdForTotalArea(tiers || [], result.totalAreaM2);
+      if (!tierId || result.totalAreaM2 <= 0) return null;
+      const otherCosts = subtotal - currentComponentCost;
+      const desiredComponentCost = targetSubtotal - otherCosts;
+      const desiredPerM2WithItemMarkup = desiredComponentCost / result.totalAreaM2;
+      const itemFactor = 1 + (Number(itemMarkupPct) || 0) / 100;
+      const desiredBasePerM2 = desiredPerM2WithItemMarkup / itemFactor;
+      if (!Number.isFinite(desiredBasePerM2)) return null;
+      return {
+        tierId,
+        desiredBasePerM2: Number(desiredBasePerM2.toFixed(6))
+      };
+    };
+
+    if (verticalAxis.sectionType === "materials") {
+      const materialId = material.id;
+      if (!materialId) return;
+      const update = adjustPerM2Tier(material.tiers || [], material.markup_pct, result.materialCost);
+      if (!update) {
+        toast.error("Kunne ikke opdatere materialepris");
+        return;
+      }
+      setMaterials((prev) =>
+        prev.map((item) =>
+          item.id === materialId
+            ? {
+                ...item,
+                tiers: (item.tiers || []).map((tier) =>
+                  tier.id === update.tierId
+                    ? { ...tier, price_per_m2: update.desiredBasePerM2, is_anchor: true, markup_pct: 0 }
+                    : tier
+                )
+              }
+            : item
+        )
+      );
+      toast.success("Materialepris opdateret");
+      return;
+    }
+
+    if (verticalAxis.sectionType === "finishes") {
+      if (!finish?.id) {
+        toast.error("Vælg en finish først");
+        return;
+      }
+      if (finish.pricing_mode === "fixed") {
+        const otherCosts = subtotal - result.finishCost;
+        const desiredFinishCost = targetSubtotal - otherCosts;
+        const itemFactor = 1 + (Number(finish.markup_pct) || 0) / 100;
+        const desiredBaseCost = desiredFinishCost / itemFactor;
+        const perUnit = desiredBaseCost / Math.max(1, quantity);
+        if (!Number.isFinite(perUnit)) {
+          toast.error("Kunne ikke opdatere finishpris");
+          return;
+        }
+        updateFinish(finish.id, { fixed_price_per_unit: Number(perUnit.toFixed(6)) });
+      } else {
+        const update = adjustPerM2Tier(finish.tiers || [], finish.markup_pct, result.finishCost);
+        if (!update) {
+          toast.error("Kunne ikke opdatere finishpris");
+          return;
+        }
+        setFinishes((prev) =>
+          prev.map((item) =>
+            item.id === finish.id
+              ? {
+                  ...item,
+                  tiers: (item.tiers || []).map((tier) =>
+                    tier.id === update.tierId
+                      ? { ...tier, price_per_m2: update.desiredBasePerM2, is_anchor: true, markup_pct: 0 }
+                      : tier
+                  )
+                }
+              : item
+          )
+        );
+      }
+      toast.success("Finishpris opdateret");
+      return;
+    }
+
+    if (verticalAxis.sectionType === "products") {
+      if (!product?.id) {
+        toast.error("Vælg en produkttillæg først");
+        return;
+      }
+      if (product.pricing_mode === "fixed") {
+        const otherCosts = subtotal - result.productCost;
+        const desiredProductCost = targetSubtotal - otherCosts;
+        const itemFactor = 1 + (Number(product.markup_pct) || 0) / 100;
+        const desiredBaseCost = desiredProductCost / itemFactor;
+        const fixedForQty = desiredBaseCost - (Number(product.initial_price) || 0);
+        if (!Number.isFinite(fixedForQty)) {
+          toast.error("Kunne ikke opdatere produkttillæg");
+          return;
+        }
+        updateProductFixedPrice(product.id, quantity, Number(fixedForQty.toFixed(6)));
+      } else {
+        const update = adjustPerM2Tier(product.tiers || [], product.markup_pct, result.productCost);
+        if (!update) {
+          toast.error("Kunne ikke opdatere produkttillæg");
+          return;
+        }
+        setProducts((prev) =>
+          prev.map((item) =>
+            item.id === product.id
+              ? {
+                  ...item,
+                  tiers: (item.tiers || []).map((tier) =>
+                    tier.id === update.tierId
+                      ? { ...tier, price_per_m2: update.desiredBasePerM2, is_anchor: true, markup_pct: 0 }
+                      : tier
+                  )
+                }
+              : item
+          )
+        );
+      }
+      toast.success("Produkttillæg opdateret");
+    }
+  };
+
   const normalizeQuantities = (values: number[]) =>
     Array.from(new Set(values.filter((v) => Number.isFinite(v) && v > 0))).sort((a, b) => a - b);
 
@@ -640,13 +982,84 @@ export function StorformatManager({
     );
   };
 
+  const getDisplayName = useCallback((baseName?: string | null, settings?: ValueSettings) => {
+    const override = settings?.displayName?.trim();
+    return override || baseName || "Unavngivet";
+  }, []);
+
+  const renameVerticalValueDisplayName = useCallback((valueId: string, baseName?: string | null) => {
+    const current = verticalAxis.valueSettings?.[valueId]?.displayName || baseName || "";
+    const next = window.prompt("Visningsnavn i layout", current);
+    if (next === null) return;
+    const trimmed = next.trim();
+    setVerticalAxis((prev) => ({
+      ...prev,
+      valueSettings: {
+        ...(prev.valueSettings || {}),
+        [valueId]: {
+          ...(prev.valueSettings?.[valueId] || {}),
+          displayName: trimmed || undefined
+        }
+      }
+    }));
+  }, [verticalAxis.valueSettings]);
+
+  const renameSectionValueDisplayName = useCallback((sectionId: string, valueId: string, baseName?: string | null) => {
+    const section = layoutRows.flatMap((row) => row.sections).find((item) => item.id === sectionId);
+    const current = section?.valueSettings?.[valueId]?.displayName || baseName || "";
+    const next = window.prompt("Visningsnavn i layout", current);
+    if (next === null) return;
+    const trimmed = next.trim();
+    setLayoutRows((prev) =>
+      prev.map((row) => ({
+        ...row,
+        sections: row.sections.map((sectionItem) => {
+          if (sectionItem.id !== sectionId) return sectionItem;
+          return {
+            ...sectionItem,
+            valueSettings: {
+              ...(sectionItem.valueSettings || {}),
+              [valueId]: {
+                ...(sectionItem.valueSettings?.[valueId] || {}),
+                displayName: trimmed || undefined
+              }
+            }
+          };
+        })
+      }))
+    );
+  }, [layoutRows]);
+
+  const getConfiguredValueDisplayName = useCallback((
+    sectionType: LayoutSectionType,
+    valueId: string | undefined,
+    fallbackName?: string | null
+  ) => {
+    if (!valueId) return fallbackName || "Unavngivet";
+    if (verticalAxis.sectionType === sectionType) {
+      const verticalName = verticalAxis.valueSettings?.[valueId]?.displayName?.trim();
+      if (verticalName) return verticalName;
+    }
+    for (const row of layoutRows) {
+      for (const section of row.sections) {
+        if (section.sectionType !== sectionType) continue;
+        if (!section.valueIds?.includes(valueId)) continue;
+        const sectionName = section.valueSettings?.[valueId]?.displayName?.trim();
+        if (sectionName) return sectionName;
+      }
+    }
+    return fallbackName || "Unavngivet";
+  }, [layoutRows, verticalAxis.sectionType, verticalAxis.valueSettings]);
+
   const triggerUpload = (scope: "section" | "vertical", sectionId: string, valueId: string) => {
     setUploadTarget({ scope, sectionId, valueId });
+    if (fileInputRef.current) fileInputRef.current.value = "";
     fileInputRef.current?.click();
   };
 
   const triggerCatalogUpload = (catalogType: LayoutSectionType, valueId: string) => {
     setUploadTarget({ scope: "catalog", catalogType, valueId });
+    if (fileInputRef.current) fileInputRef.current.value = "";
     fileInputRef.current?.click();
   };
 
@@ -752,7 +1165,7 @@ export function StorformatManager({
   }, [materials, finishes, products]);
 
   const valueSettingsById = useMemo(() => {
-    const map: Record<string, { customImage?: string; showThumbnail?: boolean }> = {};
+    const map: Record<string, ValueSettings> = {};
     if (verticalAxis?.valueSettings) {
       Object.entries(verticalAxis.valueSettings).forEach(([valueId, settings]) => {
         map[valueId] = settings || {};
@@ -791,6 +1204,39 @@ export function StorformatManager({
     if (type === "materials") return materials;
     if (type === "finishes") return finishes;
     return products;
+  };
+
+  const materialSelectorContext = useMemo(() => {
+    if (verticalAxis.sectionType === "materials") {
+      return {
+        mode: "vertical" as const,
+        sectionId: verticalAxis.id,
+        valueIds: verticalAxis.valueIds || []
+      };
+    }
+    const materialSection = layoutRows
+      .flatMap((row) => row.sections)
+      .find((section) => section.sectionType === "materials");
+    if (!materialSection) return null;
+    return {
+      mode: "section" as const,
+      sectionId: materialSection.id,
+      valueIds: materialSection.valueIds || []
+    };
+  }, [layoutRows, verticalAxis]);
+
+  const materialSelectorValues = useMemo(() => {
+    if (!materialSelectorContext) return [] as StorformatMaterial[];
+    const allowed = new Set(materialSelectorContext.valueIds);
+    return materials.filter((item) => item.id && allowed.has(item.id));
+  }, [materialSelectorContext, materials]);
+
+  const handleMaterialQuickSelect = (materialId: string) => {
+    if (!materialSelectorContext) return;
+    setSelectedSectionValues((prev) => ({
+      ...prev,
+      [materialSelectorContext.sectionId]: materialId
+    }));
   };
 
   const addValueToTarget = (type: LayoutSectionType, valueId: string) => {
@@ -969,14 +1415,15 @@ export function StorformatManager({
       {
         id: "row-1",
         sections: [
-          { id: "section-products", sectionType: "products", ui_mode: "buttons", selection_mode: "required", valueIds: [] },
-          { id: "section-finishes", sectionType: "finishes", ui_mode: "buttons", selection_mode: "required", valueIds: [] }
+          { id: "section-products", sectionType: "products", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [] },
+          { id: "section-finishes", sectionType: "finishes", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [] }
         ]
       }
     ]);
     setVerticalAxis({
       id: "vertical-axis",
       sectionType: "materials",
+      thumbnail_size: "small",
       valueIds: [],
       valueSettings: {}
     });
@@ -1159,6 +1606,24 @@ export function StorformatManager({
       await supabase.from("storformat_finish_price_tiers" as any).delete().eq("product_id", productId);
       await supabase.from("storformat_product_price_tiers" as any).delete().eq("product_id", productId);
       await supabase.from("storformat_product_fixed_prices" as any).delete().eq("product_id", productId);
+      try {
+        await supabase.from("storformat_m2_prices" as any).delete().eq("product_id", productId);
+      } catch (legacyError) {
+        console.warn("Legacy cleanup skipped (storformat_m2_prices)", legacyError);
+      }
+      try {
+        await supabase.from("storformat_finish_prices" as any).delete().eq("product_id", productId);
+      } catch (legacyError) {
+        console.warn("Legacy cleanup skipped (storformat_finish_prices)", legacyError);
+      }
+      if (legacyProductM2TableAvailable) {
+        try {
+          await supabase.from("storformat_product_m2_prices" as any).delete().eq("product_id", productId);
+        } catch (legacyError) {
+          console.warn("Legacy cleanup skipped (storformat_product_m2_prices)", legacyError);
+          setLegacyProductM2TableAvailable(false);
+        }
+      }
 
       const materialTierRows = materials.flatMap((m) =>
         m.tiers.map((tier, idx) => ({
@@ -1169,7 +1634,7 @@ export function StorformatManager({
           from_m2: tier.from_m2,
           to_m2: tier.to_m2 ?? null,
           price_per_m2: tier.price_per_m2,
-          is_anchor: tier.is_anchor ?? true,
+          is_anchor: tier.is_anchor ?? false,
           markup_pct: tier.markup_pct ?? 0,
           sort_order: idx
         }))
@@ -1184,7 +1649,7 @@ export function StorformatManager({
           from_m2: tier.from_m2,
           to_m2: tier.to_m2 ?? null,
           price_per_m2: tier.price_per_m2,
-          is_anchor: tier.is_anchor ?? true,
+          is_anchor: tier.is_anchor ?? false,
           markup_pct: tier.markup_pct ?? 0,
           sort_order: idx
         }))
@@ -1201,7 +1666,7 @@ export function StorformatManager({
             from_m2: tier.from_m2,
             to_m2: tier.to_m2 ?? null,
             price_per_m2: tier.price_per_m2,
-            is_anchor: tier.is_anchor ?? true,
+            is_anchor: tier.is_anchor ?? false,
             markup_pct: tier.markup_pct ?? 0,
             sort_order: idx
           }))
@@ -1220,6 +1685,42 @@ export function StorformatManager({
             sort_order: idx
           }))
         );
+
+      const legacyMaterialM2Rows = materialTierRows.map((row) => ({
+        id: crypto.randomUUID(),
+        tenant_id: row.tenant_id,
+        product_id: row.product_id,
+        material_id: row.material_id,
+        from_m2: row.from_m2,
+        to_m2: row.to_m2,
+        price_per_m2: row.price_per_m2,
+        is_anchor: row.is_anchor
+      }));
+
+      const legacyFinishPriceRows = finishes.map((finish) => {
+        const tiers = [...(finish.tiers || [])].sort((a, b) => a.from_m2 - b.from_m2);
+        const firstTier = tiers[0];
+        return {
+          id: crypto.randomUUID(),
+          tenant_id: tenantId,
+          product_id: productId,
+          finish_id: finish.id,
+          pricing_mode: finish.pricing_mode,
+          fixed_price: finish.pricing_mode === "fixed" ? Number(finish.fixed_price_per_unit || 0) : 0,
+          price_per_m2: finish.pricing_mode === "per_m2" ? Number(firstTier?.price_per_m2 || 0) : 0
+        };
+      });
+
+      const legacyProductM2Rows = productTierRows.map((row) => ({
+        id: crypto.randomUUID(),
+        tenant_id: row.tenant_id,
+        product_id: row.product_id,
+        storformat_product_id: row.product_item_id,
+        from_m2: row.from_m2,
+        to_m2: row.to_m2,
+        price_per_m2: row.price_per_m2,
+        is_anchor: row.is_anchor
+      }));
 
       if (materialTierRows.length) {
         const { error } = await supabase.from("storformat_material_price_tiers" as any).insert(materialTierRows);
@@ -1241,11 +1742,54 @@ export function StorformatManager({
         if (error) throw error;
       }
 
+      if (legacyMaterialM2Rows.length) {
+        try {
+          const { error } = await supabase.from("storformat_m2_prices" as any).insert(legacyMaterialM2Rows);
+          if (error) throw error;
+        } catch (legacyError) {
+          console.warn("Legacy write skipped (storformat_m2_prices)", legacyError);
+        }
+      }
+
+      if (legacyFinishPriceRows.length) {
+        try {
+          const { error } = await supabase.from("storformat_finish_prices" as any).insert(legacyFinishPriceRows);
+          if (error) throw error;
+        } catch (legacyError) {
+          console.warn("Legacy write skipped (storformat_finish_prices)", legacyError);
+        }
+      }
+
+      if (legacyProductM2TableAvailable && legacyProductM2Rows.length) {
+        try {
+          const { error } = await supabase.from("storformat_product_m2_prices" as any).insert(legacyProductM2Rows);
+          if (error) throw error;
+        } catch (legacyError) {
+          const fallbackRows = productTierRows.map((row) => ({
+            id: crypto.randomUUID(),
+            tenant_id: row.tenant_id,
+            product_id: row.product_id,
+            product_item_id: row.product_item_id,
+            from_m2: row.from_m2,
+            to_m2: row.to_m2,
+            price_per_m2: row.price_per_m2,
+            is_anchor: row.is_anchor
+          }));
+          try {
+            const { error } = await supabase.from("storformat_product_m2_prices" as any).insert(fallbackRows);
+            if (error) throw error;
+          } catch (fallbackError) {
+            console.warn("Legacy write skipped (storformat_product_m2_prices)", legacyError, fallbackError);
+            setLegacyProductM2TableAvailable(false);
+          }
+        }
+      }
+
       if (onPricingTypeChange && pricingType !== "STORFORMAT") {
         onPricingTypeChange("STORFORMAT");
       }
 
-      toast.success("Storformat opsætning gemt");
+      toast.success("Storformat gemt");
       setExpandedMaterialId(null);
       setExpandedFinishId(null);
       setExpandedProductId(null);
@@ -1258,11 +1802,14 @@ export function StorformatManager({
     }
   };
 
-  const handleSaveTemplate = async () => {
-    if (!saveName.trim()) {
+  const handleSaveTemplate = async (options?: { overwriteId?: string | null }) => {
+    const overwriteId = options?.overwriteId ?? overwriteTemplateId;
+    const trimmedName = saveName.trim();
+    if (!overwriteId && !trimmedName) {
       toast.error("Angiv et navn");
       return;
     }
+    setSavingTemplate(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const spec = {
@@ -1273,22 +1820,41 @@ export function StorformatManager({
         layout_rows: layoutRows,
         vertical_axis: verticalAxis
       };
-      const { error } = await supabase
-        .from("storformat_price_list_templates" as any)
-        .insert({
-          tenant_id: tenantId,
-          product_id: productId,
-          name: saveName.trim(),
-          spec,
-          created_by: user?.id
-        });
-      if (error) throw error;
-      toast.success("Skabelon gemt i banken");
+      if (overwriteId) {
+        const existingTemplate = templates.find((template) => template.id === overwriteId);
+        const nameToUse = trimmedName || existingTemplate?.name || "Storformat";
+        const { error } = await supabase
+          .from("storformat_price_list_templates" as any)
+          .update({
+            name: nameToUse,
+            spec
+          })
+          .eq("id", overwriteId)
+          .eq("tenant_id", tenantId)
+          .eq("product_id", productId);
+        if (error) throw error;
+        toast.success("Skabelon overskrevet i banken");
+      } else {
+        const { error } = await supabase
+          .from("storformat_price_list_templates" as any)
+          .insert({
+            tenant_id: tenantId,
+            product_id: productId,
+            name: trimmedName,
+            spec,
+            created_by: user?.id
+          });
+        if (error) throw error;
+        toast.success("Skabelon gemt i banken");
+      }
       setSaveName("");
+      setOverwriteTemplateId(null);
       setShowSaveDialog(false);
       fetchTemplates();
     } catch (error: any) {
       toast.error(error.message || "Kunne ikke gemme skabelon");
+    } finally {
+      setSavingTemplate(false);
     }
   };
 
@@ -1306,8 +1872,28 @@ export function StorformatManager({
     if (spec.materials) setMaterials(spec.materials);
     if (spec.finishes) setFinishes(spec.finishes);
     if (spec.products) setProducts(spec.products);
-    if (spec.layout_rows) setLayoutRows(spec.layout_rows);
-    if (spec.vertical_axis) setVerticalAxis({ ...spec.vertical_axis, id: spec.vertical_axis.id || "vertical-axis" });
+    const rawLayoutRows = spec.layout_rows || spec.config?.layout_rows;
+    if (rawLayoutRows) {
+      setLayoutRows(
+        rawLayoutRows.map((row: LayoutRow) => ({
+          ...row,
+          sections: (row.sections || []).map((section) => ({
+            ...section,
+            thumbnail_size: normalizeThumbnailSize((section as any).thumbnail_size),
+            thumbnail_custom_px: normalizeThumbnailCustomPx((section as any).thumbnail_custom_px)
+          }))
+        }))
+      );
+    }
+    const rawVerticalAxis = spec.vertical_axis || spec.config?.vertical_axis;
+    if (rawVerticalAxis) {
+      setVerticalAxis({
+        ...rawVerticalAxis,
+        id: rawVerticalAxis.id || "vertical-axis",
+        thumbnail_size: normalizeThumbnailSize(rawVerticalAxis.thumbnail_size),
+        thumbnail_custom_px: normalizeThumbnailCustomPx(rawVerticalAxis.thumbnail_custom_px)
+      });
+    }
     toast.success("Skabelon indlæst");
   };
 
@@ -1319,6 +1905,10 @@ export function StorformatManager({
       return;
     }
     toast.success("Skabelon slettet");
+    if (overwriteTemplateId === id) {
+      setOverwriteTemplateId(null);
+      setSaveName("");
+    }
     fetchTemplates();
     if (showAllTemplates) fetchAllTemplates();
   };
@@ -1342,7 +1932,7 @@ export function StorformatManager({
 
   return (
     <div className="space-y-6">
-      <input ref={fileInputRef} type="file" className="hidden" onChange={handleImageUpload} />
+      <input ref={fileInputRef} type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
       <div className="space-y-6">
         <div className="space-y-6">
           <div className="space-y-6">
@@ -1579,7 +2169,7 @@ export function StorformatManager({
                                       />
                                       <div className="flex items-center gap-2">
                                         <Switch
-                                          checked={tier.is_anchor ?? true}
+                                          checked={tier.is_anchor ?? false}
                                           onCheckedChange={(checked) => updateTier("material", material.id!, tier.id!, { is_anchor: checked })}
                                         />
                                         <span className="text-xs text-muted-foreground">Anker</span>
@@ -1678,13 +2268,21 @@ export function StorformatManager({
                             const thumbnailUrl = settings.customImage || material.thumbnail_url || "";
                             const isSelected = expandedMaterialId === material.id;
                             return (
-                              <button
+                              <div
                                 key={`saved-${material.id}`}
+                                role="button"
+                                tabIndex={0}
                                 className={cn(
                                   "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition",
                                   isSelected ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted/40"
                                 )}
                                 onClick={() => handleCatalogCardClick("materials", material.id!)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    handleCatalogCardClick("materials", material.id!);
+                                  }
+                                }}
                               >
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
                                   {thumbnailUrl && (
@@ -1722,7 +2320,7 @@ export function StorformatManager({
                                     <X className="h-3.5 w-3.5" />
                                   </Button>
                                 </div>
-                              </button>
+                              </div>
                             );
                           })}
                         </div>
@@ -1903,7 +2501,7 @@ export function StorformatManager({
                                         />
                                         <div className="flex items-center gap-2">
                                           <Switch
-                                            checked={tier.is_anchor ?? true}
+                                            checked={tier.is_anchor ?? false}
                                             onCheckedChange={(checked) => updateTier("finish", finish.id!, tier.id!, { is_anchor: checked })}
                                           />
                                           <span className="text-xs text-muted-foreground">Anker</span>
@@ -2003,13 +2601,21 @@ export function StorformatManager({
                             const thumbnailUrl = settings.customImage || finish.thumbnail_url || "";
                             const isSelected = expandedFinishId === finish.id;
                             return (
-                              <button
+                              <div
                                 key={`saved-${finish.id}`}
+                                role="button"
+                                tabIndex={0}
                                 className={cn(
                                   "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition",
                                   isSelected ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted/40"
                                 )}
                                 onClick={() => handleCatalogCardClick("finishes", finish.id!)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    handleCatalogCardClick("finishes", finish.id!);
+                                  }
+                                }}
                               >
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
                                   {thumbnailUrl && (
@@ -2047,7 +2653,7 @@ export function StorformatManager({
                                     <X className="h-3.5 w-3.5" />
                                   </Button>
                                 </div>
-                              </button>
+                              </div>
                             );
                           })}
                         </div>
@@ -2264,7 +2870,7 @@ export function StorformatManager({
                                           />
                                           <div className="flex items-center gap-2">
                                             <Switch
-                                              checked={tier.is_anchor ?? true}
+                                              checked={tier.is_anchor ?? false}
                                               onCheckedChange={(checked) => updateProductTier(productItem.id!, tier.id!, { is_anchor: checked })}
                                             />
                                             <span className="text-xs text-muted-foreground">Anker</span>
@@ -2365,13 +2971,21 @@ export function StorformatManager({
                             const thumbnailUrl = settings.customImage || productItem.thumbnail_url || "";
                             const isSelected = expandedProductId === productItem.id;
                             return (
-                              <button
+                              <div
                                 key={`saved-${productItem.id}`}
+                                role="button"
+                                tabIndex={0}
                                 className={cn(
                                   "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition",
                                   isSelected ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted/40"
                                 )}
                                 onClick={() => handleCatalogCardClick("products", productItem.id!)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    handleCatalogCardClick("products", productItem.id!);
+                                  }
+                                }}
                               >
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
                                   {thumbnailUrl && (
@@ -2409,7 +3023,7 @@ export function StorformatManager({
                                     <X className="h-3.5 w-3.5" />
                                   </Button>
                                 </div>
-                              </button>
+                              </div>
                             );
                           })}
                         </div>
@@ -2524,6 +3138,46 @@ export function StorformatManager({
                       <SelectItem value="products">Produkter</SelectItem>
                     </SelectContent>
                   </Select>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-[10px] text-muted-foreground">Thumb:</Label>
+                    <Select
+                      value={normalizeThumbnailSize(verticalAxis.thumbnail_size)}
+                      onValueChange={(value) => setVerticalAxis((prev) => ({ ...prev, thumbnail_size: value as ThumbnailSizeMode, thumbnail_custom_px: undefined }))}
+                    >
+                      <SelectTrigger className="h-7 text-xs w-[170px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {THUMBNAIL_SIZE_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2 min-w-[260px]">
+                    <Slider
+                      value={[normalizeThumbnailCustomPx(verticalAxis.thumbnail_custom_px) ?? resolveThumbnailSizePx(verticalAxis.thumbnail_size)]}
+                      min={THUMBNAIL_CUSTOM_PX_MIN}
+                      max={THUMBNAIL_CUSTOM_PX_MAX}
+                      step={THUMBNAIL_CUSTOM_PX_STEP}
+                      onValueChange={([value]) => setVerticalAxis((prev) => ({ ...prev, thumbnail_custom_px: value }))}
+                      className="w-[120px]"
+                    />
+                    <span className="text-[10px] text-muted-foreground w-10 text-right">
+                      {normalizeThumbnailCustomPx(verticalAxis.thumbnail_custom_px) ?? resolveThumbnailSizePx(verticalAxis.thumbnail_size)}px
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-[10px]"
+                      onClick={() => setVerticalAxis((prev) => ({ ...prev, thumbnail_custom_px: undefined }))}
+                      disabled={normalizeThumbnailCustomPx(verticalAxis.thumbnail_custom_px) === undefined}
+                    >
+                      Reset
+                    </Button>
+                  </div>
                   <div className="space-y-1">
                     <Input
                       placeholder="Titel"
@@ -2545,16 +3199,36 @@ export function StorformatManager({
                       const value = getValuesForType(verticalAxis.sectionType).find((v) => v.id === id);
                       if (!value) return null;
                       const settings = verticalAxis.valueSettings?.[id];
+                      const displayName = getDisplayName(value.name, settings);
                       const thumbnailUrl = settings?.customImage || value.thumbnail_url;
+                      const thumbPx = resolveThumbnailSizePx(
+                        verticalAxis.thumbnail_size,
+                        verticalAxis.thumbnail_custom_px
+                      );
                       return (
                         <div key={id} className="group flex items-center justify-between p-1 rounded border bg-card/50 text-[10px]">
                           <div className="flex items-center gap-2 truncate">
                             {settings?.showThumbnail && thumbnailUrl && (
-                              <img src={thumbnailUrl} className="w-4 h-4 rounded object-cover" />
+                              <img
+                                src={thumbnailUrl}
+                                className="rounded object-cover shrink-0"
+                                style={{ width: thumbPx, height: thumbPx }}
+                              />
                             )}
-                            <span className="truncate">{value.name}</span>
+                            <span className="truncate">{displayName}</span>
                           </div>
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-4 w-auto px-1 text-[9px] font-semibold"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                renameVerticalValueDisplayName(id, value.name);
+                              }}
+                            >
+                              Aa
+                            </Button>
                             <Button
                               variant={settings?.showThumbnail ? "default" : "ghost"}
                               size="icon"
@@ -2712,8 +3386,72 @@ export function StorformatManager({
                                   <SelectItem value="buttons">Knapper</SelectItem>
                                   <SelectItem value="dropdown">Dropdown</SelectItem>
                                   <SelectItem value="checkboxes">Checkboxes</SelectItem>
+                                  <SelectItem value="small">Foto Small (40px)</SelectItem>
+                                  <SelectItem value="medium">Foto Medium (64px)</SelectItem>
+                                  <SelectItem value="large">Foto Big (96px)</SelectItem>
+                                  <SelectItem value="xl">Foto XL + tekst (128px)</SelectItem>
+                                  <SelectItem value="xl_notext">Foto XL kun foto (128px)</SelectItem>
                                 </SelectContent>
                               </Select>
+                              <Label className="text-[10px] text-muted-foreground">Thumb:</Label>
+                              <Select
+                                value={normalizeThumbnailSize(section.thumbnail_size)}
+                                onValueChange={(value) => {
+                                  setLayoutRows((prev) =>
+                                    prev.map((r) => ({
+                                      ...r,
+                                      sections: r.sections.map((s) => s.id === section.id ? { ...s, thumbnail_size: value as ThumbnailSizeMode, thumbnail_custom_px: undefined } : s)
+                                    }))
+                                  );
+                                }}
+                              >
+                                <SelectTrigger className="h-7 text-xs w-[170px]">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {THUMBNAIL_SIZE_OPTIONS.map((opt) => (
+                                    <SelectItem key={opt.value} value={opt.value}>
+                                      {opt.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <div className="flex items-center gap-2 min-w-[230px]">
+                                <Slider
+                                  value={[normalizeThumbnailCustomPx(section.thumbnail_custom_px) ?? resolveThumbnailSizePx(section.thumbnail_size)]}
+                                  min={THUMBNAIL_CUSTOM_PX_MIN}
+                                  max={THUMBNAIL_CUSTOM_PX_MAX}
+                                  step={THUMBNAIL_CUSTOM_PX_STEP}
+                                  onValueChange={([value]) => {
+                                    setLayoutRows((prev) =>
+                                      prev.map((r) => ({
+                                        ...r,
+                                        sections: r.sections.map((s) => s.id === section.id ? { ...s, thumbnail_custom_px: value } : s)
+                                      }))
+                                    );
+                                  }}
+                                  className="w-[120px]"
+                                />
+                                <span className="text-[10px] text-muted-foreground w-10 text-right">
+                                  {normalizeThumbnailCustomPx(section.thumbnail_custom_px) ?? resolveThumbnailSizePx(section.thumbnail_size)}px
+                                </span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-[10px]"
+                                  onClick={() => {
+                                    setLayoutRows((prev) =>
+                                      prev.map((r) => ({
+                                        ...r,
+                                        sections: r.sections.map((s) => s.id === section.id ? { ...s, thumbnail_custom_px: undefined } : s)
+                                      }))
+                                    );
+                                  }}
+                                  disabled={normalizeThumbnailCustomPx(section.thumbnail_custom_px) === undefined}
+                                >
+                                  Reset
+                                </Button>
+                              </div>
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -2768,16 +3506,36 @@ export function StorformatManager({
                                 const value = getValuesForType(section.sectionType).find((v) => v.id === id);
                                 if (!value) return null;
                                 const settings = section.valueSettings?.[id];
+                                const displayName = getDisplayName(value.name, settings);
                                 const thumbnailUrl = settings?.customImage || value.thumbnail_url;
+                                const thumbPx = resolveThumbnailSizePx(
+                                  section.thumbnail_size,
+                                  section.thumbnail_custom_px
+                                );
                                 return (
                                   <div key={id} className="group flex items-center justify-between p-1 rounded border bg-card/50 text-[10px]">
                                     <div className="flex items-center gap-2 truncate">
                                       {settings?.showThumbnail && thumbnailUrl && (
-                                        <img src={thumbnailUrl} className="w-4 h-4 rounded object-cover" />
+                                        <img
+                                          src={thumbnailUrl}
+                                          className="rounded object-cover shrink-0"
+                                          style={{ width: thumbPx, height: thumbPx }}
+                                        />
                                       )}
-                                      <span className="truncate">{value.name}</span>
+                                      <span className="truncate">{displayName}</span>
                                     </div>
                                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-4 w-auto px-1 text-[9px] font-semibold"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          renameSectionValueDisplayName(section.id, id, value.name);
+                                        }}
+                                      >
+                                        Aa
+                                      </Button>
                                       <Button
                                         variant={settings?.showThumbnail ? "default" : "ghost"}
                                         size="icon"
@@ -2834,7 +3592,7 @@ export function StorformatManager({
                                 ...r,
                                 sections: [
                                   ...r.sections,
-                                  { id: `section-${Date.now()}`, sectionType: "products", ui_mode: "buttons", selection_mode: "required", valueIds: [] }
+                                  { id: `section-${Date.now()}`, sectionType: "products", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [] }
                                 ]
                               };
                             })
@@ -2853,7 +3611,7 @@ export function StorformatManager({
                       ...prev,
                       {
                         id: `row-${Date.now()}`,
-                        sections: [{ id: `section-${Date.now()}`, sectionType: "products", ui_mode: "buttons", selection_mode: "required", valueIds: [] }]
+                        sections: [{ id: `section-${Date.now()}`, sectionType: "products", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [] }]
                       }
                     ])}
                   >
@@ -2870,7 +3628,7 @@ export function StorformatManager({
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <CardTitle className="text-base flex items-center gap-2">
                   <LayoutGrid className="h-4 w-4" />
-                  Prisliste forhåndsvisning
+                  Prisgenerator
                 </CardTitle>
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="flex items-center gap-2 justify-center flex-1 min-w-[260px]">
@@ -2917,7 +3675,9 @@ export function StorformatManager({
                   </Button>
                 </div>
               </div>
-              <CardDescription className="text-xs">Kontrollér layout og prisberegning før udgivelse.</CardDescription>
+              <CardDescription className="text-xs">
+                Justér beregningsregler og valg. Redigér m² tiers under Materialer/Efterbehandling/Produkter ovenfor.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -2970,6 +3730,43 @@ export function StorformatManager({
                 </div>
               )}
 
+              {materialSelectorValues.length > 0 && (
+                <div className="space-y-2 border rounded-lg p-3 bg-muted/10">
+                  <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">Materialer</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {materialSelectorValues.map((material) => {
+                      const isSelected = activeGeneratorSelection.material?.id === material.id;
+                      const settings = valueSettingsById[material.id || ""];
+                      const displayName = getConfiguredValueDisplayName("materials", material.id, material.name);
+                      const thumbnailUrl = settings?.customImage || material.thumbnail_url;
+                      const materialSection = layoutRows.flatMap((r) => r.sections).find((s) => s.sectionType === "materials");
+                      const materialThumbPx = resolveThumbnailSizePx(
+                        materialSection?.thumbnail_size,
+                        materialSection?.thumbnail_custom_px
+                      );
+                      return (
+                        <Button
+                          key={material.id}
+                          size="sm"
+                          variant={isSelected ? "default" : "outline"}
+                          onClick={() => material.id && handleMaterialQuickSelect(material.id)}
+                          className={cn("h-7 text-xs", isSelected && "bg-primary hover:bg-primary/90")}
+                        >
+                          {settings?.showThumbnail && thumbnailUrl && (
+                            <img
+                              src={thumbnailUrl}
+                              className="rounded object-cover shrink-0 mr-2"
+                              style={{ width: materialThumbPx, height: materialThumbPx }}
+                            />
+                          )}
+                          {displayName}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-4">
                 {layoutRows.map((row, rowIndex) => (
                   <div key={row.id} className="space-y-2 pb-3 border-b last:border-b-0">
@@ -2986,6 +3783,10 @@ export function StorformatManager({
                     )}>
                       {row.sections.map((section, sectionIndex) => {
                         const values = getValuesForType(section.sectionType).filter((v) => section.valueIds?.includes(v.id));
+                        const sectionThumbPx = resolveThumbnailSizePx(
+                          section.thumbnail_size,
+                          section.thumbnail_custom_px
+                        );
                         const selectionMode = section.selection_mode || "required";
                         const selectedValue = selectionMode === "optional"
                           ? (selectedSectionValues[section.id] || "")
@@ -3040,14 +3841,19 @@ export function StorformatManager({
                                   )}
                                   {values.map((v) => {
                                     const settings = section.valueSettings?.[v.id];
+                                    const displayName = getDisplayName(v.name, settings);
                                     const thumbnailUrl = settings?.customImage || v.thumbnail_url;
                                     return (
                                       <SelectItem key={v.id} value={v.id}>
                                         <div className="flex items-center gap-2">
                                           {settings?.showThumbnail && thumbnailUrl && (
-                                            <img src={thumbnailUrl} className="w-5 h-5 rounded object-cover" />
+                                            <img
+                                              src={thumbnailUrl}
+                                              className="rounded object-cover shrink-0"
+                                              style={{ width: sectionThumbPx, height: sectionThumbPx }}
+                                            />
                                           )}
-                                          {v.name}
+                                          {displayName}
                                         </div>
                                       </SelectItem>
                                     );
@@ -3058,6 +3864,7 @@ export function StorformatManager({
                               <div className="space-y-1">
                                 {values.map((v) => {
                                   const settings = section.valueSettings?.[v.id];
+                                  const displayName = getDisplayName(v.name, settings);
                                   const thumbnailUrl = settings?.customImage || v.thumbnail_url;
                                   const isSelected = selectedValue === v.id;
                                   return (
@@ -3081,10 +3888,82 @@ export function StorformatManager({
                                     >
                                       <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
                                       {settings?.showThumbnail && thumbnailUrl && (
-                                        <img src={thumbnailUrl} className="w-5 h-5 rounded object-cover" />
+                                        <img
+                                          src={thumbnailUrl}
+                                          className="rounded object-cover shrink-0"
+                                          style={{ width: sectionThumbPx, height: sectionThumbPx }}
+                                        />
                                       )}
-                                      <span className="font-medium flex-1">{v.name}</span>
+                                      <span className="font-medium flex-1">{displayName}</span>
                                     </label>
+                                  );
+                                })}
+                              </div>
+                            ) : ["small", "medium", "large", "xl", "xl_notext"].includes(displayMode) ? (
+                              <div className="flex flex-wrap gap-2">
+                                {values.map((v) => {
+                                  const settings = section.valueSettings?.[v.id];
+                                  const thumbnailUrl = settings?.customImage || v.thumbnail_url;
+                                  const isSelected = selectedValue === v.id;
+                                  const displayName = getDisplayName(v.name, settings);
+                                  const pictureMode = displayMode === "xl_notext" ? "xl" : displayMode;
+                                  const pictureSize = pictureMode === "small"
+                                    ? { width: 40, height: 40 }
+                                    : pictureMode === "medium"
+                                      ? { width: 64, height: 64 }
+                                      : pictureMode === "large"
+                                        ? { width: 96, height: 96 }
+                                        : { width: 128, height: 128 };
+                                  const showPictureLabel = pictureMode !== "small" && displayMode !== "xl_notext";
+                                  return (
+                                    <button
+                                      key={v.id}
+                                      onClick={() => {
+                                        if (selectionMode === "optional" && isSelected) {
+                                          setSelectedSectionValues((prev) => {
+                                            const next = { ...prev };
+                                            delete next[section.id];
+                                            return next;
+                                          });
+                                          return;
+                                        }
+                                        setSelectedSectionValues((prev) => ({ ...prev, [section.id]: v.id }));
+                                      }}
+                                      className={cn(
+                                        "relative rounded-lg border-2 transition-all flex flex-col items-center overflow-hidden",
+                                        isSelected
+                                          ? "border-primary ring-2 ring-primary/20"
+                                          : "border-muted hover:border-muted-foreground/50"
+                                      )}
+                                      style={{
+                                        width: pictureSize.width,
+                                        minHeight: pictureSize.height + (showPictureLabel ? 22 : 0)
+                                      }}
+                                    >
+                                      {thumbnailUrl ? (
+                                        <img
+                                          src={thumbnailUrl}
+                                          alt={displayName}
+                                          className="w-full object-cover rounded-t-md"
+                                          style={{ height: pictureSize.height }}
+                                        />
+                                      ) : (
+                                        <div
+                                          className={cn(
+                                            "w-full flex items-center justify-center bg-muted text-xs font-semibold text-muted-foreground rounded-t-md",
+                                            isSelected && "bg-primary/10 text-primary"
+                                          )}
+                                          style={{ height: pictureSize.height }}
+                                        >
+                                          {(displayName || "?").slice(0, 3).toUpperCase()}
+                                        </div>
+                                      )}
+                                      {showPictureLabel && (
+                                        <span className="text-[10px] leading-tight text-center truncate w-full px-1 py-0.5">
+                                          {displayName}
+                                        </span>
+                                      )}
+                                    </button>
                                   );
                                 })}
                               </div>
@@ -3092,6 +3971,7 @@ export function StorformatManager({
                               <div className="flex flex-wrap gap-1.5">
                                 {values.map((v) => {
                                   const settings = section.valueSettings?.[v.id];
+                                  const displayName = getDisplayName(v.name, settings);
                                   const thumbnailUrl = settings?.customImage || v.thumbnail_url;
                                   const isSelected = selectedValue === v.id;
                                   return (
@@ -3113,9 +3993,13 @@ export function StorformatManager({
                                       className={cn("h-7 text-xs", isSelected && "bg-primary hover:bg-primary/90")}
                                     >
                                       {settings?.showThumbnail && thumbnailUrl && (
-                                        <img src={thumbnailUrl} className="w-4 h-4 rounded object-cover mr-2" />
-                                      )}
-                                      {v.name}
+                                        <img
+                                          src={thumbnailUrl}
+                                            className="rounded object-cover shrink-0 mr-2"
+                                            style={{ width: sectionThumbPx, height: sectionThumbPx }}
+                                          />
+                                        )}
+                                      {displayName}
                                     </Button>
                                   );
                                 })}
@@ -3129,12 +4013,671 @@ export function StorformatManager({
                 ))}
               </div>
 
+              <div className="space-y-3 border rounded-lg p-3 bg-muted/10">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Aktiv prisgenerator</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Redigér aktive m²-trin direkte her (samme logik som i materialer/efterbehandling/produkter).
+                  </div>
+                </div>
+
+                {activeGeneratorSelection.material && (
+                  <div className="space-y-2 border rounded-md p-3 bg-background">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs font-medium">Materiale</Label>
+                      <span className="text-xs text-muted-foreground">
+                        {getConfiguredValueDisplayName("materials", activeGeneratorSelection.material.id, activeGeneratorSelection.material.name)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+                      <div className="space-y-1">
+                        <Label className="text-[11px]">Interpolation</Label>
+                        <div className="flex items-center justify-between h-9 px-3 rounded border">
+                          <span className="text-xs text-muted-foreground">Lineær mellem ankerpunkter</span>
+                          <Switch
+                            checked={activeGeneratorSelection.material.interpolation_enabled ?? true}
+                            onCheckedChange={(checked) =>
+                              updateMaterial(activeGeneratorSelection.material!.id!, { interpolation_enabled: checked })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[11px]">Markup (%)</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            className="h-9 w-20"
+                            value={activeGeneratorSelection.material.markup_pct ?? 0}
+                            onChange={(e) =>
+                              updateMaterial(activeGeneratorSelection.material!.id!, { markup_pct: Number(e.target.value) || 0 })
+                            }
+                          />
+                          <CenterSlider
+                            value={[Number(activeGeneratorSelection.material.markup_pct) || 0]}
+                            onValueChange={(value) =>
+                              updateMaterial(activeGeneratorSelection.material!.id!, { markup_pct: value[0] })
+                            }
+                            min={-100}
+                            max={200}
+                            step={1}
+                            className="flex-1"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {(activeGeneratorSelection.material.tiers || []).map((tier) => {
+                        const itemMarkup = Number(activeGeneratorSelection.material?.markup_pct) || 0;
+                        const interpolationEnabled = activeGeneratorSelection.material?.interpolation_enabled ?? true;
+                        const { isBetweenAnchors, rawInterpolatedBase } = getInterpolationInfo(
+                          activeGeneratorSelection.material!.tiers || [],
+                          tier.from_m2,
+                          interpolationEnabled
+                        );
+                        const isAnchor = tier.is_anchor ?? false;
+                        const isOverride = interpolationEnabled && !isAnchor && isBetweenAnchors && Number(tier.markup_pct) !== 0;
+                        const useInterpolated = interpolationEnabled && !isAnchor && isBetweenAnchors && !isOverride;
+                        const displayBase = useInterpolated ? (rawInterpolatedBase ?? 0) : (tier.price_per_m2 || 0);
+                        const displayMarkup = useInterpolated ? 0 : (tier.markup_pct ?? 0);
+                        const displayPrice = displayBase * (1 + displayMarkup / 100) * (1 + itemMarkup / 100);
+                        const displayValue = displayBase > 0 || useInterpolated ? Math.round(displayPrice) : "";
+                        const totalMultiplier = (1 + (tier.markup_pct ?? 0) / 100) * (1 + itemMarkup / 100);
+
+                        return (
+                          <div key={tier.id} className="border rounded-md p-2 space-y-2">
+                            <div className="grid grid-cols-1 md:grid-cols-5 gap-2 items-center">
+                              <Input
+                                type="number"
+                                value={tier.from_m2}
+                                onChange={(e) =>
+                                  updateTier("material", activeGeneratorSelection.material!.id!, tier.id!, { from_m2: Number(e.target.value) || 0 })
+                                }
+                                placeholder="Fra m²"
+                              />
+                              <Input
+                                type="number"
+                                value={tier.to_m2 ?? ""}
+                                onChange={(e) =>
+                                  updateTier("material", activeGeneratorSelection.material!.id!, tier.id!, {
+                                    to_m2: e.target.value ? Number(e.target.value) : null
+                                  })
+                                }
+                                placeholder="Til m²"
+                              />
+                              <Input
+                                type="number"
+                                value={displayValue}
+                                onChange={(e) => {
+                                  const finalPrice = Number(e.target.value) || 0;
+                                  const basePrice = totalMultiplier ? finalPrice / totalMultiplier : 0;
+                                  updateTier("material", activeGeneratorSelection.material!.id!, tier.id!, { price_per_m2: basePrice });
+                                }}
+                                placeholder="Pris/m²"
+                              />
+                              <div className="flex items-center gap-2">
+                                {isOverride ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 p-0 hover:bg-transparent"
+                                    onClick={() =>
+                                      updateTier("material", activeGeneratorSelection.material!.id!, tier.id!, {
+                                        markup_pct: 0,
+                                        price_per_m2: 0,
+                                        is_anchor: false
+                                      })
+                                    }
+                                    title="Låst override (klik for at nulstille)"
+                                  >
+                                    <Lock className="h-4 w-4 text-primary" />
+                                  </Button>
+                                ) : (
+                                  <Checkbox
+                                    checked={isAnchor}
+                                    onCheckedChange={(checked) =>
+                                      updateTier("material", activeGeneratorSelection.material!.id!, tier.id!, { is_anchor: !!checked })
+                                    }
+                                  />
+                                )}
+                                <span className="text-xs text-muted-foreground">Anker</span>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeTier("material", activeGeneratorSelection.material!.id!, tier.id!)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Label className="text-[10px]">Interpolation pr. linje</Label>
+                              <CenterSlider
+                                value={[Number(tier.markup_pct) || 0]}
+                                onValueChange={(value) => {
+                                  const nextValue = value[0];
+                                  if (interpolationEnabled && isBetweenAnchors && !isAnchor) {
+                                    if (nextValue !== 0 && rawInterpolatedBase != null) {
+                                      updateTier("material", activeGeneratorSelection.material!.id!, tier.id!, {
+                                        markup_pct: nextValue,
+                                        price_per_m2: rawInterpolatedBase,
+                                        is_anchor: false
+                                      });
+                                      return;
+                                    }
+                                    if (nextValue === 0) {
+                                      updateTier("material", activeGeneratorSelection.material!.id!, tier.id!, {
+                                        markup_pct: 0,
+                                        price_per_m2: 0,
+                                        is_anchor: false
+                                      });
+                                      return;
+                                    }
+                                  }
+                                  updateTier("material", activeGeneratorSelection.material!.id!, tier.id!, { markup_pct: nextValue });
+                                }}
+                                min={-100}
+                                max={200}
+                                step={1}
+                                className="flex-1"
+                              />
+                              <span className="text-xs font-medium w-14 text-right">
+                                {(tier.markup_pct ?? 0) > 0 ? "+" : ""}
+                                {Math.round(Number(tier.markup_pct) || 0)}%
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => addTier("material", activeGeneratorSelection.material!.id!)}>
+                      <Plus className="h-4 w-4 mr-2" /> Tilføj tier
+                    </Button>
+                  </div>
+                )}
+
+                {activeGeneratorSelection.finish && (
+                  <div className="space-y-2 border rounded-md p-3 bg-background">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs font-medium">Efterbehandling</Label>
+                      <span className="text-xs text-muted-foreground">
+                        {getConfiguredValueDisplayName("finishes", activeGeneratorSelection.finish.id, activeGeneratorSelection.finish.name)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+                      <div className="space-y-1">
+                        <Label className="text-[11px]">Pris-mode</Label>
+                        <Select
+                          value={activeGeneratorSelection.finish.pricing_mode}
+                          onValueChange={(value) =>
+                            updateFinish(activeGeneratorSelection.finish!.id!, { pricing_mode: value as "fixed" | "per_m2" })
+                          }
+                        >
+                          <SelectTrigger className="h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="per_m2">Pris pr. m²</SelectItem>
+                            <SelectItem value="fixed">Fast pris pr. stk</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {activeGeneratorSelection.finish.pricing_mode === "fixed" ? (
+                        <div className="space-y-1">
+                          <Label className="text-[11px]">Fast pris pr. stk</Label>
+                          <Input
+                            type="number"
+                            className="h-9"
+                            value={activeGeneratorSelection.finish.fixed_price_per_unit ?? 0}
+                            onChange={(e) =>
+                              updateFinish(activeGeneratorSelection.finish!.id!, {
+                                fixed_price_per_unit: Number(e.target.value) || 0
+                              })
+                            }
+                          />
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <Label className="text-[11px]">Markup (%)</Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="number"
+                              className="h-9 w-20"
+                              value={activeGeneratorSelection.finish.markup_pct ?? 0}
+                              onChange={(e) =>
+                                updateFinish(activeGeneratorSelection.finish!.id!, { markup_pct: Number(e.target.value) || 0 })
+                              }
+                            />
+                            <CenterSlider
+                              value={[Number(activeGeneratorSelection.finish.markup_pct) || 0]}
+                              onValueChange={(value) =>
+                                updateFinish(activeGeneratorSelection.finish!.id!, { markup_pct: value[0] })
+                              }
+                              min={-100}
+                              max={200}
+                              step={1}
+                              className="flex-1"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {activeGeneratorSelection.finish.pricing_mode === "per_m2" && (
+                      <>
+                        <div className="flex items-center justify-between h-9 px-3 rounded border">
+                          <span className="text-xs text-muted-foreground">Interpolation mellem ankerpunkter</span>
+                          <Switch
+                            checked={activeGeneratorSelection.finish.interpolation_enabled ?? true}
+                            onCheckedChange={(checked) =>
+                              updateFinish(activeGeneratorSelection.finish!.id!, { interpolation_enabled: checked })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          {(activeGeneratorSelection.finish.tiers || []).map((tier) => {
+                            const itemMarkup = Number(activeGeneratorSelection.finish?.markup_pct) || 0;
+                            const interpolationEnabled = activeGeneratorSelection.finish?.interpolation_enabled ?? true;
+                            const { isBetweenAnchors, rawInterpolatedBase } = getInterpolationInfo(
+                              activeGeneratorSelection.finish!.tiers || [],
+                              tier.from_m2,
+                              interpolationEnabled
+                            );
+                            const isAnchor = tier.is_anchor ?? false;
+                            const isOverride = interpolationEnabled && !isAnchor && isBetweenAnchors && Number(tier.markup_pct) !== 0;
+                            const useInterpolated = interpolationEnabled && !isAnchor && isBetweenAnchors && !isOverride;
+                            const displayBase = useInterpolated ? (rawInterpolatedBase ?? 0) : (tier.price_per_m2 || 0);
+                            const displayMarkup = useInterpolated ? 0 : (tier.markup_pct ?? 0);
+                            const displayPrice = displayBase * (1 + displayMarkup / 100) * (1 + itemMarkup / 100);
+                            const displayValue = displayBase > 0 || useInterpolated ? Math.round(displayPrice) : "";
+                            const totalMultiplier = (1 + (tier.markup_pct ?? 0) / 100) * (1 + itemMarkup / 100);
+
+                            return (
+                              <div key={tier.id} className="border rounded-md p-2 space-y-2">
+                                <div className="grid grid-cols-1 md:grid-cols-5 gap-2 items-center">
+                                  <Input
+                                    type="number"
+                                    value={tier.from_m2}
+                                    onChange={(e) =>
+                                      updateTier("finish", activeGeneratorSelection.finish!.id!, tier.id!, { from_m2: Number(e.target.value) || 0 })
+                                    }
+                                    placeholder="Fra m²"
+                                  />
+                                  <Input
+                                    type="number"
+                                    value={tier.to_m2 ?? ""}
+                                    onChange={(e) =>
+                                      updateTier("finish", activeGeneratorSelection.finish!.id!, tier.id!, {
+                                        to_m2: e.target.value ? Number(e.target.value) : null
+                                      })
+                                    }
+                                    placeholder="Til m²"
+                                  />
+                                  <Input
+                                    type="number"
+                                    value={displayValue}
+                                    onChange={(e) => {
+                                      const finalPrice = Number(e.target.value) || 0;
+                                      const basePrice = totalMultiplier ? finalPrice / totalMultiplier : 0;
+                                      updateTier("finish", activeGeneratorSelection.finish!.id!, tier.id!, { price_per_m2: basePrice });
+                                    }}
+                                    placeholder="Pris/m²"
+                                  />
+                                  <div className="flex items-center gap-2">
+                                    {isOverride ? (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 p-0 hover:bg-transparent"
+                                        onClick={() =>
+                                          updateTier("finish", activeGeneratorSelection.finish!.id!, tier.id!, {
+                                            markup_pct: 0,
+                                            price_per_m2: 0,
+                                            is_anchor: false
+                                          })
+                                        }
+                                        title="Låst override (klik for at nulstille)"
+                                      >
+                                        <Lock className="h-4 w-4 text-primary" />
+                                      </Button>
+                                    ) : (
+                                      <Checkbox
+                                        checked={isAnchor}
+                                        onCheckedChange={(checked) =>
+                                          updateTier("finish", activeGeneratorSelection.finish!.id!, tier.id!, { is_anchor: !!checked })
+                                        }
+                                      />
+                                    )}
+                                    <span className="text-xs text-muted-foreground">Anker</span>
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => removeTier("finish", activeGeneratorSelection.finish!.id!, tier.id!)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <Label className="text-[10px]">Interpolation pr. linje</Label>
+                                  <CenterSlider
+                                    value={[Number(tier.markup_pct) || 0]}
+                                    onValueChange={(value) => {
+                                      const nextValue = value[0];
+                                      if (interpolationEnabled && isBetweenAnchors && !isAnchor) {
+                                        if (nextValue !== 0 && rawInterpolatedBase != null) {
+                                          updateTier("finish", activeGeneratorSelection.finish!.id!, tier.id!, {
+                                            markup_pct: nextValue,
+                                            price_per_m2: rawInterpolatedBase,
+                                            is_anchor: false
+                                          });
+                                          return;
+                                        }
+                                        if (nextValue === 0) {
+                                          updateTier("finish", activeGeneratorSelection.finish!.id!, tier.id!, {
+                                            markup_pct: 0,
+                                            price_per_m2: 0,
+                                            is_anchor: false
+                                          });
+                                          return;
+                                        }
+                                      }
+                                      updateTier("finish", activeGeneratorSelection.finish!.id!, tier.id!, { markup_pct: nextValue });
+                                    }}
+                                    min={-100}
+                                    max={200}
+                                    step={1}
+                                    className="flex-1"
+                                  />
+                                  <span className="text-xs font-medium w-14 text-right">
+                                    {(tier.markup_pct ?? 0) > 0 ? "+" : ""}
+                                    {Math.round(Number(tier.markup_pct) || 0)}%
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => addTier("finish", activeGeneratorSelection.finish!.id!)}>
+                          <Plus className="h-4 w-4 mr-2" /> Tilføj tier
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {activeGeneratorSelection.product && (
+                  <div className="space-y-2 border rounded-md p-3 bg-background">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs font-medium">Produkttillæg</Label>
+                      <span className="text-xs text-muted-foreground">
+                        {getConfiguredValueDisplayName("products", activeGeneratorSelection.product.id, activeGeneratorSelection.product.name)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+                      <div className="space-y-1">
+                        <Label className="text-[11px]">Pris-mode</Label>
+                        <Select
+                          value={activeGeneratorSelection.product.pricing_mode}
+                          onValueChange={(value) =>
+                            updateProduct(activeGeneratorSelection.product!.id!, { pricing_mode: value as "fixed" | "per_m2" })
+                          }
+                        >
+                          <SelectTrigger className="h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="per_m2">Pris pr. m²</SelectItem>
+                            <SelectItem value="fixed">Fast pris pr. mængde</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[11px]">Markup (%)</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            className="h-9 w-20"
+                            value={activeGeneratorSelection.product.markup_pct ?? 0}
+                            onChange={(e) =>
+                              updateProduct(activeGeneratorSelection.product!.id!, { markup_pct: Number(e.target.value) || 0 })
+                            }
+                          />
+                          <CenterSlider
+                            value={[Number(activeGeneratorSelection.product.markup_pct) || 0]}
+                            onValueChange={(value) =>
+                              updateProduct(activeGeneratorSelection.product!.id!, { markup_pct: value[0] })
+                            }
+                            min={-100}
+                            max={200}
+                            step={1}
+                            className="flex-1"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    {activeGeneratorSelection.product.pricing_mode === "fixed" ? (
+                      <div className="space-y-2">
+                        <div className="space-y-1">
+                          <Label className="text-[11px]">Initial pris (pr. ordre)</Label>
+                          <Input
+                            type="number"
+                            className="h-9"
+                            value={activeGeneratorSelection.product.initial_price ?? 0}
+                            onChange={(e) =>
+                              updateProduct(activeGeneratorSelection.product!.id!, { initial_price: Number(e.target.value) || 0 })
+                            }
+                          />
+                        </div>
+                        {sortedQuantities.length > 0 && (
+                          <div className="max-h-48 overflow-y-auto border rounded-md">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Mængde</TableHead>
+                                  <TableHead>Pris</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {sortedQuantities.map((qty) => {
+                                  const fixedPrice = (activeGeneratorSelection.product!.fixed_prices || []).find((fp) => fp.quantity === qty)?.price ?? 0;
+                                  return (
+                                    <TableRow key={qty}>
+                                      <TableCell>{qty}</TableCell>
+                                      <TableCell>
+                                        <Input
+                                          type="number"
+                                          className="h-8"
+                                          value={fixedPrice}
+                                          onChange={(e) =>
+                                            updateProductFixedPrice(activeGeneratorSelection.product!.id!, qty, Number(e.target.value) || 0)
+                                          }
+                                        />
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between h-9 px-3 rounded border">
+                          <span className="text-xs text-muted-foreground">Interpolation mellem ankerpunkter</span>
+                          <Switch
+                            checked={activeGeneratorSelection.product.interpolation_enabled ?? true}
+                            onCheckedChange={(checked) =>
+                              updateProduct(activeGeneratorSelection.product!.id!, { interpolation_enabled: checked })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          {(activeGeneratorSelection.product.tiers || []).map((tier) => {
+                            const itemMarkup = Number(activeGeneratorSelection.product?.markup_pct) || 0;
+                            const interpolationEnabled = activeGeneratorSelection.product?.interpolation_enabled ?? true;
+                            const { isBetweenAnchors, rawInterpolatedBase } = getInterpolationInfo(
+                              activeGeneratorSelection.product!.tiers || [],
+                              tier.from_m2,
+                              interpolationEnabled
+                            );
+                            const isAnchor = tier.is_anchor ?? false;
+                            const isOverride = interpolationEnabled && !isAnchor && isBetweenAnchors && Number(tier.markup_pct) !== 0;
+                            const useInterpolated = interpolationEnabled && !isAnchor && isBetweenAnchors && !isOverride;
+                            const displayBase = useInterpolated ? (rawInterpolatedBase ?? 0) : (tier.price_per_m2 || 0);
+                            const displayMarkup = useInterpolated ? 0 : (tier.markup_pct ?? 0);
+                            const displayPrice = displayBase * (1 + displayMarkup / 100) * (1 + itemMarkup / 100);
+                            const displayValue = displayBase > 0 || useInterpolated ? Math.round(displayPrice) : "";
+                            const totalMultiplier = (1 + (tier.markup_pct ?? 0) / 100) * (1 + itemMarkup / 100);
+
+                            return (
+                              <div key={tier.id} className="border rounded-md p-2 space-y-2">
+                                <div className="grid grid-cols-1 md:grid-cols-5 gap-2 items-center">
+                                  <Input
+                                    type="number"
+                                    value={tier.from_m2}
+                                    onChange={(e) =>
+                                      updateProductTier(activeGeneratorSelection.product!.id!, tier.id!, {
+                                        from_m2: Number(e.target.value) || 0
+                                      })
+                                    }
+                                    placeholder="Fra m²"
+                                  />
+                                  <Input
+                                    type="number"
+                                    value={tier.to_m2 ?? ""}
+                                    onChange={(e) =>
+                                      updateProductTier(activeGeneratorSelection.product!.id!, tier.id!, {
+                                        to_m2: e.target.value ? Number(e.target.value) : null
+                                      })
+                                    }
+                                    placeholder="Til m²"
+                                  />
+                                  <Input
+                                    type="number"
+                                    value={displayValue}
+                                    onChange={(e) => {
+                                      const finalPrice = Number(e.target.value) || 0;
+                                      const basePrice = totalMultiplier ? finalPrice / totalMultiplier : 0;
+                                      updateProductTier(activeGeneratorSelection.product!.id!, tier.id!, { price_per_m2: basePrice });
+                                    }}
+                                    placeholder="Pris/m²"
+                                  />
+                                  <div className="flex items-center gap-2">
+                                    {isOverride ? (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 p-0 hover:bg-transparent"
+                                        onClick={() =>
+                                          updateProductTier(activeGeneratorSelection.product!.id!, tier.id!, {
+                                            markup_pct: 0,
+                                            price_per_m2: 0,
+                                            is_anchor: false
+                                          })
+                                        }
+                                        title="Låst override (klik for at nulstille)"
+                                      >
+                                        <Lock className="h-4 w-4 text-primary" />
+                                      </Button>
+                                    ) : (
+                                      <Checkbox
+                                        checked={isAnchor}
+                                        onCheckedChange={(checked) =>
+                                          updateProductTier(activeGeneratorSelection.product!.id!, tier.id!, { is_anchor: !!checked })
+                                        }
+                                      />
+                                    )}
+                                    <span className="text-xs text-muted-foreground">Anker</span>
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => removeProductTier(activeGeneratorSelection.product!.id!, tier.id!)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <Label className="text-[10px]">Interpolation pr. linje</Label>
+                                  <CenterSlider
+                                    value={[Number(tier.markup_pct) || 0]}
+                                    onValueChange={(value) => {
+                                      const nextValue = value[0];
+                                      if (interpolationEnabled && isBetweenAnchors && !isAnchor) {
+                                        if (nextValue !== 0 && rawInterpolatedBase != null) {
+                                          updateProductTier(activeGeneratorSelection.product!.id!, tier.id!, {
+                                            markup_pct: nextValue,
+                                            price_per_m2: rawInterpolatedBase,
+                                            is_anchor: false
+                                          });
+                                          return;
+                                        }
+                                        if (nextValue === 0) {
+                                          updateProductTier(activeGeneratorSelection.product!.id!, tier.id!, {
+                                            markup_pct: 0,
+                                            price_per_m2: 0,
+                                            is_anchor: false
+                                          });
+                                          return;
+                                        }
+                                      }
+                                      updateProductTier(activeGeneratorSelection.product!.id!, tier.id!, { markup_pct: nextValue });
+                                    }}
+                                    min={-100}
+                                    max={200}
+                                    step={1}
+                                    className="flex-1"
+                                  />
+                                  <span className="text-xs font-medium w-14 text-right">
+                                    {(tier.markup_pct ?? 0) > 0 ? "+" : ""}
+                                    {Math.round(Number(tier.markup_pct) || 0)}%
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => addProductTier(activeGeneratorSelection.product!.id!)}>
+                          <Plus className="h-4 w-4 mr-2" /> Tilføj tier
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <LayoutGrid className="h-4 w-4" />
+                Prisforhåndsvisning
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Matrix med beregnede priser. Aktivér redigering for at justere enkelte celler direkte.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-muted-foreground">
-                  {sortedQuantities.length === 0
-                    ? "Ingen antal valgt endnu"
-                    : `Viser ${startCol + 1}-${Math.min(startCol + PREVIEW_COLS, sortedQuantities.length)} af ${sortedQuantities.length} antal`}
-                </span>
+                <div className="flex items-center gap-4">
+                  <span className="text-xs text-muted-foreground">
+                    {sortedQuantities.length === 0
+                      ? "Ingen antal valgt endnu"
+                      : `Viser ${startCol + 1}-${Math.min(startCol + PREVIEW_COLS, sortedQuantities.length)} af ${sortedQuantities.length} antal`}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="preview-matrix-edit-mode"
+                      checked={previewMatrixEditEnabled}
+                      onCheckedChange={setPreviewMatrixEditEnabled}
+                    />
+                    <Label htmlFor="preview-matrix-edit-mode" className="text-xs cursor-pointer">
+                      Rediger matrixpriser
+                    </Label>
+                  </div>
+                </div>
                 <div className="flex items-center gap-1">
                   <Button
                     variant="outline"
@@ -3196,7 +4739,12 @@ export function StorformatManager({
                         .map((verticalValue) => {
                           const isSelected = selectedSectionValues[verticalAxis.id] === verticalValue.id;
                           const settings = verticalAxis.valueSettings?.[verticalValue.id];
+                          const displayName = getDisplayName(verticalValue.name, settings);
                           const thumbnailUrl = settings?.customImage || verticalValue.thumbnail_url;
+                          const verticalThumbPx = resolveThumbnailSizePx(
+                            verticalAxis.thumbnail_size,
+                            verticalAxis.thumbnail_custom_px
+                          );
                           return (
                             <TableRow
                               key={verticalValue.id}
@@ -3206,27 +4754,35 @@ export function StorformatManager({
                               <TableCell className={cn("font-medium", isSelected && "text-primary")}>
                                 <div className="flex items-center gap-2">
                                   {settings?.showThumbnail && thumbnailUrl && (
-                                    <img src={thumbnailUrl} className="w-5 h-5 object-cover rounded" />
+                                    <img
+                                      src={thumbnailUrl}
+                                      className="object-cover rounded shrink-0"
+                                      style={{ width: verticalThumbPx, height: verticalThumbPx }}
+                                    />
                                   )}
-                                  <span>{verticalValue.name}</span>
+                                  <span>{displayName}</span>
                                   {isSelected && <span className="text-xs">(valgt)</span>}
                                 </div>
                               </TableCell>
                               {visibleQuantities.map((qty) => {
-                                const resolveSelection = (type: LayoutSectionType) => {
-                                  if (verticalAxis.sectionType === type) return verticalValue.id;
-                                  const section = layoutRows.flatMap((r) => r.sections).find((s) => s.sectionType === type);
-                                  if (!section) return null;
-                                  const selected = selectedSectionValues[section.id];
-                                  if (section.selection_mode === "optional") {
-                                    return selected || null;
-                                  }
-                                  return selected || section.valueIds?.[0] || null;
+                                const resolveSelections = (type: LayoutSectionType) => {
+                                  if (verticalAxis.sectionType === type) return verticalValue.id ? [verticalValue.id] : [];
+                                  return layoutRows
+                                    .flatMap((r) => r.sections)
+                                    .filter((section) => section.sectionType === type)
+                                    .map((section) => {
+                                      const selected = selectedSectionValues[section.id];
+                                      if (selected) return selected;
+                                      if (section.selection_mode === "optional") return null;
+                                      return section.valueIds?.[0] || null;
+                                    })
+                                    .filter((value): value is string => Boolean(value));
                                 };
-                                const materialId = resolveSelection("materials");
-                                const finishId = resolveSelection("finishes");
-                                const productId = resolveSelection("products");
+                                const materialIds = resolveSelections("materials");
+                                const finishIds = resolveSelections("finishes");
+                                const productIds = resolveSelections("products");
 
+                                const materialId = materialIds[0] || null;
                                 const material = materials.find((m) => m.id === materialId);
                                 if (!material) {
                                   return (
@@ -3235,19 +4791,46 @@ export function StorformatManager({
                                     </TableCell>
                                   );
                                 }
-                                const finish = finishes.find((f) => f.id === finishId) || null;
-                                const productSelection = products.find((p) => p.id === productId) || null;
+                                const selectedFinishes = finishIds
+                                  .map((id) => finishes.find((f) => f.id === id) || null)
+                                  .filter((item): item is StorformatFinish => Boolean(item));
+                                const selectedProducts = productIds
+                                  .map((id) => products.find((p) => p.id === id) || null)
+                                  .filter((item): item is StorformatProduct => Boolean(item));
+
+                                const finish = selectedFinishes[0] || null;
+                                const productSelection = selectedProducts[0] || null;
                                 const result = calculateStorformatPrice({
                                   widthMm: previewWidthMm,
                                   heightMm: previewHeightMm,
                                   quantity: qty,
                                   material,
                                   finish,
+                                  finishes: selectedFinishes,
                                   product: productSelection,
+                                  products: selectedProducts,
                                   config
                                 });
                                 return (
-                                  <TableCell key={`${verticalValue.id}-${qty}`} className="text-center">
+                                  <TableCell
+                                    key={`${verticalValue.id}-${qty}`}
+                                    className={cn(
+                                      "text-center",
+                                      previewMatrixEditEnabled && "cursor-copy hover:bg-muted/40"
+                                    )}
+                                    title={previewMatrixEditEnabled ? "Dobbeltklik for at redigere pris" : undefined}
+                                    onDoubleClick={(event) => {
+                                      if (!previewMatrixEditEnabled) return;
+                                      event.stopPropagation();
+                                      editPreviewMatrixCell({
+                                        quantity: qty,
+                                        material,
+                                        finish,
+                                        product: productSelection,
+                                        result
+                                      });
+                                    }}
+                                  >
                                     {result.totalPrice.toFixed(0)} kr
                                   </TableCell>
                                 );
@@ -3270,24 +4853,32 @@ export function StorformatManager({
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Prisbank & Udgivelse</CardTitle>
-                <CardDescription className="text-xs">Gem i bank eller udgiv ændringerne til produktet.</CardDescription>
+                <CardTitle className="text-base">Prisbank & Gem</CardTitle>
+                <CardDescription className="text-xs">Gem i bank og gem ændringerne på produktet. Udgivelse håndteres separat.</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                      onClick={() => setShowSaveDialog(true)}
+                      onClick={() => {
+                        fetchTemplates();
+                        setOverwriteTemplateId(null);
+                        setSaveName("");
+                        setShowSaveDialog(true);
+                      }}
                     >
                       <Save className="h-4 w-4 mr-2" /> Gem i bank
                     </Button>
                     <Button variant="outline" onClick={() => setShowLoadDialog(true)}>
                       <Library className="h-4 w-4 mr-2" /> Indlæs
                     </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {templates.length} gemte i bank
+                    </span>
                   </div>
                   <Button onClick={handleSave} disabled={saving}>
-                    {saving ? "Gemmer..." : `Gem storformat for ${productName}`}
+                    {saving ? "Gemmer..." : "Gem produkt"}
                   </Button>
                 </div>
               </CardContent>
@@ -3296,18 +4887,127 @@ export function StorformatManager({
         </div>
       </div>
 
-      <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
-        <DialogContent className="sm:max-w-[420px]">
+      <Dialog
+        open={showSaveDialog}
+        onOpenChange={(open) => {
+          setShowSaveDialog(open);
+          if (!open) {
+            setOverwriteTemplateId(null);
+            setSaveName("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Gem i storformat bank</DialogTitle>
+            <DialogDescription>
+              Gem som ny version eller overskriv en eksisterende prisbankskabelon for dette produkt.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            <Label>Navn</Label>
-            <Input value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="F.eks. Storformat V1" />
+          <div className="space-y-3 py-2 flex-1 overflow-y-auto pr-1">
+            <div className="space-y-1">
+              <Label>Gem som (nyt navn)</Label>
+              <Input
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                placeholder="F.eks. Storformat V1"
+              />
+              <p className="text-xs text-muted-foreground">
+                Brug “Gem som ny” for en ny version, eller vælg en eksisterende nedenfor og overskriv.
+              </p>
+            </div>
+
+            {overwriteTemplateId && (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 p-2">
+                <div className="text-xs">
+                  <div className="font-medium text-primary">Overskriv valgt</div>
+                  <div className="text-muted-foreground">
+                    {templates.find((template) => template.id === overwriteTemplateId)?.name || "Ukendt"}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setOverwriteTemplateId(null);
+                    setSaveName("");
+                  }}
+                >
+                  Nulstil
+                </Button>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide">Bank-oversigt (dette produkt)</Label>
+              <div className="max-h-64 overflow-y-auto border rounded-lg p-2 space-y-2">
+                {templates.length === 0 ? (
+                  <div className="text-sm text-muted-foreground py-4 text-center">
+                    Ingen gemte skabeloner endnu.
+                  </div>
+                ) : (
+                  templates.map((template: any) => {
+                    const isSelected = overwriteTemplateId === template.id;
+                    return (
+                      <div
+                        key={template.id}
+                        className={cn(
+                          "flex items-center justify-between gap-2 p-2 rounded border",
+                          isSelected ? "border-primary bg-primary/5" : "border-border"
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{template.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Opdateret {new Date(template.updated_at || template.created_at).toLocaleDateString()}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant={isSelected ? "default" : "outline"}
+                            onClick={() => {
+                              setOverwriteTemplateId(template.id);
+                              setSaveName(template.name || "");
+                            }}
+                          >
+                            {isSelected ? "Valgt" : "Vælg"}
+                          </Button>
+                          <Button size="icon" variant="ghost" onClick={() => handleDeleteTemplate(template.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSaveDialog(false)}>Annuller</Button>
-            <Button onClick={handleSaveTemplate}>Gem</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowSaveDialog(false);
+                setOverwriteTemplateId(null);
+                setSaveName("");
+              }}
+            >
+              Annuller
+            </Button>
+            <Button
+              variant="outline"
+              disabled={savingTemplate || !saveName.trim()}
+              onClick={() => handleSaveTemplate({ overwriteId: null })}
+            >
+              {savingTemplate && !overwriteTemplateId ? "Gemmer..." : "Gem som ny"}
+            </Button>
+            <Button
+              disabled={savingTemplate || !overwriteTemplateId}
+              onClick={() => handleSaveTemplate({ overwriteId: overwriteTemplateId })}
+            >
+              {savingTemplate && overwriteTemplateId ? "Overskriver..." : "Overskriv valgt"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -3316,6 +5016,9 @@ export function StorformatManager({
         <DialogContent className="max-w-xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Indlæs storformat skabelon</DialogTitle>
+            <DialogDescription>
+              Vælg en gemt skabelon fra banken og indlæs den i den aktive konfiguration.
+            </DialogDescription>
           </DialogHeader>
           <div className="flex items-center justify-between pb-3">
             <div className="flex items-center gap-2">

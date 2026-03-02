@@ -17,6 +17,7 @@ interface Order {
     id: string;
     order_number: string;
     product_name: string;
+    product_configuration?: string | null;
     quantity: number;
     total_price: number;
     status: string;
@@ -318,6 +319,17 @@ export default function MyOrders() {
         }).format(price);
     };
 
+    const getSizeDistributionText = (order: Order) => {
+        const fromConfiguration = String(order.product_configuration || "").trim();
+        if (fromConfiguration) return fromConfiguration;
+        const statusNote = String(order.status_note || "").trim();
+        const prefix = "[SIZE-DISTRIBUTION]";
+        if (statusNote.startsWith(prefix)) {
+            return statusNote.slice(prefix.length).trim();
+        }
+        return null;
+    };
+
     if (loading) {
         return (
             <div className="min-h-screen flex flex-col">
@@ -469,6 +481,11 @@ export default function MyOrders() {
                                                             <p className="text-sm text-muted-foreground">
                                                                 Antal: {order.quantity}
                                                             </p>
+                                                            {getSizeDistributionText(order) && (
+                                                                <p className="text-xs text-muted-foreground mt-1">
+                                                                    {getSizeDistributionText(order)}
+                                                                </p>
+                                                            )}
                                                         </div>
                                                         <p className="font-semibold">{formatPrice(order.total_price)}</p>
                                                     </div>

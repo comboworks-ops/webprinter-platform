@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pixart Wide-Format"
+  short_description: "Probe, extract, import, and publish Pixart storformat products"
+  default_prompt: "Use $pixart to run the full Pixart import flow with the correct profile: flat-surface-adhesive or rigids. Probe options, extract quantities 1-20 with area anchors (1,2,3,4,5,10,12,15,20), validate cheapest/right-column prices (and fastest/left-column), then import into Webprinter storformat. For rigids, import selected categories (Plastic, Plexiglass, Multi-layer materials, Aluminium, Cardboard) as separate products."

@@ -64,6 +64,49 @@ const DEFAULT_SWATCHES = [
 
 // Maximum saved swatches
 const MAX_SAVED_SWATCHES = 20;
+const FALLBACK_COLOR = "#000000";
+
+const clampRgbChannel = (value: number) => Math.max(0, Math.min(255, value));
+
+const normalizeColorValue = (value: unknown): string => {
+    if (typeof value !== "string") {
+        return FALLBACK_COLOR;
+    }
+
+    const trimmed = value.trim();
+    return trimmed || FALLBACK_COLOR;
+};
+
+const toHexColor = (value: string): string => {
+    const normalized = normalizeColorValue(value);
+
+    if (/^#[0-9a-f]{6}$/i.test(normalized)) {
+        return normalized.toUpperCase();
+    }
+
+    if (/^#[0-9a-f]{3}$/i.test(normalized)) {
+        const [, r, g, b] = normalized;
+        return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
+    }
+
+    const rgbMatch = normalized.match(/^rgba?\(([^)]+)\)$/i);
+    if (!rgbMatch) {
+        return FALLBACK_COLOR;
+    }
+
+    const channels = rgbMatch[1]
+        .split(",")
+        .slice(0, 3)
+        .map((channel) => Number.parseFloat(channel.trim()));
+
+    if (channels.length !== 3 || channels.some((channel) => Number.isNaN(channel))) {
+        return FALLBACK_COLOR;
+    }
+
+    return `#${channels
+        .map((channel) => clampRgbChannel(channel).toString(16).padStart(2, "0"))
+        .join("")}`.toUpperCase();
+};
 
 interface ColorPickerWithSwatchesProps {
     /** Current color value (hex) */
@@ -90,6 +133,10 @@ interface ColorPickerWithSwatchesProps {
     onRemoveSwatch?: (color: string) => void;
     /** Inline mode - label and input on one line */
     inline?: boolean;
+    /** Optional fixed width class for the inline label column */
+    inlineLabelClassName?: string;
+    /** Align inline label/input block to the top instead of center */
+    inlineAlign?: "center" | "start";
 }
 
 export function ColorPickerWithSwatches({
@@ -104,10 +151,17 @@ export function ColorPickerWithSwatches({
     savedSwatches = [],
     onSaveSwatch,
     onRemoveSwatch,
-    inline = false
+    inline = false,
+    inlineLabelClassName,
+    inlineAlign = "center",
 }: ColorPickerWithSwatchesProps) {
     const [isOpen, setIsOpen] = useState(false);
     const colorInputRef = useRef<HTMLInputElement>(null);
+    const currentColor = normalizeColorValue(value);
+    const nativeColorValue = toHexColor(currentColor);
+    const hexInputValue = currentColor.startsWith("#")
+        ? currentColor.replace("#", "").toUpperCase()
+        : nativeColorValue.replace("#", "");
 
     const handleSwatchClick = (color: string) => {
         onChange(color);
@@ -118,22 +172,22 @@ export function ColorPickerWithSwatches({
     };
 
     const handleSaveCurrentColor = () => {
-        if (onSaveSwatch && !savedSwatches.includes(value) && savedSwatches.length < MAX_SAVED_SWATCHES) {
-            onSaveSwatch(value);
+        if (onSaveSwatch && !savedSwatches.includes(currentColor) && savedSwatches.length < MAX_SAVED_SWATCHES) {
+            onSaveSwatch(currentColor);
         }
     };
 
     // Parse hex to extract RGB for display
     const hexToRgb = (hex: string) => {
-        if (!hex || !hex.startsWith('#')) return null;
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
+        const normalizedHex = toHexColor(hex);
+        const r = parseInt(normalizedHex.slice(1, 3), 16);
+        const g = parseInt(normalizedHex.slice(3, 5), 16);
+        const b = parseInt(normalizedHex.slice(5, 7), 16);
         return { r, g, b };
     };
 
-    const rgb = hexToRgb(value);
-    const canSave = onSaveSwatch && !savedSwatches.includes(value) && savedSwatches.length < MAX_SAVED_SWATCHES;
+    const rgb = hexToRgb(currentColor);
+    const canSave = onSaveSwatch && !savedSwatches.includes(currentColor) && savedSwatches.length < MAX_SAVED_SWATCHES;
 
     const PickerContent = () => (
         <div className="space-y-3">
@@ -141,10 +195,10 @@ export function ColorPickerWithSwatches({
             <div className="flex items-center gap-3 pb-3 border-b">
                 <div
                     className="h-12 w-12 rounded-lg border-2 shadow-sm flex-shrink-0"
-                    style={{ backgroundColor: value }}
+                    style={{ backgroundColor: currentColor }}
                 />
                 <div className="flex-1 space-y-1">
-                    <p className="text-sm font-medium font-mono">{value.toUpperCase()}</p>
+                    <p className="text-sm font-medium font-mono">{currentColor.toUpperCase()}</p>
                     {rgb && (
                         <p className="text-xs text-muted-foreground">
                             RGB: {rgb.r}, {rgb.g}, {rgb.b}
@@ -158,7 +212,7 @@ export function ColorPickerWithSwatches({
                         onClick={handleSaveCurrentColor}
                         disabled={!canSave}
                         className="h-8 px-2"
-                        title={canSave ? "Gem denne farve" : savedSwatches.includes(value) ? "Farven er allerede gemt" : "Max 20 farver"}
+                        title={canSave ? "Gem denne farve" : savedSwatches.includes(currentColor) ? "Farven er allerede gemt" : "Max 20 farver"}
                     >
                         <Save className="h-4 w-4" />
                     </Button>
@@ -186,7 +240,7 @@ export function ColorPickerWithSwatches({
                                             onClick={() => handleSwatchClick(color)}
                                             className={cn(
                                                 "h-7 w-7 rounded-md border-2 shadow-sm hover:scale-110 transition-transform relative",
-                                                value.toLowerCase() === color.toLowerCase()
+                                                currentColor.toLowerCase() === color.toLowerCase()
                                                     ? "ring-2 ring-primary ring-offset-1"
                                                     : "",
                                                 color === "#FFFFFF" && "border-gray-300"
@@ -194,7 +248,7 @@ export function ColorPickerWithSwatches({
                                             style={{ backgroundColor: color }}
                                             title={color}
                                         >
-                                            {value.toLowerCase() === color.toLowerCase() && (
+                                            {currentColor.toLowerCase() === color.toLowerCase() && (
                                                 <Check className={cn(
                                                     "h-3.5 w-3.5 absolute inset-0 m-auto",
                                                     color === "#FFFFFF" || color.startsWith("#FEF") || color.startsWith("#F0F")
@@ -247,7 +301,7 @@ export function ColorPickerWithSwatches({
                                     }}
                                     className={cn(
                                         "h-6 w-6 rounded border shadow-sm hover:scale-110 transition-transform relative",
-                                        value.toLowerCase() === color.toLowerCase()
+                                        currentColor.toLowerCase() === color.toLowerCase()
                                             ? "ring-2 ring-primary ring-offset-1"
                                             : "",
                                         color === "#FFFFFF" && "border-gray-300"
@@ -255,7 +309,7 @@ export function ColorPickerWithSwatches({
                                     style={{ backgroundColor: color }}
                                     title={color}
                                 >
-                                    {value.toLowerCase() === color.toLowerCase() && (
+                                    {currentColor.toLowerCase() === color.toLowerCase() && (
                                         <Check className={cn(
                                             "h-3 w-3 absolute inset-0 m-auto",
                                             color === "#FFFFFF" || color.startsWith("#FEF") || color.startsWith("#F0F")
@@ -284,7 +338,7 @@ export function ColorPickerWithSwatches({
                 <input
                     ref={colorInputRef}
                     type="color"
-                    value={value}
+                    value={nativeColorValue}
                     onChange={(e) => {
                         onChange(e.target.value);
                     }}
@@ -293,7 +347,7 @@ export function ColorPickerWithSwatches({
                 <div className="relative flex-1">
                     <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">#</span>
                     <Input
-                        value={value.replace('#', '').toUpperCase()}
+                        value={hexInputValue}
                         onChange={(e) => onChange(`#${e.target.value}`)}
                         className="h-9 text-xs font-mono pl-5 uppercase"
                         placeholder="000000"
@@ -328,8 +382,8 @@ export function ColorPickerWithSwatches({
                 <PopoverTrigger asChild>
                     <button
                         className="h-8 w-8 rounded border overflow-hidden shadow-sm hover:ring-2 ring-primary transition-all relative"
-                        style={{ backgroundColor: value }}
-                        title={value}
+                        style={{ backgroundColor: currentColor }}
+                        title={currentColor}
                     />
                 </PopoverTrigger>
                 <PopoverContent className="w-[320px] p-4" align="start">
@@ -342,9 +396,17 @@ export function ColorPickerWithSwatches({
 
     // Full inline mode with popover for the picker
     return (
-        <div className={cn("space-y-2", inline && "flex items-center gap-3 space-y-0 w-full")}>
+        <div className={cn(
+            "space-y-2",
+            inline && "flex gap-3 space-y-0 w-full",
+            inline && (inlineAlign === "start" ? "items-start" : "items-center"),
+        )}>
             {label && (
-                <Label className={cn("text-sm font-medium", inline && "text-xs text-muted-foreground whitespace-nowrap")}>
+                <Label className={cn(
+                    "text-sm font-medium",
+                    inline && "text-xs text-muted-foreground whitespace-nowrap",
+                    inline && inlineLabelClassName,
+                )}>
                     {label}
                 </Label>
             )}
@@ -357,7 +419,7 @@ export function ColorPickerWithSwatches({
                                 "h-10 w-10 rounded-lg border-2 overflow-hidden shadow-sm hover:ring-2 ring-primary transition-all flex-shrink-0",
                                 inline && "h-9 w-9 rounded-md"
                             )}
-                            style={{ backgroundColor: value }}
+                            style={{ backgroundColor: currentColor }}
                             title="Klik for at vælge farve"
                         />
                     </PopoverTrigger>
@@ -367,7 +429,7 @@ export function ColorPickerWithSwatches({
                 </Popover>
 
                 <Input
-                    value={value.toUpperCase()}
+                    value={currentColor.toUpperCase()}
                     onChange={(e) => onChange(e.target.value)}
                     className={cn("font-mono flex-1 h-10 uppercase min-w-0", inline && "h-9 text-xs px-2")}
                     placeholder="#000000"

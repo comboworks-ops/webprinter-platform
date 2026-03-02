@@ -15,6 +15,12 @@ import {
   calculateStorformatPrice
 } from "@/utils/storformatPricing";
 import { cn } from "@/lib/utils";
+import {
+  normalizeThumbnailCustomPx,
+  normalizeThumbnailSize,
+  resolveThumbnailSizePx,
+  type ThumbnailSizeMode
+} from "@/lib/pricing/thumbnailSizes";
 
 export type StorformatSelection = {
   totalPrice: number;
@@ -42,12 +48,13 @@ type StorformatConfiguratorProps = {
 };
 
 type LayoutSectionType = "materials" | "finishes" | "products";
-type LayoutDisplayMode = "buttons" | "dropdown" | "checkboxes";
+type LayoutDisplayMode = "buttons" | "dropdown" | "checkboxes" | "small" | "medium" | "large" | "xl" | "xl_notext";
 type SelectionMode = "required" | "optional";
 
 type ValueSettings = {
   showThumbnail?: boolean;
   customImage?: string;
+  displayName?: string;
 };
 
 type LayoutSection = {
@@ -55,6 +62,8 @@ type LayoutSection = {
   sectionType: LayoutSectionType;
   ui_mode?: LayoutDisplayMode;
   selection_mode?: SelectionMode;
+  thumbnail_size?: ThumbnailSizeMode;
+  thumbnail_custom_px?: number;
   title?: string;
   description?: string;
   valueIds?: string[];
@@ -71,6 +80,8 @@ type LayoutRow = {
 type VerticalAxisConfig = {
   id: string;
   sectionType: LayoutSectionType;
+  thumbnail_size?: ThumbnailSizeMode;
+  thumbnail_custom_px?: number;
   title?: string;
   description?: string;
   valueIds?: string[];
@@ -114,83 +125,224 @@ export function StorformatConfigurator({
           .eq("product_id", productId)
           .maybeSingle();
 
-        const nextConfig = cfg
-          ? {
-            rounding_step: cfg.rounding_step || 1,
-            global_markup_pct: cfg.global_markup_pct || 0,
-            quantities: cfg.quantities?.length ? cfg.quantities : [1],
-            layout_rows: cfg.layout_rows || [],
-            vertical_axis: cfg.vertical_axis || null
-          }
-          : defaultConfig;
-        setConfig(nextConfig);
-        setQuantity(nextConfig.quantities?.[0] || 1);
-        setLayoutRows(cfg?.layout_rows || []);
-        setVerticalAxis(cfg?.vertical_axis ? { ...cfg.vertical_axis, id: cfg.vertical_axis.id || "vertical-axis" } : null);
+        const [
+          { data: materialRows },
+          { data: materialTiers },
+          { data: legacyMaterialPrices },
+          { data: finishRows },
+          { data: finishTiers },
+          { data: legacyFinishPrices },
+          { data: productRows },
+          { data: productTiers },
+          { data: productFixedPrices }
+        ] = await Promise.all([
+          supabase.from("storformat_materials" as any).select("*").eq("product_id", productId).order("sort_order"),
+          supabase.from("storformat_material_price_tiers" as any).select("*").eq("product_id", productId).order("sort_order"),
+          supabase.from("storformat_m2_prices" as any).select("*").eq("product_id", productId).order("from_m2"),
+          supabase.from("storformat_finishes" as any).select("*").eq("product_id", productId).order("sort_order"),
+          supabase.from("storformat_finish_price_tiers" as any).select("*").eq("product_id", productId).order("sort_order"),
+          supabase.from("storformat_finish_prices" as any).select("*").eq("product_id", productId),
+          supabase.from("storformat_products" as any).select("*").eq("product_id", productId).order("sort_order"),
+          supabase.from("storformat_product_price_tiers" as any).select("*").eq("product_id", productId).order("sort_order"),
+          supabase.from("storformat_product_fixed_prices" as any).select("*").eq("product_id", productId).order("sort_order")
+        ]);
 
-        const { data: materialRows } = await supabase
-          .from("storformat_materials" as any)
-          .select("*")
-          .eq("product_id", productId)
-          .order("sort_order");
-
-        const { data: materialTiers } = await supabase
-          .from("storformat_material_price_tiers" as any)
-          .select("*")
-          .eq("product_id", productId)
-          .order("sort_order");
-
-        const materialsWithTiers = (materialRows || []).map((m: any) => ({
-          ...m,
-          tiers: (materialTiers || []).filter((t: any) => t.material_id === m.id)
-        }));
-        setMaterials(materialsWithTiers);
-        if (materialsWithTiers.length) {
-          setMaterialId(materialsWithTiers[0].id);
+        let legacyProductM2Rows: any[] = [];
+        try {
+          const { data } = await supabase
+            .from("storformat_product_m2_prices" as any)
+            .select("*")
+            .eq("product_id", productId)
+            .order("from_m2");
+          legacyProductM2Rows = data || [];
+        } catch {
+          legacyProductM2Rows = [];
         }
 
-        const { data: finishRows } = await supabase
-          .from("storformat_finishes" as any)
-          .select("*")
-          .eq("product_id", productId)
-          .order("sort_order");
+        const materialsWithTiers = (materialRows || []).map((m: any) => {
+          const primaryTiers = (materialTiers || []).filter((t: any) => t.material_id === m.id);
+          const fallbackTiers = (legacyMaterialPrices || [])
+            .filter((t: any) => t.material_id === m.id)
+            .map((t: any, idx: number) => ({
+              id: t.id || `legacy-material-tier-${m.id}-${idx}`,
+              material_id: m.id,
+              from_m2: Number(t.from_m2) || 0,
+              to_m2: t.to_m2 ?? null,
+              price_per_m2: Number(t.price_per_m2) || 0,
+              is_anchor: t.is_anchor ?? true,
+              markup_pct: 0,
+              sort_order: t.sort_order ?? idx
+            }));
+          const resolvedTiers = primaryTiers.length ? primaryTiers : fallbackTiers;
+          return { ...m, tiers: resolvedTiers };
+        });
 
-        const { data: finishTiers } = await supabase
-          .from("storformat_finish_price_tiers" as any)
-          .select("*")
-          .eq("product_id", productId)
-          .order("sort_order");
+        const finishesWithTiers = (finishRows || []).map((f: any) => {
+          const primaryTiers = (finishTiers || []).filter((t: any) => t.finish_id === f.id);
+          const legacyFinish = (legacyFinishPrices || []).find((row: any) => row.finish_id === f.id) || null;
+          const fallbackTiers = legacyFinish && Number(legacyFinish.price_per_m2) > 0
+            ? [{
+                id: legacyFinish.id || `legacy-finish-tier-${f.id}`,
+                finish_id: f.id,
+                from_m2: 0,
+                to_m2: null,
+                price_per_m2: Number(legacyFinish.price_per_m2) || 0,
+                is_anchor: true,
+                markup_pct: 0,
+                sort_order: 0
+              }]
+            : [];
+          const resolvedTiers = primaryTiers.length ? primaryTiers : fallbackTiers;
+          return {
+            ...f,
+            fixed_price_per_unit: f.fixed_price_per_unit ?? legacyFinish?.fixed_price ?? 0,
+            tiers: resolvedTiers
+          };
+        });
 
-        const finishesWithTiers = (finishRows || []).map((f: any) => ({
-          ...f,
-          tiers: (finishTiers || []).filter((t: any) => t.finish_id === f.id)
-        }));
+        const productsWithPricing: StorformatProduct[] = (productRows || []).map((p: any) => {
+          const primaryTiers = (productTiers || []).filter((t: any) => t.product_item_id === p.id);
+          const fallbackTiers = legacyProductM2Rows
+            .filter((t: any) => t.product_item_id === p.id || t.storformat_product_id === p.id)
+            .map((t: any, idx: number) => ({
+              id: t.id || `legacy-product-tier-${p.id}-${idx}`,
+              product_item_id: p.id,
+              from_m2: Number(t.from_m2) || 0,
+              to_m2: t.to_m2 ?? null,
+              price_per_m2: Number(t.price_per_m2) || 0,
+              is_anchor: t.is_anchor ?? true,
+              markup_pct: 0,
+              sort_order: t.sort_order ?? idx
+            }));
+          return {
+            ...p,
+            tiers: primaryTiers.length ? primaryTiers : fallbackTiers,
+            fixed_prices: (productFixedPrices || []).filter((fp: any) => fp.product_item_id === p.id)
+          };
+        });
+
+        const idsByType: Record<LayoutSectionType, string[]> = {
+          materials: materialsWithTiers.map((m) => m.id).filter(Boolean) as string[],
+          finishes: finishesWithTiers.map((f) => f.id).filter(Boolean) as string[],
+          products: productsWithPricing.map((p) => p.id).filter(Boolean) as string[]
+        };
+
+        const normalizeValueIds = (ids: unknown, available: string[]) => {
+          if (!available.length) return [] as string[];
+          const incoming = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+          const filtered = incoming.filter((id) => available.includes(id));
+          return filtered.length ? filtered : [...available];
+        };
+
+        const rawLayoutRows = Array.isArray(cfg?.layout_rows) ? cfg.layout_rows : [];
+        let nextLayoutRows: LayoutRow[] = rawLayoutRows
+          .map((row: any, rowIndex: number) => ({
+            id: row?.id || `row-${rowIndex + 1}`,
+            title: row?.title,
+            description: row?.description,
+            sections: Array.isArray(row?.sections)
+              ? row.sections
+                  .map((section: any, sectionIndex: number) => {
+                    const type: LayoutSectionType = section?.sectionType === "materials" || section?.sectionType === "finishes" || section?.sectionType === "products"
+                      ? section.sectionType
+                      : "products";
+                    const available = idsByType[type];
+                    if (!available.length) return null;
+                    return {
+                      id: section?.id || `section-${rowIndex + 1}-${sectionIndex + 1}`,
+                      sectionType: type,
+                      ui_mode: section?.ui_mode || "buttons",
+                      selection_mode: section?.selection_mode || (type === "finishes" ? "optional" : "required"),
+                      thumbnail_size: normalizeThumbnailSize(section?.thumbnail_size),
+                      thumbnail_custom_px: normalizeThumbnailCustomPx(section?.thumbnail_custom_px),
+                      title: section?.title,
+                      description: section?.description,
+                      valueIds: normalizeValueIds(section?.valueIds, available),
+                      valueSettings: section?.valueSettings || {}
+                    } satisfies LayoutSection;
+                  })
+                  .filter(Boolean) as LayoutSection[]
+              : []
+          }))
+          .filter((row: LayoutRow) => row.sections.length > 0);
+
+        if (!nextLayoutRows.length) {
+          const defaultSections: LayoutSection[] = [];
+          if (idsByType.products.length) {
+            defaultSections.push({
+              id: "section-products",
+              sectionType: "products",
+              ui_mode: "buttons",
+              selection_mode: "required",
+              thumbnail_size: "small",
+              valueIds: [...idsByType.products],
+              valueSettings: {}
+            });
+          }
+          if (idsByType.finishes.length) {
+            defaultSections.push({
+              id: "section-finishes",
+              sectionType: "finishes",
+              ui_mode: "buttons",
+              selection_mode: "optional",
+              thumbnail_size: "small",
+              valueIds: [...idsByType.finishes],
+              valueSettings: {}
+            });
+          }
+          if (defaultSections.length) {
+            nextLayoutRows = [{ id: "row-1", sections: defaultSections }];
+          }
+        }
+
+        const cfgVertical = cfg?.vertical_axis;
+        const verticalType: LayoutSectionType = cfgVertical?.sectionType === "materials" || cfgVertical?.sectionType === "finishes" || cfgVertical?.sectionType === "products"
+          ? cfgVertical.sectionType
+          : "materials";
+        const nextVerticalAxis: VerticalAxisConfig = {
+        id: cfgVertical?.id || "vertical-axis",
+        sectionType: verticalType,
+        thumbnail_size: normalizeThumbnailSize(cfgVertical?.thumbnail_size),
+        thumbnail_custom_px: normalizeThumbnailCustomPx(cfgVertical?.thumbnail_custom_px),
+        title: cfgVertical?.title,
+        description: cfgVertical?.description,
+        valueIds: normalizeValueIds(cfgVertical?.valueIds, idsByType[verticalType]),
+          valueSettings: cfgVertical?.valueSettings || {}
+        };
+
+        const nextConfig = cfg
+          ? {
+              rounding_step: cfg.rounding_step || 1,
+              global_markup_pct: cfg.global_markup_pct || 0,
+              quantities: cfg.quantities?.length ? cfg.quantities : [1],
+              layout_rows: nextLayoutRows,
+              vertical_axis: nextVerticalAxis
+            }
+          : defaultConfig;
+
+        setConfig(nextConfig);
+        setQuantity(nextConfig.quantities?.[0] || 1);
+        setLayoutRows(nextLayoutRows);
+        setVerticalAxis(nextVerticalAxis);
+        setMaterials(materialsWithTiers);
         setFinishes(finishesWithTiers);
-
-        const { data: productRows } = await supabase
-          .from("storformat_products" as any)
-          .select("*")
-          .eq("product_id", productId)
-          .order("sort_order");
-
-        const { data: productTiers } = await supabase
-          .from("storformat_product_price_tiers" as any)
-          .select("*")
-          .eq("product_id", productId)
-          .order("sort_order");
-
-        const { data: productFixedPrices } = await supabase
-          .from("storformat_product_fixed_prices" as any)
-          .select("*")
-          .eq("product_id", productId)
-          .order("sort_order");
-
-        const productsWithPricing: StorformatProduct[] = (productRows || []).map((p: any) => ({
-          ...p,
-          tiers: (productTiers || []).filter((t: any) => t.product_item_id === p.id),
-          fixed_prices: (productFixedPrices || []).filter((fp: any) => fp.product_item_id === p.id)
-        }));
         setProducts(productsWithPricing);
+        if (materialsWithTiers.length) {
+          const firstMaterial = materialsWithTiers[0];
+          setMaterialId(firstMaterial.id);
+
+          const maxWidthCm =
+            Number(firstMaterial.max_width_mm) > 0 ? Number(firstMaterial.max_width_mm) / 10 : null;
+          const maxHeightCm =
+            Number(firstMaterial.max_height_mm) > 0 ? Number(firstMaterial.max_height_mm) / 10 : null;
+
+          if (maxWidthCm) {
+            setWidthCm((prev) => Math.max(1, Math.min(prev, maxWidthCm)));
+          }
+          if (maxHeightCm) {
+            setHeightCm((prev) => Math.max(1, Math.min(prev, maxHeightCm)));
+          }
+        }
         if (productsWithPricing.length) {
           setProductIdSelection(productsWithPricing[0].id);
         }
@@ -231,6 +383,32 @@ export function StorformatConfigurator({
     }
     return map;
   }, [layoutRows, verticalAxis, verticalAxisId]);
+
+  const getDisplayName = useCallback((baseName?: string | null, settings?: ValueSettings) => {
+    const override = settings?.displayName?.trim();
+    return override || baseName || "Unavngivet";
+  }, []);
+
+  const getConfiguredValueDisplayName = useCallback((
+    sectionType: LayoutSectionType,
+    valueId: string | undefined,
+    fallbackName?: string | null
+  ) => {
+    if (!valueId) return fallbackName || "Unavngivet";
+    if (verticalAxis?.sectionType === sectionType) {
+      const verticalName = verticalAxis.valueSettings?.[valueId]?.displayName?.trim();
+      if (verticalName) return verticalName;
+    }
+    for (const row of layoutRows) {
+      for (const section of row.sections) {
+        if (section.sectionType !== sectionType) continue;
+        if (!section.valueIds?.includes(valueId)) continue;
+        const sectionName = section.valueSettings?.[valueId]?.displayName?.trim();
+        if (sectionName) return sectionName;
+      }
+    }
+    return fallbackName || "Unavngivet";
+  }, [layoutRows, verticalAxis]);
 
   const getValuesForType = useCallback((type: LayoutSectionType) => {
     switch (type) {
@@ -332,50 +510,107 @@ export function StorformatConfigurator({
     });
   }, [hasLayout, layoutRows, verticalAxis, verticalAxisId, getSectionValues, getVerticalAxisValues, selectionModeById]);
 
-  const resolveSelectionForType = useCallback((type: LayoutSectionType) => {
-    if (!hasLayout) return null;
-    if (verticalAxis?.sectionType === type) {
-      return selectedSectionValues[verticalAxisId] || null;
-    }
+  const resolveSelectionsForType = useCallback(
+    (
+      type: LayoutSectionType,
+      options?: {
+        overrideVerticalValueId?: string | null;
+        overrideSectionSelection?: Record<string, string | null | undefined>;
+      }
+    ) => {
+      if (!hasLayout) return [] as string[];
 
-    for (const row of layoutRows) {
-      for (const section of row.sections) {
-        if (section.sectionType !== type) continue;
-        const values = getSectionValues(section);
-        if (values.length === 0) continue;
-        const selected = selectedSectionValues[section.id];
-        if (selected && values.some((value) => value.id === selected)) {
-          return selected;
-        }
-        if (selectionModeById[section.id] !== "optional") {
-          return values[0].id || null;
+      const overrideSelection = options?.overrideSectionSelection || {};
+      if (verticalAxis?.sectionType === type) {
+        const selectedValue =
+          options?.overrideVerticalValueId ??
+          overrideSelection[verticalAxisId] ??
+          selectedSectionValues[verticalAxisId] ??
+          null;
+        return selectedValue ? [selectedValue] : [];
+      }
+
+      const resolved: string[] = [];
+      for (const row of layoutRows) {
+        for (const section of row.sections) {
+          if (section.sectionType !== type) continue;
+          const values = getSectionValues(section);
+          if (!values.length) continue;
+
+          const selectedValue = overrideSelection[section.id] ?? selectedSectionValues[section.id] ?? null;
+          if (selectedValue && values.some((value) => value.id === selectedValue)) {
+            resolved.push(selectedValue);
+            continue;
+          }
+
+          if (selectionModeById[section.id] !== "optional") {
+            const fallback = values[0]?.id;
+            if (fallback) {
+              resolved.push(fallback);
+            }
+          }
         }
       }
-    }
 
-    return null;
-  }, [getSectionValues, hasLayout, layoutRows, selectedSectionValues, selectionModeById, verticalAxis, verticalAxisId]);
+      return [...new Set(resolved)];
+    },
+    [
+      getSectionValues,
+      hasLayout,
+      layoutRows,
+      selectedSectionValues,
+      selectionModeById,
+      verticalAxis,
+      verticalAxisId,
+    ]
+  );
+
+  const resolveSelectionForType = useCallback(
+    (
+      type: LayoutSectionType,
+      options?: {
+        overrideVerticalValueId?: string | null;
+        overrideSectionSelection?: Record<string, string | null | undefined>;
+      }
+    ) => resolveSelectionsForType(type, options)[0] || null,
+    [resolveSelectionsForType]
+  );
 
   const selection = useMemo<StorformatSelection | null>(() => {
-    const selectedMaterialId = hasLayout ? resolveSelectionForType("materials") : materialId;
+    const selectedMaterialIds = hasLayout ? resolveSelectionsForType("materials") : materialId ? [materialId] : [];
+    const selectedMaterialId = selectedMaterialIds[0] || null;
     const material = materials.find((m) => m.id === selectedMaterialId);
     if (!material) return null;
     if (widthCm <= 0 || heightCm <= 0 || quantity <= 0) return null;
 
     const widthMm = widthCm * 10;
     const heightMm = heightCm * 10;
-    const selectedFinishId = hasLayout ? resolveSelectionForType("finishes") : (finishId === noneFinishValue ? null : finishId);
-    const selectedProductId = hasLayout ? resolveSelectionForType("products") : (productIdSelection === noneFinishValue ? null : productIdSelection);
-    const finish = selectedFinishId ? (finishes.find((f) => f.id === selectedFinishId) || null) : null;
-    const product = selectedProductId ? (products.find((p) => p.id === selectedProductId) || null) : null;
+    const selectedFinishIds = hasLayout
+      ? resolveSelectionsForType("finishes")
+      : finishId === noneFinishValue
+        ? []
+        : [finishId];
+    const selectedProductIds = hasLayout
+      ? resolveSelectionsForType("products")
+      : productIdSelection === noneFinishValue
+        ? []
+        : [productIdSelection];
+    const selectedFinishes = selectedFinishIds
+      .map((id) => finishes.find((f) => f.id === id) || null)
+      .filter((value): value is StorformatFinish => Boolean(value));
+    const selectedProducts = selectedProductIds
+      .map((id) => products.find((p) => p.id === id) || null)
+      .filter((value): value is StorformatProduct => Boolean(value));
 
     const result = calculateStorformatPrice({
       widthMm,
       heightMm,
       quantity,
       material,
-      finish,
-      product,
+      finish: selectedFinishes[0] || null,
+      finishes: selectedFinishes,
+      product: selectedProducts[0] || null,
+      products: selectedProducts,
       config
     });
 
@@ -390,14 +625,18 @@ export function StorformatConfigurator({
       quantity,
       widthCm,
       heightCm,
-      materialName: material.name,
-      finishName: finish?.name || null,
-      productName: product?.name || null,
+      materialName: getConfiguredValueDisplayName("materials", material.id, material.name),
+      finishName: selectedFinishes.length
+        ? selectedFinishes.map((item) => getConfiguredValueDisplayName("finishes", item.id, item.name)).join(", ")
+        : null,
+      productName: selectedProducts.length
+        ? selectedProducts.map((item) => getConfiguredValueDisplayName("products", item.id, item.name)).join(", ")
+        : null,
       splitInfo: result.splitInfo,
       exceedsMax,
       allowSplit: material.allow_split ?? true
     };
-  }, [materials, finishes, products, materialId, finishId, productIdSelection, widthCm, heightCm, quantity, config, hasLayout, resolveSelectionForType]);
+  }, [materials, finishes, products, materialId, finishId, productIdSelection, widthCm, heightCm, quantity, config, hasLayout, resolveSelectionsForType, getConfiguredValueDisplayName]);
 
   useEffect(() => {
     onSelectionChange(selection);
@@ -425,6 +664,7 @@ export function StorformatConfigurator({
     const isOptional = selectionModeById[section.id] === "optional";
     const selectedValue = selectedSectionValues[section.id] || "";
     const valueSettings = valueSettingsById[section.id] || {};
+    const thumbnailPx = resolveThumbnailSizePx(section.thumbnail_size, section.thumbnail_custom_px);
     const isOptionalEnabled = !isOptional || Boolean(selectedSectionValues[section.id]);
 
     const handleSelect = (valueId: string | null) => {
@@ -460,13 +700,18 @@ export function StorformatConfigurator({
             {values.map((value) => {
               const settings = valueSettings[value.id || ""];
               const thumbnailUrl = settings?.customImage || value.thumbnail_url;
+              const displayName = getDisplayName(value.name, settings);
               return (
                 <SelectItem key={value.id} value={value.id || ""}>
                   <div className="flex items-center gap-2">
                     {settings?.showThumbnail && thumbnailUrl && (
-                      <img src={thumbnailUrl} className="w-5 h-5 rounded object-cover" />
+                      <img
+                        src={thumbnailUrl}
+                        className="rounded object-cover shrink-0"
+                        style={{ width: thumbnailPx, height: thumbnailPx }}
+                      />
                     )}
-                    {value.name || "Unavngivet"}
+                    {displayName}
                   </div>
                 </SelectItem>
               );
@@ -481,6 +726,7 @@ export function StorformatConfigurator({
         <div className={cn("space-y-1", !isOptionalEnabled && "opacity-60 pointer-events-none")}>
           {values.map((value) => {
             const isSelected = selectedValue === value.id;
+            const displayName = getDisplayName(value.name, valueSettings[value.id || ""]);
             return (
               <label
                 key={value.id}
@@ -500,12 +746,78 @@ export function StorformatConfigurator({
                 {valueSettings[value.id || ""]?.showThumbnail && (valueSettings[value.id || ""]?.customImage || value.thumbnail_url) && (
                   <img
                     src={valueSettings[value.id || ""]?.customImage || value.thumbnail_url}
-                    alt={value.name || ""}
-                    className="h-8 w-8 rounded object-cover"
+                    alt={displayName}
+                    className="rounded object-cover shrink-0"
+                    style={{ width: thumbnailPx, height: thumbnailPx }}
                   />
                 )}
-                <span className="font-medium flex-1">{value.name || "Unavngivet"}</span>
+                <span className="font-medium flex-1">{displayName}</span>
               </label>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if (["small", "medium", "large", "xl", "xl_notext"].includes(displayMode)) {
+      const pictureMode = displayMode === "xl_notext" ? "xl" : displayMode;
+      const pictureSize = pictureMode === "small"
+        ? { width: 40, height: 40 }
+        : pictureMode === "medium"
+          ? { width: 64, height: 64 }
+          : pictureMode === "large"
+            ? { width: 96, height: 96 }
+            : { width: 128, height: 128 };
+      const showPictureLabel = pictureMode !== "small" && displayMode !== "xl_notext";
+
+      return (
+        <div className={cn("flex flex-wrap gap-2", !isOptionalEnabled && "opacity-60 pointer-events-none")}>
+          {values.map((value) => {
+            const isSelected = selectedValue === value.id;
+            const thumbnailUrl = valueSettings[value.id || ""]?.customImage || value.thumbnail_url;
+            const displayName = getDisplayName(value.name, valueSettings[value.id || ""]);
+            return (
+              <button
+                key={value.id}
+                onClick={() => {
+                  if (isOptional && isSelected) {
+                    handleSelect(null);
+                    return;
+                  }
+                  handleSelect(value.id || null);
+                }}
+                disabled={!isOptionalEnabled}
+                className={cn(
+                  "relative rounded-lg border-2 transition-all flex flex-col items-center overflow-hidden",
+                  isSelected ? "border-primary ring-2 ring-primary/20" : "border-muted hover:border-muted-foreground/50",
+                  !isOptionalEnabled && "cursor-not-allowed"
+                )}
+                style={{ width: pictureSize.width, minHeight: pictureSize.height + (showPictureLabel ? 22 : 0) }}
+              >
+                {thumbnailUrl ? (
+                  <img
+                    src={thumbnailUrl}
+                    alt={displayName}
+                    className="w-full object-cover rounded-t-md"
+                    style={{ height: pictureSize.height }}
+                  />
+                ) : (
+                  <div
+                    className={cn(
+                      "w-full flex items-center justify-center bg-muted text-xs font-semibold text-muted-foreground rounded-t-md",
+                    isSelected && "bg-primary/10 text-primary"
+                  )}
+                  style={{ height: pictureSize.height }}
+                >
+                  {(displayName || "?").slice(0, 3).toUpperCase()}
+                </div>
+              )}
+              {showPictureLabel && (
+                <span className="text-[10px] leading-tight text-center truncate w-full px-1 py-0.5">
+                  {displayName}
+                </span>
+              )}
+            </button>
             );
           })}
         </div>
@@ -516,6 +828,7 @@ export function StorformatConfigurator({
       <div className={cn("flex flex-wrap gap-1.5", !isOptionalEnabled && "opacity-60 pointer-events-none")}>
         {values.map((value) => {
           const isSelected = selectedValue === value.id;
+          const displayName = getDisplayName(value.name, valueSettings[value.id || ""]);
           return (
             <Button
               key={value.id}
@@ -534,11 +847,12 @@ export function StorformatConfigurator({
               {valueSettings[value.id || ""]?.showThumbnail && (valueSettings[value.id || ""]?.customImage || value.thumbnail_url) && (
                 <img
                   src={valueSettings[value.id || ""]?.customImage || value.thumbnail_url}
-                  alt={value.name || ""}
-                  className="h-8 w-8 rounded object-cover"
+                  alt={displayName}
+                  className="rounded object-cover shrink-0"
+                  style={{ width: thumbnailPx, height: thumbnailPx }}
                 />
               )}
-              {value.name || "Unavngivet"}
+              {displayName}
             </Button>
           );
         })}
@@ -568,11 +882,11 @@ export function StorformatConfigurator({
     const nameCounts = new Map<string, number>();
 
     const baseMaterialId = resolveSelectionForType("materials");
-    const baseFinishId = resolveSelectionForType("finishes");
-    const baseProductId = resolveSelectionForType("products");
+    const baseFinishIds = resolveSelectionsForType("finishes");
+    const baseProductIds = resolveSelectionsForType("products");
 
     verticalAxisValues.forEach((value) => {
-      const baseName = value.name || "Unavngivet";
+      const baseName = getDisplayName(value.name, verticalAxis.valueSettings?.[value.id || ""]);
       const count = nameCounts.get(baseName) || 0;
       const label = count === 0 ? baseName : `${baseName} (${count + 1})`;
       nameCounts.set(baseName, count + 1);
@@ -583,12 +897,16 @@ export function StorformatConfigurator({
 
       sortedQuantities.forEach((qty) => {
         const materialIdForRow = verticalAxis.sectionType === "materials" ? value.id : baseMaterialId;
-        const finishIdForRow = verticalAxis.sectionType === "finishes" ? value.id : baseFinishId;
-        const productIdForRow = verticalAxis.sectionType === "products" ? value.id : baseProductId;
+        const finishIdsForRow = verticalAxis.sectionType === "finishes" ? [value.id || ""] : baseFinishIds;
+        const productIdsForRow = verticalAxis.sectionType === "products" ? [value.id || ""] : baseProductIds;
 
         const material = materialIdForRow ? materials.find((m) => m.id === materialIdForRow) : null;
-        const finish = finishIdForRow ? finishes.find((f) => f.id === finishIdForRow) : null;
-        const product = productIdForRow ? products.find((p) => p.id === productIdForRow) : null;
+        const selectedFinishes = finishIdsForRow
+          .map((id) => finishes.find((f) => f.id === id) || null)
+          .filter((item): item is StorformatFinish => Boolean(item));
+        const selectedProducts = productIdsForRow
+          .map((id) => products.find((p) => p.id === id) || null)
+          .filter((item): item is StorformatProduct => Boolean(item));
         if (!material) return;
 
         const result = calculateStorformatPrice({
@@ -596,8 +914,10 @@ export function StorformatConfigurator({
           heightMm,
           quantity: qty,
           material,
-          finish,
-          product,
+          finish: selectedFinishes[0] || null,
+          finishes: selectedFinishes,
+          product: selectedProducts[0] || null,
+          products: selectedProducts,
           config
         });
         cells[label][qty] = result.totalPrice;
@@ -611,7 +931,7 @@ export function StorformatConfigurator({
       rowIdByLabel,
       rowLabelById
     };
-  }, [verticalAxis, verticalAxisValues, sortedQuantities, widthCm, heightCm, resolveSelectionForType, materials, finishes, products, config]);
+  }, [verticalAxis, verticalAxisValues, sortedQuantities, widthCm, heightCm, resolveSelectionForType, resolveSelectionsForType, materials, finishes, products, config, getDisplayName]);
 
   const matrixSelectedCell = useMemo(() => {
     if (!verticalAxis) return null;

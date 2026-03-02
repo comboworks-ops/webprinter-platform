@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
 import Index from "@/pages/Index";
 import Shop from "@/pages/Shop"; // We will likely need a dedicated TenantShopLayout later
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -17,8 +15,8 @@ const MARKETING_DOMAINS = [
 
 export default function SubdomainRouter() {
     const settings = useShopSettings();
-    const location = useLocation();
     const hostname = window.location.hostname;
+    const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
 
     // Decide if we are on a Marketing Domain
     const isMarketing = MARKETING_DOMAINS.includes(hostname);
@@ -41,6 +39,20 @@ export default function SubdomainRouter() {
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+        );
+    }
+
+    if (settings.isError) {
+        if (isLocalhost) {
+            return <Shop />;
+        }
+
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center p-4 text-center">
+                <h1 className="text-2xl font-bold mb-2">Midlertidig forbindelsesfejl</h1>
+                <p className="text-muted-foreground">Vi kunne ikke hente shop-indstillinger lige nu. Prøv igen om et øjeblik.</p>
+                <p className="text-xs text-muted-foreground mt-4">{hostname}</p>
             </div>
         );
     }

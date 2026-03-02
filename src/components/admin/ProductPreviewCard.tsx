@@ -9,6 +9,7 @@ interface ProductPreviewCardProps {
     priceFrom: string | null;
     description?: string;
     imageUrl?: string | null;
+    imageScalePct?: number;
     priceColor?: string;
     priceBgColor?: string;
     priceBgEnabled?: boolean;
@@ -25,6 +26,7 @@ export function ProductPreviewCard({
     priceFrom,
     description,
     imageUrl,
+    imageScalePct = 100,
     priceColor = "#000000",
     priceBgColor = "#FFFFFF",
     priceBgEnabled = false,
@@ -36,6 +38,7 @@ export function ProductPreviewCard({
     showSavingsBadge
 }: ProductPreviewCardProps) {
     const fontUrl = priceFont && priceFont !== 'inherit' ? getGoogleFontsUrl([priceFont]) : '';
+    const normalizedImageScalePct = Math.max(60, Math.min(140, Number(imageScalePct) || 100));
 
     return (
         <>
@@ -59,14 +62,22 @@ export function ProductPreviewCard({
                                         src={imageUrl}
                                         alt={name}
                                         className={`w-full h-full object-contain p-2 transition-opacity duration-300 ${hoverImageUrl ? 'group-hover:opacity-0' : ''}`}
-                                        style={{ filter: 'var(--product-filter)' }}
+                                        style={{
+                                            filter: 'var(--product-filter)',
+                                            width: `${normalizedImageScalePct}%`,
+                                            height: `${normalizedImageScalePct}%`
+                                        }}
                                     />
                                     {hoverImageUrl && (
                                         <img
                                             src={hoverImageUrl}
                                             alt={`${name} hover`}
-                                            className="absolute inset-0 w-full h-full object-contain p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                                            style={{ filter: 'var(--product-filter)' }}
+                                            className="absolute inset-0 m-auto w-full h-full object-contain p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                                            style={{
+                                                filter: 'var(--product-filter)',
+                                                width: `${normalizedImageScalePct}%`,
+                                                height: `${normalizedImageScalePct}%`
+                                            }}
                                         />
                                     )}
                                 </>

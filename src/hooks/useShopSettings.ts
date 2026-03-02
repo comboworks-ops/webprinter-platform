@@ -86,6 +86,10 @@ export function useShopSettings() {
 
     // Track session state to invalidate query on login/logout
     const [userId, setUserId] = useState<string | null>(null);
+    const [brandingPublishedAt, setBrandingPublishedAt] = useState<string>(() => {
+        if (typeof window === 'undefined') return '0';
+        return window.localStorage.getItem('branding-published-at') || '0';
+    });
 
     useEffect(() => {
         let active = true;
@@ -110,9 +114,30 @@ export function useShopSettings() {
         };
     }, []);
 
+    // LOCK LF-003: React to publish events so live storefront does not stay on stale branding.
+    useEffect(() => {
+        const onStorage = (event: StorageEvent) => {
+            if (event.key === 'branding-published-at') {
+                setBrandingPublishedAt(event.newValue || String(Date.now()));
+            }
+        };
+
+        const onPublished = () => {
+            setBrandingPublishedAt(window.localStorage.getItem('branding-published-at') || String(Date.now()));
+        };
+
+        window.addEventListener('storage', onStorage);
+        window.addEventListener('branding-published', onPublished as EventListener);
+
+        return () => {
+            window.removeEventListener('storage', onStorage);
+            window.removeEventListener('branding-published', onPublished as EventListener);
+        };
+    }, []);
+
     return useQuery({
         // Include userId in query key to force refetch on login/logout
-        queryKey: ["shop-settings", hostname, forceDomain, forceSubdomain, forceTenantId, userId],
+        queryKey: ["shop-settings", hostname, forceDomain, forceSubdomain, forceTenantId, userId, brandingPublishedAt],
         queryFn: async () => {
             const isVercel = hostname.endsWith('.vercel.app');
             const marketingDomains = [ROOT_DOMAIN, `www.${ROOT_DOMAIN}`];
@@ -295,13 +320,13 @@ export function useShopSettings() {
                 throw error;
             }
         },
-        staleTime: 1000 * 60 * 5, // 5 minutes cache
+        staleTime: 1000 * 30, // Keep storefront data fresh after branding publishes
         retry: (failureCount, error) => {
             if ((error as any)?.code === 'SHOP_SETTINGS_TRANSPORT') return false;
             return failureCount < 1;
         },
         retryOnMount: false,
-        refetchOnWindowFocus: false,
-        refetchOnReconnect: false,
+        refetchOnWindowFocus: true,
+        refetchOnReconnect: true,
     });
 }

@@ -28,14 +28,25 @@ import { STANDARD_FORMATS, FormatDimension } from "@/utils/formatStandards";
 import { CategorySelector } from "./CategorySelector";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PICTURE_SIZES, type PictureSizeMode } from "@/lib/storformat-pricing/types";
+import {
+    THUMBNAIL_CUSTOM_PX_MAX,
+    THUMBNAIL_CUSTOM_PX_MIN,
+    THUMBNAIL_CUSTOM_PX_STEP,
+    THUMBNAIL_SIZE_OPTIONS,
+    normalizeThumbnailCustomPx,
+    normalizeThumbnailSize,
+    resolveThumbnailSizePx,
+    type ThumbnailSizeMode
+} from "@/lib/pricing/thumbnailSizes";
 
 // Size mode type
 type SizeMode = 'format' | 'free_size';
-type FormatDisplayMode = 'buttons' | 'dropdown' | 'checkboxes' | 'small' | 'medium' | 'large' | 'xl';
+type FormatDisplayMode = 'buttons' | 'dropdown' | 'checkboxes' | 'small' | 'medium' | 'large' | 'xl' | 'xl_notext';
 
 interface ValueSetting {
     showThumbnail: boolean;
     customImage?: string;
+    displayName?: string;
 }
 
 
@@ -47,6 +58,40 @@ const MAX_PERSISTED_GENERATOR_PRICE_ENTRIES = 1500;
 // Preset quantities for oplag
 const PRESET_QUANTITIES = [10, 25, 50, 100, 250, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000];
 const MAX_PREVIEW_ROWS = 500;
+
+function parsePublishedPriceCount(fingerprint?: string | null): number | null {
+    if (!fingerprint || typeof fingerprint !== 'string') return null;
+    const [countPart] = fingerprint.split(':');
+    const parsed = Number.parseInt(countPart, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function isPageLikeLabel(label?: string | null): boolean {
+    const normalized = String(label || '').toLowerCase();
+    return normalized.includes('page') || normalized.includes('sider') || normalized.includes('side');
+}
+
+function extractNumericLabelValue(label?: string | null): number | null {
+    const match = String(label || '').match(/(\d+(?:[.,]\d+)?)/);
+    if (!match) return null;
+    const parsed = Number.parseFloat(match[1].replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sortValuesForDisplay<T extends { name?: string | null }>(values: T[], sectionLabel?: string | null): T[] {
+    if (!isPageLikeLabel(sectionLabel) || values.length <= 1) return values;
+
+    return [...values].sort((a, b) => {
+        const aNumber = extractNumericLabelValue(a?.name);
+        const bNumber = extractNumericLabelValue(b?.name);
+
+        if (aNumber != null && bNumber != null && aNumber !== bNumber) {
+            return aNumber - bNumber;
+        }
+
+        return String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { numeric: true });
+    });
+}
 
 function isQuotaExceededError(error: unknown): boolean {
     if (!(error instanceof DOMException)) return false;
@@ -74,6 +119,7 @@ interface ProductAttributeBuilderProps {
     productName?: string;
     tableName?: string;
     productSlug?: string;
+    publishedPricesFingerprint?: string | null;
     onPricesUpdated?: () => void;
     sizeMode?: SizeMode;
     onSizeModeChange?: (mode: SizeMode) => void;
@@ -126,6 +172,18 @@ const KIND_COLORS: Record<string, string> = {
     finish: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
     other: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
     custom: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
+};
+
+const UI_MODE_LABELS: Record<string, string> = {
+    buttons: 'Knapper',
+    dropdown: 'Dropdown',
+    checkboxes: 'Checkboxes',
+    hidden: 'Skjul',
+    small: 'Billeder S',
+    medium: 'Billeder M',
+    large: 'Billeder Big',
+    xl: 'Billeder XL + tekst',
+    xl_notext: 'Billeder XL kun foto'
 };
 
 // Props for the sortable group item
@@ -297,16 +355,18 @@ function ColumnDragPreview({ sectionType }: { sectionType: string }) {
 // Sortable Value Component (for items within a section)
 interface SortableValueProps {
     value: { id: string; name: string };
+    displayName?: string;
     rowId: string;
     sectionId: string;
     settings?: ValueSetting;
     onEdit: () => void;
+    onRename: () => void;
     onToggleThumbnail: () => void;
     onUpload: () => void;
     onRemove: () => void;
 }
 
-function SortableValue({ value, rowId, sectionId, settings, onEdit, onToggleThumbnail, onUpload, onRemove }: SortableValueProps) {
+function SortableValue({ value, displayName, rowId, sectionId, settings, onEdit, onRename, onToggleThumbnail, onUpload, onRemove }: SortableValueProps) {
     const {
         attributes,
         listeners,
@@ -342,10 +402,19 @@ function SortableValue({ value, rowId, sectionId, settings, onEdit, onToggleThum
                 >
                     <GripVertical className="h-3 w-3" />
                 </div>
-                <span className="truncate">{value.name}</span>
+                <span className="truncate">{displayName || value.name}</span>
                 {settings?.showThumbnail && <ImageIcon className="h-3 w-3 text-primary" />}
             </div>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-4 w-auto px-1 text-[9px] font-semibold"
+                    onClick={(e) => { e.stopPropagation(); onRename(); }}
+                    title="Omdøb i layout"
+                >
+                    Aa
+                </Button>
                 <Button
                     variant="ghost"
                     size="icon"
@@ -398,6 +467,8 @@ interface LayoutSection {
     selection_mode: SelectionMode;
     valueSettings?: Record<string, ValueSetting>;
     thumbnailsEnabled?: boolean;
+    thumbnail_size?: ThumbnailSizeMode;
+    thumbnail_custom_px?: number;
     title?: string;
     description?: string;
 }
@@ -479,7 +550,9 @@ function SortableGroupItem({
                     ) : (
                         <div className="flex items-center gap-2">
                             <span className="font-semibold text-sm">{group.name}</span>
-                            <Badge variant="outline" className="text-[10px] font-normal">{group.ui_mode === 'buttons' ? 'Knapper' : 'Dropdown'}</Badge>
+                            <Badge variant="outline" className="text-[10px] font-normal">
+                                {UI_MODE_LABELS[group.ui_mode || 'buttons'] || 'Knapper'}
+                            </Badge>
                             {group.source === 'library' && <Badge variant="secondary" className="text-[10px]">Library</Badge>}
                         </div>
                     )}
@@ -650,6 +723,7 @@ export function ProductAttributeBuilder({
     productName = 'Produkt',
     tableName,
     productSlug,
+    publishedPricesFingerprint,
     onPricesUpdated,
     sizeMode: sizeModeProp,
     onSizeModeChange,
@@ -702,7 +776,7 @@ export function ProductAttributeBuilder({
     // Each row can have 1-3 sections, each section contains product group IDs
     // Layout configuration
     type AttributeType = 'products' | 'formats' | 'materials' | 'finishes';
-    type DisplayMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden' | 'small' | 'medium' | 'large' | 'xl';
+    type DisplayMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden' | 'small' | 'medium' | 'large' | 'xl' | 'xl_notext';
     type SelectionMode = 'required' | 'optional';
 
     interface LayoutSection {
@@ -714,6 +788,8 @@ export function ProductAttributeBuilder({
         valueIds?: string[];
         valueSettings?: Record<string, ValueSetting>;
         thumbnailsEnabled?: boolean;
+        thumbnail_size?: ThumbnailSizeMode;
+        thumbnail_custom_px?: number;
         title?: string;
         description?: string;
     }
@@ -733,12 +809,14 @@ export function ProductAttributeBuilder({
         valueIds?: string[];
         valueSettings?: Record<string, ValueSetting>;
         thumbnailsEnabled?: boolean;
+        thumbnail_size?: ThumbnailSizeMode;
+        thumbnail_custom_px?: number;
         title?: string;
         description?: string;
     }
 
     const [layoutRows, setLayoutRows] = useState<LayoutRow[]>([
-        { id: 'row-1', sections: [{ id: 'section-1', groupId: '', sectionType: 'formats', ui_mode: 'buttons', selection_mode: 'required' }] }
+        { id: 'row-1', sections: [{ id: 'section-1', groupId: '', sectionType: 'formats', ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small' }] }
     ]);
 
     // Unified drag and drop state
@@ -937,7 +1015,8 @@ export function ProductAttributeBuilder({
         ui_mode: 'buttons',
         valueIds: [],
         valueSettings: {},
-        thumbnailsEnabled: false
+        thumbnailsEnabled: false,
+        thumbnail_size: 'small'
     });
 
     // Image Upload State
@@ -1008,8 +1087,55 @@ export function ProductAttributeBuilder({
 
     const triggerUpload = (sectionId: string, valueId: string) => {
         setUploadingTarget({ sectionId, valueId });
+        if (fileInputRef.current) fileInputRef.current.value = '';
         fileInputRef.current?.click();
     };
+
+    const getDisplayName = useCallback((baseName?: string | null, settings?: ValueSetting) => {
+        const override = settings?.displayName?.trim();
+        return override || baseName || 'Unavngivet';
+    }, []);
+
+    const renameVerticalValueDisplayName = useCallback((valueId: string, baseName?: string | null) => {
+        const current = verticalAxisConfig.valueSettings?.[valueId]?.displayName || baseName || '';
+        const next = window.prompt('Visningsnavn i layout', current);
+        if (next === null) return;
+        const trimmed = next.trim();
+        setVerticalAxisConfig(prev => ({
+            ...prev,
+            valueSettings: {
+                ...(prev.valueSettings || {}),
+                [valueId]: {
+                    ...(prev.valueSettings?.[valueId] || { showThumbnail: false }),
+                    displayName: trimmed || undefined,
+                }
+            }
+        }));
+    }, [verticalAxisConfig.valueSettings]);
+
+    const renameSectionValueDisplayName = useCallback((sectionId: string, valueId: string, baseName?: string | null) => {
+        const section = layoutRows.flatMap(row => row.sections).find(item => item.id === sectionId);
+        const current = section?.valueSettings?.[valueId]?.displayName || baseName || '';
+        const next = window.prompt('Visningsnavn i layout', current);
+        if (next === null) return;
+        const trimmed = next.trim();
+        setLayoutRows(prev => prev.map(row => ({
+            ...row,
+            sections: row.sections.map(sectionItem => {
+                if (sectionItem.id !== sectionId) return sectionItem;
+                return {
+                    ...sectionItem,
+                    valueSettings: {
+                        ...(sectionItem.valueSettings || {}),
+                        [valueId]: {
+                            ...(sectionItem.valueSettings?.[valueId] || { showThumbnail: false }),
+                            displayName: trimmed || undefined,
+                        }
+                    }
+                };
+            })
+        })));
+    }, [layoutRows]);
     // Selection Targeting
     const [selectedTarget, setSelectedTarget] = useState<{ type: 'vertical' | 'section', id: string } | null>(null);
 
@@ -1134,29 +1260,15 @@ export function ProductAttributeBuilder({
         const finishSections = layoutRows
             .flatMap(row => row.sections)
             .filter(section => section.sectionType === 'finishes' && section.ui_mode !== 'hidden');
+        const requiredFinishIds = finishSections
+            .filter(section => section.selection_mode !== 'optional')
+            .map(section => selections[section.id])
+            .filter((value): value is string => !!value);
 
-        let activeFinish: string | null = null;
-        const optionalFinishSections = finishSections.filter(section => section.selection_mode === 'optional');
-        for (const section of optionalFinishSections) {
-            const selected = selections[section.id];
-            if (selected) {
-                activeFinish = selected;
-                break;
-            }
-        }
-        if (!activeFinish) {
-            const requiredFinish = finishSections.find(section => section.selection_mode !== 'optional');
-            if (requiredFinish && selections[requiredFinish.id]) {
-                activeFinish = selections[requiredFinish.id];
-            } else {
-                for (const section of finishSections) {
-                    if (selections[section.id]) {
-                        activeFinish = selections[section.id];
-                        break;
-                    }
-                }
-            }
-        }
+        const optionalFinishIds = finishSections
+            .filter(section => section.selection_mode === 'optional')
+            .map(section => selections[section.id])
+            .filter((value): value is string => !!value);
 
         layoutRows.forEach(row => {
             row.sections.forEach(section => {
@@ -1166,9 +1278,9 @@ export function ProductAttributeBuilder({
             });
         });
 
-        if (activeFinish) ids.push(activeFinish);
+        ids.push(...requiredFinishIds, ...optionalFinishIds);
         if (ids.length === 0) return genSelectedVariant || 'none';
-        return ids.sort().join('|');
+        return Array.from(new Set(ids)).sort().join('|');
     };
 
     const getFirstSelectionByType = (sectionType: string, selections: Record<string, string>) => {
@@ -1295,6 +1407,11 @@ export function ProductAttributeBuilder({
     const hasLoadedPublishedPricesRef = useRef(false);
     const storageTrimWarnedRef = useRef(false);
     const storageQuotaWarnedRef = useRef(false);
+    const [publishedPreviewReady, setPublishedPreviewReady] = useState(false);
+    const pendingLocalGeneratorCacheRef = useRef<{
+        generatorPrices: Record<string, any>;
+        publishedPricesFingerprint: string | null;
+    } | null>(null);
     const [savingMaterialLibrary, setSavingMaterialLibrary] = useState(false);
     const [savingFormatLibrary, setSavingFormatLibrary] = useState(false);
 
@@ -1310,15 +1427,16 @@ export function ProductAttributeBuilder({
 
     const fetchAllGenericProductPrices = useCallback(async () => {
         if (!productId) return [] as any[];
-        const pageSize = 1000;
+        const pageSize = 5000;
         let offset = 0;
         const allRows: any[] = [];
 
         while (true) {
             const { data, error } = await supabase
                 .from('generic_product_prices')
-                .select('quantity, price_dkk, extra_data')
+                .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
                 .eq('product_id', productId)
+                .order('id', { ascending: true })
                 .range(offset, offset + pageSize - 1);
 
             if (error) throw error;
@@ -1329,8 +1447,82 @@ export function ProductAttributeBuilder({
             offset += pageSize;
         }
 
-        return allRows;
+        return Array.from(
+            new Map(
+                allRows.map((row) => [
+                    row.id ?? `${row.variant_name}|${row.variant_value}|${row.quantity}|${JSON.stringify(row.extra_data || {})}`,
+                    row,
+                ])
+            ).values()
+        );
     }, [productId]);
+
+    const resolveVariantIdFromPublishedRow = useCallback((
+        row: any,
+        formatValueIds: Set<string>,
+        materialValueIds: Set<string>,
+    ): string => {
+        const extra = row?.extra_data || {};
+        const selectionMap = (extra?.selectionMap && typeof extra.selectionMap === 'object')
+            ? extra.selectionMap
+            : {};
+
+        const toIdArray = (value: unknown): string[] => {
+            if (Array.isArray(value)) return value.map(v => String(v)).filter(Boolean);
+            if (value == null) return [];
+            return [String(value)].filter(Boolean);
+        };
+
+        const normalizeVariantIds = (ids: string[]) =>
+            Array.from(new Set(ids.map(id => String(id)).filter(Boolean))).sort();
+
+        if (extra.variantId) return String(extra.variantId);
+        if (selectionMap.variant) return String(selectionMap.variant);
+
+        const rawVariantValueIds = [
+            ...toIdArray(extra.variantValueIds),
+            ...toIdArray(selectionMap.variantValueIds),
+        ];
+        const filteredVariantValueIds = rawVariantValueIds.filter(
+            (id: string) => !formatValueIds.has(id) && !materialValueIds.has(id),
+        );
+        if (filteredVariantValueIds.length > 0) {
+            return normalizeVariantIds(filteredVariantValueIds).join('|');
+        }
+
+        // Matrix-v1 imports may store non-axis selections under custom keys (e.g. selectionMap.tryk).
+        const selectionMapDerivedIds = Object.entries(selectionMap)
+            .flatMap(([key, value]) => {
+                const normalizedKey = key.toLowerCase();
+                if (
+                    normalizedKey === 'format'
+                    || normalizedKey === 'material'
+                    || normalizedKey === 'variant'
+                    || normalizedKey === 'variantvalueids'
+                    || normalizedKey === 'formatid'
+                    || normalizedKey === 'materialid'
+                ) {
+                    return [];
+                }
+                return toIdArray(value);
+            })
+            .filter((id: string) => !formatValueIds.has(id) && !materialValueIds.has(id));
+        if (selectionMapDerivedIds.length > 0) {
+            return normalizeVariantIds(selectionMapDerivedIds).join('|');
+        }
+
+        // Fallback to variant_name which often stores UUID keys separated by "|".
+        const variantNameDerivedIds = String(row?.variant_name || '')
+            .split('|')
+            .map(part => part.trim())
+            .filter(Boolean)
+            .filter((id: string) => !formatValueIds.has(id) && !materialValueIds.has(id));
+        if (variantNameDerivedIds.length > 0) {
+            return normalizeVariantIds(variantNameDerivedIds).join('|');
+        }
+
+        return 'none';
+    }, []);
 
     const fetchTemplates = async () => {
         if (!productId) return;
@@ -1526,7 +1718,8 @@ export function ProductAttributeBuilder({
     // Price list preview state (frontend-style)
     const [previewSelectedFormat, setPreviewSelectedFormat] = useState<string | null>(null);
 
-    // Load persisted config on mount (includes generator prices for persistence)
+    // Load persisted config on mount. Generator prices are only restored if the
+    // browser cache was created from the same published price set.
     useEffect(() => {
         const storageKey = CONFIG_STORAGE_KEY + productId;
         let stored: string | null = null;
@@ -1546,17 +1739,59 @@ export function ProductAttributeBuilder({
                 if (cfg.maxHeightMm) setMaxHeightMm(cfg.maxHeightMm);
                 if (cfg.pricingVariantGroupId) setPricingVariantGroupId(cfg.pricingVariantGroupId);
                 // Layout is now restored for better persistence
-                if (cfg.layoutRows) setLayoutRows(cfg.layoutRows);
-                if (cfg.verticalAxisConfig) setVerticalAxisConfig(cfg.verticalAxisConfig);
+                if (cfg.layoutRows) {
+                    setLayoutRows(cfg.layoutRows.map((row: LayoutRow) => ({
+                        ...row,
+                        sections: (row.sections || []).map((section) => ({
+                            ...section,
+                            thumbnail_size: normalizeThumbnailSize((section as any).thumbnail_size),
+                            thumbnail_custom_px: normalizeThumbnailCustomPx((section as any).thumbnail_custom_px)
+                        }))
+                    })));
+                }
+                if (cfg.verticalAxisConfig) {
+                    setVerticalAxisConfig({
+                        ...cfg.verticalAxisConfig,
+                        thumbnail_size: normalizeThumbnailSize(cfg.verticalAxisConfig.thumbnail_size),
+                        thumbnail_custom_px: normalizeThumbnailCustomPx(cfg.verticalAxisConfig.thumbnail_custom_px)
+                    });
+                }
                 // Restore generator state (prices, oplag) for persistence
                 if (cfg.selectedOplag) setSelectedOplag(cfg.selectedOplag);
-                if (cfg.generatorPrices) setGeneratorPrices(cfg.generatorPrices);
+                if (cfg.generatorPrices) {
+                    const cachedFingerprint =
+                        typeof cfg.publishedPricesFingerprint === 'string'
+                            ? cfg.publishedPricesFingerprint
+                            : null;
+
+                    if (publishedPricesFingerprint && cachedFingerprint === publishedPricesFingerprint) {
+                        setGeneratorPrices(cfg.generatorPrices);
+                    } else {
+                        pendingLocalGeneratorCacheRef.current = {
+                            generatorPrices: cfg.generatorPrices,
+                            publishedPricesFingerprint: cachedFingerprint,
+                        };
+                    }
+                }
                 if (cfg.productMarkups) setProductMarkups(cfg.productMarkups);
                 if (cfg.masterMarkup !== undefined) setMasterMarkup(cfg.masterMarkup);
                 if (cfg.genRounding) setGenRounding(cfg.genRounding);
             } catch { }
         }
-    }, [productId]);
+    }, [productId, publishedPricesFingerprint, setMaxHeightMm, setMaxWidthMm, setSizeMode]);
+
+    useEffect(() => {
+        const pending = pendingLocalGeneratorCacheRef.current;
+        if (!pending || !publishedPricesFingerprint) return;
+
+        if (pending.publishedPricesFingerprint === publishedPricesFingerprint) {
+            setGeneratorPrices(pending.generatorPrices);
+        } else if (Object.keys(pending.generatorPrices || {}).length > 0) {
+            console.info('[ProductAttributeBuilder] Ignoring stale local generator cache because published prices changed');
+        }
+
+        pendingLocalGeneratorCacheRef.current = null;
+    }, [publishedPricesFingerprint]);
 
     // Persist config changes (including generator state for full persistence)
     useEffect(() => {
@@ -1575,6 +1810,7 @@ export function ProductAttributeBuilder({
             // Generator state for persistence
             selectedOplag,
             generatorPrices: trimmedGeneratorPrices,
+            publishedPricesFingerprint: publishedPricesFingerprint || null,
             productMarkups,
             masterMarkup,
             genRounding,
@@ -1617,7 +1853,7 @@ export function ProductAttributeBuilder({
                 toast.warning('Browser-lager er næsten fuldt. Lokal cache blev gjort mindre for dette produkt.');
             }
         }
-    }, [sizeMode, formatDisplayMode, maxWidthMm, maxHeightMm, pricingVariantGroupId, verticalAxisConfig, layoutRows, productId, selectedOplag, generatorPrices, productMarkups, masterMarkup, genRounding]);
+    }, [sizeMode, formatDisplayMode, maxWidthMm, maxHeightMm, pricingVariantGroupId, verticalAxisConfig, layoutRows, productId, selectedOplag, generatorPrices, publishedPricesFingerprint, productMarkups, masterMarkup, genRounding]);
 
     const buildPricingStructure = useCallback(() => {
         const verticalGroup = productAttrs.groups.find(g => {
@@ -1637,6 +1873,8 @@ export function ProductAttributeBuilder({
                 valueIds: verticalAxisConfig.valueIds || [],
                 ui_mode: verticalAxisConfig.ui_mode || 'buttons',
                 valueSettings: verticalAxisConfig.valueSettings || {},
+                thumbnail_size: normalizeThumbnailSize(verticalAxisConfig.thumbnail_size),
+                thumbnail_custom_px: normalizeThumbnailCustomPx(verticalAxisConfig.thumbnail_custom_px),
                 title: verticalAxisConfig.title || '',
                 description: verticalAxisConfig.description || ''
             },
@@ -1660,6 +1898,8 @@ export function ProductAttributeBuilder({
                         ui_mode: sec.ui_mode || 'buttons',
                         selection_mode: sec.selection_mode || 'required',
                         valueSettings: sec.valueSettings || {},
+                        thumbnail_size: normalizeThumbnailSize(sec.thumbnail_size),
+                        thumbnail_custom_px: normalizeThumbnailCustomPx(sec.thumbnail_custom_px),
                         title: sec.title || '',
                         description: sec.description || ''
                     };
@@ -1723,6 +1963,7 @@ export function ProductAttributeBuilder({
                 valueIds: Array.from(materialIds),
                 ui_mode: 'buttons',
                 valueSettings: {},
+                thumbnail_size: 'small',
                 title: '',
                 description: ''
             },
@@ -1740,6 +1981,7 @@ export function ProductAttributeBuilder({
                             ui_mode: 'buttons',
                             selection_mode: 'required',
                             valueSettings: {},
+                            thumbnail_size: 'small',
                             title: '',
                             description: ''
                         },
@@ -1752,6 +1994,7 @@ export function ProductAttributeBuilder({
                                 ui_mode: 'buttons',
                                 selection_mode: 'optional',
                                 valueSettings: {},
+                                thumbnail_size: 'small',
                                 title: '',
                                 description: ''
                             }]
@@ -1964,6 +2207,8 @@ export function ProductAttributeBuilder({
                     valueIds: col.valueIds || [],
                     valueSettings: col.valueSettings || {},
                     thumbnailsEnabled: col.thumbnailsEnabled || false,
+                    thumbnail_size: normalizeThumbnailSize(col.thumbnail_size),
+                    thumbnail_custom_px: normalizeThumbnailCustomPx(col.thumbnail_custom_px),
                     title: col.title || '',
                     description: col.description || ''
                 }))
@@ -1978,6 +2223,8 @@ export function ProductAttributeBuilder({
             valueIds: vertical.valueIds || [],
             valueSettings: vertical.valueSettings || {},
             thumbnailsEnabled: vertical.thumbnailsEnabled || false,
+            thumbnail_size: normalizeThumbnailSize(vertical.thumbnail_size),
+            thumbnail_custom_px: normalizeThumbnailCustomPx(vertical.thumbnail_custom_px),
             title: vertical.title || '',
             description: vertical.description || ''
         });
@@ -2046,6 +2293,14 @@ export function ProductAttributeBuilder({
     const hasUsableLocalGeneratorPrices = useMemo(() => {
         const keys = Object.keys(generatorPrices || {});
         if (keys.length === 0) return false;
+        const expectedPublishedRowCount = parsePublishedPriceCount(publishedPricesFingerprint);
+
+        // Large products can only persist a trimmed local subset. If the
+        // published fingerprint says there should be more rows than we have in
+        // browser state, force a reload from generic_product_prices.
+        if (expectedPublishedRowCount && keys.length < expectedPublishedRowCount) {
+            return false;
+        }
 
         const formatValueIds = new Set<string>();
         const materialValueIds = new Set<string>();
@@ -2121,14 +2376,29 @@ export function ProductAttributeBuilder({
 
         // If no valid rows exist, this cache is stale for current layout/IDs.
         return false;
-    }, [generatorPrices, productAttrs.groups]);
+    }, [generatorPrices, productAttrs.groups, publishedPricesFingerprint]);
+
+    useEffect(() => {
+        if (hasUsableLocalGeneratorPrices) {
+            setPublishedPreviewReady(true);
+        }
+    }, [hasUsableLocalGeneratorPrices]);
 
     useEffect(() => {
         if (!productId || productAttrs.loading) return;
-        if (hasLoadedPublishedPricesRef.current) return;
+        if (hasLoadedPublishedPricesRef.current) {
+            if (hasUsableLocalGeneratorPrices) {
+                setPublishedPreviewReady(true);
+            }
+            return;
+        }
 
         if (Object.keys(generatorPrices).length > 0 && !hasUsableLocalGeneratorPrices) {
             console.warn('[ProductAttributeBuilder] Ignoring stale local generator cache and reloading published prices');
+        }
+
+        if (!hasUsableLocalGeneratorPrices) {
+            setPublishedPreviewReady(false);
         }
 
         const loadPublishedPrices = async () => {
@@ -2137,11 +2407,13 @@ export function ProductAttributeBuilder({
                 data = await fetchAllGenericProductPrices();
             } catch {
                 hasLoadedPublishedPricesRef.current = true;
+                setPublishedPreviewReady(true);
                 return;
             }
 
             if (!data || data.length === 0) {
                 hasLoadedPublishedPricesRef.current = true;
+                setPublishedPreviewReady(true);
                 return;
             }
 
@@ -2162,16 +2434,7 @@ export function ProductAttributeBuilder({
                 const extra = row.extra_data || {};
                 const formatId = extra.formatId || extra.selectionMap?.format;
                 const materialId = extra.materialId || extra.selectionMap?.material;
-                const rawVariantValueIds = Array.isArray(extra.variantValueIds)
-                    ? extra.variantValueIds
-                    : Array.isArray(extra.selectionMap?.variantValueIds)
-                        ? extra.selectionMap.variantValueIds
-                        : [];
-                const filteredVariantValueIds = rawVariantValueIds
-                    .filter((id: string) => !formatValueIds.has(id) && !materialValueIds.has(id));
-                const variantId = extra.variantId
-                    || extra.selectionMap?.variant
-                    || (filteredVariantValueIds.length > 0 ? filteredVariantValueIds.slice().sort().join('|') : 'none');
+                const variantId = resolveVariantIdFromPublishedRow(row, formatValueIds, materialValueIds);
                 if (!formatId || !materialId) return;
                 const qty = Number(row.quantity);
                 const price = Number(row.price_dkk);
@@ -2196,10 +2459,11 @@ export function ProductAttributeBuilder({
                 }
             }
             hasLoadedPublishedPricesRef.current = true;
+            setPublishedPreviewReady(true);
         };
 
         loadPublishedPrices();
-    }, [fetchAllGenericProductPrices, productId, productAttrs.loading, generatorPrices, hasUsableLocalGeneratorPrices, normalizeGeneratorPrices, selectedOplag.length]);
+    }, [fetchAllGenericProductPrices, productId, productAttrs.loading, generatorPrices, hasUsableLocalGeneratorPrices, normalizeGeneratorPrices, resolveVariantIdFromPublishedRow, selectedOplag.length]);
 
     // Transition for non-blocking updates (prevents UI blinking)
     const [isPending, startTransition] = useTransition();
@@ -2417,7 +2681,9 @@ export function ProductAttributeBuilder({
                 sectionType: verticalAxisConfig.sectionType,
                 groupId: verticalGroup?.id || '',
                 label: verticalLabel,
-                valueSettings: verticalAxisConfig.valueSettings || {}
+                valueSettings: verticalAxisConfig.valueSettings || {},
+                thumbnail_size: normalizeThumbnailSize(verticalAxisConfig.thumbnail_size),
+                thumbnail_custom_px: normalizeThumbnailCustomPx(verticalAxisConfig.thumbnail_custom_px)
             },
             layout_rows: layoutRows.map(row => ({
                 id: row.id,
@@ -2430,6 +2696,8 @@ export function ProductAttributeBuilder({
                     ui_mode: sec.ui_mode || 'buttons',
                     selection_mode: sec.selection_mode || 'required',
                     valueSettings: sec.valueSettings || {},
+                    thumbnail_size: normalizeThumbnailSize(sec.thumbnail_size),
+                    thumbnail_custom_px: normalizeThumbnailCustomPx(sec.thumbnail_custom_px),
                     title: sec.title || '',
                     description: sec.description || ''
                 }))
@@ -2654,7 +2922,9 @@ export function ProductAttributeBuilder({
                 sectionType: verticalAxisConfig.sectionType,
                 groupId: verticalGroup?.id || '',
                 label: verticalLabel,
-                valueSettings: verticalAxisConfig.valueSettings || {}
+                valueSettings: verticalAxisConfig.valueSettings || {},
+                thumbnail_size: normalizeThumbnailSize(verticalAxisConfig.thumbnail_size),
+                thumbnail_custom_px: normalizeThumbnailCustomPx(verticalAxisConfig.thumbnail_custom_px)
             },
             layout_rows: layoutRows.map(row => ({
                 id: row.id,
@@ -2667,6 +2937,8 @@ export function ProductAttributeBuilder({
                     ui_mode: sec.ui_mode || 'buttons',
                     selection_mode: sec.selection_mode || 'required',
                     valueSettings: sec.valueSettings || {},
+                    thumbnail_size: normalizeThumbnailSize(sec.thumbnail_size),
+                    thumbnail_custom_px: normalizeThumbnailCustomPx(sec.thumbnail_custom_px),
                     title: sec.title || '',
                     description: sec.description || ''
                 }))
@@ -3455,7 +3727,9 @@ export function ProductAttributeBuilder({
                     sectionType: csvMeta.vertical_axis.sectionType,
                     groupId: verticalGroup?.id || '',
                     valueIds: verticalValueIds,
-                    valueSettings: csvMeta.vertical_axis.valueSettings || {}
+                    valueSettings: csvMeta.vertical_axis.valueSettings || {},
+                    thumbnail_size: normalizeThumbnailSize(csvMeta.vertical_axis.thumbnail_size),
+                    thumbnail_custom_px: normalizeThumbnailCustomPx(csvMeta.vertical_axis.thumbnail_custom_px)
                 };
 
                 const sectionIdToColIndex: Record<string, number> = {};
@@ -3482,6 +3756,8 @@ export function ProductAttributeBuilder({
                             ui_mode: col.ui_mode || 'buttons',
                             selection_mode: col.selection_mode || 'required',
                             valueSettings: col.valueSettings || {},
+                            thumbnail_size: normalizeThumbnailSize(col.thumbnail_size),
+                            thumbnail_custom_px: normalizeThumbnailCustomPx(col.thumbnail_custom_px),
                             title: col.title || '',
                             description: col.description || ''
                         };
@@ -3754,7 +4030,9 @@ export function ProductAttributeBuilder({
                         ...verticalAxisConfig,
                         sectionType: vertType,
                         groupId: vertGroup ? vertGroup.id : '',
-                        valueIds: verticalValues
+                        valueIds: verticalValues,
+                        thumbnail_size: normalizeThumbnailSize(verticalAxisConfig.thumbnail_size),
+                        thumbnail_custom_px: normalizeThumbnailCustomPx(verticalAxisConfig.thumbnail_custom_px)
                     };
                     layoutChanged = true;
 
@@ -3821,7 +4099,10 @@ export function ProductAttributeBuilder({
                         groupId: group.id,
                         sectionType: secType,
                         valueIds: Array.from(foundValueIds),
-                        ui_mode: 'buttons' as const
+                        ui_mode: 'buttons' as const,
+                        selection_mode: 'required' as const,
+                        valueSettings: {},
+                        thumbnail_size: 'small' as const
                     };
                     newLayoutRows.push({
                         id: `row-${Date.now()}-${idx}`,
@@ -4045,6 +4326,181 @@ export function ProductAttributeBuilder({
     const activeNonVerticalSelections = Object.entries(selectedSectionValues)
         .filter(([secId, valId]) => secId !== verticalSectionId && valId)
         .filter(([secId, valId]) => !hiddenSectionIds.has(secId) && valId !== activeGenFormat && valId !== activeGenMaterial);
+    const previewPricesLoading = !publishedPreviewReady && !hasUsableLocalGeneratorPrices;
+    const getPreviewSectionLabel = useCallback((section: LayoutSection) => {
+        return section.title
+            || (productAttrs.groups || []).find(g => (g.values || []).some(v => section.valueIds?.includes(v.id)))?.name
+            || section.sectionType;
+    }, [productAttrs.groups]);
+    const previewVisibleSections = useMemo(() => {
+        const flattened = layoutRows
+            .flatMap(row => row.sections)
+            .filter(section => section.ui_mode !== 'hidden')
+            .map((section, index) => ({ section, index }));
+
+        const getSectionPriority = (section: LayoutSection) => {
+            const label = getPreviewSectionLabel(section);
+            if (section.sectionType === 'formats') return 0;
+            if (section.sectionType === 'products') return 1;
+            if (section.sectionType === 'materials') return 2;
+            if (section.sectionType === 'finishes') return 3;
+            if (isPageLikeLabel(label)) return 99;
+            return 4;
+        };
+
+        return flattened
+            .sort((a, b) => {
+                const priorityDelta = getSectionPriority(a.section) - getSectionPriority(b.section);
+                if (priorityDelta !== 0) return priorityDelta;
+                return a.index - b.index;
+            })
+            .map(item => item.section);
+    }, [getPreviewSectionLabel, layoutRows]);
+    const previewSectionOrderById = useMemo(() => {
+        const order: Record<string, number> = {};
+        previewVisibleSections.forEach((section, index) => {
+            order[section.id] = index;
+        });
+        return order;
+    }, [previewVisibleSections]);
+    const getPreviewSectionValueOptions = useCallback((section: LayoutSection) => {
+        const rawValues = (productAttrs.groups || [])
+            .flatMap(g => (g.values || []))
+            .filter(v => section.valueIds?.includes(v.id));
+        const sectionLabel = getPreviewSectionLabel(section);
+        return sortValuesForDisplay(rawValues, sectionLabel);
+    }, [getPreviewSectionLabel, productAttrs.groups]);
+    const previewPositivePriceRows = useMemo(() => {
+        return Object.entries(generatorPrices).flatMap(([key, row]) => {
+            const parts = key.split('::');
+            if (parts.length < 4) return [];
+            const [formatId, materialId, variantId, qtyStr] = parts;
+            const quantity = Number(qtyStr);
+            const price = typeof row === 'number' ? row : Number((row as any)?.price || 0);
+            if (!formatId || !materialId || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) || price <= 0) {
+                return [];
+            }
+            return [{
+                formatId,
+                materialId,
+                variantIds: variantId && variantId !== 'none' ? variantId.split('|').filter(Boolean) : [],
+                verticalValueId: (() => {
+                    if (verticalAxisConfig.sectionType === 'formats') return formatId;
+                    if (verticalAxisConfig.sectionType === 'materials') return materialId;
+                    const configuredVerticalIds = new Set(verticalAxisConfig.valueIds || []);
+                    if (configuredVerticalIds.size === 0) return null;
+                    const matchingVariantId = (variantId && variantId !== 'none'
+                        ? variantId.split('|').find(id => configuredVerticalIds.has(id))
+                        : null);
+                    if (matchingVariantId) return matchingVariantId;
+                    return configuredVerticalIds.size === 1 ? Array.from(configuredVerticalIds)[0] : null;
+                })()
+            }];
+        });
+    }, [generatorPrices, verticalAxisConfig.sectionType, verticalAxisConfig.valueIds]);
+    const previewRowMatchesSelections = useCallback((row: { formatId: string; materialId: string; variantIds: string[]; verticalValueId: string | null }, selections: Record<string, string>, excludeSectionId?: string) => {
+        for (const [sectionId, valueId] of Object.entries(selections)) {
+            if (!valueId || sectionId === excludeSectionId) continue;
+
+            if (sectionId === verticalSectionId) {
+                if (verticalAxisConfig.sectionType === 'formats' && row.formatId !== valueId) return false;
+                if (verticalAxisConfig.sectionType === 'materials' && row.materialId !== valueId) return false;
+                if (
+                    verticalAxisConfig.sectionType !== 'formats'
+                    && verticalAxisConfig.sectionType !== 'materials'
+                    && row.verticalValueId !== valueId
+                    && !row.variantIds.includes(valueId)
+                ) return false;
+                continue;
+            }
+
+            const section = previewVisibleSections.find(s => s.id === sectionId);
+            if (!section) continue;
+
+            if (section.sectionType === 'formats' && row.formatId !== valueId) return false;
+            if (section.sectionType === 'materials' && row.materialId !== valueId) return false;
+            if (section.sectionType !== 'formats' && section.sectionType !== 'materials' && !row.variantIds.includes(valueId)) return false;
+        }
+
+        return true;
+    }, [previewVisibleSections, verticalAxisConfig.sectionType, verticalSectionId]);
+    const previewAvailableValueIdsBySection = useMemo(() => {
+        const availability: Record<string, Set<string>> = {};
+
+        previewVisibleSections.forEach(section => {
+            const configuredValues = getPreviewSectionValueOptions(section);
+            const configuredIds = new Set(configuredValues.map(value => value.id));
+            const currentOrder = previewSectionOrderById[section.id] ?? 0;
+            const upstreamSelections = Object.fromEntries(
+                Object.entries(selectedSectionValues).filter(([selectedSectionId]) => {
+                    if (selectedSectionId === verticalSectionId) return true;
+                    if (selectedSectionId === section.id) return false;
+                    return (previewSectionOrderById[selectedSectionId] ?? Number.POSITIVE_INFINITY) < currentOrder;
+                })
+            );
+
+            const available = new Set<string>();
+            previewPositivePriceRows.forEach(row => {
+                if (!previewRowMatchesSelections(row, upstreamSelections, section.id)) return;
+
+                let candidateId: string | null = null;
+                if (section.sectionType === 'formats') {
+                    candidateId = row.formatId;
+                } else if (section.sectionType === 'materials') {
+                    candidateId = row.materialId;
+                } else {
+                    candidateId = configuredValues.find(value => row.variantIds.includes(value.id))?.id || null;
+                }
+
+                if (candidateId && configuredIds.has(candidateId)) {
+                    available.add(candidateId);
+                }
+            });
+
+            availability[section.id] = available;
+        });
+
+        return availability;
+    }, [
+        getPreviewSectionValueOptions,
+        previewPositivePriceRows,
+        previewRowMatchesSelections,
+        previewSectionOrderById,
+        previewVisibleSections,
+        selectedSectionValues,
+        verticalSectionId
+    ]);
+
+    useEffect(() => {
+        if (previewPricesLoading) return;
+
+        setSelectedSectionValues(prev => {
+            let changed = false;
+            const next = { ...prev };
+
+            previewVisibleSections.forEach(section => {
+                const available = previewAvailableValueIdsBySection[section.id];
+                if (!available || available.size === 0) return;
+
+                const current = next[section.id];
+                if (current && available.has(String(current))) return;
+
+                const nextValue = getPreviewSectionValueOptions(section).find(value => available.has(value.id))?.id;
+                if (nextValue && current !== nextValue) {
+                    next[section.id] = nextValue;
+                    changed = true;
+                    return;
+                }
+
+                if (section.selection_mode === 'optional' && current) {
+                    delete next[section.id];
+                    changed = true;
+                }
+            });
+
+            return changed ? next : prev;
+        });
+    }, [getPreviewSectionValueOptions, previewAvailableValueIdsBySection, previewPricesLoading, previewVisibleSections]);
 
     const getVisibleValueIdsByType = useCallback((sectionType: AttributeType) => {
         const ids = new Set<string>();
@@ -4501,7 +4957,7 @@ export function ProductAttributeBuilder({
     const handleResetLayoutConfig = () => {
         if (!confirm('Nulstil prisliste-layout? Ugemte ændringer går tabt.')) return;
         setLayoutRows([
-            { id: 'row-1', sections: [{ id: 'section-1', groupId: '', sectionType: 'formats', ui_mode: 'buttons', selection_mode: 'required' }] }
+            { id: 'row-1', sections: [{ id: 'section-1', groupId: '', sectionType: 'formats', ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small' }] }
         ]);
         setVerticalAxisConfig({
             sectionId: 'vertical-axis',
@@ -4510,7 +4966,8 @@ export function ProductAttributeBuilder({
             ui_mode: 'buttons',
             valueIds: [],
             valueSettings: {},
-            thumbnailsEnabled: false
+            thumbnailsEnabled: false,
+            thumbnail_size: 'small'
         });
         setSelectedSectionValues({});
         setSelectedTarget(null);
@@ -4568,16 +5025,7 @@ export function ProductAttributeBuilder({
                         const extra = row.extra_data || {};
                         const formatId = extra.formatId || extra.selectionMap?.format;
                         const materialId = extra.materialId || extra.selectionMap?.material;
-                        const rawVariantValueIds = Array.isArray(extra.variantValueIds)
-                            ? extra.variantValueIds
-                            : Array.isArray(extra.selectionMap?.variantValueIds)
-                                ? extra.selectionMap.variantValueIds
-                                : [];
-                        const filteredVariantValueIds = rawVariantValueIds
-                            .filter((id: string) => !formatValueIds.has(id) && !materialValueIds.has(id));
-                        const variantId = extra.variantId
-                            || extra.selectionMap?.variant
-                            || (filteredVariantValueIds.length > 0 ? filteredVariantValueIds.slice().sort().join('|') : 'none');
+                        const variantId = resolveVariantIdFromPublishedRow(row, formatValueIds, materialValueIds);
                         if (!formatId || !materialId) return;
                         const qty = Number(row.quantity);
                         const price = Number(row.price_dkk);
@@ -4855,13 +5303,24 @@ export function ProductAttributeBuilder({
                 data = [];
             }
             if (data && data.length > 0) {
+                const formatValueIds = new Set<string>();
+                const materialValueIds = new Set<string>();
+                productAttrs.groups.forEach(group => {
+                    if (group.kind === 'format') {
+                        (group.values || []).forEach(value => formatValueIds.add(value.id));
+                    }
+                    if (group.kind === 'material') {
+                        (group.values || []).forEach(value => materialValueIds.add(value.id));
+                    }
+                });
+
                 const fallbackPrices: Record<string, any> = {};
                 const fallbackOplag = new Set<number>();
                 data.forEach((row: any) => {
                     const extra = row.extra_data || {};
                     const formatId = extra.formatId || extra.selectionMap?.format;
                     const materialId = extra.materialId || extra.selectionMap?.material;
-                    const variantId = extra.variantId || extra.selectionMap?.variant || 'none';
+                    const variantId = resolveVariantIdFromPublishedRow(row, formatValueIds, materialValueIds);
                     if (!formatId || !materialId) return;
                     const qty = Number(row.quantity);
                     const price = Number(row.price_dkk);
@@ -5386,6 +5845,46 @@ export function ProductAttributeBuilder({
                                         <SelectItem value="formats">Formater</SelectItem>
                                     </SelectContent>
                                 </Select>
+                                <div className="flex items-center gap-2">
+                                    <Label className="text-[10px] text-muted-foreground">Thumb:</Label>
+                                    <Select
+                                        value={normalizeThumbnailSize(verticalAxisConfig.thumbnail_size)}
+                                        onValueChange={(v: ThumbnailSizeMode) => {
+                                            setVerticalAxisConfig(prev => ({ ...prev, thumbnail_size: v, thumbnail_custom_px: undefined }));
+                                        }}
+                                    >
+                                        <SelectTrigger className="h-7 text-xs w-[170px]"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            {THUMBNAIL_SIZE_OPTIONS.map((opt) => (
+                                                <SelectItem key={opt.value} value={opt.value}>
+                                                    {opt.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="flex items-center gap-2 min-w-[260px]">
+                                    <Slider
+                                        value={[normalizeThumbnailCustomPx(verticalAxisConfig.thumbnail_custom_px) ?? resolveThumbnailSizePx(verticalAxisConfig.thumbnail_size)]}
+                                        min={THUMBNAIL_CUSTOM_PX_MIN}
+                                        max={THUMBNAIL_CUSTOM_PX_MAX}
+                                        step={THUMBNAIL_CUSTOM_PX_STEP}
+                                        onValueChange={([value]) => setVerticalAxisConfig(prev => ({ ...prev, thumbnail_custom_px: value }))}
+                                        className="w-[120px]"
+                                    />
+                                    <span className="text-[10px] text-muted-foreground w-10 text-right">
+                                        {normalizeThumbnailCustomPx(verticalAxisConfig.thumbnail_custom_px) ?? resolveThumbnailSizePx(verticalAxisConfig.thumbnail_size)}px
+                                    </span>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 px-2 text-[10px]"
+                                        onClick={() => setVerticalAxisConfig(prev => ({ ...prev, thumbnail_custom_px: undefined }))}
+                                        disabled={normalizeThumbnailCustomPx(verticalAxisConfig.thumbnail_custom_px) === undefined}
+                                    >
+                                        Reset
+                                    </Button>
+                                </div>
 
                                 <div className="space-y-1 my-2">
                                     <Input
@@ -5408,10 +5907,11 @@ export function ProductAttributeBuilder({
                                         .filter(v => verticalAxisConfig.valueIds?.includes(v.id))
                                         .map(v => {
                                             const settings = verticalAxisConfig.valueSettings?.[v.id];
+                                            const displayName = getDisplayName(v.name, settings);
                                             return (
                                                 <div key={v.id} className="group flex items-center justify-between p-1.5 rounded border bg-card text-xs">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-medium">{v.name}</span>
+                                                        <span className="font-medium">{displayName}</span>
                                                         {settings?.showThumbnail && <Badge variant="outline" className="text-[9px] px-1 h-4">Img</Badge>}
                                                     </div>
                                                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -5431,6 +5931,25 @@ export function ProductAttributeBuilder({
                                                                     </Button>
                                                                 </TooltipTrigger>
                                                                 <TooltipContent side="top">Rediger</TooltipContent>
+                                                            </Tooltip>
+                                                        </TooltipProvider>
+
+                                                        <TooltipProvider>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-5 w-auto px-1 text-[9px] font-semibold"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            renameVerticalValueDisplayName(v.id, v.name);
+                                                                        }}
+                                                                    >
+                                                                        Aa
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent side="top">Omdøb i layout</TooltipContent>
                                                             </Tooltip>
                                                         </TooltipProvider>
 
@@ -5563,7 +6082,7 @@ export function ProductAttributeBuilder({
                                                         onClick={() => {
                                                             setLayoutRows(prev => prev.map(r =>
                                                                 r.id === row.id
-                                                                    ? { ...r, sections: [...r.sections, { id: `section-${Date.now()}`, groupId: '', sectionType: 'materials', valueIds: [], ui_mode: 'buttons', selection_mode: 'required' }] }
+                                                                    ? { ...r, sections: [...r.sections, { id: `section-${Date.now()}`, groupId: '', sectionType: 'materials', valueIds: [], ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small' }] }
                                                                     : r
                                                             ));
                                                         }}
@@ -5733,10 +6252,71 @@ export function ProductAttributeBuilder({
                                                                 <SelectItem value="hidden">Skjul</SelectItem>
                                                                 <SelectItem value="small">Billeder S (40px)</SelectItem>
                                                                 <SelectItem value="medium">Billeder M (64px)</SelectItem>
-                                                                <SelectItem value="large">Billeder L (96px)</SelectItem>
-                                                                <SelectItem value="xl">Billeder XL (128px)</SelectItem>
+                                                                <SelectItem value="large">Billeder Big (96px)</SelectItem>
+                                                                <SelectItem value="xl">Billeder XL + tekst (128px)</SelectItem>
+                                                                <SelectItem value="xl_notext">Billeder XL kun foto (128px)</SelectItem>
                                                             </SelectContent>
                                                         </Select>
+                                                        <Label className="text-[10px] text-muted-foreground">Thumb:</Label>
+                                                        <Select
+                                                            value={normalizeThumbnailSize(section.thumbnail_size)}
+                                                            onValueChange={(v: ThumbnailSizeMode) => {
+                                                                setLayoutRows(prev => prev.map(r =>
+                                                                    r.id === row.id
+                                                                        ? { ...r, sections: r.sections.map(s => s.id === section.id ? { ...s, thumbnail_size: v, thumbnail_custom_px: undefined } : s) }
+                                                                        : r
+                                                                ));
+                                                            }}
+                                                        >
+                                                            <SelectTrigger className="h-6 text-xs w-[150px]"><SelectValue /></SelectTrigger>
+                                                            <SelectContent>
+                                                                {THUMBNAIL_SIZE_OPTIONS.map((opt) => (
+                                                                    <SelectItem key={opt.value} value={opt.value}>
+                                                                        {opt.label}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                        <div className="flex items-center gap-2 min-w-[230px]">
+                                                            <Slider
+                                                                value={[normalizeThumbnailCustomPx(section.thumbnail_custom_px) ?? resolveThumbnailSizePx(section.thumbnail_size)]}
+                                                                min={THUMBNAIL_CUSTOM_PX_MIN}
+                                                                max={THUMBNAIL_CUSTOM_PX_MAX}
+                                                                step={THUMBNAIL_CUSTOM_PX_STEP}
+                                                                onValueChange={([value]) => {
+                                                                    setLayoutRows(prev => prev.map(r =>
+                                                                        r.id === row.id
+                                                                            ? {
+                                                                                ...r,
+                                                                                sections: r.sections.map(s => s.id === section.id ? { ...s, thumbnail_custom_px: value } : s)
+                                                                            }
+                                                                            : r
+                                                                    ));
+                                                                }}
+                                                                className="w-[120px]"
+                                                            />
+                                                            <span className="text-[10px] text-muted-foreground w-10 text-right">
+                                                                {normalizeThumbnailCustomPx(section.thumbnail_custom_px) ?? resolveThumbnailSizePx(section.thumbnail_size)}px
+                                                            </span>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-7 px-2 text-[10px]"
+                                                                onClick={() => {
+                                                                    setLayoutRows(prev => prev.map(r =>
+                                                                        r.id === row.id
+                                                                            ? {
+                                                                                ...r,
+                                                                                sections: r.sections.map(s => s.id === section.id ? { ...s, thumbnail_custom_px: undefined } : s)
+                                                                            }
+                                                                            : r
+                                                                    ));
+                                                                }}
+                                                                disabled={normalizeThumbnailCustomPx(section.thumbnail_custom_px) === undefined}
+                                                            >
+                                                                Reset
+                                                            </Button>
+                                                        </div>
                                                     </div>
 
                                                     {/* Values - Sortable */}
@@ -5753,10 +6333,12 @@ export function ProductAttributeBuilder({
                                                                 <SortableValue
                                                                     key={v.id}
                                                                     value={v}
+                                                                    displayName={getDisplayName(v.name, settings)}
                                                                     rowId={row.id}
                                                                     sectionId={section.id}
                                                                     settings={settings}
                                                                     onEdit={() => setEditingValueId(v.id)}
+                                                                    onRename={() => renameSectionValueDisplayName(section.id, v.id, v.name)}
                                                                     onToggleThumbnail={() => {
                                                                         setLayoutRows(prev => prev.map(r =>
                                                                             r.id === row.id
@@ -5812,7 +6394,7 @@ export function ProductAttributeBuilder({
                                         onClick={() => {
                                             setLayoutRows(prev => [...prev, {
                                                 id: `row-${Date.now()}`,
-                                                sections: [{ id: `section-${Date.now()}`, groupId: '', sectionType: 'materials', valueIds: [], ui_mode: 'buttons', selection_mode: 'required' }]
+                                                sections: [{ id: `section-${Date.now()}`, groupId: '', sectionType: 'materials', valueIds: [], ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small' }]
                                             }]);
                                         }}
                                     >
@@ -5959,6 +6541,13 @@ export function ProductAttributeBuilder({
                                     {/* Vertical Axis (Left Column Headers) - Interactive Selection for Generator */}
                                     {verticalAxisConfig.valueIds && verticalAxisConfig.valueIds.length > 0 && (
                                         <div className="space-y-2">
+                                            {(() => {
+                                                const verticalThumbPx = resolveThumbnailSizePx(
+                                                    verticalAxisConfig.thumbnail_size,
+                                                    verticalAxisConfig.thumbnail_custom_px
+                                                );
+                                                return (
+                                                    <>
                                             <Label className="text-sm font-medium">
                                                 {verticalAxisConfig.sectionType === 'formats' ? 'Format' : verticalAxisConfig.sectionType === 'materials' ? 'Materiale' : 'Produkt'}
                                                 <span className="text-xs ml-2 text-muted-foreground font-normal">(Fra Lodret Akse)</span>
@@ -5975,6 +6564,7 @@ export function ProductAttributeBuilder({
 
                                                         const isSelected = selectedValue === v.id;
                                                         const settings = verticalAxisConfig.valueSettings?.[v.id];
+                                                        const displayName = getDisplayName(v.name, settings);
 
                                                         return (
                                                             <button
@@ -5988,14 +6578,21 @@ export function ProductAttributeBuilder({
                                                                 )}
                                                             >
                                                                 {settings?.showThumbnail && settings.customImage && (
-                                                                    <img src={settings.customImage} className="w-5 h-5 object-cover rounded" />
+                                                                    <img
+                                                                        src={settings.customImage}
+                                                                        className="object-cover rounded shrink-0"
+                                                                        style={{ width: verticalThumbPx, height: verticalThumbPx }}
+                                                                    />
                                                                 )}
-                                                                {v.name}
+                                                                {displayName}
                                                             </button>
                                                         );
                                                     })
                                                 }
                                             </div>
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                     )}
 
@@ -6013,9 +6610,14 @@ export function ProductAttributeBuilder({
                                                     visibleSections.length >= 3 && "grid-cols-1 md:grid-cols-3"
                                                 )}>
                                                     {visibleSections.map((section) => {
-                                                        const values = (productAttrs.groups || [])
+                                                        const sectionLabel = section.title || productAttrs.groups.find(g => g.id === section.groupId)?.name || section.sectionType;
+                                                        const values = sortValuesForDisplay((productAttrs.groups || [])
                                                             .flatMap(g => (g.values || []))
-                                                            .filter(v => section.valueIds?.includes(v.id));
+                                                            .filter(v => section.valueIds?.includes(v.id)), sectionLabel);
+                                                        const sectionThumbPx = resolveThumbnailSizePx(
+                                                            section.thumbnail_size,
+                                                            section.thumbnail_custom_px
+                                                        );
                                                         const isOptional = section.selection_mode === 'optional';
                                                         const selectedValue = isOptional
                                                             ? (selectedSectionValues[section.id] || '')
@@ -6104,13 +6706,18 @@ export function ProductAttributeBuilder({
                                                                             )}
                                                                             {values.map(v => {
                                                                                 const settings = section.valueSettings?.[v.id];
+                                                                                const displayName = getDisplayName(v.name, settings);
                                                                                 return (
                                                                                     <SelectItem key={v.id} value={v.id}>
                                                                                         <div className="flex items-center gap-2">
                                                                                             {settings?.showThumbnail && settings.customImage && (
-                                                                                                <img src={settings.customImage} className="w-6 h-6 object-cover rounded" />
+                                                                                                <img
+                                                                                                    src={settings.customImage}
+                                                                                                    className="object-cover rounded shrink-0"
+                                                                                                    style={{ width: sectionThumbPx, height: sectionThumbPx }}
+                                                                                                />
                                                                                             )}
-                                                                                            {v.name}
+                                                                                            {displayName}
                                                                                         </div>
                                                                                     </SelectItem>
                                                                                 );
@@ -6122,27 +6729,35 @@ export function ProductAttributeBuilder({
                                                                         {values.map(v => {
                                                                             const isSelected = selectedValue === v.id;
                                                                             const settings = section.valueSettings?.[v.id];
+                                                                            const displayName = getDisplayName(v.name, settings);
                                                                             return (
                                                                                 <div key={v.id} className="flex items-center space-x-2 border p-2 rounded cursor-pointer hover:bg-muted/50" onClick={() => setSelectedValue(v.id)}>
                                                                                     <Checkbox checked={isSelected} />
                                                                                     <div className="flex items-center gap-2">
                                                                                         {settings?.showThumbnail && settings.customImage && (
-                                                                                            <img src={settings.customImage} className="w-6 h-6 object-cover rounded" />
+                                                                                            <img
+                                                                                                src={settings.customImage}
+                                                                                                className="object-cover rounded shrink-0"
+                                                                                                style={{ width: sectionThumbPx, height: sectionThumbPx }}
+                                                                                            />
                                                                                         )}
-                                                                                        <span className="text-sm">{v.name}</span>
+                                                                                        <span className="text-sm">{displayName}</span>
                                                                                     </div>
                                                                                 </div>
                                                                             );
                                                                         })}
                                                                     </div>
-                                                                ) : ['small', 'medium', 'large', 'xl'].includes(displayMode) ? (
+                                                                ) : ['small', 'medium', 'large', 'xl', 'xl_notext'].includes(displayMode) ? (
                                                                     /* Picture grid display */
                                                                     <div className="flex flex-wrap gap-2">
                                                                         {values.map(v => {
                                                                             const isSelected = selectedValue === v.id;
                                                                             const settings = section.valueSettings?.[v.id];
                                                                             const thumbUrl = settings?.customImage;
-                                                                            const size = PICTURE_SIZES[displayMode as PictureSizeMode] || PICTURE_SIZES.medium;
+                                                                            const displayName = getDisplayName(v.name, settings);
+                                                                            const pictureMode = displayMode === 'xl_notext' ? 'xl' : displayMode;
+                                                                            const size = PICTURE_SIZES[pictureMode as PictureSizeMode] || PICTURE_SIZES.medium;
+                                                                            const showPictureLabel = pictureMode !== 'small' && displayMode !== 'xl_notext';
                                                                             return (
                                                                                 <button
                                                                                     key={v.id}
@@ -6153,10 +6768,10 @@ export function ProductAttributeBuilder({
                                                                                             ? "border-primary ring-2 ring-primary/20"
                                                                                             : "border-muted hover:border-muted-foreground/50"
                                                                                     )}
-                                                                                    style={{ width: size.width, minHeight: size.height + (displayMode !== 'small' ? 22 : 0) }}
+                                                                                    style={{ width: size.width, minHeight: size.height + (showPictureLabel ? 22 : 0) }}
                                                                                 >
                                                                                     {thumbUrl ? (
-                                                                                        <img src={thumbUrl} alt={v.name} className="w-full object-cover rounded-t-md" style={{ height: size.height }} />
+                                                                                        <img src={thumbUrl} alt={displayName} className="w-full object-cover rounded-t-md" style={{ height: size.height }} />
                                                                                     ) : (
                                                                                         <div
                                                                                             className={cn(
@@ -6165,12 +6780,12 @@ export function ProductAttributeBuilder({
                                                                                             )}
                                                                                             style={{ height: size.height }}
                                                                                         >
-                                                                                            {(v.name || '?').slice(0, 3).toUpperCase()}
+                                                                                            {(displayName || '?').slice(0, 3).toUpperCase()}
                                                                                         </div>
                                                                                     )}
-                                                                                    {displayMode !== 'small' && (
+                                                                                    {showPictureLabel && (
                                                                                         <span className="text-[10px] leading-tight text-center truncate w-full px-1 py-0.5">
-                                                                                            {v.name}
+                                                                                            {displayName}
                                                                                         </span>
                                                                                     )}
                                                                                 </button>
@@ -6183,6 +6798,7 @@ export function ProductAttributeBuilder({
                                                                         {values.map(v => {
                                                                             const isSelected = selectedValue === v.id;
                                                                             const settings = section.valueSettings?.[v.id];
+                                                                            const displayName = getDisplayName(v.name, settings);
                                                                             return (
                                                                                 <button
                                                                                     key={v.id}
@@ -6195,9 +6811,13 @@ export function ProductAttributeBuilder({
                                                                                     )}
                                                                                 >
                                                                                     {settings?.showThumbnail && settings.customImage && (
-                                                                                        <img src={settings.customImage} className="w-5 h-5 object-cover rounded" />
+                                                                                        <img
+                                                                                            src={settings.customImage}
+                                                                                            className="object-cover rounded shrink-0"
+                                                                                            style={{ width: sectionThumbPx, height: sectionThumbPx }}
+                                                                                        />
                                                                                     )}
-                                                                                    {v.name}
+                                                                                    {displayName}
                                                                                 </button>
                                                                             );
                                                                         })}
@@ -6641,17 +7261,21 @@ export function ProductAttributeBuilder({
                                                             <>
                                                                 {(() => {
                                                                     // Only show formats that are in this section's valueIds whitelist
-                                                                    const sectionFormats = formatGroups
+                                                                    const rawSectionFormats = formatGroups
                                                                         .flatMap(g => g.values || [])
                                                                         .filter(v => section.valueIds?.includes(v.id));
 
                                                                     const uiMode = section.ui_mode || formatDisplayMode || 'buttons';
 
                                                                     // If no formats added to this section, show empty state
-                                                                    if (sectionFormats.length === 0) {
+                                                                    if (rawSectionFormats.length === 0) {
                                                                         return <span className="text-[10px] text-muted-foreground italic">Ingen formater tilføjet</span>;
                                                                     }
 
+                                                                    const availableFormatIds = previewAvailableValueIdsBySection[section.id];
+                                                                    const sectionFormats = availableFormatIds && availableFormatIds.size > 0
+                                                                        ? rawSectionFormats.filter(format => availableFormatIds.has(format.id))
+                                                                        : rawSectionFormats;
                                                                     const selectedFormatId = selectedSectionValues[section.id] || sectionFormats[0]?.id;
 
                                                                     if (uiMode === 'dropdown') {
@@ -6667,9 +7291,13 @@ export function ProductAttributeBuilder({
                                                                                     <SelectValue placeholder="Vælg format" />
                                                                                 </SelectTrigger>
                                                                                 <SelectContent>
-                                                                                    {sectionFormats.map(format => (
-                                                                                        <SelectItem key={format.id} value={format.id}>{format.name}</SelectItem>
-                                                                                    ))}
+                                                                                    {sectionFormats.map(format => {
+                                                                                        const settings = section.valueSettings?.[format.id];
+                                                                                        const displayName = getDisplayName(format.name, settings);
+                                                                                        return (
+                                                                                            <SelectItem key={format.id} value={format.id}>{displayName}</SelectItem>
+                                                                                        );
+                                                                                    })}
                                                                                 </SelectContent>
                                                                             </Select>
                                                                         );
@@ -6680,6 +7308,8 @@ export function ProductAttributeBuilder({
                                                                             <div className="space-y-1">
                                                                                 {sectionFormats.map((format) => {
                                                                                     const isSelected = selectedFormatId === format.id;
+                                                                                    const settings = section.valueSettings?.[format.id];
+                                                                                    const displayName = getDisplayName(format.name, settings);
                                                                                     return (
                                                                                         <label
                                                                                             key={format.id}
@@ -6693,11 +7323,69 @@ export function ProductAttributeBuilder({
                                                                                             }}
                                                                                         >
                                                                                             <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
-                                                                                            <span className="font-medium flex-1">{format.name}</span>
+                                                                                            {settings?.showThumbnail && settings.customImage && (
+                                                                                                <img
+                                                                                                    src={settings.customImage}
+                                                                                                    className="object-cover rounded shrink-0"
+                                                                                                    style={{ width: 16, height: 16 }}
+                                                                                                />
+                                                                                            )}
+                                                                                            <span className="font-medium flex-1">{displayName}</span>
                                                                                             {format.width_mm && format.height_mm && (
                                                                                                 <span className="text-muted-foreground">{format.width_mm}×{format.height_mm}</span>
                                                                                             )}
                                                                                         </label>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    if (['small', 'medium', 'large', 'xl', 'xl_notext'].includes(uiMode)) {
+                                                                        return (
+                                                                            <div className="flex flex-wrap gap-2">
+                                                                                {sectionFormats.map((format) => {
+                                                                                    const isSelected = selectedFormatId === format.id;
+                                                                                    const settings = section.valueSettings?.[format.id];
+                                                                                    const thumbUrl = settings?.customImage;
+                                                                                    const displayName = getDisplayName(format.name, settings);
+                                                                                    const pictureMode = uiMode === 'xl_notext' ? 'xl' : uiMode;
+                                                                                    const size = PICTURE_SIZES[pictureMode as PictureSizeMode] || PICTURE_SIZES.medium;
+                                                                                    const showPictureLabel = pictureMode !== 'small' && uiMode !== 'xl_notext';
+                                                                                    return (
+                                                                                        <button
+                                                                                            key={format.id}
+                                                                                            onClick={() => {
+                                                                                                setPreviewSelectedFormat(format.id);
+                                                                                                setSelectedSectionValues(prev => ({ ...prev, [section.id]: format.id }));
+                                                                                            }}
+                                                                                            className={cn(
+                                                                                                "relative rounded-lg border-2 transition-all flex flex-col items-center overflow-hidden",
+                                                                                                isSelected
+                                                                                                    ? "border-primary ring-2 ring-primary/20"
+                                                                                                    : "border-muted hover:border-muted-foreground/50"
+                                                                                            )}
+                                                                                            style={{ width: size.width, minHeight: size.height + (showPictureLabel ? 22 : 0) }}
+                                                                                        >
+                                                                                            {thumbUrl ? (
+                                                                                                <img src={thumbUrl} alt={displayName} className="w-full object-cover rounded-t-md" style={{ height: size.height }} />
+                                                                                            ) : (
+                                                                                                <div
+                                                                                                    className={cn(
+                                                                                                        "w-full flex items-center justify-center bg-muted text-xs font-semibold text-muted-foreground rounded-t-md",
+                                                                                                        isSelected && "bg-primary/10 text-primary"
+                                                                                                    )}
+                                                                                                    style={{ height: size.height }}
+                                                                                                >
+                                                                                                    {(displayName || '?').slice(0, 3).toUpperCase()}
+                                                                                                </div>
+                                                                                            )}
+                                                                                            {showPictureLabel && (
+                                                                                                <span className="text-[10px] leading-tight text-center truncate w-full px-1 py-0.5">
+                                                                                                    {displayName}
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </button>
                                                                                     );
                                                                                 })}
                                                                             </div>
@@ -6709,6 +7397,8 @@ export function ProductAttributeBuilder({
                                                                         <div className="flex flex-wrap gap-1.5">
                                                                             {sectionFormats.map((format) => {
                                                                                 const isSelected = selectedFormatId === format.id;
+                                                                                const settings = section.valueSettings?.[format.id];
+                                                                                const displayName = getDisplayName(format.name, settings);
                                                                                 return (
                                                                                     <Button
                                                                                         key={format.id}
@@ -6723,7 +7413,14 @@ export function ProductAttributeBuilder({
                                                                                             isSelected && "bg-[#00a8e8] hover:bg-[#0090c8]"
                                                                                         )}
                                                                                     >
-                                                                                        {format.name}
+                                                                                        {settings?.showThumbnail && settings.customImage && (
+                                                                                            <img
+                                                                                                src={settings.customImage}
+                                                                                                className="object-cover rounded shrink-0"
+                                                                                                style={{ width: 16, height: 16 }}
+                                                                                            />
+                                                                                        )}
+                                                                                        {displayName}
                                                                                     </Button>
                                                                                 );
                                                                             })}
@@ -6736,9 +7433,11 @@ export function ProductAttributeBuilder({
                                                             <>
                                                                 {(() => {
                                                                     // Only show values that are in this section's valueIds whitelist
-                                                                    const sectionValues = (productAttrs.groups || [])
-                                                                        .flatMap(g => (g.values || []))
-                                                                        .filter(v => section.valueIds?.includes(v.id));
+                                                                    const rawSectionValues = getPreviewSectionValueOptions(section);
+                                                                    const availableSectionValues = previewAvailableValueIdsBySection[section.id];
+                                                                    const sectionValues = availableSectionValues && availableSectionValues.size > 0
+                                                                        ? rawSectionValues.filter(v => availableSectionValues.has(v.id))
+                                                                        : rawSectionValues;
                                                                     const uiMode = section.ui_mode || 'buttons';
 
                                                                     const isOptional = section.selection_mode === 'optional';
@@ -6823,9 +7522,13 @@ export function ProductAttributeBuilder({
                                                                                     {isOptional && (
                                                                                         <SelectItem value="__none__">Ingen</SelectItem>
                                                                                     )}
-                                                                                    {sectionValues.map((v: any) => (
-                                                                                        <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
-                                                                                    ))}
+                                                                                    {sectionValues.map((v: any) => {
+                                                                                        const settings = section.valueSettings?.[v.id];
+                                                                                        const displayName = getDisplayName(v.name, settings);
+                                                                                        return (
+                                                                                            <SelectItem key={v.id} value={v.id}>{displayName}</SelectItem>
+                                                                                        );
+                                                                                    })}
                                                                                 </SelectContent>
                                                                             </Select>
                                                                         );
@@ -6836,6 +7539,8 @@ export function ProductAttributeBuilder({
                                                                             <div className="space-y-1">
                                                                                 {sectionValues.map((v: any) => {
                                                                                     const isSelected = selectedValueId === v.id;
+                                                                                    const settings = section.valueSettings?.[v.id];
+                                                                                    const displayName = getDisplayName(v.name, settings);
                                                                                     return (
                                                                                         <label
                                                                                             key={v.id}
@@ -6846,8 +7551,63 @@ export function ProductAttributeBuilder({
                                                                                             onClick={() => handleValueSelect(v.id)}
                                                                                         >
                                                                                             <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
-                                                                                            <span className="font-medium">{v.name}</span>
+                                                                                            {settings?.showThumbnail && settings.customImage && (
+                                                                                                <img
+                                                                                                    src={settings.customImage}
+                                                                                                    className="object-cover rounded shrink-0"
+                                                                                                    style={{ width: 16, height: 16 }}
+                                                                                                />
+                                                                                            )}
+                                                                                            <span className="font-medium">{displayName}</span>
                                                                                         </label>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    if (['small', 'medium', 'large', 'xl', 'xl_notext'].includes(uiMode)) {
+                                                                        return (
+                                                                            <div className="flex flex-wrap gap-2">
+                                                                                {sectionValues.map((v: any) => {
+                                                                                    const isSelected = selectedValueId === v.id;
+                                                                                    const settings = section.valueSettings?.[v.id];
+                                                                                    const thumbUrl = settings?.customImage;
+                                                                                    const displayName = getDisplayName(v.name, settings);
+                                                                                    const pictureMode = uiMode === 'xl_notext' ? 'xl' : uiMode;
+                                                                                    const size = PICTURE_SIZES[pictureMode as PictureSizeMode] || PICTURE_SIZES.medium;
+                                                                                    const showPictureLabel = pictureMode !== 'small' && uiMode !== 'xl_notext';
+                                                                                    return (
+                                                                                        <button
+                                                                                            key={v.id}
+                                                                                            onClick={() => handleValueSelect(v.id)}
+                                                                                            className={cn(
+                                                                                                "relative rounded-lg border-2 transition-all flex flex-col items-center overflow-hidden",
+                                                                                                isSelected
+                                                                                                    ? "border-primary ring-2 ring-primary/20"
+                                                                                                    : "border-muted hover:border-muted-foreground/50"
+                                                                                            )}
+                                                                                            style={{ width: size.width, minHeight: size.height + (showPictureLabel ? 22 : 0) }}
+                                                                                        >
+                                                                                            {thumbUrl ? (
+                                                                                                <img src={thumbUrl} alt={displayName} className="w-full object-cover rounded-t-md" style={{ height: size.height }} />
+                                                                                            ) : (
+                                                                                                <div
+                                                                                                    className={cn(
+                                                                                                        "w-full flex items-center justify-center bg-muted text-xs font-semibold text-muted-foreground rounded-t-md",
+                                                                                                        isSelected && "bg-primary/10 text-primary"
+                                                                                                    )}
+                                                                                                    style={{ height: size.height }}
+                                                                                                >
+                                                                                                    {(displayName || '?').slice(0, 3).toUpperCase()}
+                                                                                                </div>
+                                                                                            )}
+                                                                                            {showPictureLabel && (
+                                                                                                <span className="text-[10px] leading-tight text-center truncate w-full px-1 py-0.5">
+                                                                                                    {displayName}
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </button>
                                                                                     );
                                                                                 })}
                                                                             </div>
@@ -6859,6 +7619,8 @@ export function ProductAttributeBuilder({
                                                                         <div className="flex flex-wrap gap-1.5">
                                                                             {sectionValues.map((v: any) => {
                                                                                 const isSelected = selectedValueId === v.id;
+                                                                                const settings = section.valueSettings?.[v.id];
+                                                                                const displayName = getDisplayName(v.name, settings);
                                                                                 return (
                                                                                     <Button
                                                                                         key={v.id}
@@ -6870,7 +7632,7 @@ export function ProductAttributeBuilder({
                                                                                         )}
                                                                                         onClick={() => handleValueSelect(v.id)}
                                                                                     >
-                                                                                        {v.name}
+                                                                                        {displayName}
                                                                                     </Button>
                                                                                 );
                                                                             })}
@@ -6960,6 +7722,10 @@ export function ProductAttributeBuilder({
                                                 const verticalValues = (productAttrs.groups || [])
                                                     .flatMap(g => (g.values || []))
                                                     .filter(v => verticalAxisConfig.valueIds?.includes(v.id));
+                                                const verticalThumbPx = resolveThumbnailSizePx(
+                                                    verticalAxisConfig.thumbnail_size,
+                                                    verticalAxisConfig.thumbnail_custom_px
+                                                );
 
                                                 // If Lodret akse is empty, show empty state
                                                 if (verticalValues.length === 0) {
@@ -6969,6 +7735,19 @@ export function ProductAttributeBuilder({
                                                                 <div className="flex flex-col items-center gap-2">
                                                                     <span className="text-sm italic">Lodret akse er tom</span>
                                                                     <span className="text-xs">Tilføj værdier til "Lodret akse" i layoutet ovenfor for at se rækker her</span>
+                                                                </div>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                }
+
+                                                if (previewPricesLoading) {
+                                                    return (
+                                                        <TableRow>
+                                                            <TableCell colSpan={visibleOplag.length + 1} className="text-center text-muted-foreground py-8">
+                                                                <div className="flex items-center justify-center gap-2 text-sm">
+                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                    <span>Henter priser...</span>
                                                                 </div>
                                                             </TableCell>
                                                         </TableRow>
@@ -6991,6 +7770,7 @@ export function ProductAttributeBuilder({
                                                     const rowMaterialId = getActiveMaterialId(rowSelections);
                                                     const rowVariantId = getVariantKeyFromSelections(rowSelections);
                                                     const settings = verticalAxisConfig.valueSettings?.[verticalValue.id];
+                                                    const displayName = getDisplayName(verticalValue.name, settings);
 
                                                     return (
                                                         <TableRow
@@ -7007,9 +7787,13 @@ export function ProductAttributeBuilder({
                                                             )}>
                                                                 <div className="flex items-center gap-2">
                                                                     {settings?.showThumbnail && settings.customImage && (
-                                                                        <img src={settings.customImage} className="w-5 h-5 object-cover rounded" />
+                                                                    <img
+                                                                            src={settings.customImage}
+                                                                            className="object-cover rounded shrink-0"
+                                                                            style={{ width: verticalThumbPx, height: verticalThumbPx }}
+                                                                        />
                                                                     )}
-                                                                    <span>{verticalValue.name}</span>
+                                                                    <span>{displayName}</span>
                                                                     {isSelected && <span className="text-xs">(valgt)</span>}
                                                                 </div>
                                                             </TableCell>
@@ -7418,6 +8202,12 @@ export function ProductAttributeBuilder({
                                     <SelectContent>
                                         <SelectItem value="buttons">Knapper</SelectItem>
                                         <SelectItem value="dropdown">Dropdown</SelectItem>
+                                        <SelectItem value="checkboxes">Checkboxes</SelectItem>
+                                        <SelectItem value="small">Billeder S (40px)</SelectItem>
+                                        <SelectItem value="medium">Billeder M (64px)</SelectItem>
+                                        <SelectItem value="large">Billeder Big (96px)</SelectItem>
+                                        <SelectItem value="xl">Billeder XL + tekst (128px)</SelectItem>
+                                        <SelectItem value="xl_notext">Billeder XL kun foto (128px)</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>

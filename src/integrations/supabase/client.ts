@@ -4,10 +4,6 @@ import type { Database } from './types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const IS_LOCALHOST =
-  typeof window !== 'undefined'
-  && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
 // Validate environment variables to provide a helpful error message
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
   console.error(
@@ -237,10 +233,11 @@ supabaseClient = createClient<Database>(
       fetch: supabaseFetch,
     },
     auth: {
-      storage: !IS_LOCALHOST && typeof localStorage !== 'undefined' ? localStorage : undefined,
-      // Local dev fallback: avoid persisted stale refresh tokens breaking page loads.
-      persistSession: !IS_LOCALHOST,
-      autoRefreshToken: !IS_LOCALHOST,
+      // Keep auth session available on localhost so admin previews preserve tenant context.
+      // The custom fetch cooldown/cleanup logic above already guards against transport outages.
+      storage: typeof localStorage !== 'undefined' ? localStorage : undefined,
+      persistSession: true,
+      autoRefreshToken: true,
     }
   }
 );

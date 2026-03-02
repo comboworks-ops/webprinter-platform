@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { PICTURE_SIZES, type PictureSizeMode } from "@/lib/storformat-pricing/types";
+import { normalizeThumbnailCustomPx, normalizeThumbnailSize, resolveThumbnailSizePx } from "@/lib/pricing/thumbnailSizes";
 
 // Types from pricing structure
 interface VerticalAxisConfig {
@@ -22,10 +23,13 @@ interface VerticalAxisConfig {
     sectionType: string;
     groupId: string;
     valueIds: string[];
+    valueSettings?: Record<string, { showThumbnail?: boolean; customImage?: string; displayName?: string }>;
     ui_mode?: string;
     labelOverride?: string;
     title?: string;
     description?: string;
+    thumbnail_size?: 'small' | 'medium' | 'large' | 'xl';
+    thumbnail_custom_px?: number;
 }
 
 interface LayoutColumn {
@@ -35,10 +39,12 @@ interface LayoutColumn {
     valueIds: string[];
     ui_mode: string;
     selection_mode?: 'required' | 'optional';
-    valueSettings?: Record<string, { showThumbnail?: boolean; customImage?: string }>;
+    valueSettings?: Record<string, { showThumbnail?: boolean; customImage?: string; displayName?: string }>;
     labelOverride?: string;
     title?: string;
     description?: string;
+    thumbnail_size?: 'small' | 'medium' | 'large' | 'xl';
+    thumbnail_custom_px?: number;
 }
 
 interface LayoutRow {
@@ -105,13 +111,15 @@ interface MatrixLayoutV1RendererProps {
 
 const CACHE_TTL_MS = 120_000;
 const PERSISTED_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const PRICE_PAGE_SIZE = 1000;
+const PRICE_PAGE_SIZE = 5000;
 
 const attributeGroupCache = new Map<string, { at: number; data: AttributeGroup[] }>();
 const attributeGroupInflight = new Map<string, Promise<AttributeGroup[]>>();
 
 const priceRowsCache = new Map<string, { at: number; data: any[] }>();
 const priceRowsInflight = new Map<string, Promise<any[]>>();
+const variantPriceRowsCache = new Map<string, { at: number; data: any[] }>();
+const variantPriceRowsInflight = new Map<string, Promise<any[]>>();
 
 const isFresh = (at: number) => (Date.now() - at) < CACHE_TTL_MS;
 
@@ -143,10 +151,6 @@ async function fetchAttributeGroupsCached(productId: string): Promise<AttributeG
     const persisted = readPersistedCache<AttributeGroup[]>(persistedKey);
     const cached = attributeGroupCache.get(productId);
     if (cached && isFresh(cached.at)) return cached.data;
-    if (!cached && persisted) {
-        attributeGroupCache.set(productId, persisted);
-        return persisted.data;
-    }
 
     const inflight = attributeGroupInflight.get(productId);
     if (inflight) return inflight;
@@ -182,14 +186,10 @@ async function fetchAttributeGroupsCached(productId: string): Promise<AttributeG
 }
 
 async function fetchPriceRowsCached(productId: string, forceRefresh = false): Promise<any[]> {
-    const persistedKey = `matrix-v1:price-rows:${productId}`;
+    const persistedKey = `matrix-v1:price-rows:v2:${productId}`;
     const persisted = readPersistedCache<any[]>(persistedKey);
     const cached = priceRowsCache.get(productId);
     if (!forceRefresh && cached && isFresh(cached.at)) return cached.data;
-    if (!forceRefresh && !cached && persisted) {
-        priceRowsCache.set(productId, persisted);
-        return persisted.data;
-    }
 
     const inflight = priceRowsInflight.get(productId);
     if (inflight) return inflight;
@@ -202,8 +202,9 @@ async function fetchPriceRowsCached(productId: string, forceRefresh = false): Pr
             while (true) {
                 const { data, error } = await supabase
                     .from('generic_product_prices')
-                    .select('variant_name, variant_value, quantity, price_dkk, extra_data')
+                    .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
                     .eq('product_id', productId)
+                    .order('id', { ascending: true })
                     .range(offset, offset + PRICE_PAGE_SIZE - 1);
 
                 if (error) throw error;
@@ -216,10 +217,19 @@ async function fetchPriceRowsCached(productId: string, forceRefresh = false): Pr
                 offset += data.length;
             }
 
-            const payload = { at: Date.now(), data: all };
+            const deduped = Array.from(
+                new Map(
+                    all.map((row) => [
+                        row.id ?? `${row.variant_name}|${row.variant_value}|${row.quantity}|${JSON.stringify(row.extra_data || {})}`,
+                        row,
+                    ])
+                ).values()
+            );
+
+            const payload = { at: Date.now(), data: deduped };
             priceRowsCache.set(productId, payload);
             writePersistedCache(persistedKey, payload);
-            return all;
+            return deduped;
         } catch (error) {
             if (persisted) {
                 priceRowsCache.set(productId, persisted);
@@ -235,6 +245,42 @@ async function fetchPriceRowsCached(productId: string, forceRefresh = false): Pr
     return request;
 }
 
+async function fetchVariantPriceRowsCached(
+    productId: string,
+    variantName: string,
+    verticalValueIds: string[],
+    forceRefresh = false,
+): Promise<any[]> {
+    const cacheKey = `${productId}::${variantName}::${verticalValueIds.slice().sort().join('|')}`;
+    const cached = variantPriceRowsCache.get(cacheKey);
+    if (!forceRefresh && cached && isFresh(cached.at)) return cached.data;
+
+    const inflight = variantPriceRowsInflight.get(cacheKey);
+    if (inflight) return inflight;
+
+    const request = (async () => {
+        const { data, error } = await supabase
+            .from('generic_product_prices')
+            .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
+            .eq('product_id', productId)
+            .eq('variant_name', variantName)
+            .in('variant_value', verticalValueIds)
+            .order('quantity', { ascending: true });
+
+        if (error) throw error;
+
+        const rows = (data || []) as any[];
+        const payload = { at: Date.now(), data: rows };
+        variantPriceRowsCache.set(cacheKey, payload);
+        return rows;
+    })().finally(() => {
+        variantPriceRowsInflight.delete(cacheKey);
+    });
+
+    variantPriceRowsInflight.set(cacheKey, request);
+    return request;
+}
+
 export function MatrixLayoutV1Renderer({
     productId,
     pricingStructure,
@@ -245,12 +291,15 @@ export function MatrixLayoutV1Renderer({
     // State: per-section selections (sectionId -> valueId)
     const [selectedSectionValues, setSelectedSectionValues] = useState<Record<string, string | null>>({});
     const [attributeGroups, setAttributeGroups] = useState<AttributeGroup[]>([]);
-    const [prices, setPrices] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [availabilityPrices, setAvailabilityPrices] = useState<any[]>([]);
+    const [variantPrices, setVariantPrices] = useState<any[]>([]);
+    const [availabilityLoading, setAvailabilityLoading] = useState(true);
+    const [matrixLoading, setMatrixLoading] = useState(true);
     const [selectedCell, setSelectedCell] = useState<{ row: string; column: number } | null>(null);
 
     const lastNotifiedCellRef = useRef<string>("");
     const lastLoadedProductIdRef = useRef<string | null>(null);
+    const lastVariantProductIdRef = useRef<string | null>(null);
 
     // Fetch attribute groups for this product
     useEffect(() => {
@@ -325,12 +374,25 @@ export function MatrixLayoutV1Renderer({
     }, [pricingStructure]);
 
     const valueSettingsById = useMemo(() => {
-        const map: Record<string, Record<string, { showThumbnail?: boolean; customImage?: string }>> = {};
+        const map: Record<string, Record<string, { showThumbnail?: boolean; customImage?: string; displayName?: string }>> = {};
         pricingStructure.layout_rows.forEach(row => {
             row.columns.forEach(col => {
                 if (col.valueSettings) {
                     map[col.id] = col.valueSettings;
                 }
+            });
+        });
+        return map;
+    }, [pricingStructure]);
+
+    const sectionThumbnailConfigById = useMemo(() => {
+        const map: Record<string, { size?: 'small' | 'medium' | 'large' | 'xl'; customPx?: number }> = {};
+        pricingStructure.layout_rows.forEach(row => {
+            row.columns.forEach(col => {
+                map[col.id] = {
+                    size: normalizeThumbnailSize((col as any).thumbnail_size),
+                    customPx: normalizeThumbnailCustomPx((col as any).thumbnail_custom_px)
+                };
             });
         });
         return map;
@@ -529,8 +591,8 @@ export function MatrixLayoutV1Renderer({
     const selectedFormatId = selectedFormatMaterial.formatId;
     const selectedMaterialId = selectedFormatMaterial.materialId;
 
-    const preparedPrices = useMemo(() => {
-        return prices
+    const preparePriceRows = useCallback((sourceRows: any[]): PreparedPriceRow[] => {
+        return sourceRows
             .map((p): PreparedPriceRow | null => {
                 const quantity = Number(p.quantity);
                 const price = Number(p.price_dkk);
@@ -568,7 +630,18 @@ export function MatrixLayoutV1Renderer({
                 };
             })
             .filter((row): row is PreparedPriceRow => row !== null);
-    }, [normalizeVariantKey, prices]);
+    }, [normalizeVariantKey]);
+
+    const availabilityPreparedPrices = useMemo(() => {
+        return preparePriceRows(availabilityPrices);
+    }, [availabilityPrices, preparePriceRows]);
+
+    const matrixPreparedPrices = useMemo(() => {
+        if (variantPrices.length > 0) {
+            return preparePriceRows(variantPrices);
+        }
+        return availabilityPreparedPrices;
+    }, [variantPrices, availabilityPreparedPrices, preparePriceRows]);
 
     const selectorSections = useMemo<SelectorSectionConfig[]>(() => {
         const sections: SelectorSectionConfig[] = [
@@ -594,6 +667,116 @@ export function MatrixLayoutV1Renderer({
 
         return sections;
     }, [pricingStructure, isHiddenColumn]);
+
+    const sectionOrderById = useMemo(() => {
+        const map: Record<string, number> = {};
+        selectorSections.forEach((section, index) => {
+            map[section.id] = index;
+        });
+        return map;
+    }, [selectorSections]);
+
+    const hasCompleteRequiredSelection = useMemo(() => {
+        return selectorSections.every(section => {
+            if (section.id === pricingStructure.vertical_axis.sectionId) return true;
+            if (isOptionalSectionId(section.id)) return true;
+            return !!selectedSectionValues[section.id];
+        });
+    }, [
+        selectorSections,
+        pricingStructure.vertical_axis.sectionId,
+        isOptionalSectionId,
+        selectedSectionValues,
+    ]);
+
+    useEffect(() => {
+        let active = true;
+        const cached = priceRowsCache.get(productId);
+        const hasFreshCache = !!cached && isFresh(cached.at);
+
+        async function fetchAvailabilityPrices() {
+            try {
+                const all = await fetchPriceRowsCached(productId, hasFreshCache);
+                if (active) {
+                    setAvailabilityPrices(all);
+                }
+            } catch {
+                if (active) {
+                    setAvailabilityPrices([]);
+                }
+            } finally {
+                if (active) {
+                    setAvailabilityLoading(false);
+                }
+            }
+        }
+
+        if (hasFreshCache) {
+            setAvailabilityPrices(cached!.data);
+            setAvailabilityLoading(false);
+        } else {
+            setAvailabilityLoading(true);
+            if (lastLoadedProductIdRef.current && lastLoadedProductIdRef.current !== productId) {
+                setAvailabilityPrices([]);
+            }
+        }
+        lastLoadedProductIdRef.current = productId;
+
+        fetchAvailabilityPrices();
+
+        return () => {
+            active = false;
+        };
+    }, [productId]);
+
+    useEffect(() => {
+        let active = true;
+
+        async function fetchActiveVariantPrices() {
+            if (!hasCompleteRequiredSelection) {
+                if (active) {
+                    setVariantPrices([]);
+                    setMatrixLoading(false);
+                }
+                return;
+            }
+
+            try {
+                const rows = await fetchVariantPriceRowsCached(
+                    productId,
+                    selectedVariantKey,
+                    pricingStructure.vertical_axis.valueIds || [],
+                );
+                if (active) {
+                    setVariantPrices(rows);
+                }
+            } catch {
+                if (active) {
+                    setVariantPrices([]);
+                }
+            } finally {
+                if (active) {
+                    setMatrixLoading(false);
+                }
+            }
+        }
+
+        if (lastVariantProductIdRef.current && lastVariantProductIdRef.current !== productId) {
+            setVariantPrices([]);
+        }
+        lastVariantProductIdRef.current = productId;
+        setMatrixLoading(true);
+        fetchActiveVariantPrices();
+
+        return () => {
+            active = false;
+        };
+    }, [
+        productId,
+        selectedVariantKey,
+        pricingStructure.vertical_axis.valueIds,
+        hasCompleteRequiredSelection,
+    ]);
 
     const getSectionValueIdForPreparedRow = useCallback((sectionId: string, row: PreparedPriceRow): string | null => {
         const extra = row.raw?.extra_data || {};
@@ -622,20 +805,32 @@ export function MatrixLayoutV1Renderer({
         }
 
         // Legacy fallback path for older imports using explicit keys.
-        if (groupName === 'papirfinish') {
+        if (groupName === 'papirfinish' || groupName.includes('papirfinish')) {
             return extra.surfaceId || null;
         }
 
-        if (groupName === 'foldetype') {
+        if (groupName === 'foldetype' || groupName.includes('foldetype')) {
             return extra.foldId || null;
         }
 
-        if (groupName === 'sider') {
+        if (groupName === 'sider' || groupName.includes('sider')) {
             return extra.pagesId || null;
         }
 
-        if (groupName === 'retning') {
+        if (groupName === 'retning' || groupName.includes('retning')) {
             return extra.orientationId || null;
+        }
+
+        if (groupName.includes('uv-lak') || groupName.includes('uv lak')) {
+            return extra.uvLakId || null;
+        }
+
+        if (groupName.includes('gloss') && (groupName.includes('cach') || groupName.includes('kasher') || groupName.includes('kacher'))) {
+            return extra.glossCachingId || null;
+        }
+
+        if (groupName.includes('kacher') || groupName.includes('kasher')) {
+            return extra.kacheringId || null;
         }
 
         return null;
@@ -645,17 +840,26 @@ export function MatrixLayoutV1Renderer({
         const ids = new Set<string>();
 
         selectorSections.forEach(section => {
-            const hasAny = preparedPrices.some(row => !!getSectionValueIdForPreparedRow(section.id, row));
+            const hasAny = availabilityPreparedPrices.some(row => !!getSectionValueIdForPreparedRow(section.id, row));
             if (hasAny) ids.add(section.id);
         });
 
         return ids;
-    }, [selectorSections, preparedPrices, getSectionValueIdForPreparedRow]);
+    }, [selectorSections, availabilityPreparedPrices, getSectionValueIdForPreparedRow]);
 
-    const rowMatchesSelections = useCallback((row: PreparedPriceRow, selections: Record<string, string | null>, excludeSectionId?: string) => {
+    const rowMatchesSelections = useCallback((
+        row: PreparedPriceRow,
+        selections: Record<string, string | null>,
+        excludeSectionId?: string,
+        options?: { ignoreVerticalSelection?: boolean },
+    ) => {
         for (const section of selectorSections) {
             if (section.id === excludeSectionId) continue;
             if (!mappableSectionIds.has(section.id)) continue;
+
+            if (options?.ignoreVerticalSelection && section.id === pricingStructure.vertical_axis.sectionId) {
+                continue;
+            }
 
             const selectedValueId = selections[section.id];
             if (!selectedValueId) continue;
@@ -685,8 +889,17 @@ export function MatrixLayoutV1Renderer({
             }
 
             const available = new Set<string>();
-            preparedPrices.forEach(row => {
-                if (!rowMatchesSelections(row, selectedSectionValues, section.id)) return;
+            const ignoreVerticalSelection = section.id !== pricingStructure.vertical_axis.sectionId;
+            const currentSectionOrder = sectionOrderById[section.id] ?? 0;
+            const upstreamSelections = Object.fromEntries(
+                Object.entries(selectedSectionValues).filter(([selectedSectionId]) => {
+                    if (selectedSectionId === pricingStructure.vertical_axis.sectionId) return true;
+                    if (selectedSectionId === section.id) return false;
+                    return (sectionOrderById[selectedSectionId] ?? 0) < currentSectionOrder;
+                })
+            );
+            availabilityPreparedPrices.forEach(row => {
+                if (!rowMatchesSelections(row, upstreamSelections, section.id, { ignoreVerticalSelection })) return;
 
                 if (section.id === pricingStructure.vertical_axis.sectionId) {
                     row.verticalIds.forEach(valueId => {
@@ -707,17 +920,43 @@ export function MatrixLayoutV1Renderer({
         return map;
     }, [
         selectorSections,
+        sectionOrderById,
         mappableSectionIds,
-        preparedPrices,
+        availabilityPreparedPrices,
         rowMatchesSelections,
         selectedSectionValues,
         pricingStructure.vertical_axis.sectionId,
         getSectionValueIdForPreparedRow,
     ]);
 
+    useEffect(() => {
+        setSelectedSectionValues(prev => {
+            let changed = false;
+            const next = { ...prev };
+
+            selectorSections.forEach(section => {
+                if (section.id === pricingStructure.vertical_axis.sectionId) return;
+
+                const available = availableValueIdsBySection[section.id];
+                if (!available || available.size === 0) return;
+
+                const current = next[section.id];
+                if (current && available.has(String(current))) return;
+
+                const nextValue = (section.valueIds || []).find(valueId => available.has(String(valueId))) || null;
+                if (nextValue !== current) {
+                    next[section.id] = nextValue;
+                    changed = true;
+                }
+            });
+
+            return changed ? next : prev;
+        });
+    }, [availableValueIdsBySection, pricingStructure.vertical_axis.sectionId, selectorSections]);
+
     const priceIndexByVerticalQty = useMemo(() => {
         const index = new Map<string, PreparedPriceRow[]>();
-        preparedPrices.forEach(row => {
+        matrixPreparedPrices.forEach(row => {
             row.verticalIds.forEach(verticalId => {
                 const key = `${verticalId}::${row.quantity}`;
                 const list = index.get(key);
@@ -726,48 +965,7 @@ export function MatrixLayoutV1Renderer({
             });
         });
         return index;
-    }, [preparedPrices]);
-
-    // Fetch all prices once so switching variants doesn't trigger reloads.
-    useEffect(() => {
-        let active = true;
-        const cached = priceRowsCache.get(productId);
-        const hasFreshCache = !!cached && isFresh(cached.at);
-
-        async function fetchPrices() {
-            try {
-                const all = await fetchPriceRowsCached(productId, hasFreshCache);
-                if (active) {
-                    setPrices(all);
-                }
-            } catch {
-                if (active) {
-                    setPrices([]);
-                }
-            } finally {
-                if (active) {
-                    setLoading(false);
-                }
-            }
-        }
-
-        if (hasFreshCache) {
-            setPrices(cached!.data);
-            setLoading(false);
-        } else {
-            setLoading(true);
-            if (lastLoadedProductIdRef.current && lastLoadedProductIdRef.current !== productId) {
-                setPrices([]);
-            }
-        }
-        lastLoadedProductIdRef.current = productId;
-
-        fetchPrices();
-
-        return () => {
-            active = false;
-        };
-    }, [productId]);
+    }, [matrixPreparedPrices]);
 
     const attributeGroupById = useMemo(() => {
         const map: Record<string, AttributeGroup> = {};
@@ -808,6 +1006,39 @@ export function MatrixLayoutV1Renderer({
         return attributeValueById[valueId]?.name || valueId;
     }, [attributeValueById]);
 
+    const getDisplayValueName = useCallback((valueId: string, sectionId?: string): string => {
+        const fallback = attributeValueById[valueId]?.name || valueId;
+        if (sectionId === pricingStructure.vertical_axis.sectionId) {
+            const verticalName = pricingStructure.vertical_axis.valueSettings?.[valueId]?.displayName?.trim();
+            return verticalName || fallback;
+        }
+        const sectionName = sectionId ? valueSettingsById[sectionId]?.[valueId]?.displayName?.trim() : "";
+        return sectionName || fallback;
+    }, [attributeValueById, pricingStructure.vertical_axis.sectionId, pricingStructure.vertical_axis.valueSettings, valueSettingsById]);
+
+    const sortValuesForDisplay = useCallback((sectionId: string, values: AttributeValue[]): AttributeValue[] => {
+        const groupName = (sectionGroupNameById[sectionId] || '').toLowerCase();
+        const sectionTitle = (sectionById[sectionId]?.title || '').toLowerCase();
+        const isPageLike = groupName.includes('page') || groupName.includes('sider') || groupName.includes('side') || sectionTitle.includes('page') || sectionTitle.includes('sider') || sectionTitle.includes('side');
+        if (!isPageLike || values.length <= 1) return values;
+
+        const numericValue = (label: string): number | null => {
+            const match = String(label || '').match(/(\d+(?:[.,]\d+)?)/);
+            if (!match) return null;
+            const parsed = Number.parseFloat(match[1].replace(',', '.'));
+            return Number.isFinite(parsed) ? parsed : null;
+        };
+
+        return [...values].sort((a, b) => {
+            const aValue = numericValue(a.name);
+            const bValue = numericValue(b.name);
+            if (aValue != null && bValue != null && aValue !== bValue) {
+                return aValue - bValue;
+            }
+            return String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true });
+        });
+    }, [sectionById, sectionGroupNameById]);
+
     useEffect(() => {
         if (!onSelectionSummary) return;
         const verticalSectionType = pricingStructure.vertical_axis.sectionType;
@@ -819,13 +1050,13 @@ export function MatrixLayoutV1Renderer({
                 if (isHiddenColumn(col)) return;
                 const selectedValueId = selectedSectionValues[col.id];
                 if (selectedValueId) {
-                    summaryParts.push(getValueName(selectedValueId));
+                    summaryParts.push(getDisplayValueName(selectedValueId, col.id));
                 }
             });
         });
 
         onSelectionSummary(summaryParts);
-    }, [onSelectionSummary, pricingStructure, selectedSectionValues, getValueName]);
+    }, [onSelectionSummary, pricingStructure, selectedSectionValues, getDisplayValueName]);
 
     // Get values for a section by its config
     const getSectionValues = useCallback((groupId: string, valueIds: string[]): AttributeValue[] => {
@@ -867,7 +1098,10 @@ export function MatrixLayoutV1Renderer({
             const allowedPages = getAllowedFolderPageNames(selectedFoldName);
             if (allowedPages && allowedPages.length > 0) {
                 const allowedSet = new Set(allowedPages.map(name => name.toLowerCase()));
-                visibleValues = visibleValues.filter(value => allowedSet.has(value.name.toLowerCase()));
+                const filtered = visibleValues.filter(value => allowedSet.has(value.name.toLowerCase()));
+                if (filtered.length > 0) {
+                    visibleValues = filtered;
+                }
             }
         }
 
@@ -876,13 +1110,14 @@ export function MatrixLayoutV1Renderer({
             visibleValues = visibleValues.filter(value => availableIds.has(value.id));
         }
 
-        return visibleValues;
+        return sortValuesForDisplay(sectionId, visibleValues);
     }, [
         sectionGroupNameById,
         foldSectionIdForFolders,
         getValueName,
         getAllowedFolderPageNames,
         availableValueIdsBySection,
+        sortValuesForDisplay,
     ]);
 
     // Keep selections valid as folders/options/finishes change.
@@ -964,7 +1199,7 @@ export function MatrixLayoutV1Renderer({
 
         // Row labels are vertical axis values
         const allRows: string[] = vertAxis.valueIds
-            .map(vId => getValueName(vId))
+            .map(vId => getDisplayValueName(vId, vertAxis.sectionId))
             .filter(Boolean);
 
         const columns = [...quantities].sort((a, b) => a - b);
@@ -972,7 +1207,7 @@ export function MatrixLayoutV1Renderer({
 
         // For each vertical axis value, find matching price
         for (const vertValueId of vertAxis.valueIds) {
-            const rowLabel = getValueName(vertValueId);
+            const rowLabel = getDisplayValueName(vertValueId, vertAxis.sectionId);
             if (!rowLabel) continue;
 
             cells[rowLabel] = {};
@@ -1015,7 +1250,7 @@ export function MatrixLayoutV1Renderer({
         });
 
         return { rows, columns, cells };
-    }, [computeVariantKey, getSectionValueIdForPreparedRow, getValueName, matchesPreparedPriceForSelection, mappableSectionIds, normalizeVariantKey, priceIndexByVerticalQty, pricingStructure, selectedFormatId, selectedMaterialId, selectedSectionValues, selectedVariantValueIds, selectorSections]);
+    }, [computeVariantKey, getDisplayValueName, getSectionValueIdForPreparedRow, matchesPreparedPriceForSelection, mappableSectionIds, normalizeVariantKey, priceIndexByVerticalQty, pricingStructure, selectedFormatId, selectedMaterialId, selectedSectionValues, selectedVariantValueIds, selectorSections]);
 
     // Ensure a default selection so the price panel can render totals.
     useEffect(() => {
@@ -1175,6 +1410,10 @@ export function MatrixLayoutV1Renderer({
         const isOptional = isOptionalSectionId(sectionId);
         const visibleValues = getVisibleValuesForSection(sectionId, values, selectedSectionValues);
         const valueSettings = valueSettingsById[sectionId] || {};
+        const thumbnailPx = resolveThumbnailSizePx(
+            sectionThumbnailConfigById[sectionId]?.size,
+            sectionThumbnailConfigById[sectionId]?.customPx
+        );
         const isActive = !isOptional || isOptionalEnabled;
 
         const selectedValue = selectedSectionValues[sectionId] ?? (isOptional ? "" : visibleValues[0]?.id || "");
@@ -1193,7 +1432,7 @@ export function MatrixLayoutV1Renderer({
                         <option value="">Ingen</option>
                     )}
                     {visibleValues.map(v => (
-                        <option key={v.id} value={v.id}>{v.name}</option>
+                        <option key={v.id} value={v.id}>{getDisplayValueName(v.id, sectionId)}</option>
                     ))}
                 </select>
             );
@@ -1204,6 +1443,7 @@ export function MatrixLayoutV1Renderer({
                 <div className={cn("space-y-1", !isActive && "opacity-60 pointer-events-none")}>
                     {visibleValues.map(v => {
                         const isSelected = selectedValue === v.id;
+                        const displayName = getDisplayValueName(v.id, sectionId);
                         return (
                             <label
                                 key={v.id}
@@ -1217,11 +1457,12 @@ export function MatrixLayoutV1Renderer({
                                 {valueSettings[v.id]?.showThumbnail && valueSettings[v.id]?.customImage && (
                                     <img
                                         src={valueSettings[v.id].customImage}
-                                        alt={v.name}
-                                        className="h-8 w-8 rounded object-cover"
+                                        alt={displayName}
+                                        className="rounded object-cover shrink-0"
+                                        style={{ width: thumbnailPx, height: thumbnailPx }}
                                     />
                                 )}
-                                <span className="font-medium">{v.name}</span>
+                                <span className="font-medium">{displayName}</span>
                             </label>
                         );
                     })}
@@ -1229,14 +1470,17 @@ export function MatrixLayoutV1Renderer({
             );
         }
 
-        // Picture grid display (small / medium / large / xl)
-        if (['small', 'medium', 'large', 'xl'].includes(uiMode)) {
-            const size = PICTURE_SIZES[uiMode as PictureSizeMode] || PICTURE_SIZES.medium;
+        // Picture grid display (small / medium / large / xl + xl_notext)
+        if (['small', 'medium', 'large', 'xl', 'xl_notext'].includes(uiMode)) {
+            const pictureMode = uiMode === 'xl_notext' ? 'xl' : uiMode;
+            const size = PICTURE_SIZES[pictureMode as PictureSizeMode] || PICTURE_SIZES.medium;
+            const showPictureLabel = pictureMode !== 'small' && uiMode !== 'xl_notext';
             return (
                 <div className={cn("flex flex-wrap gap-2", !isActive && "opacity-60 pointer-events-none")}>
                     {visibleValues.map(v => {
                         const isSelected = selectedValue === v.id;
                         const thumbUrl = valueSettings[v.id]?.customImage;
+                        const displayName = getDisplayValueName(v.id, sectionId);
                         return (
                             <button
                                 key={v.id}
@@ -1244,15 +1488,15 @@ export function MatrixLayoutV1Renderer({
                                 disabled={!isActive}
                                 className={cn(
                                     "relative rounded-lg border-2 transition-all flex flex-col items-center overflow-hidden",
-                                    isSelected
-                                        ? "border-transparent shadow-none"
-                                        : "border-transparent",
-                                    !isActive && "cursor-not-allowed"
-                                )}
-                                style={{ width: size.width, minHeight: size.height + (uiMode !== 'small' ? 22 : 0) }}
+                                isSelected
+                                    ? "border-transparent shadow-none"
+                                    : "border-transparent",
+                                !isActive && "cursor-not-allowed"
+                            )}
+                            style={{ width: size.width, minHeight: size.height + (showPictureLabel ? 22 : 0) }}
                             >
-                                {thumbUrl ? (
-                                    <img src={thumbUrl} alt={v.name} className="w-full object-cover rounded-t-md" style={{ height: size.height }} />
+                            {thumbUrl ? (
+                                <img src={thumbUrl} alt={displayName} className="w-full object-cover rounded-t-md" style={{ height: size.height }} />
                                 ) : (
                                     <div
                                         className={cn(
@@ -1261,13 +1505,13 @@ export function MatrixLayoutV1Renderer({
                                         )}
                                         style={{ height: size.height }}
                                     >
-                                        {(v.name || '?').slice(0, 3).toUpperCase()}
-                                    </div>
-                                )}
-                                {uiMode !== 'small' && (
-                                    <span className="text-[10px] leading-tight text-center truncate w-full px-1 py-0.5">
-                                        {v.name}
-                                    </span>
+                                    {(displayName || '?').slice(0, 3).toUpperCase()}
+                                </div>
+                            )}
+                            {showPictureLabel && (
+                                <span className="text-[10px] leading-tight text-center truncate w-full px-1 py-0.5">
+                                    {displayName}
+                                </span>
                                 )}
                             </button>
                         );
@@ -1281,6 +1525,7 @@ export function MatrixLayoutV1Renderer({
             <div className={cn("flex flex-wrap gap-1.5", !isActive && "opacity-60 pointer-events-none")}>
                 {visibleValues.map(v => {
                     const isSelected = selectedValue === v.id;
+                    const displayName = getDisplayValueName(v.id, sectionId);
                     return (
                         <Button
                             key={v.id}
@@ -1295,12 +1540,13 @@ export function MatrixLayoutV1Renderer({
                         >
                             {valueSettings[v.id]?.showThumbnail && valueSettings[v.id]?.customImage && (
                                 <img
-                                    src={valueSettings[v.id].customImage}
-                                    alt={v.name}
-                                    className="h-8 w-8 rounded object-cover"
-                                />
-                            )}
-                            {v.name}
+                                src={valueSettings[v.id].customImage}
+                                alt={displayName}
+                                className="rounded object-cover shrink-0"
+                                style={{ width: thumbnailPx, height: thumbnailPx }}
+                            />
+                        )}
+                            {displayName}
                         </Button>
                     );
                 })}
@@ -1308,7 +1554,7 @@ export function MatrixLayoutV1Renderer({
         );
     };
 
-    if (loading && prices.length === 0) {
+    if (matrixLoading && variantPrices.length === 0 && availabilityPreparedPrices.length === 0) {
         return (
             <div className="flex justify-center items-center py-12">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
@@ -1318,8 +1564,10 @@ export function MatrixLayoutV1Renderer({
 
     return (
         <div className="space-y-6">
-            {loading && prices.length > 0 && (
-                <div className="text-xs text-muted-foreground">Opdaterer priser...</div>
+            {(matrixLoading || availabilityLoading) && (
+                <div className="text-xs text-muted-foreground">
+                    {matrixLoading ? 'Opdaterer priser...' : 'Opdaterer valgmuligheder...'}
+                </div>
             )}
             {/* Render layout rows */}
             <div className="space-y-4">
