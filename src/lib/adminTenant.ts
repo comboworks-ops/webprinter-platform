@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
+const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
 
 interface AdminTenantResolution {
     tenantId: string | null;
@@ -25,6 +26,41 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
 
     let role: string | null = null;
     let tenantId: string | null = null;
+    const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+    const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
+
+    // First honor the active tenant context from the current hostname.
+    // This is critical for platform-owned shops managed by a master admin.
+    if (!isLocalhost && hostname) {
+        const normalizedHost = hostname.replace(/^www\./, "");
+        const possibleDomains = Array.from(new Set([hostname, normalizedHost, `www.${normalizedHost}`]));
+
+        const { data: tenantByDomain } = await (supabase as any)
+            .from("tenants")
+            .select("id")
+            .in("domain", possibleDomains)
+            .maybeSingle();
+
+        if (tenantByDomain?.id) {
+            tenantId = tenantByDomain.id;
+            console.log("[resolveAdminTenant] Resolved by hostname:", hostname, tenantId);
+        } else if (hostname.endsWith(`.${ROOT_DOMAIN}`)) {
+            const subdomain = hostname.replace(`.${ROOT_DOMAIN}`, "");
+            if (subdomain && subdomain !== "www") {
+                const constructedDomain = `${subdomain}.${ROOT_DOMAIN}`;
+                const { data: tenantByConstructedDomain } = await (supabase as any)
+                    .from("tenants")
+                    .select("id")
+                    .eq("domain", constructedDomain)
+                    .maybeSingle();
+
+                if (tenantByConstructedDomain?.id) {
+                    tenantId = tenantByConstructedDomain.id;
+                    console.log("[resolveAdminTenant] Resolved by subdomain:", hostname, tenantId);
+                }
+            }
+        }
+    }
 
     // Check user_roles for role + optional tenant_id (handle multiple roles)
     const { data: roleRows } = await (supabase as any)
@@ -35,9 +71,11 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
     if (Array.isArray(roleRows) && roleRows.length > 0) {
         console.log("[resolveAdminTenant] Found user_roles:", roleRows);
         const hasMaster = roleRows.some((row: any) => row.role === 'master_admin');
-        const preferred = roleRows.find((row: any) => row.tenant_id) || roleRows[0];
+        const preferred = roleRows.find((row: any) => row.tenant_id && row.tenant_id === tenantId)
+            || roleRows.find((row: any) => row.tenant_id)
+            || roleRows[0];
         role = hasMaster ? 'master_admin' : preferred?.role || null;
-        tenantId = preferred?.tenant_id || null;
+        tenantId = tenantId || preferred?.tenant_id || null;
     }
 
     // If no tenant yet, try owned tenant
