@@ -416,11 +416,9 @@ export function MatrixLayoutV1Renderer({
 
     const buildVariantKeyFromSelections = useCallback((selections: Record<string, string | null>) => {
         const verticalSectionId = pricingStructure.vertical_axis.sectionId;
-        const verticalSectionType = pricingStructure.vertical_axis.sectionType;
 
         const values = Object.entries(selections)
             .filter(([secId]) => secId !== verticalSectionId)
-            .filter(([secId]) => sectionTypeById[secId] !== verticalSectionType)
             .map(([_, valId]) => valId)
             .filter((valId): valId is string => !!valId);
 
@@ -520,7 +518,6 @@ export function MatrixLayoutV1Renderer({
     useEffect(() => {
         const vertAxis = pricingStructure.vertical_axis;
         const verticalSectionId = vertAxis.sectionId || 'vertical-axis';
-        const verticalSectionType = vertAxis.sectionType;
 
         setSelectedSectionValues(prev => {
             let changed = false;
@@ -536,7 +533,7 @@ export function MatrixLayoutV1Renderer({
 
             pricingStructure.layout_rows.forEach(row => {
                 row.columns.forEach(col => {
-                    if (col.sectionType === verticalSectionType) return;
+                    if (col.id === verticalSectionId) return;
                     if (!col.valueIds || col.valueIds.length === 0) return;
                     const current = next[col.id];
                     const isOptional = isOptionalSectionId(col.id);
@@ -557,7 +554,7 @@ export function MatrixLayoutV1Renderer({
             const validSectionIds = new Set<string>([verticalSectionId]);
             pricingStructure.layout_rows.forEach(row => {
                 row.columns.forEach(col => {
-                    if (col.sectionType !== verticalSectionType) {
+                    if (col.id !== verticalSectionId) {
                         validSectionIds.add(col.id);
                     }
                 });
@@ -1041,12 +1038,12 @@ export function MatrixLayoutV1Renderer({
 
     useEffect(() => {
         if (!onSelectionSummary) return;
-        const verticalSectionType = pricingStructure.vertical_axis.sectionType;
+        const verticalSectionId = pricingStructure.vertical_axis.sectionId;
         const summaryParts: string[] = [];
 
         pricingStructure.layout_rows.forEach(row => {
             row.columns.forEach(col => {
-                if (col.sectionType === verticalSectionType) return;
+                if (col.id === verticalSectionId) return;
                 if (isHiddenColumn(col)) return;
                 const selectedValueId = selectedSectionValues[col.id];
                 if (selectedValueId) {
@@ -1573,7 +1570,7 @@ export function MatrixLayoutV1Renderer({
             <div className="space-y-4">
                 {pricingStructure.layout_rows.map((row) => {
                     const filteredColumns = row.columns.filter(
-                        col => col.sectionType !== pricingStructure.vertical_axis.sectionType
+                        col => col.id !== pricingStructure.vertical_axis.sectionId
                             && !isHiddenColumn(col)
                     );
 
