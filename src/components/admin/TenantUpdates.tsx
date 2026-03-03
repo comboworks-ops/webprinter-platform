@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAdminTenant } from "@/lib/adminTenant";
 import { toast } from "sonner";
 import { Download, CheckCircle, Loader2, Bell, Trash2, Box, MessageSquare } from "lucide-react";
 import { format } from "date-fns";
@@ -30,22 +31,14 @@ export function TenantUpdates() {
 
     const fetchNotifications = async () => {
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
-
-            const { data: tenant } = await supabase
-                .from('tenants' as any)
-                .select('id')
-                .eq('owner_id', user.id)
-                .maybeSingle();
-
-            if (!tenant) return;
+            const { tenantId } = await resolveAdminTenant();
+            if (!tenantId || tenantId === '00000000-0000-0000-0000-000000000000') return;
 
             // Cast table name to any to avoid type errors since it's a new table
             const { data, error } = await supabase
                 .from('tenant_notifications' as any)
                 .select('*')
-                .eq('tenant_id', (tenant as any).id)
+                .eq('tenant_id', tenantId)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -60,19 +53,17 @@ export function TenantUpdates() {
     const handleImportProduct = async (notification: Notification) => {
         setProcessingId(notification.id);
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            const { data: tenant } = await supabase
-                .from('tenants' as any)
-                .select('id')
-                .eq('owner_id', user!.id)
-                .maybeSingle();
+            const { tenantId } = await resolveAdminTenant();
+            if (!tenantId || tenantId === '00000000-0000-0000-0000-000000000000') {
+                throw new Error("Aktiv lejer blev ikke fundet");
+            }
 
             const slug = notification.data?.slug;
             if (!slug) throw new Error("Product slug missing");
 
             // Call the sync specific function
             const { error } = await supabase.rpc('sync_specific_product' as any, {
-                target_tenant_id: (tenant as any).id,
+                target_tenant_id: tenantId,
                 product_slug: slug
             });
 

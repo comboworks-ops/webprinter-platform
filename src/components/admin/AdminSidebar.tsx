@@ -180,17 +180,13 @@ export function AdminSidebar() {
 
         // 2. System Notifications (Tenant Updates) - Only if NOT master admin
         if (!isMasterAdmin) {
-          const { data: tenant } = await supabase
-            .from('tenants' as any)
-            .select('id')
-            .eq('owner_id', user.id)
-            .maybeSingle();
+          const { tenantId } = await resolveAdminTenant();
 
-          if (tenant) {
+          if (tenantId && tenantId !== '00000000-0000-0000-0000-000000000000') {
             const { count: notiCount } = await supabase
               .from('tenant_notifications' as any)
               .select('*', { count: 'exact', head: true })
-              .eq('tenant_id', (tenant as any).id)
+              .eq('tenant_id', tenantId)
               .eq('is_read', false);
 
             setUnreadSystemCount(notiCount || 0);

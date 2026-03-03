@@ -100,12 +100,12 @@ const DELIVERY_MODES: { id: DeliveryMode; label: string; description: string }[]
   {
     id: "price_list",
     label: "Standard pris",
-    description: "Tenanten kan opdatere priser og priseresultater normalt.",
+    description: "Der oprettes en uafhængig kopi hos lejeren, som kan redigeres frit.",
   },
   {
     id: "pod_price_list",
     label: "POD-pris",
-    description: "Priser er låst (kun margen kan justeres); ordren håndteres gennem master.",
+    description: "Produktet sendes til tenantens indbakke som en master-styret import.",
   },
 ];
 
@@ -958,8 +958,17 @@ export function ProductOverview() {
 
       if (error) throw error;
 
-      const count = (data as any)?.sent ?? selectedTenantIds.length;
-      toast.success(`${count} notifikationer sendt til lejere.`);
+      const copied = Number((data as any)?.copied || 0);
+      const notified = Number((data as any)?.notified || 0);
+
+      if (copied > 0 && notified === 0) {
+        toast.success(`${copied} produktkopier sendt til lejere.`);
+      } else if (notified > 0 && copied === 0) {
+        toast.success(`${notified} notifikationer sendt til lejere.`);
+      } else {
+        const total = Number((data as any)?.sent || selectedTenantIds.length);
+        toast.success(`${total} leveringer udført til lejere.`);
+      }
       closeSendDialog();
     } catch (error) {
       console.error("Error sending product notifications:", error);
