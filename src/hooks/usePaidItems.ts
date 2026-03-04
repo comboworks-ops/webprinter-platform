@@ -10,6 +10,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
+const ENABLE_DEBUG_LOGS = import.meta.env.DEV && import.meta.env.VITE_DEBUG_PAID_ITEMS === 'true';
+
+const debugLog = (...args: unknown[]) => {
+    if (ENABLE_DEBUG_LOGS) {
+        console.log(...args);
+    }
+};
+
 export type PaidItemType = 'premade_design' | 'icon_pack' | 'font_pack' | 'template_feature';
 
 export interface PaidItem {
@@ -63,7 +71,7 @@ export interface UsePaidItemsReturn {
 }
 
 export function usePaidItems(tenantId: string | null): UsePaidItemsReturn {
-    console.log('[usePaidItems] Hook initialized with tenantId:', tenantId);
+    debugLog('[usePaidItems] Hook initialized with tenantId:', tenantId);
 
     const [pendingItems, setPendingItems] = useState<PaidItem[]>([]);
     const [purchases, setPurchases] = useState<Purchase[]>([]);
@@ -167,24 +175,24 @@ export function usePaidItems(tenantId: string | null): UsePaidItemsReturn {
 
     // Add a pending item
     const addPendingItem = useCallback(async (item: Omit<PaidItem, 'id' | 'appliedAt'>) => {
-        console.log('[usePaidItems] addPendingItem called with:', { tenantId, item });
+        debugLog('[usePaidItems] addPendingItem called with:', { tenantId, item });
 
         if (!tenantId) {
-            console.log('[usePaidItems] No tenantId, skipping');
+            debugLog('[usePaidItems] No tenantId, skipping');
             return;
         }
 
         // Skip if already purchased or pending, or if price is 0
         if (item.price <= 0) {
-            console.log('[usePaidItems] Price is 0 or less, skipping');
+            debugLog('[usePaidItems] Price is 0 or less, skipping');
             return;
         }
         if (isItemPurchased(item.type, item.itemId)) {
-            console.log('[usePaidItems] Item already purchased, skipping');
+            debugLog('[usePaidItems] Item already purchased, skipping');
             return;
         }
         if (isItemPending(item.type, item.itemId)) {
-            console.log('[usePaidItems] Item already pending, skipping');
+            debugLog('[usePaidItems] Item already pending, skipping');
             return;
         }
 
@@ -200,11 +208,11 @@ export function usePaidItems(tenantId: string | null): UsePaidItemsReturn {
             appliedAt: new Date().toISOString(),
         };
 
-        console.log('[usePaidItems] Optimistic update - adding item to local state:', newItem);
+        debugLog('[usePaidItems] Optimistic update - adding item to local state:', newItem);
         setPendingItems(prev => [...prev, newItem]);
 
         try {
-            console.log('[usePaidItems] Inserting pending item into database...');
+            debugLog('[usePaidItems] Inserting pending item into database...');
             const { data, error } = await supabase
                 .from('tenant_pending_items' as any)
                 .upsert({
@@ -224,7 +232,7 @@ export function usePaidItems(tenantId: string | null): UsePaidItemsReturn {
                 // Keep the optimistic update - item will still show in UI
                 // but won't be persisted. This is better UX than removing it.
             } else if (data) {
-                console.log('[usePaidItems] Item added successfully, updating with real ID:', data);
+                debugLog('[usePaidItems] Item added successfully, updating with real ID:', data);
                 // Update the temp item with the real ID from database
                 setPendingItems(prev => prev.map(p =>
                     p.id === tempId ? { ...p, id: (data as any).id } : p
