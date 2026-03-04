@@ -42,7 +42,11 @@ export function TenantUpdates() {
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
-            setNotifications((data as any[]) || []);
+            const filtered = ((data as any[]) || []).filter((row) => {
+                if (row.type !== 'product_update') return true;
+                return row.data?.delivery_mode === 'pod_price_list';
+            });
+            setNotifications(filtered);
         } catch (error) {
             console.error('Error fetching notifications:', error);
         } finally {

@@ -809,34 +809,9 @@ export function ProductOverview() {
   const deleteProduct = async (id: string, name: string) => {
     if (!productsTenantId) return;
     try {
-      // Delete related data first to avoid foreign key constraints
-      // 1. Delete generic prices
-      await supabase.from('generic_product_prices').delete().eq('product_id', id).eq('tenant_id', productsTenantId);
-
-      // 2. Delete product attribute values
-      const { data: groups } = await supabase
-        .from('product_attribute_groups' as any)
-        .select('id')
-        .eq('product_id', id)
-        .eq('tenant_id', productsTenantId);
-      if (groups && groups.length > 0) {
-        const groupIds = groups.map((g: any) => g.id);
-        await supabase.from('product_attribute_values' as any).delete().in('group_id', groupIds).eq('tenant_id', productsTenantId);
-        await supabase.from('product_attribute_groups' as any).delete().eq('product_id', id).eq('tenant_id', productsTenantId);
-      }
-
-      // 3. Delete product pricing configs
-      await supabase.from('product_pricing_configs' as any).delete().eq('product_id', id).eq('tenant_id', productsTenantId);
-
-      // 4. Delete company hub items
-      await supabase.from('company_hub_items' as any).delete().eq('product_id', id).eq('tenant_id', productsTenantId);
-
-      // 4. Now delete the product itself
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', id)
-        .eq('tenant_id', productsTenantId);
+      const { error } = await supabase.rpc('delete_product_with_payload' as any, {
+        target_product_id: id,
+      });
 
       if (error) throw error;
 
@@ -920,9 +895,14 @@ export function ProductOverview() {
 
       const copied = Number((data as any)?.copied || 0);
       const notified = Number((data as any)?.notified || 0);
+      const skippedExisting = Number((data as any)?.skipped_existing || 0);
 
-      if (copied > 0 && notified === 0) {
+      if (copied > 0 && notified === 0 && skippedExisting === 0) {
         toast.success(`${copied} produktkopier sendt til lejere.`);
+      } else if (copied === 0 && notified === 0 && skippedExisting > 0) {
+        toast.success(`${skippedExisting} lejere har allerede produktet.`);
+      } else if (copied > 0 && skippedExisting > 0 && notified === 0) {
+        toast.success(`${copied} nye produktkopier sendt. ${skippedExisting} lejere havde allerede produktet.`);
       } else if (notified > 0 && copied === 0) {
         toast.success(`${notified} notifikationer sendt til lejere.`);
       } else {

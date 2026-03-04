@@ -183,13 +183,18 @@ export function AdminSidebar() {
           const { tenantId } = await resolveAdminTenant();
 
           if (tenantId && tenantId !== '00000000-0000-0000-0000-000000000000') {
-            const { count: notiCount } = await supabase
+            const { data: notiRows } = await supabase
               .from('tenant_notifications' as any)
-              .select('*', { count: 'exact', head: true })
+              .select('id, type, data, is_read')
               .eq('tenant_id', tenantId)
               .eq('is_read', false);
 
-            setUnreadSystemCount(notiCount || 0);
+            const notiCount = ((notiRows as any[]) || []).filter((row) => {
+              if (row.type !== 'product_update') return true;
+              return row.data?.delivery_mode === 'pod_price_list';
+            }).length;
+
+            setUnreadSystemCount(notiCount);
           }
         }
 
