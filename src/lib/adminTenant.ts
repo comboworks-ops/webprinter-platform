@@ -17,7 +17,16 @@ interface AdminTenantResolution {
  * 3) Master tenant if user is master_admin
  */
 export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
-    const { data: { user } } = await supabase.auth.getUser();
+    let user = (await supabase.auth.getSession()).data.session?.user ?? null;
+
+    if (!user) {
+        try {
+            user = (await supabase.auth.getUser()).data.user;
+        } catch (error) {
+            console.warn("[resolveAdminTenant] Failed to refresh authenticated user from Supabase:", error);
+        }
+    }
+
     if (!user) {
         console.warn("[resolveAdminTenant] No authenticated user found.");
         return { tenantId: null, role: null, isMasterAdmin: false };

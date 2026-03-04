@@ -113,6 +113,10 @@ function trimGeneratorPricesForStorage(
     return Object.fromEntries(entries.slice(0, MAX_PERSISTED_GENERATOR_PRICE_ENTRIES));
 }
 
+async function getCachedAuthUserId(): Promise<string | null> {
+    return (await supabase.auth.getSession()).data.session?.user?.id ?? null;
+}
+
 interface ProductAttributeBuilderProps {
     productId: string;
     tenantId: string;
@@ -3377,7 +3381,7 @@ export function ProductAttributeBuilder({
 
             // 5. Auto-backup to Price List Bank (safe fallback)
             try {
-                const { data: { user } } = await supabase.auth.getUser();
+                const userId = await getCachedAuthUserId();
                 const stamp = new Date().toISOString().slice(0, 10);
                 const time = new Date().toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
                 const backupName = `AUTO BACKUP - ${productName} - ${stamp} ${time}`;
@@ -3405,7 +3409,7 @@ export function ProductAttributeBuilder({
                         product_id: productId,
                         name: backupName,
                         spec,
-                        created_by: user?.id
+                        created_by: userId
                     });
             } catch (backupError) {
                 console.warn('[Matrix V1 Push] Auto-backup failed:', backupError);
@@ -5107,7 +5111,7 @@ export function ProductAttributeBuilder({
 
         setSavingTemplate(true);
         try {
-            const { data: { user } } = await supabase.auth.getUser();
+            const userId = await getCachedAuthUserId();
 
             // Build rows grouped by format+material
             // Build rows grouped by format+material+variant
@@ -5198,7 +5202,7 @@ export function ProductAttributeBuilder({
             } else {
                 const res = await supabase
                     .from('price_list_templates' as any)
-                    .insert({ ...payload, created_by: user?.id });
+                    .insert({ ...payload, created_by: userId });
                 error = res.error;
             }
 
