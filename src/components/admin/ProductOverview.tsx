@@ -849,52 +849,12 @@ export function ProductOverview() {
   };
 
   const duplicateProduct = async (product: Product) => {
-    if (!productsTenantId) return;
     try {
-      // First fetch full product data
-      const { data: fullProduct, error: fetchError } = await supabase
-        .from('products')
-        .select('*')
-        .eq('id', product.id)
-        .eq('tenant_id', productsTenantId)
-        .single();
+      const { error } = await supabase.rpc('duplicate_product_with_payload' as any, {
+        source_product_id: product.id,
+      });
 
-      if (fetchError) throw fetchError;
-
-      // Generate unique slug
-      let newSlug = `${product.slug}-kopi`;
-      let slugExists = true;
-      let counter = 1;
-
-      while (slugExists) {
-        const { data: existing } = await supabase
-          .from('products')
-          .select('id')
-          .eq('slug', newSlug)
-          .eq('tenant_id', productsTenantId)
-          .maybeSingle();
-
-        if (!existing) {
-          slugExists = false;
-        } else {
-          counter++;
-          newSlug = `${product.slug}-kopi-${counter}`;
-        }
-      }
-
-      // Create duplicate product
-      const { id, created_at, updated_at, created_by, updated_by, tenant_id, ...productData } = fullProduct;
-      const { error: insertError } = await supabase
-        .from('products')
-        .insert({
-          ...productData,
-          tenant_id: productsTenantId,
-          name: `${product.name} (kopi)`,
-          slug: newSlug,
-          is_published: false,
-        });
-
-      if (insertError) throw insertError;
+      if (error) throw error;
 
       toast.success(`Produkt duplikeret som "${product.name} (kopi)"`);
       fetchProducts();
