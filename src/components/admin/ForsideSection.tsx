@@ -92,6 +92,7 @@ export function ForsideSection({
     const featuredProductConfig = productsSection.featuredProductConfig || {
         enabled: false,
         productId: undefined,
+        showInProductList: false,
         quantityPresets: [200, 500, 1000, 2500, 5000],
         showOptions: true,
         showPrice: true,
@@ -620,6 +621,17 @@ export function ForsideSection({
                                 <Switch
                                     checked={featuredProductConfig.showPrice}
                                     onCheckedChange={(checked) => updateFeaturedProductConfig({ showPrice: checked })}
+                                    disabled={!productsSection.enabled}
+                                />
+                            </div>
+                            <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                                <div>
+                                    <Label>Vis også i produktliste</Label>
+                                    <p className="text-xs text-muted-foreground">Viser produktet igen blandt de normale produktkort</p>
+                                </div>
+                                <Switch
+                                    checked={featuredProductConfig.showInProductList ?? false}
+                                    onCheckedChange={(checked) => updateFeaturedProductConfig({ showInProductList: checked })}
                                     disabled={!productsSection.enabled}
                                 />
                             </div>

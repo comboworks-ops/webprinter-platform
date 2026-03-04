@@ -39,7 +39,7 @@ type UseStorefrontCatalogOptions = {
   enabled?: boolean;
 };
 
-const PRODUCT_CACHE_KEY_PREFIX = "storefront-catalog-cache-v1";
+const PRODUCT_CACHE_KEY_PREFIX = "storefront-catalog-cache-v2";
 const PRODUCT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 const isTransportError = (error: unknown): boolean => {
@@ -62,7 +62,6 @@ const isTransportError = (error: unknown): boolean => {
 };
 
 const cacheKeyForTenant = (tenantId: string) => `${PRODUCT_CACHE_KEY_PREFIX}:tenant:${tenantId}`;
-const cacheLastSuccessKey = `${PRODUCT_CACHE_KEY_PREFIX}:last-success`;
 
 const readProductCache = (key: string): ProductCachePayload | null => {
   if (typeof window === "undefined") return null;
@@ -173,17 +172,14 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
           products: productsWithPrices,
         };
         writeProductCache(tenantCacheKey, payload);
-        writeProductCache(cacheLastSuccessKey, payload);
       } catch (error) {
         console.error("Error fetching storefront catalog:", error);
         if (isTransportError(error)) {
           const tenantCache = readProductCache(tenantCacheKey);
-          const globalCache = readProductCache(cacheLastSuccessKey);
-          const candidateCache = tenantCache || globalCache;
-          const isFresh = !!candidateCache && (Date.now() - candidateCache.at) <= PRODUCT_CACHE_TTL_MS;
-          if (isFresh && candidateCache) {
-            setProducts(candidateCache.products);
-            setCategories(candidateCache.categories);
+          const isFresh = !!tenantCache && (Date.now() - tenantCache.at) <= PRODUCT_CACHE_TTL_MS;
+          if (isFresh && tenantCache) {
+            setProducts(tenantCache.products);
+            setCategories(tenantCache.categories);
             setWarningMessage("Viser senest gemte produkter, fordi backend-forbindelsen fejler midlertidigt.");
             setErrorMessage(null);
           } else {

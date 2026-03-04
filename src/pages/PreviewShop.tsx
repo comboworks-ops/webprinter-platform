@@ -120,6 +120,9 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
     const showStorformatTab = productsSection?.showStorformatTab ?? true;
     const featuredProductConfig = productsSection?.featuredProductConfig;
     const hasFeaturedProduct = featuredProductConfig?.enabled && featuredProductConfig?.productId;
+    const hiddenFeaturedProductIds = hasFeaturedProduct && featuredProductConfig?.showInProductList === false
+        ? [featuredProductConfig.productId as string]
+        : [];
     const featuredAboveCategories = (featuredProductConfig?.position || 'above') === 'above';
 
     // Generate CSS variables from branding
@@ -309,6 +312,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
                                     backgroundConfig={productBackgroundConfig}
                                     layoutStyle={productLayoutStyle}
                                     showCategoryTabs
+                                    hiddenProductIds={hiddenFeaturedProductIds}
                                 />
                             ) : (
                                 <StorefrontProductTabs
@@ -317,6 +321,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
                                     backgroundConfig={productBackgroundConfig}
                                     layoutStyle={productLayoutStyle}
                                     showCategoryTabs={false}
+                                    hiddenProductIds={hiddenFeaturedProductIds}
                                 />
                             )}
                             {hasFeaturedProduct && featuredProductConfig && !featuredAboveCategories && (

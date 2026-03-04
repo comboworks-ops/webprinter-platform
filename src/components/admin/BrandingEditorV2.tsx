@@ -1319,6 +1319,19 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                     />
                                                 </div>
                                             </div>
+                                            <div className="space-y-2">
+                                                <Label>Vis også i produktliste</Label>
+                                                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                                                    <span className="text-sm text-muted-foreground">
+                                                        Vis det fremhævede produkt igen i den normale produktliste
+                                                    </span>
+                                                    <Switch
+                                                        checked={featuredProductConfig.showInProductList ?? false}
+                                                        onCheckedChange={(checked) => updateFeaturedProductConfig({ showInProductList: checked })}
+                                                        disabled={!productsSection.enabled}
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
                                         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                                             <div className="space-y-2">

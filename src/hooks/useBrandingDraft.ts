@@ -499,6 +499,7 @@ export interface FeaturedSidePanelItem {
 export interface FeaturedProductConfig {
     enabled: boolean;
     productId?: string;
+    showInProductList?: boolean;
     quantityPresets?: number[];
     showOptions: boolean;
     showPrice: boolean;
@@ -560,6 +561,7 @@ export interface ForsideProductsSection {
 const DEFAULT_FEATURED_PRODUCT_CONFIG: FeaturedProductConfig = {
     enabled: false,
     productId: undefined,
+    showInProductList: false,
     quantityPresets: [200, 500, 1000, 2500, 5000],
     showOptions: true,
     showPrice: true,

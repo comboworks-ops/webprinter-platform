@@ -26,6 +26,7 @@ type StorefrontProductTabsProps = {
   };
   showCategoryTabs?: boolean;
   variant?: "default" | "glass";
+  hiddenProductIds?: string[];
 };
 
 export function StorefrontProductTabs({
@@ -35,13 +36,22 @@ export function StorefrontProductTabs({
   backgroundConfig,
   showCategoryTabs = true,
   variant = "default",
+  hiddenProductIds = [],
 }: StorefrontProductTabsProps) {
   const { products, categories, loading, errorMessage, warningMessage } = useStorefrontCatalog();
+  const hiddenProductIdSet = useMemo(() => new Set(hiddenProductIds.filter(Boolean)), [hiddenProductIds]);
+  const visibleProducts = useMemo(() => {
+    if (!hiddenProductIdSet.size) return products;
+    return products.filter((product) => !hiddenProductIdSet.has(product.id));
+  }, [products, hiddenProductIdSet]);
 
   const visibleCategories = useMemo(() => {
-    if (categories.length > 0) return categories;
+    const categoriesWithProducts = categories.filter((category) =>
+      visibleProducts.some((product) => product.categoryKey === category.key)
+    );
+    if (categoriesWithProducts.length > 0) return categoriesWithProducts;
     return [{ key: "tryksager", label: "Tryksager", sortOrder: 0 }];
-  }, [categories]);
+  }, [categories, visibleProducts]);
 
   const [selectedCategory, setSelectedCategory] = useState<string>(visibleCategories[0]?.key || "tryksager");
 
@@ -58,7 +68,7 @@ export function StorefrontProductTabs({
   const firstCategory = visibleCategories[0]?.key || "tryksager";
   const tabsValue = selectedCategory || firstCategory;
   const gridProps = {
-    products,
+    products: visibleProducts,
     loadingOverride: loading,
     errorMessageOverride: errorMessage,
     warningMessageOverride: warningMessage,
