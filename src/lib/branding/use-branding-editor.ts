@@ -56,7 +56,7 @@ export interface UseBrandingEditorReturn {
     // Saved Designs (user-named snapshots)
     savedDesigns: SavedDesign[];
     loadSavedDesigns: () => Promise<void>;
-    saveDesign: (name?: string) => Promise<void>;
+    saveDesign: (name?: string, overwriteId?: string) => Promise<void>;
     loadDesign: (id: string) => Promise<void>;
     deleteSavedDesign: (id: string) => Promise<void>;
 
@@ -300,13 +300,13 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
     }, [adapter]);
 
     // Save design (user-named)
-    const saveDesign = useCallback(async (name?: string) => {
+    const saveDesign = useCallback(async (name?: string, overwriteId?: string) => {
         setIsSaving(true);
         try {
             // If name provided, save as new design
-            if (name) {
-                await adapter.saveDesign(name, draft);
-                toast.success('Design gemt');
+            if (name || overwriteId) {
+                await adapter.saveDesign(name || '', draft, false, overwriteId);
+                toast.success(overwriteId ? 'Design overskrevet' : 'Design gemt');
                 await loadSavedDesigns(); // Refresh list
             } else {
                 // If no name, just save current draft state (standard save)

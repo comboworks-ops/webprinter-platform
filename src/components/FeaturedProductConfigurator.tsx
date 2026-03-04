@@ -225,7 +225,33 @@ export function FeaturedProductConfigurator({
     const sidePanelEnabled = Boolean(sidePanel?.enabled);
     const productFirst = (config.productSide || "left") === "left";
     const cardRadius = config.borderRadiusPx ?? 24;
+    const boxScale = Math.min(Math.max((config.boxScalePct ?? 80) / 100, 0.6), 1.4);
+    const imageScale = Math.min(Math.max((config.imageScalePct ?? 100) / 100, 0.6), 1.4);
+    const featuredBoxMinHeightPx = Math.round(420 * boxScale);
+    const featuredBoxPaddingPx = 24;
+    const featuredBoxGapPx = 24;
+    const featuredMediaHeightPx = Math.round(192 * boxScale);
     const sidePanelRadius = sidePanel?.borderRadiusPx ?? cardRadius;
+    const sidePanelScale = Math.min(
+        Math.max((sidePanel?.boxScalePct ?? 80) / 100, 0.6),
+        1.4
+    );
+    const sidePanelImageScale = Math.min(
+        Math.max((sidePanel?.imageScalePct ?? 100) / 100, 0.6),
+        1.4
+    );
+    const sidePanelMinHeightPx = Math.round(420 * sidePanelScale);
+    const sidePanelPaddingPx = 20;
+    const sidePanelGapPx = 12;
+    const sidePanelMediaHeightPx = Math.round(192 * sidePanelScale);
+    const featuredCardStyle = {
+        borderRadius: `${cardRadius}px`,
+        minHeight: `${featuredBoxMinHeightPx}px`,
+    };
+    const sidePanelCardStyle = {
+        borderRadius: `${sidePanelRadius}px`,
+        minHeight: `${sidePanelMinHeightPx}px`,
+    };
     const sideBannerImages = useMemo(() => {
         const uploadedImages = (sidePanel?.images || []).filter(Boolean);
         if (sidePanel?.imageUrl && !uploadedImages.includes(sidePanel.imageUrl)) {
@@ -1000,27 +1026,35 @@ export function FeaturedProductConfigurator({
     };
     const sideBannerHref = getHref(sidePanel?.ctaHref);
     const activeSideBannerImage = sideBannerImages[sideBannerIndex] || sidePanel?.imageUrl || null;
+    const sharedOffsetStyle = config.position === "above" && config.overlapPx
+        ? { marginTop: `-${config.overlapPx}px` }
+        : undefined;
 
     const productBlock = (
         <div
             className={cn(
-                "relative overflow-hidden h-full border",
+                "relative overflow-hidden h-full w-full flex-1 border",
                 isShadowless
                     ? "bg-card shadow-none"
                     : "bg-card shadow-sm"
             )}
-            style={{
-                marginTop: config.position === "above" && config.overlapPx ? `-${config.overlapPx}px` : undefined,
-                borderRadius: `${cardRadius}px`,
-            }}
+            style={featuredCardStyle}
         >
-            <div className={cn("flex h-full flex-col lg:flex-row", config.imageMode === "full" ? "gap-0" : "gap-6 p-6")}>
+            <div
+                className={cn("flex h-full flex-col lg:flex-row")}
+                style={config.imageMode === "full"
+                    ? undefined
+                    : {
+                        gap: `${featuredBoxGapPx}px`,
+                        padding: `${featuredBoxPaddingPx}px`,
+                    }}
+            >
                 <div
                     className={cn(
                         "flex-shrink-0",
                         config.imageMode === "full"
                             ? "relative min-h-[280px] lg:min-h-[100%] lg:w-[40%]"
-                            : "lg:w-2/5"
+                            : "flex items-center justify-center lg:w-2/5"
                     )}
                 >
                     <img
@@ -1029,9 +1063,16 @@ export function FeaturedProductConfigurator({
                         className={cn(
                             config.imageMode === "full"
                                 ? "absolute inset-0 h-full w-full object-cover"
-                                : "w-full h-48 lg:h-full object-contain rounded-lg"
+                                : "w-full object-contain rounded-lg lg:h-full"
                         )}
-                        style={config.imageMode === "full" ? undefined : { borderRadius: `${Math.max(cardRadius - 8, 8)}px` }}
+                        style={config.imageMode === "full"
+                            ? undefined
+                            : {
+                                height: `${featuredMediaHeightPx}px`,
+                                borderRadius: `${Math.max(cardRadius - 8, 8)}px`,
+                                transform: `scale(${imageScale})`,
+                                transformOrigin: "center center",
+                            }}
                     />
                 </div>
 
@@ -1246,14 +1287,22 @@ export function FeaturedProductConfigurator({
             activeSidePanelItem?.mode === "product" && activeSideProduct ? (
                 <div
                     className="border bg-card overflow-hidden h-full shadow-sm"
-                    style={{ borderRadius: `${sidePanelRadius}px` }}
+                    style={sidePanelCardStyle}
                 >
                     <img
                         src={getProductImage(activeSideProduct.slug, activeSideProduct.image_url)}
                         alt={activeSideProduct.name}
-                        className="h-48 w-full object-cover"
+                        className="w-full object-cover"
+                        style={{
+                            height: `${sidePanelMediaHeightPx}px`,
+                            transform: `scale(${sidePanelImageScale})`,
+                            transformOrigin: "center center",
+                        }}
                     />
-                    <div className="p-5 flex flex-col gap-3">
+                    <div
+                        className="flex flex-col"
+                        style={{ padding: `${sidePanelPaddingPx}px`, gap: `${sidePanelGapPx}px` }}
+                    >
                         <h4 className="text-xl font-semibold">{activeSideProduct.name}</h4>
                         {activeSideProduct.description && (
                             <p className="text-sm text-muted-foreground line-clamp-3">
@@ -1311,13 +1360,17 @@ export function FeaturedProductConfigurator({
             ) : (
                 <div
                     className="relative overflow-hidden min-h-[320px] border h-full shadow-sm"
-                    style={{ borderRadius: `${sidePanelRadius}px` }}
+                    style={sidePanelCardStyle}
                 >
                     {sideBannerImage ? (
                         <img
                             src={sideBannerImage}
                             alt={sideBannerTitle || "Kampagnebanner"}
                             className="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
+                            style={{
+                                transform: `scale(${sidePanelImageScale})`,
+                                transformOrigin: "center center",
+                            }}
                         />
                     ) : (
                         <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-950" />
@@ -1330,7 +1383,10 @@ export function FeaturedProductConfigurator({
                                 : "rgba(0, 0, 0, 0.35)",
                         }}
                     />
-                    <div className="relative z-10 flex h-full flex-col justify-end gap-3 p-6">
+                    <div
+                        className="relative z-10 flex h-full flex-col justify-start items-start"
+                        style={{ gap: `${sidePanelGapPx}px`, padding: `${sidePanelPaddingPx}px` }}
+                    >
                         {sideBannerTitle && (
                             <h4
                                 className={cn("text-3xl font-bold", getBannerTextAnimationClass(sidePanel?.textAnimation))}
@@ -1385,14 +1441,22 @@ export function FeaturedProductConfigurator({
             sidePanel?.mode === "product" && activeSideProduct ? (
                 <div
                     className="border bg-card overflow-hidden h-full shadow-sm"
-                    style={{ borderRadius: `${sidePanelRadius}px` }}
+                    style={sidePanelCardStyle}
                 >
                     <img
                         src={getProductImage(activeSideProduct.slug, activeSideProduct.image_url)}
                         alt={activeSideProduct.name}
-                        className="h-48 w-full object-cover"
+                        className="w-full object-cover"
+                        style={{
+                            height: `${sidePanelMediaHeightPx}px`,
+                            transform: `scale(${sidePanelImageScale})`,
+                            transformOrigin: "center center",
+                        }}
                     />
-                    <div className="p-5 flex flex-col gap-3">
+                    <div
+                        className="flex flex-col"
+                        style={{ padding: `${sidePanelPaddingPx}px`, gap: `${sidePanelGapPx}px` }}
+                    >
                         <h4 className="text-xl font-semibold">{activeSideProduct.name}</h4>
                         {activeSideProduct.description && (
                             <p className="text-sm text-muted-foreground line-clamp-3">
@@ -1450,13 +1514,17 @@ export function FeaturedProductConfigurator({
             ) : (
                 <div
                     className="relative overflow-hidden min-h-[320px] border h-full shadow-sm"
-                    style={{ borderRadius: `${sidePanelRadius}px` }}
+                    style={sidePanelCardStyle}
                 >
                     {activeSideBannerImage ? (
                         <img
                             src={activeSideBannerImage}
                             alt={sidePanel.title || "Kampagnebanner"}
                             className="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
+                            style={{
+                                transform: `scale(${sidePanelImageScale})`,
+                                transformOrigin: "center center",
+                            }}
                         />
                     ) : (
                         <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-950" />
@@ -1469,7 +1537,10 @@ export function FeaturedProductConfigurator({
                                 : "rgba(0, 0, 0, 0.35)",
                         }}
                     />
-                    <div className="relative z-10 flex h-full flex-col justify-end gap-3 p-6">
+                    <div
+                        className="relative z-10 flex h-full flex-col justify-start items-start"
+                        style={{ gap: `${sidePanelGapPx}px`, padding: `${sidePanelPaddingPx}px` }}
+                    >
                         {sidePanel?.title && (
                             <h4
                                 className={cn("text-3xl font-bold", getBannerTextAnimationClass(sidePanel.textAnimation))}
@@ -1524,7 +1595,10 @@ export function FeaturedProductConfigurator({
     );
 
     const sidePanelBlock = sidePanelEnabled && sidePanelContent ? (
-        <div className="space-y-2">
+        <div className="flex h-full w-full min-w-0 flex-col gap-3">
+            <div className="flex-1">
+                {sidePanelContent}
+            </div>
             {hasSidePanelCarousel && sidePanelCarouselItems.length > 1 && (
                 <div className="flex flex-wrap gap-2">
                     {sidePanelCarouselItems.map((item, index) => (
@@ -1544,19 +1618,40 @@ export function FeaturedProductConfigurator({
                     ))}
                 </div>
             )}
-            {sidePanelContent}
         </div>
     ) : null;
 
     return (
         <div className={cn(className)}>
-            <div className={cn("grid gap-6", sidePanelEnabled ? "lg:grid-cols-12" : "")}>
-                <div className={cn(sidePanelEnabled ? "lg:col-span-8" : "", productFirst ? "order-1" : "order-2 lg:order-2")}>
-                    {productBlock}
+            <div
+                className={cn(
+                    "grid",
+                    sidePanelEnabled
+                        ? "items-stretch gap-4 lg:grid-cols-[minmax(0,1fr)_360px]"
+                        : "gap-6"
+                )}
+                style={sharedOffsetStyle}
+            >
+                <div
+                    className={cn(
+                        "flex h-full w-full",
+                        productFirst ? "order-1" : "order-2 lg:order-2"
+                    )}
+                >
+                    <div className="flex h-full min-w-0 w-full">
+                        {productBlock}
+                    </div>
                 </div>
                 {sidePanelBlock && (
-                    <div className={cn("lg:col-span-4", productFirst ? "order-2" : "order-1 lg:order-1")}>
-                        {sidePanelBlock}
+                    <div
+                        className={cn(
+                            "flex h-full w-full",
+                            productFirst ? "order-2" : "order-1 lg:order-1"
+                        )}
+                    >
+                        <div className="flex h-full min-w-0 w-full">
+                            {sidePanelBlock}
+                        </div>
                     </div>
                 )}
             </div>

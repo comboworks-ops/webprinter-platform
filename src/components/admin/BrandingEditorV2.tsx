@@ -192,6 +192,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
     const [publishLabel, setPublishLabel] = useState("");
     const [showSaveDesignDialog, setShowSaveDesignDialog] = useState(false);
     const [saveDesignName, setSaveDesignName] = useState("");
+    const [overwriteDesignId, setOverwriteDesignId] = useState("none");
     const [showSavedDesignsDialog, setShowSavedDesignsDialog] = useState(false);
     const [showResetDialog, setShowResetDialog] = useState(false);
 
@@ -486,6 +487,23 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
         }
         await editor.saveDesign(saveDesignName);
         setSaveDesignName("");
+        setOverwriteDesignId("none");
+        setShowSaveDesignDialog(false);
+    };
+
+    const handleOverwriteDesign = async () => {
+        if (overwriteDesignId === "none") {
+            toast.error("Vælg et eksisterende design at overskrive");
+            return;
+        }
+        const existingDesign = editor.savedDesigns.find((design) => design.id === overwriteDesignId);
+        if (!existingDesign) {
+            toast.error("Kunne ikke finde det valgte design");
+            return;
+        }
+        await editor.saveDesign(existingDesign.name, overwriteDesignId);
+        setSaveDesignName("");
+        setOverwriteDesignId("none");
         setShowSaveDesignDialog(false);
     };
 
@@ -756,7 +774,9 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                     quantityPresets: [200, 500, 1000, 2500, 5000],
                     showOptions: true,
                     showPrice: true,
-                    overlapPx: 60,
+                    overlapPx: 45,
+                    boxScalePct: 80,
+                    imageScalePct: 100,
                     borderRadiusPx: 24,
                     position: 'above',
                     productSide: 'left',
@@ -772,6 +792,8 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                         images: [],
                         slideshowIntervalMs: 6000,
                         borderRadiusPx: 24,
+                        boxScalePct: 80,
+                        imageScalePct: 100,
                         title: 'Fremhæv din kampagne',
                         subtitle: 'Brug denne flade til CTA, billede og ekstra budskab ved siden af det fremhævede produkt.',
                         textAnimation: 'slide-up',
@@ -1380,7 +1402,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                 />
                                             </div>
                                         </div>
-                                        <div className="grid gap-3 md:grid-cols-2">
+                                        <div className="grid gap-3 md:grid-cols-3">
                                             <div className="space-y-2">
                                                 <div className="flex items-center justify-between">
                                                     <Label>Runding på produktboks</Label>
@@ -1410,6 +1432,40 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                     min={0}
                                                     max={48}
                                                     step={2}
+                                                    className="py-1"
+                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <div className="flex items-center justify-between">
+                                                    <Label>Størrelse på sidepanel</Label>
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {featuredProductConfig.sidePanel?.boxScalePct ?? 80}%
+                                                    </span>
+                                                </div>
+                                                <Slider
+                                                    value={[featuredProductConfig.sidePanel?.boxScalePct ?? 80]}
+                                                    onValueChange={([value]) => updateFeaturedSidePanel({ boxScalePct: value })}
+                                                    min={60}
+                                                    max={140}
+                                                    step={5}
+                                                    className="py-1"
+                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <div className="flex items-center justify-between">
+                                                    <Label>Størrelse på sidepanel-billede</Label>
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {featuredProductConfig.sidePanel?.imageScalePct ?? 100}%
+                                                    </span>
+                                                </div>
+                                                <Slider
+                                                    value={[featuredProductConfig.sidePanel?.imageScalePct ?? 100]}
+                                                    onValueChange={([value]) => updateFeaturedSidePanel({ imageScalePct: value })}
+                                                    min={60}
+                                                    max={140}
+                                                    step={5}
                                                     className="py-1"
                                                     disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
                                                 />
@@ -1454,13 +1510,13 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                 </div>
                                             )}
                                         </div>
-                                        <div className="space-y-2">
-                                            <div className="flex items-center justify-between">
-                                                <Label>Overlap mod banner</Label>
-                                                <span className="text-xs text-muted-foreground">
-                                                    {featuredProductConfig.overlapPx || 0}px
-                                                </span>
-                                            </div>
+                                            <div className="space-y-2">
+                                                <div className="flex items-center justify-between">
+                                                    <Label>Margin til banner</Label>
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {featuredProductConfig.overlapPx || 0}px
+                                                    </span>
+                                                </div>
                                             <Slider
                                                 value={[featuredProductConfig.overlapPx || 0]}
                                                 onValueChange={([value]) => updateFeaturedProductConfig({ overlapPx: value })}
@@ -1469,6 +1525,44 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                 step={5}
                                                 className="py-1"
                                             />
+                                        </div>
+                                        <div className="space-y-2">
+                                                <div className="flex items-center justify-between">
+                                                    <Label>Størrelse på fremhævet boks</Label>
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {featuredProductConfig.boxScalePct ?? 80}%
+                                                    </span>
+                                                </div>
+                                            <Slider
+                                                value={[featuredProductConfig.boxScalePct ?? 80]}
+                                                onValueChange={([value]) => updateFeaturedProductConfig({ boxScalePct: value })}
+                                                min={60}
+                                                max={140}
+                                                step={5}
+                                                className="py-1"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                                <div className="flex items-center justify-between">
+                                                    <Label>Størrelse på billede</Label>
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {featuredProductConfig.imageScalePct ?? 100}%
+                                                    </span>
+                                                </div>
+                                            <Slider
+                                                value={[featuredProductConfig.imageScalePct ?? 100]}
+                                                onValueChange={([value]) => updateFeaturedProductConfig({ imageScalePct: value })}
+                                                min={60}
+                                                max={140}
+                                                step={5}
+                                                className="py-1"
+                                                disabled={(featuredProductConfig.imageMode || 'contain') === 'full'}
+                                            />
+                                            {(featuredProductConfig.imageMode || 'contain') === 'full' && (
+                                                <p className="text-xs text-muted-foreground">
+                                                    Virker kun når billedet vises som venstrestillet billede og ikke som fuld flade.
+                                                </p>
+                                            )}
                                         </div>
                                         <div className="grid gap-3 md:grid-cols-2">
                                             <ColorPickerWithSwatches
@@ -2168,7 +2262,12 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                             <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => setShowSaveDesignDialog(true)}
+                                onClick={() => {
+                                    editor.loadSavedDesigns();
+                                    setSaveDesignName("");
+                                    setOverwriteDesignId("none");
+                                    setShowSaveDesignDialog(true);
+                                }}
                                 disabled={editor.isSaving}
                                 className="gap-2"
                             >
@@ -2323,7 +2422,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                     <DialogHeader>
                         <DialogTitle>Gem design</DialogTitle>
                         <DialogDescription>
-                            Giv dit nuværende design et navn for at gemme det.
+                            Du kan enten gemme som nyt design eller overskrive et eksisterende.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
@@ -2337,11 +2436,33 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                 autoFocus
                             />
                         </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="overwrite-design">Overskriv eksisterende design</Label>
+                            <Select value={overwriteDesignId} onValueChange={setOverwriteDesignId}>
+                                <SelectTrigger id="overwrite-design">
+                                    <SelectValue placeholder="Vælg design" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">Vælg design</SelectItem>
+                                    {editor.savedDesigns.map((design) => (
+                                        <SelectItem key={design.id} value={design.id}>
+                                            {design.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">
+                                Overskriv bruger det valgte designnavn og erstatter indholdet med din nuværende kladde.
+                            </p>
+                        </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setShowSaveDesignDialog(false)}>Annuller</Button>
                         <Button onClick={handleSaveDesign} disabled={!saveDesignName.trim() || editor.isSaving}>
-                            Gem
+                            Gem som ny
+                        </Button>
+                        <Button onClick={handleOverwriteDesign} disabled={overwriteDesignId === "none" || editor.isSaving}>
+                            Overskriv
                         </Button>
                     </DialogFooter>
                 </DialogContent>

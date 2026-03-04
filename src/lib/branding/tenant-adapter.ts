@@ -255,7 +255,7 @@ export function createTenantAdapter(
 
         // Saved Designs methods
 
-        async saveDesign(name: string, data: BrandingData, isAutoSave?: boolean): Promise<SavedDesign> {
+        async saveDesign(name: string, data: BrandingData, isAutoSave?: boolean, overwriteId?: string): Promise<SavedDesign> {
             const { data: current, error: fetchError } = await supabase
                 .from('tenants' as any)
                 .select('settings')
@@ -268,9 +268,13 @@ export function createTenantAdapter(
             const currentBranding = currentSettings.branding || {};
             const savedDesigns = currentBranding.savedDesigns || [];
 
+            const existingDesign = overwriteId
+                ? savedDesigns.find((design: SavedDesign) => design.id === overwriteId)
+                : undefined;
+
             const newDesign: SavedDesign = {
-                id: `design-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                name: name || `Design ${new Date().toLocaleDateString('da-DK')}`,
+                id: existingDesign?.id || `design-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                name: name || existingDesign?.name || `Design ${new Date().toLocaleDateString('da-DK')}`,
                 data: data,
                 createdAt: new Date().toISOString(),
                 isAutoSave: isAutoSave || false,
@@ -280,7 +284,10 @@ export function createTenantAdapter(
                 ...currentSettings,
                 branding: {
                     ...currentBranding,
-                    savedDesigns: [newDesign, ...savedDesigns].slice(0, 20), // Keep last 20
+                    savedDesigns: [
+                        newDesign,
+                        ...savedDesigns.filter((design: SavedDesign) => design.id !== newDesign.id),
+                    ].slice(0, 20), // Keep last 20
                 }
             };
 

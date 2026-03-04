@@ -36,8 +36,8 @@ const Shop = () => {
                     className="py-16"
                     id="produkter"
                     style={{
-                        paddingTop: hasFeaturedProduct && featuredAboveCategories && featuredProductConfig?.overlapPx
-                            ? `${64 + featuredProductConfig.overlapPx}px`
+                        paddingTop: hasFeaturedProduct && featuredAboveCategories
+                            ? "64px"
                             : undefined,
                     }}
                 >

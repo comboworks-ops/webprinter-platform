@@ -287,15 +287,15 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
 
                 {/* Products Section - MATCHES Shop.tsx */}
                 {showProducts && (
-                    <section
-                        className="py-16"
-                        id="produkter"
-                        style={{
-                            paddingTop: hasFeaturedProduct && featuredAboveCategories && featuredProductConfig?.overlapPx
-                                ? `${64 + featuredProductConfig.overlapPx}px`
-                                : undefined,
-                        }}
-                    >
+                <section
+                    className="py-16"
+                    id="produkter"
+                    style={{
+                        paddingTop: hasFeaturedProduct && featuredAboveCategories
+                            ? "64px"
+                            : undefined,
+                    }}
+                >
                         <div className="container mx-auto px-4">
                             {hasFeaturedProduct && featuredProductConfig && featuredAboveCategories && (
                                 <div className="mb-8 relative z-10">

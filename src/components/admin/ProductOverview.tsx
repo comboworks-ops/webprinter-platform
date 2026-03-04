@@ -40,6 +40,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ProductCloneDialog } from "./ProductCloneDialog";
+import { AdminInlineHelp } from "./AdminInlineHelp";
 
 type Product = {
   id: string;
@@ -1732,7 +1733,9 @@ export function ProductOverview() {
                                 </div>
                               </TooltipTrigger>
                               <TooltipContent>
-                                {product.is_published ? "Publiceret" : "Ikke publiceret"}
+                                {product.is_published
+                                  ? "Produktet er synligt i webshoppen."
+                                  : "Produktet er skjult i webshoppen. Priser og opsætning bevares."}
                               </TooltipContent>
                             </Tooltip>
 
@@ -1817,9 +1820,12 @@ export function ProductOverview() {
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <div className="flex items-center justify-between">
-                                    <span className="text-xs font-medium text-blue-600">
-                                      {product.is_available_to_tenants ? "Frigivet" : "Privat"}
-                                    </span>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-xs font-medium text-blue-600">
+                                        {product.is_available_to_tenants ? "Frigivet" : "Privat"}
+                                      </span>
+                                      <AdminInlineHelp content="Gør masterproduktet tilgængeligt for deling til andre lejere. Det påvirker ikke om produktet vises i webshoppen." />
+                                    </div>
                                     <Switch
                                       className="data-[state=checked]:bg-blue-600 scale-90"
                                       checked={!!product.is_available_to_tenants}
@@ -2006,18 +2012,23 @@ export function ProductOverview() {
             />
 
             <div className="border rounded-lg border-input/60 bg-background/80 p-3 space-y-2">
-              <p className="text-sm font-semibold">Leverings-type</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-semibold">Leverings-type</p>
+                <AdminInlineHelp content="Standard pris opretter en uafhængig kopi direkte i lejerens Produkter. POD-pris sender produktet til System Updates som en master-styret import." />
+              </div>
               <div className="flex flex-wrap gap-2">
                 {DELIVERY_MODES.map((mode) => (
-                  <Button
-                    key={mode.id}
-                    variant={deliveryMode === mode.id ? "secondary" : "outline"}
-                    size="sm"
-                    onClick={() => setDeliveryMode(mode.id)}
-                    className="gap-2 rounded-lg"
-                  >
-                    <span className="text-xs font-semibold leading-none">{mode.label}</span>
-                  </Button>
+                  <div key={mode.id} className="flex items-center gap-1">
+                    <Button
+                      variant={deliveryMode === mode.id ? "secondary" : "outline"}
+                      size="sm"
+                      onClick={() => setDeliveryMode(mode.id)}
+                      className="gap-2 rounded-lg"
+                    >
+                      <span className="text-xs font-semibold leading-none">{mode.label}</span>
+                    </Button>
+                    <AdminInlineHelp content={mode.description} />
+                  </div>
                 ))}
               </div>
               <p className="text-xs text-muted-foreground">

@@ -64,6 +64,7 @@ import { cn } from "@/lib/utils";
 import { PricePreviewTable } from "@/components/admin/pricing-hub/PricePreviewTable";
 import { PublishDialog } from "@/components/admin/pricing-hub/PublishDialog";
 import { PriceMatrixBuilder } from "@/components/admin/pricing-hub/PriceMatrixBuilder";
+import { AdminInlineHelp } from "@/components/admin/AdminInlineHelp";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function PricingHub() {
@@ -773,6 +774,7 @@ A4,120g Gloss,,100,169.00`;
                                                         <Send className="h-4 w-4 mr-2" />
                                                         Udgiv til produkt
                                                     </Button>
+                                                    <AdminInlineHelp content="Skriver prisdata og mapping ind i produktet. Det gør ikke produktet synligt i webshoppen; det styres af Publiceret i Produktoversigt." className="self-center" />
                                                     <Button onClick={exportAsCSV} className="bg-green-600 hover:bg-green-700">
                                                         <Download className="h-4 w-4 mr-2" />
                                                         Download prisliste (CSV)

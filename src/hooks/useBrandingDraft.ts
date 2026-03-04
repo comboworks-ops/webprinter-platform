@@ -504,6 +504,8 @@ export interface FeaturedProductConfig {
     showOptions: boolean;
     showPrice: boolean;
     overlapPx: number;
+    boxScalePct?: number;
+    imageScalePct?: number;
     borderRadiusPx?: number;
     position?: 'above' | 'below';
     productSide?: 'left' | 'right';
@@ -520,6 +522,8 @@ export interface FeaturedProductConfig {
         images?: string[];
         slideshowIntervalMs?: number;
         borderRadiusPx?: number;
+        boxScalePct?: number;
+        imageScalePct?: number;
         title?: string;
         subtitle?: string;
         textAnimation?: HeroTextAnimation;
@@ -565,7 +569,9 @@ const DEFAULT_FEATURED_PRODUCT_CONFIG: FeaturedProductConfig = {
     quantityPresets: [200, 500, 1000, 2500, 5000],
     showOptions: true,
     showPrice: true,
-    overlapPx: 60,
+    overlapPx: 45,
+    boxScalePct: 80,
+    imageScalePct: 100,
     borderRadiusPx: 24,
     position: 'above',
     productSide: 'left',
@@ -582,6 +588,8 @@ const DEFAULT_FEATURED_PRODUCT_CONFIG: FeaturedProductConfig = {
         images: [],
         slideshowIntervalMs: 6000,
         borderRadiusPx: 24,
+        boxScalePct: 80,
+        imageScalePct: 100,
         title: 'Fremhæv din kampagne',
         subtitle: 'Brug denne flade til CTA, billede og ekstra budskab ved siden af det fremhævede produkt.',
         textAnimation: 'slide-up',

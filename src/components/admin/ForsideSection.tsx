@@ -96,7 +96,9 @@ export function ForsideSection({
         quantityPresets: [200, 500, 1000, 2500, 5000],
         showOptions: true,
         showPrice: true,
-        overlapPx: 60,
+        overlapPx: 45,
+        boxScalePct: 80,
+        imageScalePct: 100,
         cardStyle: 'default',
         ctaLabel: 'Bestil nu',
         ctaColor: '#0EA5E9',
@@ -682,13 +684,41 @@ export function ForsideSection({
                         </div>
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                                <Label>Overlap mod banner</Label>
+                                <Label>Margin til banner</Label>
                                 <span className="text-xs text-muted-foreground">{featuredProductConfig.overlapPx || 0}px</span>
                             </div>
                             <Slider
                                 value={[featuredProductConfig.overlapPx || 0]}
                                 onValueChange={([value]) => updateFeaturedProductConfig({ overlapPx: value })}
                                 min={0}
+                                max={140}
+                                step={5}
+                                className="py-1"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <Label>Størrelse på fremhævet boks</Label>
+                                <span className="text-xs text-muted-foreground">{featuredProductConfig.boxScalePct ?? 80}%</span>
+                            </div>
+                            <Slider
+                                value={[featuredProductConfig.boxScalePct ?? 80]}
+                                onValueChange={([value]) => updateFeaturedProductConfig({ boxScalePct: value })}
+                                min={60}
+                                max={140}
+                                step={5}
+                                className="py-1"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <Label>Størrelse på billede</Label>
+                                <span className="text-xs text-muted-foreground">{featuredProductConfig.imageScalePct ?? 100}%</span>
+                            </div>
+                            <Slider
+                                value={[featuredProductConfig.imageScalePct ?? 100]}
+                                onValueChange={([value]) => updateFeaturedProductConfig({ imageScalePct: value })}
+                                min={60}
                                 max={140}
                                 step={5}
                                 className="py-1"

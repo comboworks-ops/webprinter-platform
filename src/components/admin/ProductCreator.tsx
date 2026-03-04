@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Plus, Loader2, ArrowLeft, Check, Globe, ChevronDown } from "lucide-react";
 import { resolveAdminTenant } from "@/lib/adminTenant";
 import { ProductPresetSelector, PresetKey } from "./ProductPresetSelector";
+import { AdminInlineHelp } from "./AdminInlineHelp";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 
@@ -400,7 +401,10 @@ export function ProductCreator() {
                             </div>
                             <div className="flex items-center justify-between">
                               <div className="space-y-0.5">
-                                <Label htmlFor="category-published">Vis på frontend</Label>
+                                <div className="flex items-center gap-1.5">
+                                  <Label htmlFor="category-published">Vis på frontend</Label>
+                                  <AdminInlineHelp content="Kategorien må vises i webshoppen. Produkterne i kategorien skal stadig være publiceret enkeltvis for at blive synlige." />
+                                </div>
                                 <p className="text-xs text-muted-foreground">Gør kategorien synlig i butikken</p>
                               </div>
                               <Switch

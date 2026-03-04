@@ -156,8 +156,8 @@ export interface BrandingStorageAdapter {
 
     // Saved Designs (user-named snapshots)
 
-    /** Save current draft as a named design */
-    saveDesign(name: string, data: BrandingData, isAutoSave?: boolean): Promise<SavedDesign>;
+    /** Save current draft as a named design (optionally overwrite an existing design by id) */
+    saveDesign(name: string, data: BrandingData, isAutoSave?: boolean, overwriteId?: string): Promise<SavedDesign>;
 
     /** Load all saved designs */
     loadSavedDesigns(): Promise<SavedDesign[]>;
