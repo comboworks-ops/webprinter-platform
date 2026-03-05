@@ -33,6 +33,7 @@ import {
   resolveThumbnailSizePx,
   type ThumbnailSizeMode
 } from "@/lib/pricing/thumbnailSizes";
+import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
 
 type StorformatManagerProps = {
   productId: string;
@@ -2286,7 +2287,12 @@ export function StorformatManager({
                               >
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
                                   {thumbnailUrl && (
-                                    <img src={thumbnailUrl} className="w-7 h-7 rounded object-cover" />
+                                    <img
+                                      src={getHiResThumbnailUrl(thumbnailUrl, 28, 28)}
+                                      className="w-7 h-7 rounded object-cover"
+                                      loading="lazy"
+                                      decoding="async"
+                                    />
                                   )}
                                   <div className="min-w-0">
                                     <div className="text-sm font-medium truncate">{material.name}</div>
@@ -2619,7 +2625,12 @@ export function StorformatManager({
                               >
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
                                   {thumbnailUrl && (
-                                    <img src={thumbnailUrl} className="w-7 h-7 rounded object-cover" />
+                                    <img
+                                      src={getHiResThumbnailUrl(thumbnailUrl, 28, 28)}
+                                      className="w-7 h-7 rounded object-cover"
+                                      loading="lazy"
+                                      decoding="async"
+                                    />
                                   )}
                                   <div className="min-w-0">
                                     <div className="text-sm font-medium truncate">{finish.name}</div>
@@ -2989,7 +3000,12 @@ export function StorformatManager({
                               >
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
                                   {thumbnailUrl && (
-                                    <img src={thumbnailUrl} className="w-7 h-7 rounded object-cover" />
+                                    <img
+                                      src={getHiResThumbnailUrl(thumbnailUrl, 28, 28)}
+                                      className="w-7 h-7 rounded object-cover"
+                                      loading="lazy"
+                                      decoding="async"
+                                    />
                                   )}
                                   <div className="min-w-0">
                                     <div className="text-sm font-medium truncate">{productItem.name}</div>
@@ -3210,9 +3226,11 @@ export function StorformatManager({
                           <div className="flex items-center gap-2 truncate">
                             {settings?.showThumbnail && thumbnailUrl && (
                               <img
-                                src={thumbnailUrl}
+                                src={getHiResThumbnailUrl(thumbnailUrl, thumbPx, thumbPx)}
                                 className="rounded object-cover shrink-0"
                                 style={{ width: thumbPx, height: thumbPx }}
+                                loading="lazy"
+                                decoding="async"
                               />
                             )}
                             <span className="truncate">{displayName}</span>
@@ -3517,9 +3535,11 @@ export function StorformatManager({
                                     <div className="flex items-center gap-2 truncate">
                                       {settings?.showThumbnail && thumbnailUrl && (
                                         <img
-                                          src={thumbnailUrl}
+                                          src={getHiResThumbnailUrl(thumbnailUrl, thumbPx, thumbPx)}
                                           className="rounded object-cover shrink-0"
                                           style={{ width: thumbPx, height: thumbPx }}
+                                          loading="lazy"
+                                          decoding="async"
                                         />
                                       )}
                                       <span className="truncate">{displayName}</span>
@@ -3754,9 +3774,11 @@ export function StorformatManager({
                         >
                           {settings?.showThumbnail && thumbnailUrl && (
                             <img
-                              src={thumbnailUrl}
+                              src={getHiResThumbnailUrl(thumbnailUrl, materialThumbPx, materialThumbPx)}
                               className="rounded object-cover shrink-0 mr-2"
                               style={{ width: materialThumbPx, height: materialThumbPx }}
+                              loading="lazy"
+                              decoding="async"
                             />
                           )}
                           {displayName}
@@ -3848,9 +3870,11 @@ export function StorformatManager({
                                         <div className="flex items-center gap-2">
                                           {settings?.showThumbnail && thumbnailUrl && (
                                             <img
-                                              src={thumbnailUrl}
+                                              src={getHiResThumbnailUrl(thumbnailUrl, sectionThumbPx, sectionThumbPx)}
                                               className="rounded object-cover shrink-0"
                                               style={{ width: sectionThumbPx, height: sectionThumbPx }}
+                                              loading="lazy"
+                                              decoding="async"
                                             />
                                           )}
                                           {displayName}
@@ -3889,9 +3913,11 @@ export function StorformatManager({
                                       <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
                                       {settings?.showThumbnail && thumbnailUrl && (
                                         <img
-                                          src={thumbnailUrl}
+                                          src={getHiResThumbnailUrl(thumbnailUrl, sectionThumbPx, sectionThumbPx)}
                                           className="rounded object-cover shrink-0"
                                           style={{ width: sectionThumbPx, height: sectionThumbPx }}
+                                          loading="lazy"
+                                          decoding="async"
                                         />
                                       )}
                                       <span className="font-medium flex-1">{displayName}</span>
@@ -3942,10 +3968,12 @@ export function StorformatManager({
                                     >
                                       {thumbnailUrl ? (
                                         <img
-                                          src={thumbnailUrl}
+                                          src={getHiResThumbnailUrl(thumbnailUrl, pictureSize.width, pictureSize.height)}
                                           alt={displayName}
                                           className="w-full object-cover rounded-t-md"
                                           style={{ height: pictureSize.height }}
+                                          loading="lazy"
+                                          decoding="async"
                                         />
                                       ) : (
                                         <div
@@ -3994,9 +4022,11 @@ export function StorformatManager({
                                     >
                                       {settings?.showThumbnail && thumbnailUrl && (
                                         <img
-                                          src={thumbnailUrl}
+                                          src={getHiResThumbnailUrl(thumbnailUrl, sectionThumbPx, sectionThumbPx)}
                                             className="rounded object-cover shrink-0 mr-2"
                                             style={{ width: sectionThumbPx, height: sectionThumbPx }}
+                                            loading="lazy"
+                                            decoding="async"
                                           />
                                         )}
                                       {displayName}
@@ -4755,9 +4785,11 @@ export function StorformatManager({
                                 <div className="flex items-center gap-2">
                                   {settings?.showThumbnail && thumbnailUrl && (
                                     <img
-                                      src={thumbnailUrl}
+                                      src={getHiResThumbnailUrl(thumbnailUrl, verticalThumbPx, verticalThumbPx)}
                                       className="object-cover rounded shrink-0"
                                       style={{ width: verticalThumbPx, height: verticalThumbPx }}
+                                      loading="lazy"
+                                      decoding="async"
                                     />
                                   )}
                                   <span>{displayName}</span>

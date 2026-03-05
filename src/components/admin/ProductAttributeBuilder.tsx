@@ -38,6 +38,7 @@ import {
     resolveThumbnailSizePx,
     type ThumbnailSizeMode
 } from "@/lib/pricing/thumbnailSizes";
+import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
 
 // Size mode type
 type SizeMode = 'format' | 'free_size';
@@ -6583,7 +6584,11 @@ export function ProductAttributeBuilder({
                                                             >
                                                                 {settings?.showThumbnail && settings.customImage && (
                                                                     <img
-                                                                        src={settings.customImage}
+                                                                        src={getHiResThumbnailUrl(
+                                                                            settings.customImage,
+                                                                            verticalThumbPx,
+                                                                            verticalThumbPx
+                                                                        )}
                                                                         className="object-cover rounded shrink-0"
                                                                         style={{ width: verticalThumbPx, height: verticalThumbPx }}
                                                                     />
@@ -6716,7 +6721,11 @@ export function ProductAttributeBuilder({
                                                                                         <div className="flex items-center gap-2">
                                                                                             {settings?.showThumbnail && settings.customImage && (
                                                                                                 <img
-                                                                                                    src={settings.customImage}
+                                                                                                    src={getHiResThumbnailUrl(
+                                                                                                        settings.customImage,
+                                                                                                        sectionThumbPx,
+                                                                                                        sectionThumbPx
+                                                                                                    )}
                                                                                                     className="object-cover rounded shrink-0"
                                                                                                     style={{ width: sectionThumbPx, height: sectionThumbPx }}
                                                                                                 />
@@ -6740,7 +6749,11 @@ export function ProductAttributeBuilder({
                                                                                     <div className="flex items-center gap-2">
                                                                                         {settings?.showThumbnail && settings.customImage && (
                                                                                             <img
-                                                                                                src={settings.customImage}
+                                                                                                src={getHiResThumbnailUrl(
+                                                                                                    settings.customImage,
+                                                                                                    sectionThumbPx,
+                                                                                                    sectionThumbPx
+                                                                                                )}
                                                                                                 className="object-cover rounded shrink-0"
                                                                                                 style={{ width: sectionThumbPx, height: sectionThumbPx }}
                                                                                             />
@@ -6775,7 +6788,12 @@ export function ProductAttributeBuilder({
                                                                                     style={{ width: size.width, minHeight: size.height + (showPictureLabel ? 22 : 0) }}
                                                                                 >
                                                                                     {thumbUrl ? (
-                                                                                        <img src={thumbUrl} alt={displayName} className="w-full object-cover rounded-t-md" style={{ height: size.height }} />
+                                                                                        <img
+                                                                                            src={getHiResThumbnailUrl(thumbUrl, size.width, size.height)}
+                                                                                            alt={displayName}
+                                                                                            className="w-full object-cover rounded-t-md"
+                                                                                            style={{ height: size.height }}
+                                                                                        />
                                                                                     ) : (
                                                                                         <div
                                                                                             className={cn(
@@ -6816,7 +6834,11 @@ export function ProductAttributeBuilder({
                                                                                 >
                                                                                     {settings?.showThumbnail && settings.customImage && (
                                                                                         <img
-                                                                                            src={settings.customImage}
+                                                                                            src={getHiResThumbnailUrl(
+                                                                                                settings.customImage,
+                                                                                                sectionThumbPx,
+                                                                                                sectionThumbPx
+                                                                                            )}
                                                                                             className="object-cover rounded shrink-0"
                                                                                             style={{ width: sectionThumbPx, height: sectionThumbPx }}
                                                                                         />
@@ -7329,7 +7351,11 @@ export function ProductAttributeBuilder({
                                                                                             <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
                                                                                             {settings?.showThumbnail && settings.customImage && (
                                                                                                 <img
-                                                                                                    src={settings.customImage}
+                                                                                                    src={getHiResThumbnailUrl(
+                                                                                                        settings.customImage,
+                                                                                                        16,
+                                                                                                        16
+                                                                                                    )}
                                                                                                     className="object-cover rounded shrink-0"
                                                                                                     style={{ width: 16, height: 16 }}
                                                                                                 />
@@ -7372,7 +7398,12 @@ export function ProductAttributeBuilder({
                                                                                             style={{ width: size.width, minHeight: size.height + (showPictureLabel ? 22 : 0) }}
                                                                                         >
                                                                                             {thumbUrl ? (
-                                                                                                <img src={thumbUrl} alt={displayName} className="w-full object-cover rounded-t-md" style={{ height: size.height }} />
+                                                                                                <img
+                                                                                                    src={getHiResThumbnailUrl(thumbUrl, size.width, size.height)}
+                                                                                                    alt={displayName}
+                                                                                                    className="w-full object-cover rounded-t-md"
+                                                                                                    style={{ height: size.height }}
+                                                                                                />
                                                                                             ) : (
                                                                                                 <div
                                                                                                     className={cn(
@@ -7419,7 +7450,11 @@ export function ProductAttributeBuilder({
                                                                                     >
                                                                                         {settings?.showThumbnail && settings.customImage && (
                                                                                             <img
-                                                                                                src={settings.customImage}
+                                                                                                src={getHiResThumbnailUrl(
+                                                                                                    settings.customImage,
+                                                                                                    16,
+                                                                                                    16
+                                                                                                )}
                                                                                                 className="object-cover rounded shrink-0"
                                                                                                 style={{ width: 16, height: 16 }}
                                                                                             />
@@ -7557,7 +7592,11 @@ export function ProductAttributeBuilder({
                                                                                             <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
                                                                                             {settings?.showThumbnail && settings.customImage && (
                                                                                                 <img
-                                                                                                    src={settings.customImage}
+                                                                                                    src={getHiResThumbnailUrl(
+                                                                                                        settings.customImage,
+                                                                                                        16,
+                                                                                                        16
+                                                                                                    )}
                                                                                                     className="object-cover rounded shrink-0"
                                                                                                     style={{ width: 16, height: 16 }}
                                                                                                 />
@@ -7594,7 +7633,12 @@ export function ProductAttributeBuilder({
                                                                                             style={{ width: size.width, minHeight: size.height + (showPictureLabel ? 22 : 0) }}
                                                                                         >
                                                                                             {thumbUrl ? (
-                                                                                                <img src={thumbUrl} alt={displayName} className="w-full object-cover rounded-t-md" style={{ height: size.height }} />
+                                                                                                <img
+                                                                                                    src={getHiResThumbnailUrl(thumbUrl, size.width, size.height)}
+                                                                                                    alt={displayName}
+                                                                                                    className="w-full object-cover rounded-t-md"
+                                                                                                    style={{ height: size.height }}
+                                                                                                />
                                                                                             ) : (
                                                                                                 <div
                                                                                                     className={cn(
@@ -7792,7 +7836,11 @@ export function ProductAttributeBuilder({
                                                                 <div className="flex items-center gap-2">
                                                                     {settings?.showThumbnail && settings.customImage && (
                                                                     <img
-                                                                            src={settings.customImage}
+                                                                            src={getHiResThumbnailUrl(
+                                                                                settings.customImage,
+                                                                                verticalThumbPx,
+                                                                                verticalThumbPx
+                                                                            )}
                                                                             className="object-cover rounded shrink-0"
                                                                             style={{ width: verticalThumbPx, height: verticalThumbPx }}
                                                                         />

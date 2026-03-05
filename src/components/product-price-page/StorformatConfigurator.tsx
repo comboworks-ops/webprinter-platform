@@ -21,6 +21,7 @@ import {
   resolveThumbnailSizePx,
   type ThumbnailSizeMode
 } from "@/lib/pricing/thumbnailSizes";
+import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
 
 export type StorformatSelection = {
   totalPrice: number;
@@ -706,7 +707,7 @@ export function StorformatConfigurator({
                   <div className="flex items-center gap-2">
                     {settings?.showThumbnail && thumbnailUrl && (
                       <img
-                        src={thumbnailUrl}
+                        src={getHiResThumbnailUrl(thumbnailUrl, thumbnailPx, thumbnailPx)}
                         className="rounded object-cover shrink-0"
                         style={{ width: thumbnailPx, height: thumbnailPx }}
                       />
@@ -745,7 +746,11 @@ export function StorformatConfigurator({
                 <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
                 {valueSettings[value.id || ""]?.showThumbnail && (valueSettings[value.id || ""]?.customImage || value.thumbnail_url) && (
                   <img
-                    src={valueSettings[value.id || ""]?.customImage || value.thumbnail_url}
+                    src={getHiResThumbnailUrl(
+                      valueSettings[value.id || ""]?.customImage || value.thumbnail_url,
+                      thumbnailPx,
+                      thumbnailPx
+                    )}
                     alt={displayName}
                     className="rounded object-cover shrink-0"
                     style={{ width: thumbnailPx, height: thumbnailPx }}
@@ -796,7 +801,7 @@ export function StorformatConfigurator({
               >
                 {thumbnailUrl ? (
                   <img
-                    src={thumbnailUrl}
+                    src={getHiResThumbnailUrl(thumbnailUrl, pictureSize.width, pictureSize.height)}
                     alt={displayName}
                     className="w-full object-cover rounded-t-md"
                     style={{ height: pictureSize.height }}
@@ -846,7 +851,11 @@ export function StorformatConfigurator({
             >
               {valueSettings[value.id || ""]?.showThumbnail && (valueSettings[value.id || ""]?.customImage || value.thumbnail_url) && (
                 <img
-                  src={valueSettings[value.id || ""]?.customImage || value.thumbnail_url}
+                  src={getHiResThumbnailUrl(
+                    valueSettings[value.id || ""]?.customImage || value.thumbnail_url,
+                    thumbnailPx,
+                    thumbnailPx
+                  )}
                   alt={displayName}
                   className="rounded object-cover shrink-0"
                   style={{ width: thumbnailPx, height: thumbnailPx }}

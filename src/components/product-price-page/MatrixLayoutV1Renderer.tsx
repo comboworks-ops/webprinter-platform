@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { PICTURE_SIZES, type PictureSizeMode } from "@/lib/storformat-pricing/types";
 import { normalizeThumbnailCustomPx, normalizeThumbnailSize, resolveThumbnailSizePx } from "@/lib/pricing/thumbnailSizes";
+import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
 
 // Types from pricing structure
 interface VerticalAxisConfig {
@@ -111,7 +112,8 @@ interface MatrixLayoutV1RendererProps {
 
 const CACHE_TTL_MS = 120_000;
 const PERSISTED_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const PRICE_PAGE_SIZE = 5000;
+const PRICE_PAGE_SIZE = 500;
+const PRICE_PAGE_FALLBACK_SIZES = [PRICE_PAGE_SIZE, 250, 100, 50, 25] as const;
 
 const attributeGroupCache = new Map<string, { at: number; data: AttributeGroup[] }>();
 const attributeGroupInflight = new Map<string, Promise<AttributeGroup[]>>();
@@ -194,28 +196,62 @@ async function fetchPriceRowsCached(productId: string, forceRefresh = false): Pr
     const inflight = priceRowsInflight.get(productId);
     if (inflight) return inflight;
 
+    const fetchAllPriceRows = async (pageSize: number): Promise<any[]> => {
+        let cursorId: string | null = null;
+        const all: any[] = [];
+
+        while (true) {
+            let query = supabase
+                .from('generic_product_prices')
+                .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
+                .eq('product_id', productId)
+                .order('id', { ascending: true })
+                .limit(pageSize);
+
+            // Use keyset pagination to avoid high OFFSET scans on large products.
+            if (cursorId) {
+                query = query.gt('id', cursorId);
+            }
+
+            const { data, error } = await query;
+
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                all.push(...data);
+            }
+
+            if (!data || data.length === 0) break;
+            if (data.length < pageSize) break;
+
+            const nextCursor = data[data.length - 1]?.id ?? null;
+            if (!nextCursor || nextCursor === cursorId) break;
+            cursorId = nextCursor;
+        }
+
+        return all;
+    };
+
     const request = (async () => {
         try {
-            let offset = 0;
-            const all: any[] = [];
+            let all: any[] = [];
+            let lastError: unknown = null;
 
-            while (true) {
-                const { data, error } = await supabase
-                    .from('generic_product_prices')
-                    .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
-                    .eq('product_id', productId)
-                    .order('id', { ascending: true })
-                    .range(offset, offset + PRICE_PAGE_SIZE - 1);
-
-                if (error) throw error;
-
-                if (data && data.length > 0) {
-                    all.push(...data);
+            for (const pageSize of PRICE_PAGE_FALLBACK_SIZES) {
+                try {
+                    all = await fetchAllPriceRows(pageSize);
+                    lastError = null;
+                    break;
+                } catch (error) {
+                    lastError = error;
+                    console.warn(
+                        '[Matrix V1] generic_product_prices read failed. Retrying with smaller page size.',
+                        { productId, pageSize, error }
+                    );
                 }
-
-                if (!data || data.length === 0) break;
-                offset += data.length;
             }
+
+            if (lastError) throw lastError;
 
             const deduped = Array.from(
                 new Map(
@@ -1453,7 +1489,11 @@ export function MatrixLayoutV1Renderer({
                                 <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
                                 {valueSettings[v.id]?.showThumbnail && valueSettings[v.id]?.customImage && (
                                     <img
-                                        src={valueSettings[v.id].customImage}
+                                        src={getHiResThumbnailUrl(
+                                            valueSettings[v.id].customImage,
+                                            thumbnailPx,
+                                            thumbnailPx
+                                        )}
                                         alt={displayName}
                                         className="rounded object-cover shrink-0"
                                         style={{ width: thumbnailPx, height: thumbnailPx }}
@@ -1493,7 +1533,12 @@ export function MatrixLayoutV1Renderer({
                             style={{ width: size.width, minHeight: size.height + (showPictureLabel ? 22 : 0) }}
                             >
                             {thumbUrl ? (
-                                <img src={thumbUrl} alt={displayName} className="w-full object-cover rounded-t-md" style={{ height: size.height }} />
+                                <img
+                                    src={getHiResThumbnailUrl(thumbUrl, size.width, size.height)}
+                                    alt={displayName}
+                                    className="w-full object-cover rounded-t-md"
+                                    style={{ height: size.height }}
+                                />
                                 ) : (
                                     <div
                                         className={cn(
@@ -1537,7 +1582,11 @@ export function MatrixLayoutV1Renderer({
                         >
                             {valueSettings[v.id]?.showThumbnail && valueSettings[v.id]?.customImage && (
                                 <img
-                                src={valueSettings[v.id].customImage}
+                                src={getHiResThumbnailUrl(
+                                    valueSettings[v.id].customImage,
+                                    thumbnailPx,
+                                    thumbnailPx
+                                )}
                                 alt={displayName}
                                 className="rounded object-cover shrink-0"
                                 style={{ width: thumbnailPx, height: thumbnailPx }}
