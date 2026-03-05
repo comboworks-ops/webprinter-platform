@@ -993,7 +993,7 @@ const ProductPrice = () => {
             )}
             {sizeDistributionBlock}
           </div>
-          <div className="lg:col-span-1 lg:self-end">
+          <div className="lg:col-span-1 lg:self-start">
             <ProductPricePanel
               productId={dbProductId}
               quantity={storformatSelection?.quantity || 0}
@@ -1032,7 +1032,7 @@ const ProductPrice = () => {
             />
             {sizeDistributionBlock}
           </div>
-          <div className="lg:col-span-1 lg:self-end">
+          <div className="lg:col-span-1 lg:self-start">
             <ProductPricePanel
               productId={dbProductId}
               quantity={selectedCell?.column || 0}

@@ -215,7 +215,7 @@ export function PriceMatrix({
                     aria-selected={isSelected}
                     onClick={() => onCellClick(row, col, base, display)}
                     onKeyDown={(e) => handleKeyDown(e, row, col)}
-                    className={`w-24 p-3 text-sm text-center flex-shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset ${isSelected
+                    className={`w-24 p-3 text-sm text-center tabular-nums flex-shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset ${isSelected
                       ? "bg-primary text-primary-foreground font-semibold"
                       : "hover:bg-primary/10 cursor-pointer"
                       }`}

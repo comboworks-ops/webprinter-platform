@@ -615,7 +615,7 @@ export function ProductPricePanel({
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-sm text-muted-foreground">Pris ex. moms</p>
-            <p className="text-4xl font-heading font-bold text-primary">
+            <p className="text-4xl font-heading font-bold text-primary tabular-nums min-w-[170px]">
               {baseTotal > 0 ? `${baseTotal} kr` : "-"}
             </p>
           </div>
@@ -788,7 +788,7 @@ export function ProductPricePanel({
                           <div className="mt-1 text-xs text-muted-foreground">{deliveryDateLabel}</div>
                         )}
                       </div>
-                      <span className="font-semibold text-primary text-sm">{cost} kr</span>
+                      <span className="font-semibold text-primary text-sm tabular-nums min-w-[88px] text-right">{cost} kr</span>
                     </div>
                   </Label>
                 </div>
@@ -798,7 +798,7 @@ export function ProductPricePanel({
 
           <div className="flex justify-between items-end pt-4 border-t border-primary/20">
             <span className="text-sm text-muted-foreground">Samlet pris ex. moms:</span>
-            <span className="text-4xl font-heading font-bold text-primary">{totalPrice} kr</span>
+            <span className="text-4xl font-heading font-bold text-primary tabular-nums min-w-[170px] text-right">{totalPrice} kr</span>
           </div>
         </div>
       )}

@@ -1277,11 +1277,8 @@ export function MatrixLayoutV1Renderer({
             }
         }
 
-        // Hide rows where every quantity cell is empty for the current selection.
-        const rows = allRows.filter(row => {
-            const rowCells = cells[row] || {};
-            return columns.some(qty => rowCells[qty] != null);
-        });
+        // Keep row count stable to avoid layout jump while selections/prices update.
+        const rows = allRows;
 
         return { rows, columns, cells };
     }, [computeVariantKey, getDisplayValueName, getSectionValueIdForPreparedRow, matchesPreparedPriceForSelection, mappableSectionIds, normalizeVariantKey, priceIndexByVerticalQty, pricingStructure, selectedFormatId, selectedMaterialId, selectedSectionValues, selectedVariantValueIds, selectorSections]);
