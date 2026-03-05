@@ -962,7 +962,14 @@ export function MatrixLayoutV1Renderer({
         getSectionValueIdForPreparedRow,
     ]);
 
+    const isValueCurrentlyAvailable = useCallback((sectionId: string, valueId: string) => {
+        const available = availableValueIdsBySection[sectionId];
+        if (!available || available.size === 0) return true;
+        return available.has(String(valueId));
+    }, [availableValueIdsBySection]);
+
     useEffect(() => {
+        if (availabilityLoading) return;
         setSelectedSectionValues(prev => {
             let changed = false;
             const next = { ...prev };
@@ -985,7 +992,7 @@ export function MatrixLayoutV1Renderer({
 
             return changed ? next : prev;
         });
-    }, [availableValueIdsBySection, pricingStructure.vertical_axis.sectionId, selectorSections]);
+    }, [availableValueIdsBySection, availabilityLoading, pricingStructure.vertical_axis.sectionId, selectorSections]);
 
     const priceIndexByVerticalQty = useMemo(() => {
         const index = new Map<string, PreparedPriceRow[]>();
@@ -1138,18 +1145,12 @@ export function MatrixLayoutV1Renderer({
             }
         }
 
-        const availableIds = availableValueIdsBySection[sectionId];
-        if (availableIds) {
-            visibleValues = visibleValues.filter(value => availableIds.has(value.id));
-        }
-
         return sortValuesForDisplay(sectionId, visibleValues);
     }, [
         sectionGroupNameById,
         foldSectionIdForFolders,
         getValueName,
         getAllowedFolderPageNames,
-        availableValueIdsBySection,
         sortValuesForDisplay,
     ]);
 
@@ -1364,6 +1365,7 @@ export function MatrixLayoutV1Renderer({
 
     // Handle section selection change
     const handleSectionSelect = (sectionId: string, valueId: string) => {
+        if (!isValueCurrentlyAvailable(sectionId, valueId)) return;
         setSelectedSectionValues(prev => {
             const updated = { ...prev };
             const currentValue = prev[sectionId];
@@ -1464,9 +1466,14 @@ export function MatrixLayoutV1Renderer({
                     {isOptional && (
                         <option value="">Ingen</option>
                     )}
-                    {visibleValues.map(v => (
-                        <option key={v.id} value={v.id}>{getDisplayValueName(v.id, sectionId)}</option>
-                    ))}
+                    {visibleValues.map(v => {
+                        const isAvailable = isValueCurrentlyAvailable(sectionId, v.id);
+                        return (
+                            <option key={v.id} value={v.id} disabled={!isAvailable}>
+                                {getDisplayValueName(v.id, sectionId)}
+                            </option>
+                        );
+                    })}
                 </select>
             );
         }
@@ -1476,15 +1483,20 @@ export function MatrixLayoutV1Renderer({
                 <div className={cn("space-y-1", !isActive && "opacity-60 pointer-events-none")}>
                     {visibleValues.map(v => {
                         const isSelected = selectedValue === v.id;
+                        const isAvailable = isValueCurrentlyAvailable(sectionId, v.id);
                         const displayName = getDisplayValueName(v.id, sectionId);
                         return (
                             <label
                                 key={v.id}
                                 className={cn(
                                     "flex items-center gap-2 p-1.5 rounded border cursor-pointer text-xs transition-all",
-                                    isSelected ? "bg-primary/10 border-primary" : "bg-background border-muted hover:border-muted-foreground/30"
+                                    isSelected ? "bg-primary/10 border-primary" : "bg-background border-muted hover:border-muted-foreground/30",
+                                    !isAvailable && "opacity-45 cursor-not-allowed"
                                 )}
-                                onClick={() => handleSectionSelect(sectionId, v.id)}
+                                onClick={() => {
+                                    if (!isAvailable) return;
+                                    handleSectionSelect(sectionId, v.id);
+                                }}
                             >
                                 <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
                                 {valueSettings[v.id]?.showThumbnail && valueSettings[v.id]?.customImage && (
@@ -1518,17 +1530,18 @@ export function MatrixLayoutV1Renderer({
                         const isSelected = selectedValue === v.id;
                         const thumbUrl = valueSettings[v.id]?.customImage;
                         const displayName = getDisplayValueName(v.id, sectionId);
+                        const isAvailable = isValueCurrentlyAvailable(sectionId, v.id);
                         return (
                             <button
                                 key={v.id}
                                 onClick={() => handleSectionSelect(sectionId, v.id)}
-                                disabled={!isActive}
+                                disabled={!isActive || !isAvailable}
                                 className={cn(
                                     "relative rounded-lg border-2 transition-all flex flex-col items-center overflow-hidden",
                                 isSelected
                                     ? "border-transparent shadow-none"
                                     : "border-transparent",
-                                !isActive && "cursor-not-allowed"
+                                (!isActive || !isAvailable) && "cursor-not-allowed opacity-45"
                             )}
                             style={{ width: size.width, minHeight: size.height + (showPictureLabel ? 22 : 0) }}
                             >
@@ -1567,6 +1580,7 @@ export function MatrixLayoutV1Renderer({
             <div className={cn("flex flex-wrap gap-1.5", !isActive && "opacity-60 pointer-events-none")}>
                 {visibleValues.map(v => {
                     const isSelected = selectedValue === v.id;
+                    const isAvailable = isValueCurrentlyAvailable(sectionId, v.id);
                     const displayName = getDisplayValueName(v.id, sectionId);
                     return (
                         <Button
@@ -1575,10 +1589,11 @@ export function MatrixLayoutV1Renderer({
                             size="sm"
                             className={cn(
                                 "h-9 px-3 text-sm gap-2",
-                                isSelected && "bg-primary hover:bg-primary/90"
+                                isSelected && "bg-primary hover:bg-primary/90",
+                                !isAvailable && "opacity-45"
                             )}
                             onClick={() => handleSectionSelect(sectionId, v.id)}
-                            disabled={!isActive}
+                            disabled={!isActive || !isAvailable}
                         >
                             {valueSettings[v.id]?.showThumbnail && valueSettings[v.id]?.customImage && (
                                 <img
@@ -1610,11 +1625,9 @@ export function MatrixLayoutV1Renderer({
 
     return (
         <div className="space-y-6">
-            {(matrixLoading || availabilityLoading) && (
-                <div className="text-xs text-muted-foreground">
-                    {matrixLoading ? 'Opdaterer priser...' : 'Opdaterer valgmuligheder...'}
-                </div>
-            )}
+            <div className="h-4 text-xs text-muted-foreground" aria-live="polite">
+                {matrixLoading ? 'Opdaterer priser...' : availabilityLoading ? 'Opdaterer valgmuligheder...' : '\u00A0'}
+            </div>
             {/* Render layout rows */}
             <div className="space-y-4">
                 {pricingStructure.layout_rows.map((row) => {
@@ -1647,8 +1660,11 @@ export function MatrixLayoutV1Renderer({
                                     const handleOptionalToggle = (checked: boolean) => {
                                         if (!isOptional) return;
                                         if (checked) {
-                                            if (!selectedSectionValues[col.id] && visibleValues.length > 0) {
-                                                handleSectionSelect(col.id, visibleValues[0].id);
+                                            const firstSelectableValue = visibleValues.find((value) =>
+                                                isValueCurrentlyAvailable(col.id, value.id)
+                                            ) || visibleValues[0];
+                                            if (!selectedSectionValues[col.id] && firstSelectableValue) {
+                                                handleSectionSelect(col.id, firstSelectableValue.id);
                                             }
                                         } else {
                                             clearSectionSelection(col.id);
