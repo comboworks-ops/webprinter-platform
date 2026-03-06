@@ -41,11 +41,16 @@ export function SEO({
                 .from('page_seo' as any)
                 .select('*')
                 .eq('slug', location.pathname)
-                .single();
+                .maybeSingle();
 
             const typedData = data as any;
 
-            if (typedData && !error) {
+            if (error) {
+                console.warn('[SEO] Could not load page_seo row', { path: location.pathname, error });
+                return;
+            }
+
+            if (typedData) {
                 setMetadata({
                     title: typedData.title || defaultTitle,
                     description: typedData.meta_description || defaultDescription,

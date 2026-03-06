@@ -1243,7 +1243,7 @@ const ProductPrice = () => {
 
         {renderPricingInterface()}
 
-        <StaticProductInfo productId={product.slug || product.id} selectedFormat={selectedFormat} />
+        <StaticProductInfo productId={dbProductId || product.slug || product.id} selectedFormat={selectedFormat} />
 
         {/* Debug Overlay */}
         {searchParams.get('debug') === 'true' && (

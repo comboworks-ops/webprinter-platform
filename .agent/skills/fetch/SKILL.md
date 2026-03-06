@@ -233,7 +233,22 @@ flowchart TD
 
 ---
 
-## 7) Key Files
+## 7) Product Description Import (German -> Danish)
+
+When importing from suppliers like `wir-machen-druck`, include product text import as part of the same flow:
+
+1. Extract supplier product details text (typically from `Produktdetails` / product info block).
+2. Convert text to Danish and lightly reword for storefront readability.
+3. Save both fields on `products`:
+   - `description`: short list/meta summary
+   - `about_description` (+ optional `about_title`): full detail text used in **Beskrivelse**.
+4. Optionally mirror the long text in `technical_specs.product_details_da` for portability.
+
+This keeps pricing import and product-side content aligned in one operation.
+
+---
+
+## 8) Key Files
 
 | File | Role |
 |---|---|

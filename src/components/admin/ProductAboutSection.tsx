@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { Json } from "@/integrations/supabase/types";
 import { toast } from "sonner";
-import { Loader2, Save, Upload, X, Download, FileText } from "lucide-react";
+import { Loader2, Save, Upload, X, Download, FileText, Plus, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 
 
 interface TemplateFile {
@@ -32,6 +32,26 @@ interface ProductAboutSectionProps {
   onUpdate: () => void;
 }
 
+type GalleryEffect = "fade" | "fade-zoom" | "fade-up";
+
+type ProductInfoBlock = {
+  id: string;
+  type: "text" | "image" | "gallery";
+  title?: string;
+  text?: string;
+  imageUrl?: string;
+  caption?: string;
+  images?: string[];
+  effect?: GalleryEffect;
+  intervalMs?: number;
+};
+
+type ProductInfoV2Config = {
+  useSections: boolean;
+  imagePosition: "above" | "below";
+  blocks: ProductInfoBlock[];
+};
+
 // Available formats for different product types
 const formatOptions: Record<string, string[]> = {
   flyers: ['A6', 'M65', 'A5', 'A4', 'A3'],
@@ -44,6 +64,61 @@ const formatOptions: Record<string, string[]> = {
   klistermærker: ['5x5cm', '10x10cm', '15x15cm', '20x20cm'],
 };
 
+const createBlockId = () => `block-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const isObjectRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const getProductInfoV2FromSpecs = (specs: Json | null | undefined): ProductInfoV2Config => {
+  if (!isObjectRecord(specs)) {
+    return {
+      useSections: false,
+      imagePosition: "above",
+      blocks: [],
+    };
+  }
+
+  const raw = (specs as Record<string, unknown>).product_page_info_v2;
+  if (!isObjectRecord(raw)) {
+    return {
+      useSections: false,
+      imagePosition: "above",
+      blocks: [],
+    };
+  }
+
+  const rawBlocks = Array.isArray(raw.blocks) ? raw.blocks : [];
+  const blocks: ProductInfoBlock[] = rawBlocks
+    .map((item) => {
+      if (!isObjectRecord(item)) return null;
+      const type = item.type;
+      if (type !== "text" && type !== "image" && type !== "gallery") return null;
+      return {
+        id: typeof item.id === "string" && item.id ? item.id : createBlockId(),
+        type,
+        title: typeof item.title === "string" ? item.title : "",
+        text: typeof item.text === "string" ? item.text : "",
+        imageUrl: typeof item.imageUrl === "string" ? item.imageUrl : "",
+        caption: typeof item.caption === "string" ? item.caption : "",
+        images: Array.isArray(item.images)
+          ? item.images.filter((url): url is string => typeof url === "string" && url.length > 0)
+          : [],
+        effect: item.effect === "fade-zoom" || item.effect === "fade-up" ? item.effect : "fade",
+        intervalMs: typeof item.intervalMs === "number" && Number.isFinite(item.intervalMs)
+          ? Math.max(2000, Math.min(12000, Math.round(item.intervalMs)))
+          : 4500,
+      } as ProductInfoBlock;
+    })
+    .filter(Boolean) as ProductInfoBlock[];
+
+  return {
+    useSections: raw.useSections === true,
+    imagePosition: raw.imagePosition === "below" ? "below" : "above",
+    blocks,
+  };
+};
+
 export function ProductAboutSection({
   productId,
   productSlug,
@@ -52,11 +127,16 @@ export function ProductAboutSection({
   aboutImageUrl,
 
   templateFiles,
+  technicalSpecs,
   onUpdate
 }: ProductAboutSectionProps) {
+  const initialInfoConfig = useMemo(() => getProductInfoV2FromSpecs(technicalSpecs), [technicalSpecs]);
   const [title, setTitle] = useState(aboutTitle || "");
   const [description, setDescription] = useState(aboutDescription || "");
   const [imageUrl, setImageUrl] = useState(aboutImageUrl || "");
+  const [useSectionBlocks, setUseSectionBlocks] = useState(initialInfoConfig.useSections);
+  const [imagePosition, setImagePosition] = useState<"above" | "below">(initialInfoConfig.imagePosition);
+  const [contentBlocks, setContentBlocks] = useState<ProductInfoBlock[]>(initialInfoConfig.blocks);
 
   const [templates, setTemplates] = useState<TemplateFile[]>(templateFiles || []);
   const [uploading, setUploading] = useState(false);
@@ -70,7 +150,17 @@ export function ProductAboutSection({
     setTemplates(templateFiles || []);
   }, [templateFiles]);
 
-  // Update local state if props change (e.g. after fetch)
+  useEffect(() => {
+    setTitle(aboutTitle || "");
+    setDescription(aboutDescription || "");
+    setImageUrl(aboutImageUrl || "");
+  }, [aboutTitle, aboutDescription, aboutImageUrl]);
+
+  useEffect(() => {
+    setUseSectionBlocks(initialInfoConfig.useSections);
+    setImagePosition(initialInfoConfig.imagePosition);
+    setContentBlocks(initialInfoConfig.blocks);
+  }, [initialInfoConfig]);
 
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -143,6 +233,102 @@ export function ProductAboutSection({
     }
   };
 
+  const addBlock = (type: ProductInfoBlock["type"]) => {
+    const newBlock: ProductInfoBlock = {
+      id: createBlockId(),
+      type,
+      title: "",
+      text: "",
+      imageUrl: "",
+      caption: "",
+      images: [],
+      effect: "fade",
+      intervalMs: 4500,
+    };
+    setContentBlocks((prev) => [...prev, newBlock]);
+    setUseSectionBlocks(true);
+  };
+
+  const updateBlock = (blockId: string, updates: Partial<ProductInfoBlock>) => {
+    setContentBlocks((prev) =>
+      prev.map((block) => (block.id === blockId ? { ...block, ...updates } : block))
+    );
+  };
+
+  const removeBlock = (blockId: string) => {
+    setContentBlocks((prev) => prev.filter((block) => block.id !== blockId));
+  };
+
+  const moveBlock = (blockId: string, direction: "up" | "down") => {
+    setContentBlocks((prev) => {
+      const index = prev.findIndex((block) => block.id === blockId);
+      if (index === -1) return prev;
+      const target = direction === "up" ? index - 1 : index + 1;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const uploadBlockImage = async (blockId: string, file: File, mode: "single" | "gallery") => {
+    try {
+      if (!file.type.startsWith("image/")) {
+        toast.error("Venligst vælg en billedfil");
+        return;
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error("Billedet må ikke være større end 10MB");
+        return;
+      }
+
+      setUploading(true);
+      const fileExt = file.name.split(".").pop() || "jpg";
+      const fileName = `${productId}-about-${blockId}-${Date.now()}.${fileExt}`;
+      const filePath = `about/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("product-images")
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("product-images")
+        .getPublicUrl(filePath);
+
+      if (mode === "single") {
+        updateBlock(blockId, { imageUrl: publicUrl });
+      } else {
+        setContentBlocks((prev) =>
+          prev.map((block) =>
+            block.id === blockId
+              ? { ...block, images: [...(block.images || []), publicUrl] }
+              : block
+          )
+        );
+      }
+
+      toast.success("Billede uploadet");
+    } catch (error) {
+      console.error("Error uploading section image:", error);
+      toast.error("Kunne ikke uploade billedet");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeGalleryImage = (blockId: string, index: number) => {
+    setContentBlocks((prev) =>
+      prev.map((block) =>
+        block.id === blockId
+          ? { ...block, images: (block.images || []).filter((_, i) => i !== index) }
+          : block
+      )
+    );
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -154,6 +340,28 @@ export function ProductAboutSection({
         uploadedAt: t.uploadedAt
       }));
 
+      const technicalSpecsObject = isObjectRecord(technicalSpecs)
+        ? { ...(technicalSpecs as Record<string, unknown>) }
+        : {};
+
+      const normalizedBlocks = contentBlocks.map((block) => ({
+        id: block.id,
+        type: block.type,
+        title: block.title || "",
+        text: block.text || "",
+        imageUrl: block.imageUrl || "",
+        caption: block.caption || "",
+        images: (block.images || []).filter((url) => typeof url === "string" && url.length > 0),
+        effect: block.effect || "fade",
+        intervalMs: typeof block.intervalMs === "number" ? Math.max(2000, Math.min(12000, Math.round(block.intervalMs))) : 4500,
+      }));
+
+      const productInfoV2: ProductInfoV2Config = {
+        useSections: useSectionBlocks,
+        imagePosition,
+        blocks: normalizedBlocks,
+      };
+
       const { error } = await supabase
         .from('products')
         .update({
@@ -161,7 +369,10 @@ export function ProductAboutSection({
           about_description: description || null,
           about_image_url: imageUrl || null,
           template_files: templatesForStorage as any,
-
+          technical_specs: {
+            ...technicalSpecsObject,
+            product_page_info_v2: productInfoV2,
+          } as any,
         })
         .eq('id', productId);
 
@@ -254,8 +465,10 @@ export function ProductAboutSection({
     title !== (aboutTitle || "") ||
     description !== (aboutDescription || "") ||
     imageUrl !== (aboutImageUrl || "") ||
-
-    JSON.stringify(templates) !== JSON.stringify(templateFiles || []);
+    JSON.stringify(templates) !== JSON.stringify(templateFiles || []) ||
+    useSectionBlocks !== initialInfoConfig.useSections ||
+    imagePosition !== initialInfoConfig.imagePosition ||
+    JSON.stringify(contentBlocks) !== JSON.stringify(initialInfoConfig.blocks);
 
   return (
     <Card>
@@ -326,7 +539,281 @@ export function ProductAboutSection({
           )}
         </div>
 
+        <div className="space-y-3 border-t pt-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <Label className="text-base font-semibold">Avanceret sektion-opbygning</Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Byg produktside-information med tekstsektioner, billeder og gallerier.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant={useSectionBlocks ? "default" : "outline"}
+              size="sm"
+              onClick={() => setUseSectionBlocks((prev) => !prev)}
+            >
+              {useSectionBlocks ? "Sektioner aktiv" : "Brug sektioner"}
+            </Button>
+          </div>
 
+          <div className="space-y-2">
+            <Label>Billedplacering i klassisk layout</Label>
+            <Select value={imagePosition} onValueChange={(value) => setImagePosition(value as "above" | "below")}>
+              <SelectTrigger className="w-[240px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="above">Billede over tekst</SelectItem>
+                <SelectItem value="below">Billede under tekst</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => addBlock("text")}>
+              <Plus className="h-4 w-4 mr-1" />
+              Tilføj tekstsektion
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => addBlock("image")}>
+              <Plus className="h-4 w-4 mr-1" />
+              Tilføj billedsektion
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => addBlock("gallery")}>
+              <Plus className="h-4 w-4 mr-1" />
+              Tilføj galleri
+            </Button>
+          </div>
+
+          {contentBlocks.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              Ingen sektioner endnu. Tilføj en tekstsektion, billedsektion eller et galleri.
+            </p>
+          )}
+
+          <div className="space-y-3">
+            {contentBlocks.map((block, index) => (
+              <div key={block.id} className="rounded-lg border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium">
+                    {block.type === "text" && `Tekstsektion ${index + 1}`}
+                    {block.type === "image" && `Billedsektion ${index + 1}`}
+                    {block.type === "gallery" && `Galleri ${index + 1}`}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onClick={() => moveBlock(block.id, "up")}
+                      disabled={index === 0}
+                    >
+                      <ArrowUp className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onClick={() => moveBlock(block.id, "down")}
+                      disabled={index === contentBlocks.length - 1}
+                    >
+                      <ArrowDown className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-destructive"
+                      onClick={() => removeBlock(block.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Titel (valgfri)</Label>
+                  <Input
+                    value={block.title || ""}
+                    onChange={(e) => updateBlock(block.id, { title: e.target.value })}
+                    placeholder="Sektionstitel"
+                  />
+                </div>
+
+                {block.type === "text" && (
+                  <div className="space-y-2">
+                    <Label>Tekst</Label>
+                    <Textarea
+                      value={block.text || ""}
+                      onChange={(e) => updateBlock(block.id, { text: e.target.value })}
+                      placeholder="Skriv tekst til denne sektion..."
+                      rows={4}
+                      className="text-sm"
+                    />
+                  </div>
+                )}
+
+                {block.type === "image" && (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label>Billede</Label>
+                      {block.imageUrl ? (
+                        <div className="space-y-2">
+                          <div className="relative w-full h-36 border rounded-lg overflow-hidden bg-muted/10">
+                            <img src={block.imageUrl} alt={block.title || "Sektion billede"} className="w-full h-full object-contain" />
+                          </div>
+                          <div className="flex gap-2">
+                            <Button type="button" variant="outline" size="sm" onClick={() => updateBlock(block.id, { imageUrl: "" })}>
+                              <X className="h-4 w-4 mr-2" />
+                              Fjern billede
+                            </Button>
+                            <Label htmlFor={`block-image-${block.id}`} className="flex-1">
+                              <Button type="button" variant="outline" size="sm" disabled={uploading} asChild className="w-full">
+                                <span>
+                                  {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                                  Udskift billede
+                                </span>
+                              </Button>
+                            </Label>
+                            <input
+                              id={`block-image-${block.id}`}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) uploadBlockImage(block.id, file, "single");
+                                e.currentTarget.value = "";
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <Label htmlFor={`block-image-${block.id}`}>
+                            <Button type="button" variant="outline" disabled={uploading} asChild>
+                              <span>
+                                {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                                Upload billede
+                              </span>
+                            </Button>
+                          </Label>
+                          <input
+                            id={`block-image-${block.id}`}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) uploadBlockImage(block.id, file, "single");
+                              e.currentTarget.value = "";
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Tekst under billede (valgfri)</Label>
+                      <Textarea
+                        value={block.caption || ""}
+                        onChange={(e) => updateBlock(block.id, { caption: e.target.value })}
+                        placeholder="Kort billedtekst..."
+                        rows={2}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {block.type === "gallery" && (
+                  <div className="space-y-3">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Fade-effekt</Label>
+                        <Select value={block.effect || "fade"} onValueChange={(value) => updateBlock(block.id, { effect: value as GalleryEffect })}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="fade">Fade</SelectItem>
+                            <SelectItem value="fade-zoom">Fade + Zoom</SelectItem>
+                            <SelectItem value="fade-up">Fade + Op</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Skift-interval (ms)</Label>
+                        <Input
+                          type="number"
+                          min={2000}
+                          max={12000}
+                          step={100}
+                          value={block.intervalMs || 4500}
+                          onChange={(e) => {
+                            const value = Number(e.target.value);
+                            updateBlock(block.id, {
+                              intervalMs: Number.isFinite(value) ? Math.max(2000, Math.min(12000, value)) : 4500
+                            });
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Billeder i galleri</Label>
+                      {(block.images || []).length > 0 ? (
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {(block.images || []).map((url, imageIndex) => (
+                            <div key={`${block.id}-gallery-${imageIndex}`} className="relative rounded border overflow-hidden bg-muted/10">
+                              <img src={url} alt={`Galleri ${imageIndex + 1}`} className="w-full h-28 object-cover" />
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="destructive"
+                                className="absolute top-1 right-1 h-6 w-6"
+                                onClick={() => removeGalleryImage(block.id, imageIndex)}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Ingen billeder endnu i galleriet.</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <Label htmlFor={`gallery-upload-${block.id}`}>
+                        <Button type="button" variant="outline" disabled={uploading} asChild>
+                          <span>
+                            {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                            Upload galleri-billeder
+                          </span>
+                        </Button>
+                      </Label>
+                      <input
+                        id={`gallery-upload-${block.id}`}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={async (e) => {
+                          const files = Array.from(e.target.files || []);
+                          for (const file of files) {
+                            await uploadBlockImage(block.id, file, "gallery");
+                          }
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
 
         <div className="space-y-3 border-t pt-3">
           <div>

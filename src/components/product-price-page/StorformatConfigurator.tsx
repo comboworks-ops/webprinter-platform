@@ -22,6 +22,8 @@ import {
   type ThumbnailSizeMode
 } from "@/lib/pricing/thumbnailSizes";
 import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
+import { useShopSettings } from "@/hooks/useShopSettings";
+import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 
 export type StorformatSelection = {
   totalPrice: number;
@@ -95,11 +97,40 @@ const defaultConfig: StorformatConfig = {
   quantities: [1]
 };
 
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const hexToRgba = (color: string, alpha: number): string => {
+  const normalized = String(color || "").trim();
+  const a = clamp(Number.isFinite(alpha) ? alpha : 1, 0, 1);
+
+  const shortMatch = normalized.match(/^#([0-9a-f]{3})$/i);
+  if (shortMatch) {
+    const [r, g, b] = shortMatch[1].split("").map((c) => parseInt(c + c, 16));
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+  }
+
+  const longMatch = normalized.match(/^#([0-9a-f]{6})$/i);
+  if (longMatch) {
+    const hex = longMatch[1];
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+  }
+
+  return normalized || `rgba(0, 0, 0, ${a})`;
+};
+
 export function StorformatConfigurator({
   productId,
   onSelectionChange
 }: StorformatConfiguratorProps) {
   const noneFinishValue = "__none__";
+  const settings = useShopSettings();
+  const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
+  const activeBranding = (isPreviewMode && previewBranding)
+    ? previewBranding
+    : settings.data?.branding;
   const [config, setConfig] = useState<StorformatConfig>(defaultConfig);
   const [materials, setMaterials] = useState<StorformatMaterial[]>([]);
   const [finishes, setFinishes] = useState<StorformatFinish[]>([]);
@@ -115,6 +146,23 @@ export function StorformatConfigurator({
   const [materialId, setMaterialId] = useState<string>("");
   const [finishId, setFinishId] = useState<string>(noneFinishValue);
   const [productIdSelection, setProductIdSelection] = useState<string>(noneFinishValue);
+  const [hoveredPictureKey, setHoveredPictureKey] = useState<string | null>(null);
+
+  const pictureButtonsConfig = useMemo(() => {
+    const cfg = activeBranding?.productPage?.matrix?.pictureButtons || {};
+    return {
+      hoverEnabled: cfg.hoverEnabled !== false,
+      hoverColor: cfg.hoverColor || activeBranding?.colors?.hover || activeBranding?.colors?.primary || "#0EA5E9",
+      hoverOpacity: clamp(Number(cfg.hoverOpacity ?? 0.15), 0, 1),
+      selectedColor: cfg.selectedColor || activeBranding?.colors?.primary || "#0EA5E9",
+      selectedOpacity: clamp(Number(cfg.selectedOpacity ?? 0.22), 0, 1),
+      outlineEnabled: cfg.outlineEnabled !== false,
+      outlineOpacity: clamp(Number(cfg.outlineOpacity ?? 1), 0, 1),
+      hoverZoomEnabled: cfg.hoverZoomEnabled !== false,
+      hoverZoomScale: clamp(Number(cfg.hoverZoomScale ?? 1.03), 1, 1.2),
+      hoverZoomDurationMs: clamp(Number(cfg.hoverZoomDurationMs ?? 140), 80, 400),
+    };
+  }, [activeBranding?.productPage?.matrix?.pictureButtons, activeBranding?.colors?.hover, activeBranding?.colors?.primary]);
 
   useEffect(() => {
     const fetchStorformat = async () => {
@@ -778,9 +826,27 @@ export function StorformatConfigurator({
       return (
         <div className={cn("flex flex-wrap gap-2", !isOptionalEnabled && "opacity-60 pointer-events-none")}>
           {values.map((value) => {
+            const pictureKey = `${section.id}:${value.id || ""}`;
+            const isHovered = hoveredPictureKey === pictureKey;
             const isSelected = selectedValue === value.id;
             const thumbnailUrl = valueSettings[value.id || ""]?.customImage || value.thumbnail_url;
             const displayName = getDisplayName(value.name, valueSettings[value.id || ""]);
+            const hoverActive = pictureButtonsConfig.hoverEnabled && isHovered && !isSelected;
+            const overlayBg = isSelected
+              ? hexToRgba(pictureButtonsConfig.selectedColor, pictureButtonsConfig.selectedOpacity)
+              : hoverActive
+                ? hexToRgba(pictureButtonsConfig.hoverColor, pictureButtonsConfig.hoverOpacity)
+                : "transparent";
+            const borderColor = !pictureButtonsConfig.outlineEnabled
+              ? "transparent"
+              : isSelected
+                ? hexToRgba(pictureButtonsConfig.selectedColor, pictureButtonsConfig.outlineOpacity)
+                : hoverActive
+                  ? hexToRgba(pictureButtonsConfig.hoverColor, pictureButtonsConfig.outlineOpacity)
+                  : "transparent";
+            const scale = pictureButtonsConfig.hoverZoomEnabled && isHovered
+              ? pictureButtonsConfig.hoverZoomScale
+              : 1;
             return (
               <button
                 key={value.id}
@@ -792,12 +858,21 @@ export function StorformatConfigurator({
                   handleSelect(value.id || null);
                 }}
                 disabled={!isOptionalEnabled}
+                onMouseEnter={() => setHoveredPictureKey(pictureKey)}
+                onMouseLeave={() => setHoveredPictureKey((prev) => (prev === pictureKey ? null : prev))}
                 className={cn(
                   "relative rounded-lg border-2 transition-all flex flex-col items-center overflow-hidden",
-                  isSelected ? "border-primary ring-2 ring-primary/20" : "border-muted hover:border-muted-foreground/50",
+                  isSelected ? "shadow-none" : "",
                   !isOptionalEnabled && "cursor-not-allowed"
                 )}
-                style={{ width: pictureSize.width, minHeight: pictureSize.height + (showPictureLabel ? 22 : 0) }}
+                style={{
+                  width: pictureSize.width,
+                  minHeight: pictureSize.height + (showPictureLabel ? 22 : 0),
+                  backgroundColor: overlayBg,
+                  borderColor,
+                  transform: `scale(${scale})`,
+                  transitionDuration: `${pictureButtonsConfig.hoverZoomDurationMs}ms`,
+                }}
               >
                 {thumbnailUrl ? (
                   <img
@@ -867,7 +942,7 @@ export function StorformatConfigurator({
         })}
       </div>
     );
-  }, [selectionModeById, selectedSectionValues, valueSettingsById]);
+  }, [hoveredPictureKey, pictureButtonsConfig, selectionModeById, selectedSectionValues, valueSettingsById]);
 
   const verticalAxisValues = useMemo(() => getVerticalAxisValues(), [getVerticalAxisValues]);
 

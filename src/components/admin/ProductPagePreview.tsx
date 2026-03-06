@@ -95,23 +95,41 @@ export function ProductPagePreview({
 
                 if (!product) return;
 
-                // Load attribute values (formats, materials)
-                const { data: attributes } = await supabase
-                    .from('product_attributes' as any)
-                    .select('*, values:product_attribute_values(*)')
+                // Load attribute groups/values (formats, materials)
+                // NOTE: product_attributes is a legacy table and may not exist in current tenants.
+                const { data: attributes, error: attributesError } = await supabase
+                    .from('product_attribute_groups' as any)
+                    .select('id, name, kind, sort_order, values:product_attribute_values(id, name, sort_order, enabled)')
                     .eq('product_id', productId)
-                    .order('display_order');
+                    .order('sort_order');
+
+                if (attributesError) {
+                    throw attributesError;
+                }
 
                 const loadedFormats: { id: string; label: string }[] = [];
                 const loadedMaterials: { id: string; label: string }[] = [];
 
                 (attributes || []).forEach((attr: any) => {
-                    const typeLower = attr.type?.toLowerCase() || '';
-                    const values = (attr.values || []).map((v: any) => ({ id: v.id, label: v.name }));
+                    const kindLower = String(attr.kind || '').toLowerCase();
+                    const nameLower = String(attr.name || '').toLowerCase();
+                    const values = (attr.values || [])
+                        .filter((v: any) => v.enabled !== false)
+                        .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+                        .map((v: any) => ({ id: v.id, label: v.name }));
 
-                    if (typeLower.includes('format') || typeLower.includes('size')) {
+                    if (
+                        kindLower.includes('format')
+                        || nameLower.includes('format')
+                        || nameLower.includes('size')
+                        || nameLower.includes('størrelse')
+                    ) {
                         loadedFormats.push(...values);
-                    } else if (typeLower.includes('material') || typeLower.includes('papir')) {
+                    } else if (
+                        kindLower.includes('material')
+                        || nameLower.includes('material')
+                        || nameLower.includes('papir')
+                    ) {
                         loadedMaterials.push(...values);
                     }
                 });

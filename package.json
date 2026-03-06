@@ -9,6 +9,9 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
+    "fetch:standard-rollup:import": "node scripts/fetch-standard-rollup-import.js import",
+    "fetch:premium-rollups:import": "node scripts/fetch-premium-rollups-import.js import",
+    "fetch:komplet-color-rollup:import": "node scripts/fetch-komplet-color-rollup-import.js import",
     "log:push-ready": "node scripts/log-push-ready.mjs",
     "notify:merge-main": "node scripts/log-push-ready.mjs --to-main"
   },

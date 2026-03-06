@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 import { PICTURE_SIZES, type PictureSizeMode } from "@/lib/storformat-pricing/types";
 import { normalizeThumbnailCustomPx, normalizeThumbnailSize, resolveThumbnailSizePx } from "@/lib/pricing/thumbnailSizes";
 import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
+import { useShopSettings } from "@/hooks/useShopSettings";
+import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 
 // Types from pricing structure
 interface VerticalAxisConfig {
@@ -114,6 +116,30 @@ const CACHE_TTL_MS = 120_000;
 const PERSISTED_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PRICE_PAGE_SIZE = 500;
 const PRICE_PAGE_FALLBACK_SIZES = [PRICE_PAGE_SIZE, 250, 100, 50, 25] as const;
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const hexToRgba = (color: string, alpha: number): string => {
+    const normalized = String(color || "").trim();
+    const a = clamp(Number.isFinite(alpha) ? alpha : 1, 0, 1);
+
+    const shortMatch = normalized.match(/^#([0-9a-f]{3})$/i);
+    if (shortMatch) {
+        const [r, g, b] = shortMatch[1].split("").map((c) => parseInt(c + c, 16));
+        return `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+
+    const longMatch = normalized.match(/^#([0-9a-f]{6})$/i);
+    if (longMatch) {
+        const hex = longMatch[1];
+        const r = parseInt(hex.slice(0, 2), 16);
+        const g = parseInt(hex.slice(2, 4), 16);
+        const b = parseInt(hex.slice(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+
+    return normalized || `rgba(0, 0, 0, ${a})`;
+};
 
 const attributeGroupCache = new Map<string, { at: number; data: AttributeGroup[] }>();
 const attributeGroupInflight = new Map<string, Promise<AttributeGroup[]>>();
@@ -324,6 +350,12 @@ export function MatrixLayoutV1Renderer({
     onSelectionChange,
     onSelectionSummary
 }: MatrixLayoutV1RendererProps) {
+    const settings = useShopSettings();
+    const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
+    const activeBranding = (isPreviewMode && previewBranding)
+        ? previewBranding
+        : settings.data?.branding;
+
     // State: per-section selections (sectionId -> valueId)
     const [selectedSectionValues, setSelectedSectionValues] = useState<Record<string, string | null>>({});
     const [attributeGroups, setAttributeGroups] = useState<AttributeGroup[]>([]);
@@ -332,10 +364,27 @@ export function MatrixLayoutV1Renderer({
     const [availabilityLoading, setAvailabilityLoading] = useState(true);
     const [matrixLoading, setMatrixLoading] = useState(true);
     const [selectedCell, setSelectedCell] = useState<{ row: string; column: number } | null>(null);
+    const [hoveredPictureKey, setHoveredPictureKey] = useState<string | null>(null);
 
     const lastNotifiedCellRef = useRef<string>("");
     const lastLoadedProductIdRef = useRef<string | null>(null);
     const lastVariantProductIdRef = useRef<string | null>(null);
+
+    const pictureButtonsConfig = useMemo(() => {
+        const cfg = activeBranding?.productPage?.matrix?.pictureButtons || {};
+        return {
+            hoverEnabled: cfg.hoverEnabled !== false,
+            hoverColor: cfg.hoverColor || activeBranding?.colors?.hover || activeBranding?.colors?.primary || "#0EA5E9",
+            hoverOpacity: clamp(Number(cfg.hoverOpacity ?? 0.15), 0, 1),
+            selectedColor: cfg.selectedColor || activeBranding?.colors?.primary || "#0EA5E9",
+            selectedOpacity: clamp(Number(cfg.selectedOpacity ?? 0.22), 0, 1),
+            outlineEnabled: cfg.outlineEnabled !== false,
+            outlineOpacity: clamp(Number(cfg.outlineOpacity ?? 1), 0, 1),
+            hoverZoomEnabled: cfg.hoverZoomEnabled !== false,
+            hoverZoomScale: clamp(Number(cfg.hoverZoomScale ?? 1.03), 1, 1.2),
+            hoverZoomDurationMs: clamp(Number(cfg.hoverZoomDurationMs ?? 140), 80, 400),
+        };
+    }, [activeBranding?.productPage?.matrix?.pictureButtons, activeBranding?.colors?.hover, activeBranding?.colors?.primary]);
 
     // Fetch attribute groups for this product
     useEffect(() => {
@@ -1524,23 +1573,48 @@ export function MatrixLayoutV1Renderer({
             return (
                 <div className={cn("flex flex-wrap gap-2", !isActive && "opacity-60 pointer-events-none")}>
                     {visibleValues.map(v => {
+                        const pictureKey = `${sectionId}:${v.id}`;
+                        const isHovered = hoveredPictureKey === pictureKey;
                         const isSelected = selectedValue === v.id;
                         const thumbUrl = valueSettings[v.id]?.customImage;
                         const displayName = getDisplayValueName(v.id, sectionId);
                         const isAvailable = isValueCurrentlyAvailable(sectionId, v.id);
+                        const hoverActive = pictureButtonsConfig.hoverEnabled && isHovered && !isSelected;
+                        const overlayBg = isSelected
+                            ? hexToRgba(pictureButtonsConfig.selectedColor, pictureButtonsConfig.selectedOpacity)
+                            : hoverActive
+                                ? hexToRgba(pictureButtonsConfig.hoverColor, pictureButtonsConfig.hoverOpacity)
+                                : "transparent";
+                        const borderColor = !pictureButtonsConfig.outlineEnabled
+                            ? "transparent"
+                            : isSelected
+                                ? hexToRgba(pictureButtonsConfig.selectedColor, pictureButtonsConfig.outlineOpacity)
+                                : hoverActive
+                                    ? hexToRgba(pictureButtonsConfig.hoverColor, pictureButtonsConfig.outlineOpacity)
+                                    : "transparent";
+                        const scale = pictureButtonsConfig.hoverZoomEnabled && isHovered
+                            ? pictureButtonsConfig.hoverZoomScale
+                            : 1;
                         return (
                             <button
                                 key={v.id}
                                 onClick={() => handleSectionSelect(sectionId, v.id)}
                                 disabled={!isActive || !isAvailable}
+                                onMouseEnter={() => setHoveredPictureKey(pictureKey)}
+                                onMouseLeave={() => setHoveredPictureKey((prev) => prev === pictureKey ? null : prev)}
                                 className={cn(
                                     "relative rounded-lg border-2 transition-all flex flex-col items-center overflow-hidden",
-                                isSelected
-                                    ? "border-transparent shadow-none"
-                                    : "border-transparent",
-                                (!isActive || !isAvailable) && "cursor-not-allowed opacity-45"
-                            )}
-                            style={{ width: size.width, minHeight: size.height + (showPictureLabel ? 22 : 0) }}
+                                    isSelected ? "shadow-none" : "",
+                                    (!isActive || !isAvailable) && "cursor-not-allowed opacity-45"
+                                )}
+                                style={{
+                                    width: size.width,
+                                    minHeight: size.height + (showPictureLabel ? 22 : 0),
+                                    backgroundColor: overlayBg,
+                                    borderColor,
+                                    transform: `scale(${scale})`,
+                                    transitionDuration: `${pictureButtonsConfig.hoverZoomDurationMs}ms`,
+                                }}
                             >
                             {thumbUrl ? (
                                 <img

@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -35,6 +35,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
 import { da } from "date-fns/locale";
 
@@ -51,10 +52,12 @@ import { LogoSection } from "@/components/admin/LogoSection";
 import { FaviconEditor } from "@/components/admin/FaviconEditor";
 import { ContentBlocksSection } from "@/components/admin/ContentBlocksSection";
 import { PendingPurchasesDialog, PendingPurchasesBadge } from "@/components/admin/PendingPurchasesDialog";
+import { ThemeSelector } from "@/components/admin/ThemeSelector";
 import { supabase } from "@/integrations/supabase/client";
 import { usePaidItems } from "@/hooks/usePaidItems";
 
 import {
+    DEFAULT_BRANDING,
     type BrandingStorageAdapter,
     type BrandingCapabilities,
     brandingEquals,
@@ -98,6 +101,21 @@ interface BrandingColorGroupConfig {
     badge?: string;
     fields: BrandingColorFieldConfig[];
 }
+
+type PreviewPageLink = {
+    label: string;
+    path: string;
+    action?: "first-product";
+};
+
+const PREVIEW_PAGE_LINKS: PreviewPageLink[] = [
+    { label: "Forside", path: "/" },
+    { label: "Produkter", path: "/produkter" },
+    { label: "Bestilling", path: "/produkter", action: "first-product" },
+    { label: "Grafisk vejledning", path: "/grafisk-vejledning" },
+    { label: "Kontakt", path: "/kontakt" },
+    { label: "Om os", path: "/om-os" },
+];
 
 const BRANDING_COLOR_GROUPS: BrandingColorGroupConfig[] = [
     {
@@ -182,6 +200,12 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
     const isDraftLive = brandingEquals(editor.draft, editor.published);
     const [activeSection, setActiveSection] = useState<string | null>(null);
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [currentPreviewPage, setCurrentPreviewPage] = useState<string>("/");
+    const [previewNavigationRequest, setPreviewNavigationRequest] = useState<{
+        id: number;
+        type: "path" | "first-product";
+        path?: string;
+    } | null>(null);
 
     // Paid items management (only for tenants)
     const paidItems = usePaidItems(editor.mode === 'tenant' ? editor.entityId : null);
@@ -231,6 +255,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
     const [featuredQuantityOptions, setFeaturedQuantityOptions] = useState<number[]>([]);
     const [loadingFeaturedQuantities, setLoadingFeaturedQuantities] = useState(false);
     const [uploadingFeaturedSideImage, setUploadingFeaturedSideImage] = useState(false);
+    const [uploadingFeaturedGalleryImage, setUploadingFeaturedGalleryImage] = useState(false);
 
     // Ref for screenshot capture promise resolution
     const screenshotResolverRef = useRef<{ resolve: (url: string | null) => void; reject: (err: any) => void } | null>(null);
@@ -262,6 +287,11 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                 }
 
                 setSidebarOpen(true);
+            }
+
+            if (event.data?.type === 'PREVIEW_PAGE_CHANGED' || event.data?.type === 'PREVIEW_NAVIGATION') {
+                const path = typeof event.data.path === 'string' ? event.data.path : '/';
+                setCurrentPreviewPage(path);
             }
 
             // Handle screenshot capture response
@@ -451,6 +481,95 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
         }
     }, [editor.entityId]);
 
+    const uploadFeaturedGalleryImage = useCallback(async (file: File): Promise<string | null> => {
+        try {
+            setUploadingFeaturedGalleryImage(true);
+            const fileExt = file.name.split('.').pop() || 'png';
+            const fileName = `featured-gallery-${Date.now()}.${fileExt}`;
+            const filePath = `branding/${editor.entityId || 'master'}/${fileName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('product-images')
+                .upload(filePath, file, { upsert: true });
+
+            if (uploadError) {
+                console.error('Featured gallery upload error:', uploadError);
+                return null;
+            }
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('product-images')
+                .getPublicUrl(filePath);
+
+            return publicUrl;
+        } catch (error) {
+            console.error('Error uploading featured gallery image:', error);
+            return null;
+        } finally {
+            setUploadingFeaturedGalleryImage(false);
+        }
+    }, [editor.entityId]);
+
+    const navigatePreviewTo = useCallback((path: string) => {
+        setCurrentPreviewPage(path);
+        setPreviewNavigationRequest({
+            id: Date.now(),
+            type: "path",
+            path,
+        });
+    }, []);
+
+    const navigatePreviewToFirstProduct = useCallback(() => {
+        setCurrentPreviewPage("/produkt");
+        setPreviewNavigationRequest({
+            id: Date.now(),
+            type: "first-product",
+        });
+    }, []);
+
+    const isHomePreviewPage = currentPreviewPage === "/"
+        || currentPreviewPage === "/shop"
+        || currentPreviewPage === "/produkter"
+        || currentPreviewPage === "/prisberegner";
+    const isProductPreviewPage = currentPreviewPage === "/produkt" || currentPreviewPage.startsWith("/produkt/");
+
+    const allowedSections = useMemo(() => {
+        const sections = new Set<string>(["theme"]);
+        if (capabilities.sections.logo) sections.add("logo");
+        if (capabilities.sections.header) sections.add("header");
+        if (capabilities.sections.footer) sections.add("footer");
+        if (capabilities.sections.typography) sections.add("typography");
+        if (capabilities.sections.colors) sections.add("colors");
+
+        if (isHomePreviewPage) {
+            sections.add("banner");
+            sections.add("products");
+            sections.add("content");
+            if (capabilities.sections.iconPacks) sections.add("icons");
+        }
+
+        if (isProductPreviewPage) {
+            sections.add("product-page-matrix");
+        }
+
+        return sections;
+    }, [
+        capabilities.sections.colors,
+        capabilities.sections.footer,
+        capabilities.sections.header,
+        capabilities.sections.iconPacks,
+        capabilities.sections.logo,
+        capabilities.sections.typography,
+        isHomePreviewPage,
+        isProductPreviewPage,
+    ]);
+
+    useEffect(() => {
+        if (activeSection && !allowedSections.has(activeSection)) {
+            setActiveSection(null);
+        }
+    }, [activeSection, allowedSections]);
+
     // ... existing publish/save handlers ...
 
     // Handle Publish - checks for pending paid items first
@@ -531,25 +650,56 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                         Vælg sektion:
                     </h2>
                     <div className="grid gap-2">
-                        <button
-                            className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-indigo-100 text-indigo-900 hover:bg-indigo-50/50 hover:border-indigo-200 group"
-                            onClick={() => setActiveSection('logo')}
-                        >
-                            <div className="h-8 w-8 rounded-lg bg-indigo-100/50 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-100 transition-colors">
-                                <ImageIcon className="h-4 w-4" />
+                        <div className="rounded-xl border bg-white/90 px-3 py-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-muted-foreground">Preview side</span>
+                                <span className="text-[11px] text-muted-foreground truncate max-w-[170px]">
+                                    {currentPreviewPage}
+                                </span>
                             </div>
-                            <span className="font-semibold">Logo & Favicon</span>
-                        </button>
-                        <button
-                            className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-slate-100 text-slate-900 hover:bg-slate-50/50 hover:border-slate-200 group"
-                            onClick={() => setActiveSection('header')}
-                        >
-                            <div className="h-8 w-8 rounded-lg bg-slate-100/50 flex items-center justify-center text-slate-600 group-hover:bg-slate-100 transition-colors">
-                                <Layout className="h-4 w-4" />
+                            <div className="flex flex-wrap gap-2">
+                                {PREVIEW_PAGE_LINKS.map((page) => (
+                                    <Button
+                                        key={`${page.label}-${page.path}-${page.action || "path"}`}
+                                        variant="secondary"
+                                        size="sm"
+                                        className="h-7 px-2 text-xs"
+                                        onClick={() => {
+                                            if (page.action === "first-product") {
+                                                navigatePreviewToFirstProduct();
+                                            } else {
+                                                navigatePreviewTo(page.path);
+                                            }
+                                        }}
+                                    >
+                                        {page.label}
+                                    </Button>
+                                ))}
                             </div>
-                            <span className="font-semibold">Header & Menu</span>
-                        </button>
-                        {capabilities.sections.typography && (
+                        </div>
+                        {allowedSections.has("logo") && (
+                            <button
+                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-indigo-100 text-indigo-900 hover:bg-indigo-50/50 hover:border-indigo-200 group"
+                                onClick={() => setActiveSection('logo')}
+                            >
+                                <div className="h-8 w-8 rounded-lg bg-indigo-100/50 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-100 transition-colors">
+                                    <ImageIcon className="h-4 w-4" />
+                                </div>
+                                <span className="font-semibold">Logo & Favicon</span>
+                            </button>
+                        )}
+                        {allowedSections.has("header") && (
+                            <button
+                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-slate-100 text-slate-900 hover:bg-slate-50/50 hover:border-slate-200 group"
+                                onClick={() => setActiveSection('header')}
+                            >
+                                <div className="h-8 w-8 rounded-lg bg-slate-100/50 flex items-center justify-center text-slate-600 group-hover:bg-slate-100 transition-colors">
+                                    <Layout className="h-4 w-4" />
+                                </div>
+                                <span className="font-semibold">Header & Menu</span>
+                            </button>
+                        )}
+                        {allowedSections.has("typography") && (
                             <button
                                 className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-amber-100 text-amber-900 hover:bg-amber-50/50 hover:border-amber-200 group"
                                 onClick={() => setActiveSection('typography')}
@@ -560,7 +710,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                 <span className="font-semibold">Typografi</span>
                             </button>
                         )}
-                        {capabilities.sections.colors && (
+                        {allowedSections.has("colors") && (
                             <button
                                 className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-pink-100 text-pink-900 hover:bg-pink-50/50 hover:border-pink-200 group"
                                 onClick={() => setActiveSection('colors')}
@@ -572,42 +722,70 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                             </button>
                         )}
                         <button
-                            className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-blue-100 text-blue-900 hover:bg-blue-50/50 hover:border-blue-200 group"
-                            onClick={() => setActiveSection('banner')}
-                        >
-                            <div className="h-8 w-8 rounded-lg bg-blue-100/50 flex items-center justify-center text-blue-600 group-hover:bg-blue-100 transition-colors">
-                                <ImageIcon className="h-4 w-4" />
-                            </div>
-                            <span className="font-semibold">Banner (Hero)</span>
-                        </button>
-                        <button
-                            className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-sky-100 text-sky-900 hover:bg-sky-50/50 hover:border-sky-200 group"
-                            onClick={() => setActiveSection('products')}
-                        >
-                            <div className="h-8 w-8 rounded-lg bg-sky-100/50 flex items-center justify-center text-sky-600 group-hover:bg-sky-100 transition-colors">
-                                <ShoppingCart className="h-4 w-4" />
-                            </div>
-                            <span className="font-semibold">Forside produkter</span>
-                        </button>
-                        <button
                             className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-violet-100 text-violet-900 hover:bg-violet-50/50 hover:border-violet-200 group"
-                            onClick={() => setActiveSection('content')}
+                            onClick={() => setActiveSection('theme')}
                         >
                             <div className="h-8 w-8 rounded-lg bg-violet-100/50 flex items-center justify-center text-violet-600 group-hover:bg-violet-100 transition-colors">
-                                <Layout className="h-4 w-4" />
+                                <LayoutTemplate className="h-4 w-4" />
                             </div>
-                            <span className="font-semibold">Indholdsblokke</span>
+                            <span className="font-semibold">Tema</span>
                         </button>
-                        <button
-                            className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-slate-100 text-slate-900 hover:bg-slate-50/50 hover:border-slate-200 group"
-                            onClick={() => setActiveSection('footer')}
-                        >
-                            <div className="h-8 w-8 rounded-lg bg-slate-100/50 flex items-center justify-center text-slate-600 group-hover:bg-slate-100 transition-colors">
-                                <Layout className="h-4 w-4" />
-                            </div>
-                            <span className="font-semibold">Footer</span>
-                        </button>
-                        {capabilities.sections.iconPacks && (
+                        {allowedSections.has("banner") && (
+                            <button
+                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-blue-100 text-blue-900 hover:bg-blue-50/50 hover:border-blue-200 group"
+                                onClick={() => setActiveSection('banner')}
+                            >
+                                <div className="h-8 w-8 rounded-lg bg-blue-100/50 flex items-center justify-center text-blue-600 group-hover:bg-blue-100 transition-colors">
+                                    <ImageIcon className="h-4 w-4" />
+                                </div>
+                                <span className="font-semibold">Banner (Hero)</span>
+                            </button>
+                        )}
+                        {allowedSections.has("products") && (
+                            <button
+                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-sky-100 text-sky-900 hover:bg-sky-50/50 hover:border-sky-200 group"
+                                onClick={() => setActiveSection('products')}
+                            >
+                                <div className="h-8 w-8 rounded-lg bg-sky-100/50 flex items-center justify-center text-sky-600 group-hover:bg-sky-100 transition-colors">
+                                    <ShoppingCart className="h-4 w-4" />
+                                </div>
+                                <span className="font-semibold">Forside produkter</span>
+                            </button>
+                        )}
+                        {allowedSections.has("product-page-matrix") && (
+                            <button
+                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-cyan-100 text-cyan-900 hover:bg-cyan-50/50 hover:border-cyan-200 group"
+                                onClick={() => setActiveSection('product-page-matrix')}
+                            >
+                                <div className="h-8 w-8 rounded-lg bg-cyan-100/50 flex items-center justify-center text-cyan-600 group-hover:bg-cyan-100 transition-colors">
+                                    <Layout className="h-4 w-4" />
+                                </div>
+                                <span className="font-semibold">Produktside matrix & knapper</span>
+                            </button>
+                        )}
+                        {allowedSections.has("content") && (
+                            <button
+                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-violet-100 text-violet-900 hover:bg-violet-50/50 hover:border-violet-200 group"
+                                onClick={() => setActiveSection('content')}
+                            >
+                                <div className="h-8 w-8 rounded-lg bg-violet-100/50 flex items-center justify-center text-violet-600 group-hover:bg-violet-100 transition-colors">
+                                    <Layout className="h-4 w-4" />
+                                </div>
+                                <span className="font-semibold">Indholdsblokke</span>
+                            </button>
+                        )}
+                        {allowedSections.has("footer") && (
+                            <button
+                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-slate-100 text-slate-900 hover:bg-slate-50/50 hover:border-slate-200 group"
+                                onClick={() => setActiveSection('footer')}
+                            >
+                                <div className="h-8 w-8 rounded-lg bg-slate-100/50 flex items-center justify-center text-slate-600 group-hover:bg-slate-100 transition-colors">
+                                    <Layout className="h-4 w-4" />
+                                </div>
+                                <span className="font-semibold">Footer</span>
+                            </button>
+                        )}
+                        {allowedSections.has("icons") && (
                             <button
                                 className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-emerald-100 text-emerald-900 hover:bg-emerald-50/50 hover:border-emerald-200 group"
                                 onClick={() => setActiveSection('icons')}
@@ -624,6 +802,25 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
         }
 
         switch (activeSection) {
+            case 'theme':
+                return (
+                    <div className="space-y-3 px-3 pb-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Tema</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
+                        </div>
+                        <ThemeSelector
+                            selectedThemeId={editor.draft.themeId || 'classic'}
+                            onThemeChange={(themeId) => {
+                                editor.updateDraft({ themeId });
+                            }}
+                            themeSettings={editor.draft.themeSettings}
+                            onThemeSettingsChange={(themeSettings) => {
+                                editor.updateDraft({ themeSettings });
+                            }}
+                        />
+                    </div>
+                );
             case 'logo':
                 return (
                     <div className="space-y-3 px-3 pb-6">
@@ -782,6 +979,12 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                     productSide: 'left',
                     imageMode: 'contain',
                     cardStyle: 'default',
+                    customTitle: '',
+                    customDescription: '',
+                    backgroundColor: '',
+                    galleryEnabled: false,
+                    galleryImages: [],
+                    galleryIntervalMs: 6000,
                     ctaLabel: 'Bestil nu',
                     ctaColor: '#0EA5E9',
                     ctaTextColor: '#FFFFFF',
@@ -791,6 +994,9 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                         imageUrl: null,
                         images: [],
                         slideshowIntervalMs: 6000,
+                        showNavigationArrows: false,
+                        fadeTransition: true,
+                        transitionDurationMs: 700,
                         borderRadiusPx: 24,
                         boxScalePct: 80,
                         imageScalePct: 100,
@@ -906,6 +1112,17 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                         imageUrl: nextImages[0] || null,
                         images: nextImages,
                     });
+                };
+                const featuredGalleryImages = Array.from(
+                    new Set((featuredProductConfig.galleryImages || []).filter(Boolean))
+                ).slice(0, 8) as string[];
+                const appendFeaturedGalleryImage = (imageUrl: string) => {
+                    const nextImages = [...featuredGalleryImages, imageUrl].slice(0, 8);
+                    updateFeaturedProductConfig({ galleryImages: nextImages });
+                };
+                const removeFeaturedGalleryImage = (imageUrl: string) => {
+                    const nextImages = featuredGalleryImages.filter((existing) => existing !== imageUrl);
+                    updateFeaturedProductConfig({ galleryImages: nextImages });
                 };
 
                 return (
@@ -1402,6 +1619,118 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                 />
                                             </div>
                                         </div>
+                                        <div className="grid gap-3 md:grid-cols-2">
+                                            <div className="space-y-2">
+                                                <Label>Alternativ titel</Label>
+                                                <Input
+                                                    value={featuredProductConfig.customTitle || ""}
+                                                    onChange={(event) => updateFeaturedProductConfig({ customTitle: event.target.value })}
+                                                    placeholder="Vises kun i fremhævet boks"
+                                                    disabled={!productsSection.enabled}
+                                                />
+                                            </div>
+                                            <div className="space-y-2 md:col-span-2">
+                                                <Label>Alternativ beskrivelse</Label>
+                                                <Textarea
+                                                    value={featuredProductConfig.customDescription || ""}
+                                                    onChange={(event) => updateFeaturedProductConfig({ customDescription: event.target.value })}
+                                                    placeholder="Denne tekst påvirker ikke selve produktet"
+                                                    disabled={!productsSection.enabled}
+                                                    rows={3}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-3 rounded-lg border border-dashed p-3">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <Label>Brug galleri i stedet for produktfoto</Label>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Upload flere billeder og roter dem i den fremhævede boks.
+                                                    </p>
+                                                </div>
+                                                <Switch
+                                                    checked={featuredProductConfig.galleryEnabled ?? false}
+                                                    onCheckedChange={(checked) => updateFeaturedProductConfig({ galleryEnabled: checked })}
+                                                    disabled={!productsSection.enabled}
+                                                />
+                                            </div>
+                                            {(featuredProductConfig.galleryEnabled ?? false) && (
+                                                <div className="space-y-3">
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <Label>Galleri billeder</Label>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {featuredGalleryImages.length}/8
+                                                            </span>
+                                                        </div>
+                                                        <Input
+                                                            type="file"
+                                                            accept="image/*"
+                                                            disabled={!productsSection.enabled || uploadingFeaturedGalleryImage || featuredGalleryImages.length >= 8}
+                                                            onChange={async (event) => {
+                                                                const file = event.target.files?.[0];
+                                                                if (!file) return;
+                                                                const publicUrl = await uploadFeaturedGalleryImage(file);
+                                                                if (publicUrl) {
+                                                                    appendFeaturedGalleryImage(publicUrl);
+                                                                }
+                                                                event.currentTarget.value = "";
+                                                            }}
+                                                        />
+                                                        <p className="text-xs text-muted-foreground">
+                                                            Der må være op til 8 billeder i galleriet.
+                                                        </p>
+                                                    </div>
+                                                    {featuredGalleryImages.length > 0 && (
+                                                        <div className="grid gap-2 sm:grid-cols-2">
+                                                            {featuredGalleryImages.map((imageUrl, index) => (
+                                                                <div key={`${imageUrl}-${index}`} className="rounded-md border bg-background p-2">
+                                                                    <div className="aspect-[4/3] overflow-hidden rounded-md bg-muted">
+                                                                        <img
+                                                                            src={imageUrl}
+                                                                            alt={`Galleri billede ${index + 1}`}
+                                                                            className="h-full w-full object-cover"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="mt-2 flex items-center justify-between gap-2">
+                                                                        <span className="text-xs text-muted-foreground">
+                                                                            Billede {index + 1}
+                                                                        </span>
+                                                                        <Button
+                                                                            type="button"
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className="h-7 px-2 text-destructive"
+                                                                            onClick={() => removeFeaturedGalleryImage(imageUrl)}
+                                                                        >
+                                                                            <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                                                            Fjern
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <Label>Skifteinterval</Label>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {Math.round((featuredProductConfig.galleryIntervalMs ?? 6000) / 1000)} sek
+                                                            </span>
+                                                        </div>
+                                                        <Slider
+                                                            value={[(featuredProductConfig.galleryIntervalMs ?? 6000) / 1000]}
+                                                            onValueChange={([value]) => updateFeaturedProductConfig({ galleryIntervalMs: value * 1000 })}
+                                                            min={3}
+                                                            max={12}
+                                                            step={1}
+                                                            className="py-1"
+                                                            disabled={!productsSection.enabled}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                         <div className="grid gap-3 md:grid-cols-3">
                                             <div className="space-y-2">
                                                 <div className="flex items-center justify-between">
@@ -1544,7 +1873,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                         </div>
                                         <div className="space-y-2">
                                                 <div className="flex items-center justify-between">
-                                                    <Label>Størrelse på billede</Label>
+                                                    <Label>Venstre billede (højde)</Label>
                                                     <span className="text-xs text-muted-foreground">
                                                         {featuredProductConfig.imageScalePct ?? 100}%
                                                     </span>
@@ -1563,8 +1892,30 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                     Virker kun når billedet vises som venstrestillet billede og ikke som fuld flade.
                                                 </p>
                                             )}
+                                            {(featuredProductConfig.imageMode || 'contain') !== 'full' && (
+                                                <p className="text-xs text-muted-foreground">
+                                                    Billedet skaleres kun i venstre felt, forankret i bunden, og påvirker ikke tekst/prisfeltet til højre.
+                                                </p>
+                                            )}
                                         </div>
-                                        <div className="grid gap-3 md:grid-cols-2">
+                                        <div className="grid gap-3 md:grid-cols-3">
+                                            <ColorPickerWithSwatches
+                                                label="Baggrund på produktboks"
+                                                value={featuredProductConfig.backgroundColor || '#FFFFFF'}
+                                                onChange={(value) => updateFeaturedProductConfig({ backgroundColor: value })}
+                                                savedSwatches={editor.draft.savedSwatches}
+                                                onSaveSwatch={(color) => {
+                                                    const swatches = editor.draft.savedSwatches || [];
+                                                    if (!swatches.includes(color) && swatches.length < 20) {
+                                                        editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                    }
+                                                }}
+                                                onRemoveSwatch={(color) => {
+                                                    editor.updateDraft({
+                                                        savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                    });
+                                                }}
+                                            />
                                             <ColorPickerWithSwatches
                                                 label="CTA farve"
                                                 value={featuredProductConfig.ctaColor || '#0EA5E9'}
@@ -1631,6 +1982,70 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                         </SelectContent>
                                                     </Select>
                                                 </div>
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <Label>Skifteinterval</Label>
+                                                        <span className="text-xs text-muted-foreground">
+                                                            {Math.round((featuredProductConfig.sidePanel?.slideshowIntervalMs ?? 6000) / 1000)} sek
+                                                        </span>
+                                                    </div>
+                                                    <Slider
+                                                        value={[(featuredProductConfig.sidePanel?.slideshowIntervalMs ?? 6000) / 1000]}
+                                                        onValueChange={([value]) => updateFeaturedSidePanel({ slideshowIntervalMs: value * 1000 })}
+                                                        min={2}
+                                                        max={15}
+                                                        step={1}
+                                                        className="py-1"
+                                                        disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
+                                                    />
+                                                </div>
+                                                <div className="grid gap-3 md:grid-cols-2">
+                                                    <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                                                        <div>
+                                                            <Label>Fade overgang</Label>
+                                                            <p className="text-xs text-muted-foreground">
+                                                                Blød overgang mellem bannere
+                                                            </p>
+                                                        </div>
+                                                        <Switch
+                                                            checked={featuredProductConfig.sidePanel?.fadeTransition ?? true}
+                                                            onCheckedChange={(checked) => updateFeaturedSidePanel({ fadeTransition: checked })}
+                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                                                        <div>
+                                                            <Label>Vis pile i banner</Label>
+                                                            <p className="text-xs text-muted-foreground">
+                                                                Manuel forrige/næste i banneret
+                                                            </p>
+                                                        </div>
+                                                        <Switch
+                                                            checked={featuredProductConfig.sidePanel?.showNavigationArrows ?? false}
+                                                            onCheckedChange={(checked) => updateFeaturedSidePanel({ showNavigationArrows: checked })}
+                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                {(featuredProductConfig.sidePanel?.fadeTransition ?? true) && (
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <Label>Fade varighed</Label>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {featuredProductConfig.sidePanel?.transitionDurationMs ?? 700} ms
+                                                            </span>
+                                                        </div>
+                                                        <Slider
+                                                            value={[featuredProductConfig.sidePanel?.transitionDurationMs ?? 700]}
+                                                            onValueChange={([value]) => updateFeaturedSidePanel({ transitionDurationMs: value })}
+                                                            min={150}
+                                                            max={1800}
+                                                            step={50}
+                                                            className="py-1"
+                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
+                                                        />
+                                                    </div>
+                                                )}
                                                 <div className="space-y-3 rounded-lg border border-dashed p-3">
                                                     <div className="flex items-center justify-between gap-3">
                                                         <div>
@@ -1886,23 +2301,6 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                                 ))}
                                                             </div>
                                                         )}
-                                                        <div className="space-y-2">
-                                                            <div className="flex items-center justify-between">
-                                                                <Label>Skifteinterval</Label>
-                                                                <span className="text-xs text-muted-foreground">
-                                                                    {Math.round((featuredProductConfig.sidePanel?.slideshowIntervalMs ?? 6000) / 1000)} sek
-                                                                </span>
-                                                            </div>
-                                                            <Slider
-                                                                value={[(featuredProductConfig.sidePanel?.slideshowIntervalMs ?? 6000) / 1000]}
-                                                                onValueChange={([value]) => updateFeaturedSidePanel({ slideshowIntervalMs: value * 1000 })}
-                                                                min={3}
-                                                                max={12}
-                                                                step={1}
-                                                                className="py-1"
-                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                            />
-                                                        </div>
                                                     </div>
                                                     <div className="grid gap-3 md:grid-cols-2">
                                                         <div className="space-y-2">
@@ -2049,6 +2447,119 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                     </div>
                                                 </>
                                             )}
+                                            {featuredSidePanelItems.length > 0 && featuredProductConfig.sidePanel?.mode === 'banner' && (
+                                                <div className="space-y-3 rounded-lg border border-dashed p-3">
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Udseende for banner-elementer (gælder alle bannere i rotationen).
+                                                    </p>
+                                                    <div className="space-y-2">
+                                                        <Label>Teksteffekt</Label>
+                                                        <Select
+                                                            value={featuredProductConfig.sidePanel?.textAnimation || "slide-up"}
+                                                            onValueChange={(value) => updateFeaturedSidePanel({ textAnimation: value as any })}
+                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
+                                                        >
+                                                            <SelectTrigger>
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="none">Ingen</SelectItem>
+                                                                <SelectItem value="fade">Fade</SelectItem>
+                                                                <SelectItem value="slide-up">Slide op</SelectItem>
+                                                                <SelectItem value="slide-down">Slide ned</SelectItem>
+                                                                <SelectItem value="scale">Scale</SelectItem>
+                                                                <SelectItem value="blur">Blur</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <Label>Overlay opacitet</Label>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {Math.round((featuredProductConfig.sidePanel?.overlayOpacity ?? 0.35) * 100)}%
+                                                            </span>
+                                                        </div>
+                                                        <Slider
+                                                            value={[(featuredProductConfig.sidePanel?.overlayOpacity ?? 0.35) * 100]}
+                                                            onValueChange={([value]) => updateFeaturedSidePanel({ overlayOpacity: value / 100 })}
+                                                            min={0}
+                                                            max={100}
+                                                            step={5}
+                                                            className="py-1"
+                                                        />
+                                                    </div>
+                                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                                        <ColorPickerWithSwatches
+                                                            label="Overlay farve"
+                                                            value={featuredProductConfig.sidePanel?.overlayColor || '#000000'}
+                                                            onChange={(value) => updateFeaturedSidePanel({ overlayColor: value })}
+                                                            savedSwatches={editor.draft.savedSwatches}
+                                                            onSaveSwatch={(color) => {
+                                                                const swatches = editor.draft.savedSwatches || [];
+                                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                                }
+                                                            }}
+                                                            onRemoveSwatch={(color) => {
+                                                                editor.updateDraft({
+                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                                });
+                                                            }}
+                                                        />
+                                                        <ColorPickerWithSwatches
+                                                            label="Overskrift farve"
+                                                            value={featuredProductConfig.sidePanel?.titleColor || '#FFFFFF'}
+                                                            onChange={(value) => updateFeaturedSidePanel({ titleColor: value })}
+                                                            savedSwatches={editor.draft.savedSwatches}
+                                                            onSaveSwatch={(color) => {
+                                                                const swatches = editor.draft.savedSwatches || [];
+                                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                                }
+                                                            }}
+                                                            onRemoveSwatch={(color) => {
+                                                                editor.updateDraft({
+                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                                });
+                                                            }}
+                                                        />
+                                                        <ColorPickerWithSwatches
+                                                            label="Underrubrik farve"
+                                                            value={featuredProductConfig.sidePanel?.subtitleColor || 'rgba(255, 255, 255, 0.9)'}
+                                                            onChange={(value) => updateFeaturedSidePanel({ subtitleColor: value })}
+                                                            savedSwatches={editor.draft.savedSwatches}
+                                                            onSaveSwatch={(color) => {
+                                                                const swatches = editor.draft.savedSwatches || [];
+                                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                                }
+                                                            }}
+                                                            onRemoveSwatch={(color) => {
+                                                                editor.updateDraft({
+                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                                });
+                                                            }}
+                                                        />
+                                                        <ColorPickerWithSwatches
+                                                            label="CTA farve"
+                                                            value={featuredProductConfig.ctaColor || '#0EA5E9'}
+                                                            onChange={(value) => updateFeaturedProductConfig({ ctaColor: value })}
+                                                            savedSwatches={editor.draft.savedSwatches}
+                                                            onSaveSwatch={(color) => {
+                                                                const swatches = editor.draft.savedSwatches || [];
+                                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                                }
+                                                            }}
+                                                            onRemoveSwatch={(color) => {
+                                                                editor.updateDraft({
+                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                                });
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -2189,6 +2700,261 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                         </div>
                     </div>
                 );
+            case 'product-page-matrix': {
+                const matrixFields: BrandingColorFieldConfig[] = [
+                    {
+                        key: "primary",
+                        label: "Primær (aktive felter og knapper)",
+                        description: "Bruges til valgte matrixfelter, primære knapper og aktive states på produktsiden.",
+                    },
+                    {
+                        key: "hover",
+                        label: "Hover accent",
+                        description: "Hover-farve til matrix- og knapinteraktioner på produktsiden.",
+                    },
+                    {
+                        key: "card",
+                        label: "Matrix/kort baggrund",
+                        description: "Baggrund for matrix- og panel-flader på produktsiden.",
+                    },
+                    {
+                        key: "secondary",
+                        label: "Sekundær flade",
+                        description: "Supplerende baggrund for hjælpefelter og sekundære elementer.",
+                    },
+                    {
+                        key: "pricingText",
+                        label: "Pris tekst",
+                        description: "Farven på prisvisning og fremhævede prisværdier.",
+                    },
+                    {
+                        key: "bodyText",
+                        label: "Beskrivelsestekst",
+                        description: "Farven på labels og hjælpetekster i konfigurationen.",
+                    },
+                ];
+                const pictureButtons = editor.draft.productPage?.matrix?.pictureButtons
+                    || DEFAULT_BRANDING.productPage.matrix.pictureButtons;
+
+                const updatePictureButtons = (updates: Partial<typeof pictureButtons>) => {
+                    const currentProductPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
+                    const currentMatrix = currentProductPage.matrix || DEFAULT_BRANDING.productPage.matrix;
+                    const currentPictureButtons = currentMatrix.pictureButtons || DEFAULT_BRANDING.productPage.matrix.pictureButtons;
+                    editor.updateDraft({
+                        productPage: {
+                            ...currentProductPage,
+                            matrix: {
+                                ...currentMatrix,
+                                pictureButtons: {
+                                    ...currentPictureButtons,
+                                    ...updates,
+                                },
+                            },
+                        },
+                    });
+                };
+
+                return (
+                    <div className="space-y-3 px-3 pb-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Produktside matrix & knapper</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
+                        </div>
+                        <Card>
+                            <CardHeader className="space-y-1">
+                                <CardTitle className="text-sm">Farver for produktsiden</CardTitle>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    Disse felter bruges direkte af matrix, prispanel og produktknapper.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                {matrixFields.map((field, index) => {
+                                    const value = editor.draft.colors[field.key];
+                                    return (
+                                        <div
+                                            key={field.key}
+                                            className={index === 0 ? "space-y-1.5" : "space-y-1.5 border-t border-border/60 pt-3"}
+                                        >
+                                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4">
+                                                <div className="space-y-1 pr-2">
+                                                    <p className="text-sm font-medium leading-5">{field.label}</p>
+                                                    <p className="text-xs leading-5 text-muted-foreground">{field.description}</p>
+                                                </div>
+                                                <div className="flex flex-col items-end gap-1 pt-0.5">
+                                                    <ColorPickerWithSwatches
+                                                        value={value}
+                                                        onChange={(color) => editor.updateDraft({
+                                                            colors: { ...editor.draft.colors, [field.key]: color }
+                                                        })}
+                                                        compact={true}
+                                                        showFullSwatches={false}
+                                                        savedSwatches={editor.draft.savedSwatches}
+                                                        onSaveSwatch={(color) => {
+                                                            const swatches = editor.draft.savedSwatches || [];
+                                                            if (!swatches.includes(color) && swatches.length < 20) {
+                                                                editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                            }
+                                                        }}
+                                                        onRemoveSwatch={(color) => {
+                                                            editor.updateDraft({
+                                                                savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                            });
+                                                        }}
+                                                    />
+                                                    <span className="text-[11px] font-mono uppercase text-muted-foreground">
+                                                        {String(value)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="space-y-1">
+                                <CardTitle className="text-sm">Billedknapper (matrix)</CardTitle>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    Særskilt styling til billedvalg (small/medium/large/xl), uafhængigt af almindelige knapper.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <Label>Vis hover-overlay på billeder</Label>
+                                    <Switch
+                                        checked={pictureButtons.hoverEnabled ?? true}
+                                        onCheckedChange={(checked) => updatePictureButtons({ hoverEnabled: checked })}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Hover-farve</Label>
+                                    <ColorPickerWithSwatches
+                                        value={pictureButtons.hoverColor || DEFAULT_BRANDING.productPage.matrix.pictureButtons.hoverColor}
+                                        onChange={(color) => updatePictureButtons({ hoverColor: color })}
+                                        compact={true}
+                                        showFullSwatches={false}
+                                        savedSwatches={editor.draft.savedSwatches}
+                                        onSaveSwatch={(color) => {
+                                            const swatches = editor.draft.savedSwatches || [];
+                                            if (!swatches.includes(color) && swatches.length < 20) {
+                                                editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                            }
+                                        }}
+                                        onRemoveSwatch={(color) => {
+                                            editor.updateDraft({
+                                                savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                            });
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Hover-opacitet ({Math.round((pictureButtons.hoverOpacity ?? 0.15) * 100)}%)</Label>
+                                    <Slider
+                                        min={0}
+                                        max={100}
+                                        step={1}
+                                        value={[Math.round((pictureButtons.hoverOpacity ?? 0.15) * 100)]}
+                                        onValueChange={([value]) => updatePictureButtons({ hoverOpacity: value / 100 })}
+                                    />
+                                </div>
+
+                                <Separator />
+
+                                <div className="space-y-2">
+                                    <Label>Valgt-farve</Label>
+                                    <ColorPickerWithSwatches
+                                        value={pictureButtons.selectedColor || DEFAULT_BRANDING.productPage.matrix.pictureButtons.selectedColor}
+                                        onChange={(color) => updatePictureButtons({ selectedColor: color })}
+                                        compact={true}
+                                        showFullSwatches={false}
+                                        savedSwatches={editor.draft.savedSwatches}
+                                        onSaveSwatch={(color) => {
+                                            const swatches = editor.draft.savedSwatches || [];
+                                            if (!swatches.includes(color) && swatches.length < 20) {
+                                                editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                            }
+                                        }}
+                                        onRemoveSwatch={(color) => {
+                                            editor.updateDraft({
+                                                savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                            });
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Valgt-opacitet ({Math.round((pictureButtons.selectedOpacity ?? 0.22) * 100)}%)</Label>
+                                    <Slider
+                                        min={0}
+                                        max={100}
+                                        step={1}
+                                        value={[Math.round((pictureButtons.selectedOpacity ?? 0.22) * 100)]}
+                                        onValueChange={([value]) => updatePictureButtons({ selectedOpacity: value / 100 })}
+                                    />
+                                </div>
+
+                                <Separator />
+
+                                <div className="flex items-center justify-between">
+                                    <Label>Vis outline på billeder</Label>
+                                    <Switch
+                                        checked={pictureButtons.outlineEnabled ?? true}
+                                        onCheckedChange={(checked) => updatePictureButtons({ outlineEnabled: checked })}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Outline-opacitet ({Math.round((pictureButtons.outlineOpacity ?? 1) * 100)}%)</Label>
+                                    <Slider
+                                        min={0}
+                                        max={100}
+                                        step={1}
+                                        value={[Math.round((pictureButtons.outlineOpacity ?? 1) * 100)]}
+                                        onValueChange={([value]) => updatePictureButtons({ outlineOpacity: value / 100 })}
+                                        disabled={!(pictureButtons.outlineEnabled ?? true)}
+                                    />
+                                </div>
+
+                                <Separator />
+
+                                <div className="flex items-center justify-between">
+                                    <Label>Lille zoom ved hover</Label>
+                                    <Switch
+                                        checked={pictureButtons.hoverZoomEnabled ?? true}
+                                        onCheckedChange={(checked) => updatePictureButtons({ hoverZoomEnabled: checked })}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Zoom-styrke ({(pictureButtons.hoverZoomScale ?? 1.03).toFixed(2)}x)</Label>
+                                    <Slider
+                                        min={100}
+                                        max={115}
+                                        step={1}
+                                        value={[Math.round((pictureButtons.hoverZoomScale ?? 1.03) * 100)]}
+                                        onValueChange={([value]) => updatePictureButtons({ hoverZoomScale: value / 100 })}
+                                        disabled={!(pictureButtons.hoverZoomEnabled ?? true)}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Animation-hastighed ({pictureButtons.hoverZoomDurationMs ?? 140} ms)</Label>
+                                    <Slider
+                                        min={80}
+                                        max={300}
+                                        step={10}
+                                        value={[pictureButtons.hoverZoomDurationMs ?? 140]}
+                                        onValueChange={([value]) => updatePictureButtons({ hoverZoomDurationMs: value })}
+                                        disabled={!(pictureButtons.hoverZoomEnabled ?? true)}
+                                    />
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+                );
+            }
             case 'icons':
                 return (
                     <div className="space-y-3 px-3 pb-6">
@@ -2409,6 +3175,8 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                 tenantName={editor.entityName}
                                 onSaveDraft={editor.saveDraft}
                                 onResetDesign={() => setShowResetDialog(true)}
+                                navigationRequest={previewNavigationRequest}
+                                onPreviewPathChange={setCurrentPreviewPage}
                             />
                         </div>
                     </div>

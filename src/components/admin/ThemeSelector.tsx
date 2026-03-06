@@ -10,6 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Check, Palette, Sparkles, Layout } from 'lucide-react';
+import '@/themes/classic';
+import '@/themes/glassmorphism';
 
 interface ThemeSelectorProps {
     /** Currently selected theme ID */

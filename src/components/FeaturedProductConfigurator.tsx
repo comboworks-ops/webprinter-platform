@@ -11,7 +11,7 @@
  * never mutates pricing logic or product schemas.
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -177,6 +177,78 @@ function getNearestPriceForRow(
     return nearest.price;
 }
 
+function useCrossfadeImage(
+    targetSrc: string | null,
+    enabled: boolean,
+    durationMs: number
+) {
+    const [currentSrc, setCurrentSrc] = useState<string | null>(targetSrc);
+    const [previousSrc, setPreviousSrc] = useState<string | null>(null);
+    const [currentVisible, setCurrentVisible] = useState(true);
+
+    useEffect(() => {
+        if (!enabled) {
+            setCurrentSrc(targetSrc);
+            setPreviousSrc(null);
+            setCurrentVisible(true);
+            return;
+        }
+
+        if (targetSrc === currentSrc) return;
+
+        setPreviousSrc(currentSrc);
+        setCurrentSrc(targetSrc);
+        setCurrentVisible(false);
+
+        const raf = window.requestAnimationFrame(() => {
+            setCurrentVisible(true);
+        });
+        const timer = window.setTimeout(() => {
+            setPreviousSrc(null);
+        }, durationMs);
+
+        return () => {
+            window.cancelAnimationFrame(raf);
+            window.clearTimeout(timer);
+        };
+    }, [durationMs, enabled, targetSrc]);
+
+    return { currentSrc, previousSrc, currentVisible };
+}
+
+function useFadeTransition(
+    transitionKey: string | number | null,
+    enabled: boolean
+) {
+    const [visible, setVisible] = useState(true);
+    const hasMountedRef = useRef(false);
+
+    useEffect(() => {
+        if (!enabled || transitionKey == null) {
+            setVisible(true);
+            hasMountedRef.current = false;
+            return;
+        }
+
+        if (!hasMountedRef.current) {
+            hasMountedRef.current = true;
+            setVisible(true);
+            return;
+        }
+
+        setVisible(false);
+        const raf = window.requestAnimationFrame(() => {
+            setVisible(true);
+        });
+
+        return () => {
+            window.cancelAnimationFrame(raf);
+        };
+    }, [enabled, transitionKey]);
+
+    return visible;
+}
+
 const DEFAULT_STORFORMAT_CONFIG: StorformatConfig = {
     rounding_step: 1,
     global_markup_pct: 0,
@@ -217,6 +289,7 @@ export function FeaturedProductConfigurator({
     const [sideStorformatWidthCm, setSideStorformatWidthCm] = useState<number>(100);
     const [sideStorformatHeightCm, setSideStorformatHeightCm] = useState<number>(100);
     const [sideBannerIndex, setSideBannerIndex] = useState<number>(0);
+    const [featuredGalleryIndex, setFeaturedGalleryIndex] = useState<number>(0);
     const [sidePanelItemIndex, setSidePanelItemIndex] = useState<number>(0);
     const [loading, setLoading] = useState(true);
 
@@ -226,7 +299,10 @@ export function FeaturedProductConfigurator({
     const productFirst = (config.productSide || "left") === "left";
     const cardRadius = config.borderRadiusPx ?? 24;
     const boxScale = Math.min(Math.max((config.boxScalePct ?? 80) / 100, 0.6), 1.4);
-    const imageScale = Math.min(Math.max((config.imageScalePct ?? 100) / 100, 0.6), 1.4);
+    const featuredImageHeightPct = Math.min(
+        Math.max((config.imageScalePct ?? 100) - 20, 40),
+        100
+    );
     const featuredBoxMinHeightPx = Math.round(420 * boxScale);
     const featuredBoxPaddingPx = 24;
     const featuredBoxGapPx = 24;
@@ -244,14 +320,25 @@ export function FeaturedProductConfigurator({
     const sidePanelPaddingPx = 20;
     const sidePanelGapPx = 12;
     const sidePanelMediaHeightPx = Math.round(192 * sidePanelScale);
+    const sidePanelFadeEnabled = sidePanel?.fadeTransition ?? true;
+    const sidePanelTransitionDurationMs = Math.min(
+        Math.max(sidePanel?.transitionDurationMs ?? 700, 150),
+        1800
+    );
+    const sidePanelOverlayBaseOpacity = sidePanel?.overlayOpacity ?? 0.35;
     const featuredCardStyle = {
         borderRadius: `${cardRadius}px`,
         minHeight: `${featuredBoxMinHeightPx}px`,
+        backgroundColor: config.backgroundColor || undefined,
     };
     const sidePanelCardStyle = {
         borderRadius: `${sidePanelRadius}px`,
         minHeight: `${sidePanelMinHeightPx}px`,
     };
+    const featuredGalleryImages = useMemo(() => {
+        return (config.galleryImages || []).filter(Boolean).slice(0, 8);
+    }, [config.galleryImages]);
+    const featuredUsesGallery = Boolean(config.galleryEnabled && featuredGalleryImages.length > 0);
     const sideBannerImages = useMemo(() => {
         const uploadedImages = (sidePanel?.images || []).filter(Boolean);
         if (sidePanel?.imageUrl && !uploadedImages.includes(sidePanel.imageUrl)) {
@@ -290,6 +377,29 @@ export function FeaturedProductConfigurator({
     const activeSideProduct = hasSidePanelCarousel && activeSidePanelItem?.mode === "product" && activeSidePanelItem.productId
         ? sidePanelProductsById[activeSidePanelItem.productId] || null
         : sideProduct;
+    const activeSideBannerItem = hasSidePanelCarousel && activeSidePanelItem?.mode === "banner"
+        ? activeSidePanelItem
+        : null;
+    const sidePanelCarouselImageTarget = activeSideBannerItem?.imageUrl || sidePanel?.imageUrl || null;
+    const sidePanelBannerImageTarget = sideBannerImages[sideBannerIndex] || sidePanel?.imageUrl || null;
+    const sidePanelCarouselImageTransition = useCrossfadeImage(
+        sidePanelCarouselImageTarget,
+        sidePanelFadeEnabled,
+        sidePanelTransitionDurationMs
+    );
+    const sidePanelBannerImageTransition = useCrossfadeImage(
+        sidePanelBannerImageTarget,
+        sidePanelFadeEnabled,
+        sidePanelTransitionDurationMs
+    );
+    const sidePanelCarouselTransitionVisible = useFadeTransition(
+        hasSidePanelCarousel ? `${sidePanelItemIndex}:${activeSidePanelItem?.id || ""}` : null,
+        sidePanelFadeEnabled && hasSidePanelCarousel
+    );
+    const sidePanelBannerTransitionVisible = useFadeTransition(
+        !hasSidePanelCarousel && sidePanel?.mode === "banner" ? sideBannerIndex : null,
+        sidePanelFadeEnabled && !hasSidePanelCarousel && sidePanel?.mode === "banner"
+    );
 
     const resolveValueName = useCallback((value: string) => {
         return valueNameById[value] || value;
@@ -378,7 +488,7 @@ export function FeaturedProductConfigurator({
     useEffect(() => {
         if (!hasSidePanelCarousel || sidePanelCarouselItems.length < 2) return;
 
-        const intervalMs = Math.max(3000, sidePanel?.slideshowIntervalMs || 6000);
+        const intervalMs = Math.max(2000, sidePanel?.slideshowIntervalMs || 6000);
         const timer = window.setInterval(() => {
             setSidePanelItemIndex((current) => (current + 1) % sidePanelCarouselItems.length);
         }, intervalMs);
@@ -918,6 +1028,30 @@ export function FeaturedProductConfigurator({
         setSelections((prev) => ({ ...prev, [groupId]: optionId }));
     }, []);
 
+    const handlePrevSidePanelItem = useCallback(() => {
+        if (!hasSidePanelCarousel || sidePanelCarouselItems.length < 2) return;
+        setSidePanelItemIndex((current) =>
+            (current - 1 + sidePanelCarouselItems.length) % sidePanelCarouselItems.length
+        );
+    }, [hasSidePanelCarousel, sidePanelCarouselItems.length]);
+
+    const handleNextSidePanelItem = useCallback(() => {
+        if (!hasSidePanelCarousel || sidePanelCarouselItems.length < 2) return;
+        setSidePanelItemIndex((current) => (current + 1) % sidePanelCarouselItems.length);
+    }, [hasSidePanelCarousel, sidePanelCarouselItems.length]);
+
+    const handlePrevSideBannerImage = useCallback(() => {
+        if (sideBannerImages.length < 2) return;
+        setSideBannerIndex((current) =>
+            (current - 1 + sideBannerImages.length) % sideBannerImages.length
+        );
+    }, [sideBannerImages.length]);
+
+    const handleNextSideBannerImage = useCallback(() => {
+        if (sideBannerImages.length < 2) return;
+        setSideBannerIndex((current) => (current + 1) % sideBannerImages.length);
+    }, [sideBannerImages.length]);
+
     const displayQuantities = useMemo(() => {
         if (product?.pricing_type === "STORFORMAT") {
             const storformatQuantities = featuredStorformatConfig.quantities || [];
@@ -976,11 +1110,34 @@ export function FeaturedProductConfigurator({
     }, [sidePanel?.mode, sideBannerImages]);
 
     useEffect(() => {
+        if (!featuredUsesGallery) {
+            setFeaturedGalleryIndex(0);
+            return;
+        }
+        if (featuredGalleryIndex >= featuredGalleryImages.length) {
+            setFeaturedGalleryIndex(0);
+        }
+    }, [featuredGalleryImages.length, featuredGalleryIndex, featuredUsesGallery]);
+
+    useEffect(() => {
+        if (!featuredUsesGallery || featuredGalleryImages.length < 2) {
+            return;
+        }
+
+        const intervalMs = Math.max(3000, config.galleryIntervalMs || 6000);
+        const timer = window.setInterval(() => {
+            setFeaturedGalleryIndex((current) => (current + 1) % featuredGalleryImages.length);
+        }, intervalMs);
+
+        return () => window.clearInterval(timer);
+    }, [config.galleryIntervalMs, featuredGalleryImages.length, featuredUsesGallery]);
+
+    useEffect(() => {
         if (!(sidePanel?.enabled && sidePanel.mode === "banner") || sideBannerImages.length < 2) {
             return;
         }
 
-        const intervalMs = Math.max(3000, sidePanel?.slideshowIntervalMs || 6000);
+        const intervalMs = Math.max(2000, sidePanel?.slideshowIntervalMs || 6000);
         const timer = window.setInterval(() => {
             setSideBannerIndex((current) => (current + 1) % sideBannerImages.length);
         }, intervalMs);
@@ -1009,26 +1166,58 @@ export function FeaturedProductConfigurator({
     const featuredPriceContextLabel = product.pricing_type === "STORFORMAT"
         ? `${featuredStorformatWidthCm} x ${featuredStorformatHeightCm} cm`
         : currentRowLabel;
-    const activeSideBannerItem = hasSidePanelCarousel && activeSidePanelItem?.mode === "banner"
-        ? activeSidePanelItem
-        : null;
     const sideBannerTitle = activeSideBannerItem?.title || sidePanel?.title;
     const sideBannerSubtitle = activeSideBannerItem?.subtitle || sidePanel?.subtitle;
     const sideBannerCtaLabel = activeSideBannerItem?.ctaLabel || sidePanel?.ctaLabel;
     const sideBannerHrefValue = activeSideBannerItem?.ctaHref || sidePanel?.ctaHref;
-    const sideBannerImage = activeSideBannerItem?.imageUrl || null;
-    const sidePanelSelectorLabel = (item: typeof activeSidePanelItem, index: number) => {
-        if (!item) return `${index + 1}`;
-        if (item.mode === "product") {
-            return sidePanelProductsById[item.productId || ""]?.name || `Produkt ${index + 1}`;
-        }
-        return item.title || `Banner ${index + 1}`;
-    };
+    const sideBannerImage = sidePanelCarouselImageTransition.currentSrc;
+    const sideBannerPreviousImage = sidePanelCarouselImageTransition.previousSrc;
+    const sideBannerCurrentVisible = sidePanelCarouselImageTransition.currentVisible;
     const sideBannerHref = getHref(sidePanel?.ctaHref);
-    const activeSideBannerImage = sideBannerImages[sideBannerIndex] || sidePanel?.imageUrl || null;
+    const activeSideBannerImage = sidePanelBannerImageTransition.currentSrc;
+    const activeSideBannerPreviousImage = sidePanelBannerImageTransition.previousSrc;
+    const activeSideBannerCurrentVisible = sidePanelBannerImageTransition.currentVisible;
+    const sideCarouselVisualVisible = sidePanelFadeEnabled
+        ? (sideBannerCurrentVisible && sidePanelCarouselTransitionVisible)
+        : true;
+    const sideImageListVisualVisible = sidePanelFadeEnabled
+        ? (activeSideBannerCurrentVisible && sidePanelBannerTransitionVisible)
+        : true;
     const sharedOffsetStyle = config.position === "above" && config.overlapPx
         ? { marginTop: `-${config.overlapPx}px` }
         : undefined;
+    const featuredTitle = (config.customTitle || "").trim() || product.name;
+    const featuredDescription = (config.customDescription || "").trim() || product.description;
+    const featuredImageSrc = featuredUsesGallery
+        ? (featuredGalleryImages[featuredGalleryIndex] || featuredGalleryImages[0] || getProductImage(product.slug, product.image_url))
+        : getProductImage(product.slug, product.image_url);
+    const renderSidePanelNavArrows = (
+        onPrev: () => void,
+        onNext: () => void,
+        visible: boolean
+    ) => {
+        if (!visible || !(sidePanel?.showNavigationArrows ?? false)) return null;
+        return (
+            <div className="absolute right-3 top-3 z-20 flex items-center gap-2">
+                <button
+                    type="button"
+                    onClick={onPrev}
+                    aria-label="Forrige banner"
+                    className="h-8 w-8 rounded-full bg-black/45 text-white transition hover:bg-black/60"
+                >
+                    ‹
+                </button>
+                <button
+                    type="button"
+                    onClick={onNext}
+                    aria-label="Næste banner"
+                    className="h-8 w-8 rounded-full bg-black/45 text-white transition hover:bg-black/60"
+                >
+                    ›
+                </button>
+            </div>
+        );
+    };
 
     const productBlock = (
         <div
@@ -1054,26 +1243,43 @@ export function FeaturedProductConfigurator({
                         "flex-shrink-0",
                         config.imageMode === "full"
                             ? "relative min-h-[280px] lg:min-h-[100%] lg:w-[40%]"
-                            : "flex items-center justify-center lg:w-2/5"
+                            : "relative flex items-end justify-center overflow-hidden lg:w-2/5"
                     )}
                 >
                     <img
-                        src={getProductImage(product.slug, product.image_url)}
-                        alt={product.name}
+                        src={featuredImageSrc}
+                        alt={featuredTitle}
                         className={cn(
                             config.imageMode === "full"
                                 ? "absolute inset-0 h-full w-full object-cover"
-                                : "w-full object-contain rounded-lg lg:h-full"
+                                : "absolute bottom-0 left-1/2 w-full -translate-x-1/2 object-contain object-bottom rounded-lg"
                         )}
                         style={config.imageMode === "full"
                             ? undefined
                             : {
-                                height: `${featuredMediaHeightPx}px`,
+                                height: `${featuredImageHeightPct}%`,
                                 borderRadius: `${Math.max(cardRadius - 8, 8)}px`,
-                                transform: `scale(${imageScale})`,
-                                transformOrigin: "center center",
+                                maxHeight: `${featuredMediaHeightPx * 2}px`,
                             }}
                     />
+                    {featuredUsesGallery && featuredGalleryImages.length > 1 && (
+                        <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1.5 rounded-full bg-black/40 px-2 py-1">
+                            {featuredGalleryImages.map((_, index) => (
+                                <button
+                                    key={`featured-gallery-dot-${index}`}
+                                    type="button"
+                                    aria-label={`Vis billede ${index + 1}`}
+                                    onClick={() => setFeaturedGalleryIndex(index)}
+                                    className={cn(
+                                        "h-2 w-2 rounded-full transition-all",
+                                        index === featuredGalleryIndex
+                                            ? "bg-white"
+                                            : "bg-white/45 hover:bg-white/70"
+                                    )}
+                                />
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 <div
@@ -1083,10 +1289,10 @@ export function FeaturedProductConfigurator({
                     )}
                 >
                     <div>
-                        <h3 className="text-3xl lg:text-4xl font-bold mb-2">{product.name}</h3>
-                        {product.description && (
+                        <h3 className="text-3xl lg:text-4xl font-bold mb-2">{featuredTitle}</h3>
+                        {featuredDescription && (
                             <p className="text-muted-foreground text-sm line-clamp-2">
-                                {product.description}
+                                {featuredDescription}
                             </p>
                         )}
                     </div>
@@ -1287,7 +1493,15 @@ export function FeaturedProductConfigurator({
             activeSidePanelItem?.mode === "product" && activeSideProduct ? (
                 <div
                     className="border bg-card overflow-hidden h-full shadow-sm"
-                    style={sidePanelCardStyle}
+                    style={{
+                        ...sidePanelCardStyle,
+                        opacity: sidePanelFadeEnabled
+                            ? (sidePanelCarouselTransitionVisible ? 1 : 0)
+                            : 1,
+                        transition: sidePanelFadeEnabled
+                            ? `opacity ${sidePanelTransitionDurationMs}ms ease`
+                            : undefined,
+                    }}
                 >
                     <img
                         src={getProductImage(activeSideProduct.slug, activeSideProduct.image_url)}
@@ -1351,41 +1565,94 @@ export function FeaturedProductConfigurator({
                                     </p>
                                 </div>
                             )}
-                            <Button asChild>
-                                <Link to={`/produkt/${activeSideProduct.slug}`}>Bestil</Link>
+                            <Button
+                                asChild
+                                style={{
+                                    backgroundColor: config.ctaColor || primaryColor,
+                                    color: config.ctaTextColor || "#FFFFFF",
+                                }}
+                            >
+                                <Link
+                                    to={`/produkt/${activeSideProduct.slug}`}
+                                    style={{ color: config.ctaTextColor || "#FFFFFF" }}
+                                >
+                                    Bestil
+                                </Link>
                             </Button>
                         </div>
                     </div>
                 </div>
             ) : (
                 <div
-                    className="relative overflow-hidden min-h-[320px] border h-full shadow-sm"
+                    className="relative overflow-hidden min-h-[320px] h-full shadow-sm"
                     style={sidePanelCardStyle}
                 >
-                    {sideBannerImage ? (
+                    <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-950" />
+                    {sideBannerPreviousImage && (
                         <img
-                            src={sideBannerImage}
+                            src={sideBannerPreviousImage}
                             alt={sideBannerTitle || "Kampagnebanner"}
-                            className="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
+                            className="absolute inset-0 h-full w-full object-cover"
                             style={{
                                 transform: `scale(${sidePanelImageScale})`,
                                 transformOrigin: "center center",
+                                opacity: sidePanelFadeEnabled
+                                    ? (sideCarouselVisualVisible ? 0 : 1)
+                                    : 1,
+                                transition: sidePanelFadeEnabled
+                                    ? `opacity ${sidePanelTransitionDurationMs}ms ease`
+                                    : undefined,
                             }}
                         />
-                    ) : (
-                        <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-950" />
+                    )}
+                    {sideBannerImage && (
+                        <img
+                            src={sideBannerImage}
+                            alt={sideBannerTitle || "Kampagnebanner"}
+                            className="absolute inset-0 h-full w-full object-cover"
+                            style={{
+                                transform: `scale(${sidePanelImageScale})`,
+                                transformOrigin: "center center",
+                                opacity: sidePanelFadeEnabled
+                                    ? (sideCarouselVisualVisible ? 1 : 0)
+                                    : 1,
+                                transition: sidePanelFadeEnabled
+                                    ? `opacity ${sidePanelTransitionDurationMs}ms ease`
+                                    : undefined,
+                            }}
+                        />
                     )}
                     <div
                         className="absolute inset-0"
                         style={{
                             backgroundColor: sidePanel?.overlayColor
-                                ? hexToRgba(sidePanel.overlayColor, sidePanel.overlayOpacity ?? 0.35)
-                                : "rgba(0, 0, 0, 0.35)",
+                                ? hexToRgba(sidePanel.overlayColor, sidePanelOverlayBaseOpacity)
+                                : `rgba(0, 0, 0, ${sidePanelOverlayBaseOpacity})`,
+                            opacity: sidePanelFadeEnabled
+                                ? (sideCarouselVisualVisible ? 1 : 0)
+                                : 1,
+                            transition: sidePanelFadeEnabled
+                                ? `opacity ${sidePanelTransitionDurationMs}ms ease`
+                                : undefined,
                         }}
                     />
+                    {renderSidePanelNavArrows(
+                        handlePrevSidePanelItem,
+                        handleNextSidePanelItem,
+                        sidePanelCarouselItems.length > 1
+                    )}
                     <div
                         className="relative z-10 flex h-full flex-col justify-start items-start"
-                        style={{ gap: `${sidePanelGapPx}px`, padding: `${sidePanelPaddingPx}px` }}
+                        style={{
+                            gap: `${sidePanelGapPx}px`,
+                            padding: `${sidePanelPaddingPx}px`,
+                            opacity: sidePanelFadeEnabled
+                                ? (sidePanelCarouselTransitionVisible ? 1 : 0)
+                                : 1,
+                            transition: sidePanelFadeEnabled
+                                ? `opacity ${sidePanelTransitionDurationMs}ms ease`
+                                : undefined,
+                        }}
                     >
                         {sideBannerTitle && (
                             <h4
@@ -1505,41 +1772,94 @@ export function FeaturedProductConfigurator({
                                     </p>
                                 </div>
                             )}
-                            <Button asChild>
-                                <Link to={`/produkt/${activeSideProduct.slug}`}>Bestil</Link>
+                            <Button
+                                asChild
+                                style={{
+                                    backgroundColor: config.ctaColor || primaryColor,
+                                    color: config.ctaTextColor || "#FFFFFF",
+                                }}
+                            >
+                                <Link
+                                    to={`/produkt/${activeSideProduct.slug}`}
+                                    style={{ color: config.ctaTextColor || "#FFFFFF" }}
+                                >
+                                    Bestil
+                                </Link>
                             </Button>
                         </div>
                     </div>
                 </div>
             ) : (
                 <div
-                    className="relative overflow-hidden min-h-[320px] border h-full shadow-sm"
+                    className="relative overflow-hidden min-h-[320px] h-full shadow-sm"
                     style={sidePanelCardStyle}
                 >
-                    {activeSideBannerImage ? (
+                    <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-950" />
+                    {activeSideBannerPreviousImage && (
                         <img
-                            src={activeSideBannerImage}
+                            src={activeSideBannerPreviousImage}
                             alt={sidePanel.title || "Kampagnebanner"}
-                            className="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
+                            className="absolute inset-0 h-full w-full object-cover"
                             style={{
                                 transform: `scale(${sidePanelImageScale})`,
                                 transformOrigin: "center center",
+                                opacity: sidePanelFadeEnabled
+                                    ? (sideImageListVisualVisible ? 0 : 1)
+                                    : 1,
+                                transition: sidePanelFadeEnabled
+                                    ? `opacity ${sidePanelTransitionDurationMs}ms ease`
+                                    : undefined,
                             }}
                         />
-                    ) : (
-                        <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-950" />
+                    )}
+                    {activeSideBannerImage && (
+                        <img
+                            src={activeSideBannerImage}
+                            alt={sidePanel.title || "Kampagnebanner"}
+                            className="absolute inset-0 h-full w-full object-cover"
+                            style={{
+                                transform: `scale(${sidePanelImageScale})`,
+                                transformOrigin: "center center",
+                                opacity: sidePanelFadeEnabled
+                                    ? (sideImageListVisualVisible ? 1 : 0)
+                                    : 1,
+                                transition: sidePanelFadeEnabled
+                                    ? `opacity ${sidePanelTransitionDurationMs}ms ease`
+                                    : undefined,
+                            }}
+                        />
                     )}
                     <div
                         className="absolute inset-0"
                         style={{
                             backgroundColor: sidePanel?.overlayColor
-                                ? hexToRgba(sidePanel.overlayColor, sidePanel.overlayOpacity ?? 0.35)
-                                : "rgba(0, 0, 0, 0.35)",
+                                ? hexToRgba(sidePanel.overlayColor, sidePanelOverlayBaseOpacity)
+                                : `rgba(0, 0, 0, ${sidePanelOverlayBaseOpacity})`,
+                            opacity: sidePanelFadeEnabled
+                                ? (sideImageListVisualVisible ? 1 : 0)
+                                : 1,
+                            transition: sidePanelFadeEnabled
+                                ? `opacity ${sidePanelTransitionDurationMs}ms ease`
+                                : undefined,
                         }}
                     />
+                    {renderSidePanelNavArrows(
+                        handlePrevSideBannerImage,
+                        handleNextSideBannerImage,
+                        sideBannerImages.length > 1
+                    )}
                     <div
                         className="relative z-10 flex h-full flex-col justify-start items-start"
-                        style={{ gap: `${sidePanelGapPx}px`, padding: `${sidePanelPaddingPx}px` }}
+                        style={{
+                            gap: `${sidePanelGapPx}px`,
+                            padding: `${sidePanelPaddingPx}px`,
+                            opacity: sidePanelFadeEnabled
+                                ? (sidePanelBannerTransitionVisible ? 1 : 0)
+                                : 1,
+                            transition: sidePanelFadeEnabled
+                                ? `opacity ${sidePanelTransitionDurationMs}ms ease`
+                                : undefined,
+                        }}
                     >
                         {sidePanel?.title && (
                             <h4
@@ -1599,25 +1919,6 @@ export function FeaturedProductConfigurator({
             <div className="flex-1">
                 {sidePanelContent}
             </div>
-            {hasSidePanelCarousel && sidePanelCarouselItems.length > 1 && (
-                <div className="flex flex-wrap gap-2">
-                    {sidePanelCarouselItems.map((item, index) => (
-                        <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => setSidePanelItemIndex(index)}
-                            className={cn(
-                                "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                                index === sidePanelItemIndex
-                                    ? "border-primary bg-primary text-primary-foreground"
-                                    : "border-border bg-background text-muted-foreground hover:border-primary/40"
-                            )}
-                        >
-                            {sidePanelSelectorLabel(item, index)}
-                        </button>
-                    ))}
-                </div>
-            )}
         </div>
     ) : null;
 

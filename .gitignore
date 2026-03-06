@@ -65,6 +65,9 @@ dist-ssr
 !scripts/fetch-color-tshirt-import.js
 !scripts/fetch-color-tshirt-4x4-import.mjs
 !scripts/fetch-color-tshirt-4x4-import.js
+!scripts/fetch-standard-rollup-import.js
+!scripts/fetch-premium-rollups-import.js
+!scripts/fetch-komplet-color-rollup-import.js
 !scripts/product-import/tshirt-size-distribution-lock.js
 
 # Local agent / scratch artifacts

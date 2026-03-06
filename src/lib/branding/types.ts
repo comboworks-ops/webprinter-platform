@@ -367,6 +367,18 @@ export function mergeBrandingWithDefaults(data: Partial<BrandingData>): Branding
                 },
             },
         },
+        productPage: {
+            ...DEFAULT_BRANDING.productPage,
+            ...data.productPage,
+            matrix: {
+                ...DEFAULT_BRANDING.productPage.matrix,
+                ...data.productPage?.matrix,
+                pictureButtons: {
+                    ...DEFAULT_BRANDING.productPage.matrix.pictureButtons,
+                    ...data.productPage?.matrix?.pictureButtons,
+                },
+            },
+        },
         navigation: { ...DEFAULT_BRANDING.navigation, ...data.navigation },
     };
 }

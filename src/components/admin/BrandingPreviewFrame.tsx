@@ -17,6 +17,14 @@ interface BrandingPreviewFrameProps {
     onSaveDraft?: () => Promise<void>;
     /** Optional callback to reset design to default */
     onResetDesign?: () => void;
+    /** External navigation request from editor */
+    navigationRequest?: {
+        id: number;
+        type: "path" | "first-product";
+        path?: string;
+    } | null;
+    /** Called when preview path changes */
+    onPreviewPathChange?: (path: string) => void;
 }
 
 type ViewportSize = "desktop" | "tablet" | "mobile";
@@ -46,6 +54,8 @@ export function BrandingPreviewFrame({
     isPublishing = false,
     onSaveDraft,
     onResetDesign,
+    navigationRequest,
+    onPreviewPathChange,
 }: BrandingPreviewFrameProps) {
     // Broadcast channel so detached preview windows get live updates
     const broadcastRef = useRef<BroadcastChannel | null>(null);
@@ -56,6 +66,7 @@ export function BrandingPreviewFrame({
     const [currentPath, setCurrentPath] = useState("/");
     const [isSavingForPreview, setIsSavingForPreview] = useState(false);
     const iframeRef = useRef<HTMLIFrameElement>(null);
+    const lastNavigationIdRef = useRef<number | null>(null);
 
     // Send branding to iframe via postMessage
     const sendBrandingToIframe = useCallback(() => {
@@ -97,6 +108,7 @@ export function BrandingPreviewFrame({
 
                 if (isAllowed) {
                     setCurrentPath(path);
+                    onPreviewPathChange?.(path);
                 } else {
                     // Block navigation to non-customer pages
                     navigateToFrontpage();
@@ -106,7 +118,28 @@ export function BrandingPreviewFrame({
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, [sendBrandingToIframe]);
+    }, [sendBrandingToIframe, onPreviewPathChange]);
+
+    useEffect(() => {
+        if (!navigationRequest || !iframeReady || !iframeRef.current?.contentWindow) return;
+        if (lastNavigationIdRef.current === navigationRequest.id) return;
+
+        if (navigationRequest.type === "first-product") {
+            iframeRef.current.contentWindow.postMessage(
+                { type: "NAVIGATE_TO_FIRST_PRODUCT" },
+                "*"
+            );
+            setCurrentPath("/produkt");
+        } else if (navigationRequest.path) {
+            iframeRef.current.contentWindow.postMessage(
+                { type: "NAVIGATE_TO", path: navigationRequest.path },
+                "*"
+            );
+            setCurrentPath(navigationRequest.path);
+        }
+
+        lastNavigationIdRef.current = navigationRequest.id;
+    }, [navigationRequest, iframeReady]);
 
     // Setup broadcast channel for cross-window preview updates
     useEffect(() => {
@@ -156,6 +189,7 @@ export function BrandingPreviewFrame({
             );
         }
         setCurrentPath("/");
+        onPreviewPathChange?.("/");
         // Also refresh to ensure we're on frontpage
         handleRefresh();
     };

@@ -1217,7 +1217,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
 
             {renderPricingInterface()}
 
-            <StaticProductInfo productId={product.slug || product.id} selectedFormat={selectedFormat} />
+            <StaticProductInfo productId={dbProductId || product.slug || product.id} selectedFormat={selectedFormat} />
         </div>
     );
 };

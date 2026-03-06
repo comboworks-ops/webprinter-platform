@@ -471,11 +471,20 @@ export default function PreviewShop() {
     const [tenantName, setTenantName] = useState("Dit Trykkeri");
     const [isLoading, setIsLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState('/');
+    const [firstProductSlug, setFirstProductSlug] = useState<string | null>(null);
 
     const isDraft = searchParams.get("draft") === "1";
     const tenantIdParam = searchParams.get("tenantId") || searchParams.get("tenant_id");
     const siteIdParam = searchParams.get("siteId") || searchParams.get("site_id");
     const isSitePreview = searchParams.get("sitePreview") === "1" && !!siteIdParam;
+    const isPreviewContext = isDraft || searchParams.get("preview_mode") === "1" || window.self !== window.top;
+
+    useEffect(() => {
+        if (!isPreviewContext) return;
+        window.parent.postMessage({ type: 'PREVIEW_NAVIGATION', path: currentPage }, '*');
+        // Backwards-compatible event name used by older editor controls
+        window.parent.postMessage({ type: 'PREVIEW_PAGE_CHANGED', path: currentPage }, '*');
+    }, [currentPage, isPreviewContext]);
 
     // Load initial branding from database
     useEffect(() => {
@@ -562,6 +571,34 @@ export default function PreviewShop() {
 
     const [editMode, setEditMode] = useState(false);
 
+    const resolveFirstProductSlug = useCallback(async () => {
+        const tenantId = tenantIdParam;
+        if (!tenantId) {
+            toast.error("Kunne ikke finde tenant til produkter");
+            return null;
+        }
+        if (firstProductSlug) return firstProductSlug;
+        try {
+            const { data, error } = await supabase
+                .from('products')
+                .select('slug')
+                .eq('is_published', true)
+                .eq('tenant_id', tenantId)
+                .not('slug', 'is', null)
+                .order('name')
+                .limit(1);
+
+            if (error) throw error;
+            const slug = (data && data[0]?.slug) || null;
+            if (slug) setFirstProductSlug(slug);
+            return slug;
+        } catch (error) {
+            console.error("Error loading first product:", error);
+            toast.error("Kunne ikke finde første produkt");
+            return null;
+        }
+    }, [tenantIdParam, firstProductSlug]);
+
     // Listen for Edit Mode toggle from parent AND screenshot capture requests
     useEffect(() => {
         const handleMessage = async (event: MessageEvent) => {
@@ -570,6 +607,22 @@ export default function PreviewShop() {
                 if (event.data.enabled) {
                     toast.info("Redigering aktiveret - klik på elementer for at rette");
                 }
+            }
+
+            if (event.data?.type === 'NAVIGATE_TO') {
+                const path = typeof event.data.path === 'string' ? event.data.path : '/';
+                setCurrentPage(path);
+                window.scrollTo(0, 0);
+            }
+
+            if (event.data?.type === 'NAVIGATE_TO_FIRST_PRODUCT') {
+                const slug = await resolveFirstProductSlug();
+                if (slug) {
+                    setCurrentPage(`/produkt/${slug}`);
+                } else {
+                    setCurrentPage('/produkter');
+                }
+                window.scrollTo(0, 0);
             }
 
             // Handle screenshot capture request
@@ -616,7 +669,7 @@ export default function PreviewShop() {
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, []);
+    }, [resolveFirstProductSlug]);
 
     // Global click interceptor for virtual navigation AND visual editing
     useEffect(() => {
@@ -684,7 +737,7 @@ export default function PreviewShop() {
     }, [editMode]);
 
     // Require admin access
-    if (!roleLoading && !isAdmin) {
+    if (!roleLoading && !isAdmin && !isPreviewContext) {
         return <Navigate to="/auth" replace />;
     }
 

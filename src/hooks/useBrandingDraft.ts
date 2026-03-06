@@ -511,6 +511,12 @@ export interface FeaturedProductConfig {
     productSide?: 'left' | 'right';
     imageMode?: 'contain' | 'full';
     cardStyle?: 'default' | 'glass';
+    customTitle?: string;
+    customDescription?: string;
+    backgroundColor?: string;
+    galleryEnabled?: boolean;
+    galleryImages?: string[];
+    galleryIntervalMs?: number;
     ctaLabel?: string;
     ctaColor?: string;
     ctaTextColor?: string;
@@ -521,6 +527,9 @@ export interface FeaturedProductConfig {
         imageUrl?: string | null;
         images?: string[];
         slideshowIntervalMs?: number;
+        showNavigationArrows?: boolean;
+        fadeTransition?: boolean;
+        transitionDurationMs?: number;
         borderRadiusPx?: number;
         boxScalePct?: number;
         imageScalePct?: number;
@@ -577,6 +586,12 @@ const DEFAULT_FEATURED_PRODUCT_CONFIG: FeaturedProductConfig = {
     productSide: 'left',
     imageMode: 'contain',
     cardStyle: 'default',
+    customTitle: '',
+    customDescription: '',
+    backgroundColor: '',
+    galleryEnabled: false,
+    galleryImages: [],
+    galleryIntervalMs: 6000,
     ctaLabel: 'Bestil nu',
     ctaColor: '#0EA5E9',
     ctaTextColor: '#FFFFFF',
@@ -587,6 +602,9 @@ const DEFAULT_FEATURED_PRODUCT_CONFIG: FeaturedProductConfig = {
         imageUrl: null,
         images: [],
         slideshowIntervalMs: 6000,
+        showNavigationArrows: false,
+        fadeTransition: true,
+        transitionDurationMs: 700,
         borderRadiusPx: 24,
         boxScalePct: 80,
         imageScalePct: 100,
@@ -689,12 +707,43 @@ const DEFAULT_BRANDING = {
     navigation: {
         dropdown_images: true,
     },
+    productPage: {
+        matrix: {
+            font: "Inter",
+            headerBg: "#F1F5F9",
+            headerText: "#1F2937",
+            rowHeaderBg: "#FFFFFF",
+            rowHeaderText: "#1F2937",
+            cellBg: "#FFFFFF",
+            cellText: "#1F2937",
+            cellHoverBg: "#F8FAFC",
+            cellHoverText: "#1F2937",
+            selectedBg: "#0EA5E9",
+            selectedText: "#FFFFFF",
+            borderColor: "#E2E8F0",
+            pictureButtons: {
+                hoverEnabled: true,
+                hoverColor: "#0EA5E9",
+                hoverOpacity: 0.15,
+                selectedColor: "#0EA5E9",
+                selectedOpacity: 0.22,
+                outlineEnabled: true,
+                outlineOpacity: 1,
+                hoverZoomEnabled: true,
+                hoverZoomScale: 1.03,
+                hoverZoomDurationMs: 140,
+            },
+        },
+    },
     // Product Images & Icons
     productImages: {
         setId: 'default',
         hueRotate: 0,
         saturate: 100,
     },
+    // Theme selection (Site Designer V2)
+    themeId: 'classic',
+    themeSettings: {} as Record<string, unknown>,
     selectedIconPackId: "classic",
     // Favicon (browser tab icon)
     favicon: {
@@ -796,6 +845,21 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
                 background: {
                     ...DEFAULT_BRANDING.forside.productsSection.background,
                     ...(data.forside.productsSection?.background || {}),
+                },
+            },
+        };
+    }
+
+    if (data.productPage) {
+        merged.productPage = {
+            ...DEFAULT_BRANDING.productPage,
+            ...data.productPage,
+            matrix: {
+                ...DEFAULT_BRANDING.productPage.matrix,
+                ...(data.productPage?.matrix || {}),
+                pictureButtons: {
+                    ...DEFAULT_BRANDING.productPage.matrix.pictureButtons,
+                    ...(data.productPage?.matrix?.pictureButtons || {}),
                 },
             },
         };
@@ -992,6 +1056,23 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
                     : prev.forside.productsSection,
             } : prev.forside;
 
+            const newProductPage = partial.productPage ? {
+                ...prev.productPage,
+                ...partial.productPage,
+                matrix: partial.productPage.matrix
+                    ? {
+                        ...prev.productPage.matrix,
+                        ...partial.productPage.matrix,
+                        pictureButtons: partial.productPage.matrix.pictureButtons
+                            ? {
+                                ...prev.productPage.matrix.pictureButtons,
+                                ...partial.productPage.matrix.pictureButtons,
+                            }
+                            : prev.productPage.matrix.pictureButtons,
+                    }
+                    : prev.productPage.matrix,
+            } : prev.productPage;
+
             return {
                 ...prev,
                 ...partial,
@@ -1001,6 +1082,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
                 header: newHeader,
                 footer: newFooter,
                 forside: newForside,
+                productPage: newProductPage,
                 navigation: { ...prev.navigation, ...(partial.navigation || {}) },
             };
         });

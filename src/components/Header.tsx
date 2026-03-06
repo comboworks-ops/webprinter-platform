@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X, Search, ChevronDown, LogOut, User, Shield, Package, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,11 @@ import { WebprinterLogo } from "@/components/WebprinterLogo";
 import { getProductImage } from "@/utils/productImages";
 import { ProductCategoryIcon } from "@/components/ProductCategoryIcon";
 import { buildProductFilter } from "@/lib/branding/productAssets";
-import { normalizeProductCategoryKey } from "@/utils/productCategories";
+import {
+  buildVisibleProductCategories,
+  resolveProductCategory,
+  type ProductCategoryRecord,
+} from "@/utils/productCategories";
 
 interface DbProduct {
   id: string;
@@ -30,12 +34,15 @@ interface DbProduct {
   slug: string;
   image_url: string | null;
   category: string;
+  categoryKey?: string;
+  categoryLabel?: string;
 }
 
 const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [allProducts, setAllProducts] = useState<DbProduct[]>([]);
+  const [productCategoryRows, setProductCategoryRows] = useState<ProductCategoryRecord[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -287,9 +294,32 @@ const Header = () => {
   // When isHome is false, we try to use Tailwind classes, but we should make sure they update.
   const positionClass = isHome ? '' : (headerSettings.scroll.sticky ? 'sticky top-0' : 'relative');
   const getProductLabel = (product: DbProduct) => product.icon_text || product.name;
-  const tryksagerProducts = allProducts.filter((product) => normalizeProductCategoryKey(product.category) === 'tryksager');
-  const storformatProducts = allProducts.filter((product) => normalizeProductCategoryKey(product.category) === 'storformat');
-  const tekstiltrykProducts = allProducts.filter((product) => normalizeProductCategoryKey(product.category) === 'tekstiltryk');
+  const groupedProductSections = useMemo(() => {
+    if (!allProducts.length) return [];
+
+    const visibleCategories = buildVisibleProductCategories(
+      allProducts.map((product) => product.category),
+      productCategoryRows,
+    );
+
+    const sections = visibleCategories
+      .map((category) => ({
+        key: category.key,
+        label: category.label,
+        products: allProducts.filter((product) => product.categoryKey === category.key),
+      }))
+      .filter((section) => section.products.length > 0);
+
+    if (sections.length > 0) return sections;
+
+    return [
+      {
+        key: "all-products",
+        label: "Produkter",
+        products: allProducts,
+      },
+    ];
+  }, [allProducts, productCategoryRows]);
 
   const navItems = [
     { label: t("home"), path: "/" },
@@ -306,16 +336,35 @@ const Header = () => {
     async function fetchProducts() {
       if (settings.isLoading) return;
 
-      const { data } = await (supabase
-        .from('products') as any)
-        .select('id, name, icon_text, slug, image_url, category')
-        .eq('is_published', true)
-        .eq('tenant_id', tenantId) // Filter by resolved tenant ID (Domain or User or Master)
-        .order('category', { ascending: true })
-        .order('name');
+      const [productsResponse, categoriesResponse] = await Promise.all([
+        (supabase
+          .from('products') as any)
+          .select('id, name, icon_text, slug, image_url, category')
+          .eq('is_published', true)
+          .eq('tenant_id', tenantId)
+          .order('category', { ascending: true })
+          .order('name'),
+        (supabase
+          .from('product_categories' as any))
+          .select('name, slug, sort_order')
+          .eq('tenant_id', tenantId)
+          .order('sort_order', { ascending: true }),
+      ]);
 
-      if (data) {
-        setAllProducts(data as DbProduct[]);
+      const categoryRows = ((categoriesResponse.error ? [] : categoriesResponse.data) || []) as ProductCategoryRecord[];
+      setProductCategoryRows(categoryRows);
+
+      if (productsResponse.data) {
+        const mappedProducts = (productsResponse.data as DbProduct[]).map((product) => {
+          const resolvedCategory = resolveProductCategory(product.category, categoryRows);
+          return {
+            ...product,
+            category: product.category || resolvedCategory.label,
+            categoryKey: resolvedCategory.key,
+            categoryLabel: resolvedCategory.label,
+          };
+        });
+        setAllProducts(mappedProducts);
       }
     }
     fetchProducts();
@@ -570,19 +619,23 @@ const Header = () => {
                           } animate-in fade-in-0 slide-in-from-top-2 duration-200`}
                         style={getDropdownStyles()}
                       >
-                        {/* Tryksager Section */}
-                        {tryksagerProducts.length > 0 && (
-                          <div className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}>
-                            <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>Tryksager</h3>
+                        {groupedProductSections.map((section) => (
+                          <div
+                            key={section.key}
+                            className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}
+                          >
+                            <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>
+                              {section.label}
+                            </h3>
                             {(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? (
                               <div
                                 className="grid gap-2"
                                 style={{
-                                  gridTemplateColumns: `repeat(${Math.ceil(tryksagerProducts.length / 2)}, 1fr)`,
-                                  gridTemplateRows: 'repeat(2, 1fr)'
+                                  gridTemplateColumns: `repeat(${Math.ceil(section.products.length / 2)}, 1fr)`,
+                                  gridTemplateRows: 'repeat(2, 1fr)',
                                 }}
                               >
-                                {tryksagerProducts.map((product) => (
+                                {section.products.map((product) => (
                                   <DropdownMenuItem key={product.id} asChild>
                                     <Link
                                       to={`/produkt/${product.slug}`}
@@ -613,7 +666,7 @@ const Header = () => {
                               </div>
                             ) : (
                               <div className="flex flex-col">
-                                {tryksagerProducts.map((product) => (
+                                {section.products.map((product) => (
                                   <DropdownMenuItem key={product.id} asChild>
                                     <Link
                                       to={`/produkt/${product.slug}`}
@@ -632,135 +685,7 @@ const Header = () => {
                               </div>
                             )}
                           </div>
-                        )}
-
-                        {/* Storformat Section */}
-                        {storformatProducts.length > 0 && (
-                          <div className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}>
-                            <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>Storformat</h3>
-                            {(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? (
-                              <div
-                                className="grid gap-2"
-                                style={{
-                                  gridTemplateColumns: `repeat(${Math.ceil(storformatProducts.length / 2)}, 1fr)`,
-                                  gridTemplateRows: 'repeat(2, 1fr)'
-                                }}
-                              >
-                                {storformatProducts.map((product) => (
-                                  <DropdownMenuItem key={product.id} asChild>
-                                    <Link
-                                      to={`/produkt/${product.slug}`}
-                                      className="dropdown-product-link cursor-pointer flex flex-col items-center gap-2 p-3 transition-all hover:scale-105 rounded-md"
-                                    >
-                                      {product.image_url && (
-                                        <img
-                                          src={getProductImage(product.slug, product.image_url)}
-                                          alt={product.name}
-                                          className="w-14 h-14 object-contain"
-                                          style={{ filter: 'var(--product-filter)' }}
-                                        />
-                                      )}
-                                      {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
-                                        <span className="inline-flex items-center gap-1.5 text-xs text-center" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>
-                                          <ProductCategoryIcon
-                                            slug={product.slug}
-                                            category={product.category}
-                                            packId={selectedIconPackId}
-                                            className="h-4 w-4"
-                                          />
-                                          <span>{getProductLabel(product)}</span>
-                                        </span>
-                                      )}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="flex flex-col">
-                                {storformatProducts.map((product) => (
-                                  <DropdownMenuItem key={product.id} asChild>
-                                    <Link
-                                      to={`/produkt/${product.slug}`}
-                                      className="dropdown-product-link cursor-pointer px-2 py-1.5 text-sm transition-colors rounded inline-flex items-center gap-2"
-                                      style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
-                                    >
-                                      <ProductCategoryIcon
-                                        slug={product.slug}
-                                        category={product.category}
-                                        packId={selectedIconPackId}
-                                      />
-                                      {getProductLabel(product)}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Tekstil Section */}
-                        {tekstiltrykProducts.length > 0 && (
-                          <div className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}>
-                            <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>Tøj & Tekstil</h3>
-                            {(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? (
-                              <div
-                                className="grid gap-2"
-                                style={{
-                                  gridTemplateColumns: `repeat(${Math.ceil(tekstiltrykProducts.length / 2)}, 1fr)`,
-                                  gridTemplateRows: 'repeat(2, 1fr)'
-                                }}
-                              >
-                                {tekstiltrykProducts.map((product) => (
-                                  <DropdownMenuItem key={product.id} asChild>
-                                    <Link
-                                      to={`/produkt/${product.slug}`}
-                                      className="dropdown-product-link cursor-pointer flex flex-col items-center gap-2 p-3 transition-all hover:scale-105 rounded-md"
-                                    >
-                                      {product.image_url && (
-                                        <img
-                                          src={getProductImage(product.slug, product.image_url)}
-                                          alt={product.name}
-                                          className="w-14 h-14 object-contain"
-                                          style={{ filter: 'var(--product-filter)' }}
-                                        />
-                                      )}
-                                      {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
-                                        <span className="inline-flex items-center gap-1.5 text-xs text-center" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>
-                                          <ProductCategoryIcon
-                                            slug={product.slug}
-                                            category={product.category}
-                                            packId={selectedIconPackId}
-                                            className="h-4 w-4"
-                                          />
-                                          <span>{getProductLabel(product)}</span>
-                                        </span>
-                                      )}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="flex flex-col">
-                                {tekstiltrykProducts.map((product) => (
-                                  <DropdownMenuItem key={product.id} asChild>
-                                    <Link
-                                      to={`/produkt/${product.slug}`}
-                                      className="dropdown-product-link cursor-pointer px-2 py-1.5 text-sm transition-colors rounded inline-flex items-center gap-2"
-                                      style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
-                                    >
-                                      <ProductCategoryIcon
-                                        slug={product.slug}
-                                        category={product.category}
-                                        packId={selectedIconPackId}
-                                      />
-                                      {getProductLabel(product)}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
+                        ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   );
