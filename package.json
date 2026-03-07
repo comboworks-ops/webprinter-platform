@@ -66,6 +66,7 @@
     "jspdf": "^3.0.4",
     "lcms-wasm": "^1.0.5",
     "lucide-react": "^0.462.0",
+    "motion": "^11.18.2",
     "next-themes": "^0.3.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",
