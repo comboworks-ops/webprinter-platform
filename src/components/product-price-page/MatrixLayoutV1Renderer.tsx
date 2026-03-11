@@ -19,6 +19,7 @@ import { normalizeThumbnailCustomPx, normalizeThumbnailSize, resolveThumbnailSiz
 import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
+import { readTransientString, writeTransientString } from "@/lib/storage/transientStorage";
 
 // Types from pricing structure
 interface VerticalAxisConfig {
@@ -154,7 +155,7 @@ const isFresh = (at: number) => (Date.now() - at) < CACHE_TTL_MS;
 function readPersistedCache<T>(key: string): { at: number; data: T } | null {
     if (typeof window === 'undefined') return null;
     try {
-        const raw = window.localStorage.getItem(key);
+        const raw = readTransientString(key);
         if (!raw) return null;
         const parsed = JSON.parse(raw) as { at?: number; data?: T };
         if (typeof parsed?.at !== 'number' || parsed.data == null) return null;
@@ -168,9 +169,9 @@ function readPersistedCache<T>(key: string): { at: number; data: T } | null {
 function writePersistedCache<T>(key: string, payload: { at: number; data: T }) {
     if (typeof window === 'undefined') return;
     try {
-        window.localStorage.setItem(key, JSON.stringify(payload));
+        writeTransientString(key, JSON.stringify(payload));
     } catch {
-        // Ignore localStorage quota/storage errors.
+        // Ignore storage errors.
     }
 }
 

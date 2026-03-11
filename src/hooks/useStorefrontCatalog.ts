@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { getProductDisplayPrice } from "@/utils/productPriceDisplay";
+import { readTransientString, writeTransientString } from "@/lib/storage/transientStorage";
 import {
   buildVisibleProductCategories,
   resolveProductCategory,
@@ -107,7 +108,7 @@ const cacheKeyForTenant = (tenantId: string) => `${PRODUCT_CACHE_KEY_PREFIX}:ten
 const readProductCache = (key: string): ProductCachePayload | null => {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = readTransientString(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ProductCachePayload;
     if (!parsed?.at || !Array.isArray(parsed?.products) || !Array.isArray(parsed?.categories)) return null;
@@ -120,9 +121,9 @@ const readProductCache = (key: string): ProductCachePayload | null => {
 const writeProductCache = (key: string, payload: ProductCachePayload) => {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(key, JSON.stringify(payload));
+    writeTransientString(key, JSON.stringify(payload));
   } catch {
-    // Ignore quota/storage errors
+    // Ignore storage errors
   }
 };
 

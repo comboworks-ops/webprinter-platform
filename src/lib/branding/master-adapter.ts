@@ -6,6 +6,7 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
+import { writeTransientString } from '@/lib/storage/transientStorage';
 import {
     type BrandingStorageAdapter,
     type BrandingData,
@@ -72,7 +73,7 @@ export function createMasterAdapter(): BrandingStorageAdapter {
             if (fetchError) {
                 // Master tenant might not exist, try to create
                 console.warn('Master tenant not found, using local storage fallback');
-                localStorage.setItem('master_branding_draft', JSON.stringify(data));
+                writeTransientString('master_branding_draft', JSON.stringify(data));
                 return;
             }
 

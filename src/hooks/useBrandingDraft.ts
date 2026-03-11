@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { readTransientString, removeTransientKey, writeTransientString } from "@/lib/storage/transientStorage";
 
 // Default hero slideshow images (External URLs for maximum reliability in production)
 const heroPrinting = "/hero-print.jpg";
@@ -900,21 +901,21 @@ const DRAFT_STORAGE_KEY = 'branding-draft-unsaved';
 // Helper to save draft to localStorage
 function saveDraftToStorage(draft: BrandingData) {
     try {
-        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+        writeTransientString(DRAFT_STORAGE_KEY, JSON.stringify(draft));
     } catch (e) {
-        console.warn('Failed to save draft to localStorage:', e);
+        console.warn('Failed to save draft to transient storage:', e);
     }
 }
 
 // Helper to load draft from localStorage
 function loadDraftFromStorage(): BrandingData | null {
     try {
-        const stored = localStorage.getItem(DRAFT_STORAGE_KEY);
+        const stored = readTransientString(DRAFT_STORAGE_KEY);
         if (stored) {
             return JSON.parse(stored);
         }
     } catch (e) {
-        console.warn('Failed to load draft from localStorage:', e);
+        console.warn('Failed to load draft from transient storage:', e);
     }
     return null;
 }
@@ -922,9 +923,9 @@ function loadDraftFromStorage(): BrandingData | null {
 // Helper to clear draft from localStorage
 function clearDraftStorage() {
     try {
-        localStorage.removeItem(DRAFT_STORAGE_KEY);
+        removeTransientKey(DRAFT_STORAGE_KEY);
     } catch (e) {
-        console.warn('Failed to clear draft from localStorage:', e);
+        console.warn('Failed to clear draft from transient storage:', e);
     }
 }
 

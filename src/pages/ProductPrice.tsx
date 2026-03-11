@@ -26,6 +26,7 @@ import {
   getGenericMatrixDataFromDB
 } from "@/utils/pricingDatabase";
 import { getDimensionsFromVariant } from "@/utils/formatStandards";
+import { readTransientString, writeTransientString } from "@/lib/storage/transientStorage";
 
 // Legacy product configurations removed on user request (2025-01-30)
 // specificPricingProducts and productConfigs were deleted to unify on the generic pricing system.
@@ -68,7 +69,7 @@ const detailCacheKey = (tenantId: string, slug: string) => `${PRODUCT_DETAIL_CAC
 const readDetailCache = (tenantId: string, slug: string): ProductDetailCachePayload | null => {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(detailCacheKey(tenantId, slug));
+    const raw = readTransientString(detailCacheKey(tenantId, slug));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ProductDetailCachePayload;
     if (!parsed?.product || !parsed?.at) return null;
@@ -81,9 +82,9 @@ const readDetailCache = (tenantId: string, slug: string): ProductDetailCachePayl
 const writeDetailCache = (tenantId: string, slug: string, payload: ProductDetailCachePayload) => {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(detailCacheKey(tenantId, slug), JSON.stringify(payload));
+    writeTransientString(detailCacheKey(tenantId, slug), JSON.stringify(payload));
   } catch {
-    // Ignore localStorage quota/storage errors.
+    // Ignore storage errors.
   }
 };
 
