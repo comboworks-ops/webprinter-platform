@@ -3,10 +3,37 @@ const SITE_CHECKOUT_SESSION_KEY = "wp_site_checkout_session";
 export interface SiteCheckoutUpload {
   name?: string | null;
   mimeType?: string | null;
+  fileUrl?: string | null;
+  filePath?: string | null;
   widthPx?: number | null;
   heightPx?: number | null;
   estimatedDpi?: number | null;
+  sourceDpi?: number | null;
   previewDataUrl?: string | null;
+}
+
+export interface SiteCheckoutCustomerDraft {
+  customerEmail?: string | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  customerCompany?: string | null;
+  deliveryRecipientName?: string | null;
+  deliveryCompany?: string | null;
+  deliveryAddress?: string | null;
+  deliveryZip?: string | null;
+  deliveryCity?: string | null;
+  selectedSavedAddressId?: string | null;
+  saveAddressForLater?: boolean | null;
+  addressLabel?: string | null;
+  senderMode?: "standard" | "blind" | "custom" | null;
+  senderName?: string | null;
+  useSeparateBillingAddress?: boolean | null;
+  billingName?: string | null;
+  billingCompany?: string | null;
+  billingAddress?: string | null;
+  billingZip?: string | null;
+  billingCity?: string | null;
+  selectedCustomerProfileId?: string | null;
 }
 
 export interface SiteCheckoutState {
@@ -23,10 +50,12 @@ export interface SiteCheckoutState {
   designWidthMm?: number | null;
   designHeightMm?: number | null;
   designBleedMm?: number | null;
+  designSafeAreaMm?: number | null;
   shippingSelected?: string | null;
   optionSelections?: Record<string, unknown>;
   sourceSiteId?: string | null;
   siteUpload?: SiteCheckoutUpload | null;
+  checkoutCustomer?: SiteCheckoutCustomerDraft | null;
   createdAt?: string | null;
 }
 

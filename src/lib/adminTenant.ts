@@ -31,6 +31,11 @@ function getHostnameForCache() {
     return window.location.hostname || "";
 }
 
+function getPathnameForResolution() {
+    if (typeof window === "undefined") return "";
+    return window.location.pathname || "";
+}
+
 function getResolutionCacheKey(userId: string, hostname: string) {
     return `${userId}::${hostname}`;
 }
@@ -88,10 +93,17 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
         let role: string | null = null;
         let tenantId: string | null = null;
         const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
+        const pathname = getPathnameForResolution();
+        const isAdminRoute = pathname.startsWith("/admin");
+        const isCentralAdminHost =
+            isLocalhost
+            || hostname === ROOT_DOMAIN
+            || hostname === `www.${ROOT_DOMAIN}`;
+        const shouldHonorHostnameTenant = !isLocalhost && hostname && !(isAdminRoute && isCentralAdminHost);
 
         // First honor the active tenant context from the current hostname.
         // This is critical for platform-owned shops managed by a master admin.
-        if (!isLocalhost && hostname) {
+        if (shouldHonorHostnameTenant) {
             const normalizedHost = hostname.replace(/^www\./, "");
             const possibleDomains = Array.from(new Set([hostname, normalizedHost, `www.${normalizedHost}`]));
 
@@ -162,7 +174,11 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
 
         // Only fall back if completely unresolved
         const isMasterAdmin = role === 'master_admin';
-        if (!tenantId && isMasterAdmin) {
+
+        // Central admin should default master admins to the master tenant, not an arbitrary owned storefront tenant.
+        if (!tenantId && isMasterAdmin && isAdminRoute && isCentralAdminHost) {
+            tenantId = MASTER_TENANT_ID;
+        } else if (!tenantId && isMasterAdmin) {
             tenantId = MASTER_TENANT_ID;
         }
 

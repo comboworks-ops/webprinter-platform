@@ -5,10 +5,17 @@ import { FeaturedProductConfigurator } from "@/components/FeaturedProductConfigu
 import { StorefrontProductTabs } from "@/components/StorefrontProductTabs";
 import { Truck, Award, Phone } from "lucide-react";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { SitePackagePreview } from "@/components/sites/SitePackagePreview";
 
 const Shop = () => {
     const { data: settings } = useShopSettings();
     const branding = settings?.branding;
+    const activeSiteId = settings?.site_frontends?.activeSiteId;
+    const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+    const rootDomain = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
+    const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
+    const isPlatformRoot = hostname === rootDomain || hostname === `www.${rootDomain}`;
+    const shouldRenderActiveSite = Boolean(activeSiteId && settings?.id && !isLocalhost && !isPlatformRoot);
     const productsSection = branding?.forside?.productsSection;
     const showProducts = productsSection?.enabled ?? true;
     const productColumns = productsSection?.columns ?? 4;
@@ -22,6 +29,16 @@ const Shop = () => {
         ? [featuredProductConfig.productId as string]
         : [];
     const featuredAboveCategories = (featuredProductConfig?.position || 'above') === 'above';
+
+    if (shouldRenderActiveSite && activeSiteId) {
+        return (
+            <SitePackagePreview
+                siteId={activeSiteId}
+                tenantId={settings?.id || null}
+                mode="live"
+            />
+        );
+    }
 
     return <div className="min-h-screen flex flex-col">
         <Header />

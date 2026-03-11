@@ -62,6 +62,9 @@ type ProductCategory = {
   slug: string;
   sort_order: number | null;
   overview_id?: string | null;
+  parent_category_id?: string | null;
+  navigation_mode?: "all_in_one" | "submenu" | null;
+  frontend_product_id?: string | null;
 };
 
 type ProductOverviewGroup = {
@@ -145,6 +148,18 @@ const isMissingOverviewColumn = (error: unknown) => {
   return e.code === '42703' || e.code === 'PGRST204' || text.includes('overview_id');
 };
 
+const isMissingHierarchyColumn = (error: unknown) => {
+  const e = (error || {}) as DbErrorLike;
+  const text = `${e.message || ''} ${e.details || ''}`.toLowerCase();
+  return e.code === '42703' || e.code === 'PGRST204' || text.includes('parent_category_id') || text.includes('navigation_mode');
+};
+
+const isMissingFrontendCardColumn = (error: unknown) => {
+  const e = (error || {}) as DbErrorLike;
+  const text = `${e.message || ''} ${e.details || ''}`.toLowerCase();
+  return e.code === '42703' || e.code === 'PGRST204' || text.includes('frontend_product_id');
+};
+
 export function ProductOverview() {
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
@@ -186,6 +201,8 @@ export function ProductOverview() {
   const [selectedOverviewId, setSelectedOverviewId] = useState<string>(FALLBACK_OVERVIEW_ID);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryOverviewId, setNewCategoryOverviewId] = useState<string>(FALLBACK_OVERVIEW_ID);
+  const [newCategoryParentId, setNewCategoryParentId] = useState<string>("none");
+  const [newCategoryNavigationMode, setNewCategoryNavigationMode] = useState<"all_in_one" | "submenu">("all_in_one");
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryName, setEditingCategoryName] = useState("");
   const [newOverviewName, setNewOverviewName] = useState("");
@@ -383,12 +400,12 @@ export function ProductOverview() {
 
       const { data, error } = await supabase
         .from('product_categories' as any)
-        .select('id, tenant_id, name, slug, sort_order, overview_id')
+        .select('id, tenant_id, name, slug, sort_order, overview_id, parent_category_id, navigation_mode, frontend_product_id')
         .eq('tenant_id', tenantId)
         .order('sort_order');
 
       if (error) {
-        if (isMissingOverviewColumn(error)) {
+        if (isMissingOverviewColumn(error) || isMissingHierarchyColumn(error) || isMissingFrontendCardColumn(error)) {
           const fallback = await supabase
             .from('product_categories' as any)
             .select('id, tenant_id, name, slug, sort_order')
@@ -400,6 +417,9 @@ export function ProductOverview() {
             ((fallback.data as ProductCategory[]) || []).map((row) => ({
               ...row,
               overview_id: FALLBACK_OVERVIEW_ID,
+              parent_category_id: null,
+              navigation_mode: 'all_in_one',
+              frontend_product_id: null,
             }))
           );
           return;
@@ -412,6 +432,9 @@ export function ProductOverview() {
         rows.map((row) => ({
           ...row,
           overview_id: row.overview_id ?? FALLBACK_OVERVIEW_ID,
+          parent_category_id: row.parent_category_id ?? null,
+          navigation_mode: row.navigation_mode ?? 'all_in_one',
+          frontend_product_id: row.frontend_product_id ?? null,
         }))
       );
     } catch (error) {
@@ -512,6 +535,7 @@ export function ProductOverview() {
         newCategoryOverviewId && newCategoryOverviewId !== FALLBACK_OVERVIEW_ID
           ? newCategoryOverviewId
           : null;
+      const parentCategoryId = newCategoryParentId !== "none" ? newCategoryParentId : null;
 
       const { error } = await supabase
         .from('product_categories' as any)
@@ -521,10 +545,12 @@ export function ProductOverview() {
           slug,
           sort_order: maxSortOrder + 1,
           overview_id: selectedOverviewId,
+          parent_category_id: parentCategoryId,
+          navigation_mode: newCategoryNavigationMode,
         });
 
       if (error) {
-        if (isMissingOverviewColumn(error)) {
+        if (isMissingOverviewColumn(error) || isMissingHierarchyColumn(error)) {
           const fallbackInsert = await supabase
             .from('product_categories' as any)
             .insert({
@@ -540,6 +566,8 @@ export function ProductOverview() {
       }
       toast.success('Kategori oprettet');
       setNewCategoryName('');
+      setNewCategoryParentId('none');
+      setNewCategoryNavigationMode('all_in_one');
       if (adminOverviews.length > 0) {
         setNewCategoryOverviewId(adminOverviews[0].id);
       }
@@ -591,9 +619,14 @@ export function ProductOverview() {
       const productsInCategory = products.filter(
         (p) => normalizeCategoryKey(p.category) === normalizeCategoryKey(category?.name)
       );
+      const childCategories = adminCategories.filter((c) => c.parent_category_id === id);
 
       if (productsInCategory.length > 0) {
         toast.error(`Kan ikke slette - ${productsInCategory.length} produkter bruger denne kategori`);
+        return;
+      }
+      if (childCategories.length > 0) {
+        toast.error(`Kan ikke slette - ${childCategories.length} underkategorier ligger under denne kategori`);
         return;
       }
 
@@ -658,6 +691,87 @@ export function ProductOverview() {
     } catch (error) {
       console.error('Error updating category overview:', error);
       toast.error('Kunne ikke flytte kategori til overblik');
+    }
+  };
+
+  const updateCategoryParent = async (categoryId: string, parentCategoryId: string) => {
+    if (!productsTenantId) return;
+    const nextParentId = parentCategoryId === "none" ? null : parentCategoryId;
+    if (nextParentId === categoryId) {
+      toast.error('En kategori kan ikke være sin egen overkategori');
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from('product_categories' as any)
+        .update({ parent_category_id: nextParentId })
+        .eq('id', categoryId)
+        .eq('tenant_id', productsTenantId);
+
+      if (error) {
+        if (isMissingHierarchyColumn(error)) {
+          toast.error('Underkategori-funktionen kræver nyeste database migration.');
+          return;
+        }
+        throw error;
+      }
+
+      toast.success('Kategoriens placering opdateret');
+      fetchAdminCategories();
+    } catch (error) {
+      console.error('Error updating category parent:', error);
+      toast.error('Kunne ikke opdatere kategoriens placering');
+    }
+  };
+
+  const updateCategoryNavigationMode = async (categoryId: string, navigationMode: "all_in_one" | "submenu") => {
+    if (!productsTenantId) return;
+    try {
+      const { error } = await supabase
+        .from('product_categories' as any)
+        .update({ navigation_mode: navigationMode })
+        .eq('id', categoryId)
+        .eq('tenant_id', productsTenantId);
+
+      if (error) {
+        if (isMissingHierarchyColumn(error)) {
+          toast.error('Visnings-tilstanden kræver nyeste database migration.');
+          return;
+        }
+        throw error;
+      }
+
+      toast.success('Kategoriens visning er opdateret');
+      fetchAdminCategories();
+    } catch (error) {
+      console.error('Error updating category navigation mode:', error);
+      toast.error('Kunne ikke opdatere visnings-tilstanden');
+    }
+  };
+
+  const updateCategoryFrontendProduct = async (categoryId: string, productId: string) => {
+    if (!productsTenantId) return;
+    const nextProductId = productId === "none" ? null : productId;
+    try {
+      const { error } = await supabase
+        .from('product_categories' as any)
+        .update({ frontend_product_id: nextProductId })
+        .eq('id', categoryId)
+        .eq('tenant_id', productsTenantId);
+
+      if (error) {
+        if (isMissingFrontendCardColumn(error)) {
+          toast.error('Frontend-kort kræver nyeste database migration.');
+          return;
+        }
+        throw error;
+      }
+
+      toast.success(nextProductId ? 'Kategoriens frontkort er opdateret' : 'Kategoriens frontkort er fjernet');
+      fetchAdminCategories();
+    } catch (error) {
+      console.error('Error updating category frontend product:', error);
+      toast.error('Kunne ikke opdatere kategoriens frontkort');
     }
   };
 
@@ -958,6 +1072,48 @@ export function ProductOverview() {
       return a.name.localeCompare(b.name, 'da');
     });
   }, [adminCategories]);
+
+  const categoryChildrenByParentId = useMemo(() => {
+    const map = new Map<string, ProductCategory[]>();
+    sortedAdminCategories.forEach((category) => {
+      const parentId = category.parent_category_id || '__root__';
+      const existing = map.get(parentId) || [];
+      existing.push(category);
+      map.set(parentId, existing);
+    });
+    return map;
+  }, [sortedAdminCategories]);
+
+  const categoryOptions = useMemo(() => {
+    const options: Array<{ id: string; name: string; label: string; overviewId: string }> = [];
+
+    const walk = (parentId: string | null, depth: number, overviewId: string) => {
+      const rows = (categoryChildrenByParentId.get(parentId || '__root__') || [])
+        .filter((row) => (row.overview_id || FALLBACK_OVERVIEW_ID) === overviewId)
+        .sort((a, b) => {
+          const orderA = a.sort_order ?? 999;
+          const orderB = b.sort_order ?? 999;
+          if (orderA !== orderB) return orderA - orderB;
+          return a.name.localeCompare(b.name, 'da');
+        });
+
+      rows.forEach((row) => {
+        options.push({
+          id: row.id,
+          name: row.name,
+          label: `${'— '.repeat(depth)}${row.name}`,
+          overviewId,
+        });
+        walk(row.id, depth + 1, overviewId);
+      });
+    };
+
+    allOverviewOptions.forEach((overview) => {
+      walk(null, 0, overview.id);
+    });
+
+    return options;
+  }, [allOverviewOptions, categoryChildrenByParentId]);
 
   const categoryOverviewByKey = useMemo(() => {
     return new Map(
@@ -1322,6 +1478,30 @@ export function ProductOverview() {
                     ))}
                   </SelectContent>
                 </Select>
+                <Select value={newCategoryParentId} onValueChange={setNewCategoryParentId}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Overkategori (valgfri)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Ingen overkategori</SelectItem>
+                    {categoryOptions
+                      .filter((category) => category.overviewId === newCategoryOverviewId)
+                      .map((category) => (
+                        <SelectItem key={category.id} value={category.id}>
+                          {category.label}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <Select value={newCategoryNavigationMode} onValueChange={(value: "all_in_one" | "submenu") => setNewCategoryNavigationMode(value)}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Visning" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all_in_one">Alt på én side</SelectItem>
+                    <SelectItem value="submenu">Vis underkategorier først</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-1 max-h-80 overflow-y-auto">
@@ -1335,6 +1515,10 @@ export function ProductOverview() {
                       (p) => normalizeCategoryKey(p.category) === normalizeCategoryKey(cat.name)
                     ).length;
                     const overviewId = cat.overview_id || FALLBACK_OVERVIEW_ID;
+                    const currentParentId = cat.parent_category_id || 'none';
+                    const frontendCardOptions = products
+                      .filter((product) => getOverviewIdForCategory(product.category) === overviewId)
+                      .sort((a, b) => a.name.localeCompare(b.name, 'da'));
                     return (
                       <div
                         key={cat.id}
@@ -1400,6 +1584,52 @@ export function ProductOverview() {
                               {allOverviewOptions.map((overview) => (
                                 <SelectItem key={overview.id} value={overview.id} className="text-xs">
                                   {overview.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={currentParentId}
+                            onValueChange={(value) => updateCategoryParent(cat.id, value)}
+                          >
+                            <SelectTrigger className="h-7 text-xs">
+                              <SelectValue placeholder="Overkategori" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Ingen overkategori</SelectItem>
+                              {categoryOptions
+                                .filter((category) => category.overviewId === overviewId && category.id !== cat.id)
+                                .map((category) => (
+                                  <SelectItem key={category.id} value={category.id} className="text-xs">
+                                    {category.label}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={cat.navigation_mode || 'all_in_one'}
+                            onValueChange={(value: "all_in_one" | "submenu") => updateCategoryNavigationMode(cat.id, value)}
+                          >
+                            <SelectTrigger className="h-7 text-xs">
+                              <SelectValue placeholder="Visning" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all_in_one" className="text-xs">Alt på én side</SelectItem>
+                              <SelectItem value="submenu" className="text-xs">Vis underkategorier først</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={cat.frontend_product_id || 'none'}
+                            onValueChange={(value) => updateCategoryFrontendProduct(cat.id, value)}
+                          >
+                            <SelectTrigger className="h-7 text-xs">
+                              <SelectValue placeholder="Vælg frontkort" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none" className="text-xs">Ingen frontkort</SelectItem>
+                              {frontendCardOptions.map((product) => (
+                                <SelectItem key={product.id} value={product.id} className="text-xs">
+                                  {product.name}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -1710,11 +1940,21 @@ export function ProductOverview() {
                                 <SelectValue placeholder="Vælg kategori" />
                               </SelectTrigger>
                               <SelectContent>
-                                {(productCategoryNames.length > 0 ? productCategoryNames : allCategoryNames).map((catName) => (
-                                  <SelectItem key={catName} value={catName} className="text-xs">
-                                    {catName}
+                                {(productCategoryNames.length > 0
+                                  ? categoryOptions.filter((option) => option.overviewId === productOverviewId && productCategoryNames.includes(option.name))
+                                  : categoryOptions.filter((option) => option.overviewId === productOverviewId)
+                                ).map((categoryOption) => (
+                                  <SelectItem key={categoryOption.id} value={categoryOption.name} className="text-xs">
+                                    {categoryOption.label}
                                   </SelectItem>
                                 ))}
+                                {(productCategoryNames.length === 0 && categoryOptions.filter((option) => option.overviewId === productOverviewId).length === 0) &&
+                                  allCategoryNames.map((catName) => (
+                                    <SelectItem key={catName} value={catName} className="text-xs">
+                                      {catName}
+                                    </SelectItem>
+                                  ))
+                                }
                               </SelectContent>
                             </Select>
                           </div>

@@ -381,7 +381,7 @@ export function Dashboard() {
                             <ArrowRight className="ml-auto h-4 w-4" />
                         </Button>
 
-                        <Button variant="outline" className="w-full justify-start h-auto py-4" onClick={() => navigate('/admin/branding')}>
+                        <Button variant="outline" className="w-full justify-start h-auto py-4" onClick={() => navigate('/admin/branding-v2')}>
                             <div className="bg-blue-100 dark:bg-blue-900/30 p-2 rounded-full mr-4">
                                 <ExternalLink className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                             </div>

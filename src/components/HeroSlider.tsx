@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { appendStorefrontTenantContext } from "@/lib/storefrontTenantContext";
 import {
   type HeroSettings,
   type HeroImage,
@@ -66,15 +67,17 @@ const DEFAULT_SLIDES = [
 function getButtonLink(button: BannerButton): string {
   switch (button.linkType) {
     case 'ALL_PRODUCTS':
-      return '/shop';
+      return appendStorefrontTenantContext('/shop');
     case 'PRODUCT':
-      return button.target?.productSlug ? `/produkt/${button.target.productSlug}` : '/shop';
+      return button.target?.productSlug
+        ? appendStorefrontTenantContext(`/produkt/${button.target.productSlug}`)
+        : appendStorefrontTenantContext('/shop');
     case 'INTERNAL_PAGE':
-      return button.target?.path || '/';
+      return appendStorefrontTenantContext(button.target?.path || '/');
     case 'EXTERNAL_URL':
       return button.target?.url || '#';
     default:
-      return '/shop';
+      return appendStorefrontTenantContext('/shop');
   }
 }
 

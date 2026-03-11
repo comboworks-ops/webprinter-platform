@@ -32,10 +32,9 @@ const AdminLogin = () => {
           .from("user_roles")
           .select("role")
           .eq("user_id", session.user.id)
-          .eq("role", "admin")
-          .maybeSingle();
+          .in("role", ["admin", "master_admin"]);
 
-        if (data) {
+        if (Array.isArray(data) && data.length > 0) {
           navigate("/admin");
         }
       }
@@ -73,14 +72,13 @@ const AdminLogin = () => {
           .from("user_roles")
           .select("role")
           .eq("user_id", data.user.id)
-          .eq("role", "admin")
-          .maybeSingle();
+          .in("role", ["admin", "master_admin"]);
 
         if (roleError && roleError.code !== "PGRST116") {
           throw roleError;
         }
 
-        if (!roleData) {
+        if (!Array.isArray(roleData) || roleData.length === 0) {
           await supabase.auth.signOut();
           toast({
             title: "Access Denied",

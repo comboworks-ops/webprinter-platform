@@ -21,10 +21,14 @@ import { WebprinterLogo } from "@/components/WebprinterLogo";
 import { getProductImage } from "@/utils/productImages";
 import { ProductCategoryIcon } from "@/components/ProductCategoryIcon";
 import { buildProductFilter } from "@/lib/branding/productAssets";
+import { appendStorefrontTenantContext } from "@/lib/storefrontTenantContext";
 import {
   buildVisibleProductCategories,
+  normalizeProductCategoryKey,
+  normalizeProductOverviewKey,
   resolveProductCategory,
   type ProductCategoryRecord,
+  type ProductOverviewRecord,
 } from "@/utils/productCategories";
 
 interface DbProduct {
@@ -36,13 +40,75 @@ interface DbProduct {
   category: string;
   categoryKey?: string;
   categoryLabel?: string;
+  categoryId?: string | null;
+  categoryOverviewId?: string | null;
+  categoryParentId?: string | null;
+  categoryNavigationMode?: "all_in_one" | "submenu" | null;
 }
+
+type HeaderTaxonomyCategory = ProductCategoryRecord & {
+  id: string;
+  overview_id: string;
+  navigation_mode: "all_in_one" | "submenu";
+  sort_order: number;
+};
+
+type HeaderProductMenuItem = {
+  key: string;
+  label: string;
+  href: string;
+  depth: 0 | 1;
+  kind: "product" | "category";
+  imageUrl: string | null;
+  productSlug: string;
+  category: string;
+  count?: number;
+};
+
+type HeaderProductMenuSection = {
+  key: string;
+  label: string;
+  items: HeaderProductMenuItem[];
+};
+
+const FALLBACK_OVERVIEW_ID = "__default_overview__";
+const FALLBACK_OVERVIEW_NAME = "Produkter";
+
+const buildFallbackOverview = (): ProductOverviewRecord => ({
+  id: FALLBACK_OVERVIEW_ID,
+  name: FALLBACK_OVERVIEW_NAME,
+  slug: "produkter",
+  sort_order: 0,
+});
+
+const isMissingProductOverviewsTable = (error: unknown) => {
+  const anyError = error as { code?: string; message?: string; details?: string };
+  const message = String(anyError?.message || "").toLowerCase();
+  const details = String(anyError?.details || "").toLowerCase();
+  return anyError?.code === "42P01"
+    || anyError?.code === "PGRST205"
+    || message.includes("product_overviews")
+    || details.includes("product_overviews");
+};
+
+const isMissingCategoryHierarchyColumns = (error: unknown) => {
+  const anyError = error as { code?: string; message?: string; details?: string };
+  const message = String(anyError?.message || "").toLowerCase();
+  const details = String(anyError?.details || "").toLowerCase();
+  return anyError?.code === "42703"
+    || anyError?.code === "PGRST204"
+    || message.includes("parent_category_id")
+    || message.includes("navigation_mode")
+    || details.includes("parent_category_id")
+    || details.includes("navigation_mode");
+};
 
 const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [allProducts, setAllProducts] = useState<DbProduct[]>([]);
   const [productCategoryRows, setProductCategoryRows] = useState<ProductCategoryRecord[]>([]);
+  const [productOverviews, setProductOverviews] = useState<ProductOverviewRecord[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -102,7 +168,7 @@ const Header = () => {
     transparentOverHero: true, // Default to true for standard template
     // Logo defaults
     logoType: 'text' as const,
-    logoText: 'WebPrinter',
+    logoText: tenantName || 'WebPrinter',
     logoFont: 'Poppins',
     logoTextColor: '#1F2937',
     logoImageUrl: null as string | null,
@@ -294,8 +360,178 @@ const Header = () => {
   // When isHome is false, we try to use Tailwind classes, but we should make sure they update.
   const positionClass = isHome ? '' : (headerSettings.scroll.sticky ? 'sticky top-0' : 'relative');
   const getProductLabel = (product: DbProduct) => product.icon_text || product.name;
-  const groupedProductSections = useMemo(() => {
+  const normalizedTaxonomyCategories = useMemo<HeaderTaxonomyCategory[]>(() => {
+    return productCategoryRows
+      .filter((category): category is HeaderTaxonomyCategory & { id: string } => Boolean(category.id))
+      .map((category) => ({
+        ...category,
+        id: category.id as string,
+        overview_id: category.overview_id || FALLBACK_OVERVIEW_ID,
+        navigation_mode: category.navigation_mode || "all_in_one",
+        sort_order: category.sort_order ?? Number.MAX_SAFE_INTEGER,
+      }))
+      .sort((a, b) => {
+        if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+        return a.name.localeCompare(b.name, "da");
+      });
+  }, [productCategoryRows]);
+
+  const taxonomyEnabled = normalizedTaxonomyCategories.length > 0;
+
+  const childrenByParentId = useMemo(() => {
+    const map = new Map<string, HeaderTaxonomyCategory[]>();
+    normalizedTaxonomyCategories.forEach((category) => {
+      const parentId = category.parent_category_id || "__root__";
+      const existing = map.get(parentId) || [];
+      existing.push(category);
+      map.set(parentId, existing);
+    });
+    return map;
+  }, [normalizedTaxonomyCategories]);
+
+  const descendantIdsByCategoryId = useMemo(() => {
+    const map = new Map<string, string[]>();
+
+    const walk = (categoryId: string): string[] => {
+      const children = childrenByParentId.get(categoryId) || [];
+      const descendants = [categoryId];
+      children.forEach((child) => {
+        descendants.push(...walk(child.id));
+      });
+      map.set(categoryId, descendants);
+      return descendants;
+    };
+
+    normalizedTaxonomyCategories.forEach((category) => {
+      if (!map.has(category.id)) {
+        walk(category.id);
+      }
+    });
+
+    return map;
+  }, [childrenByParentId, normalizedTaxonomyCategories]);
+
+  const productsByCategoryId = useMemo(() => {
+    const map = new Map<string, DbProduct[]>();
+    allProducts.forEach((product) => {
+      if (!product.categoryId) return;
+      const existing = map.get(product.categoryId) || [];
+      existing.push(product);
+      map.set(product.categoryId, existing);
+    });
+    return map;
+  }, [allProducts]);
+
+  const branchProductsByCategoryId = useMemo(() => {
+    const map = new Map<string, DbProduct[]>();
+    normalizedTaxonomyCategories.forEach((category) => {
+      const descendants = descendantIdsByCategoryId.get(category.id) || [category.id];
+      const items = descendants.flatMap((descendantId) => productsByCategoryId.get(descendantId) || []);
+      map.set(category.id, items);
+    });
+    return map;
+  }, [descendantIdsByCategoryId, normalizedTaxonomyCategories, productsByCategoryId]);
+
+  const visibleOverviews = useMemo(() => {
+    if (!taxonomyEnabled) return [];
+    const overviewIdsWithProducts = new Set(
+      normalizedTaxonomyCategories
+        .filter((category) => (branchProductsByCategoryId.get(category.id) || []).length > 0)
+        .map((category) => category.overview_id),
+    );
+
+    const base = productOverviews.length > 0 ? productOverviews : [buildFallbackOverview()];
+    const matched = base
+      .filter((overview) => overviewIdsWithProducts.has(overview.id))
+      .sort((a, b) => {
+        const orderA = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+        const orderB = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.name.localeCompare(b.name, "da");
+      });
+
+    return matched.length > 0 ? matched : [buildFallbackOverview()];
+  }, [branchProductsByCategoryId, productOverviews, normalizedTaxonomyCategories, taxonomyEnabled]);
+
+  const buildProductsMenuHref = useCallback((
+    overview: ProductOverviewRecord,
+    category?: HeaderTaxonomyCategory | null,
+    subcategory?: HeaderTaxonomyCategory | null,
+  ) => {
+    const params = new URLSearchParams();
+    params.set("overview", overview.slug || normalizeProductOverviewKey(overview.name));
+    if (category) {
+      params.set("category", category.slug || normalizeProductCategoryKey(category.name));
+    }
+    if (subcategory) {
+      params.set("subcategory", subcategory.slug || normalizeProductCategoryKey(subcategory.name));
+    }
+    return appendStorefrontTenantContext(`/produkter?${params.toString()}`);
+  }, []);
+
+  const groupedProductSections = useMemo<HeaderProductMenuSection[]>(() => {
     if (!allProducts.length) return [];
+
+    if (taxonomyEnabled) {
+      const sections = visibleOverviews.map((overview) => {
+        const rootCategories = normalizedTaxonomyCategories.filter(
+          (category) =>
+            category.overview_id === overview.id
+            && !category.parent_category_id
+            && (branchProductsByCategoryId.get(category.id) || []).length > 0,
+        );
+
+        const items = rootCategories.flatMap((rootCategory) => {
+          const rootBranchProducts = branchProductsByCategoryId.get(rootCategory.id) || [];
+          const rootRepresentative = rootBranchProducts[0] || null;
+          const rootItem: HeaderProductMenuItem = {
+            key: `category:${rootCategory.id}`,
+            label: rootCategory.name,
+            href: buildProductsMenuHref(overview, rootCategory),
+            depth: 0,
+            kind: "category",
+            imageUrl: rootRepresentative?.image_url || null,
+            productSlug: rootRepresentative?.slug || "",
+            category: rootRepresentative?.category || rootCategory.name,
+            count: rootBranchProducts.length,
+          };
+
+          const childItems = (childrenByParentId.get(rootCategory.id) || [])
+            .filter((childCategory) => (branchProductsByCategoryId.get(childCategory.id) || []).length > 0)
+            .map((childCategory) => {
+              const childProducts = branchProductsByCategoryId.get(childCategory.id) || [];
+              const childRepresentative = childProducts[0] || null;
+              return {
+                key: `subcategory:${childCategory.id}`,
+                label: childCategory.name,
+                href: buildProductsMenuHref(overview, rootCategory, childCategory),
+                depth: 1 as const,
+                kind: "category" as const,
+                imageUrl: childRepresentative?.image_url || rootRepresentative?.image_url || null,
+                productSlug: childRepresentative?.slug || rootRepresentative?.slug || "",
+                category: childRepresentative?.category || childCategory.name,
+                count: childProducts.length,
+              };
+            });
+
+          if (childItems.length === 0) return [rootItem];
+
+          if (rootCategory.navigation_mode === "submenu") {
+            return [rootItem, ...childItems];
+          }
+
+          return [rootItem, ...childItems];
+        });
+
+        return {
+          key: overview.id,
+          label: overview.name,
+          items,
+        };
+      }).filter((section) => section.items.length > 0);
+
+      if (sections.length > 0) return sections;
+    }
 
     const visibleCategories = buildVisibleProductCategories(
       allProducts.map((product) => product.category),
@@ -303,30 +539,64 @@ const Header = () => {
     );
 
     const sections = visibleCategories
-      .map((category) => ({
-        key: category.key,
-        label: category.label,
-        products: allProducts.filter((product) => product.categoryKey === category.key),
-      }))
-      .filter((section) => section.products.length > 0);
+      .map((category) => {
+        const productsInCategory = allProducts.filter((product) => product.categoryKey === category.key);
+        return {
+          key: category.key,
+          label: category.label,
+          items: productsInCategory.map((product) => ({
+            key: product.id,
+            label: getProductLabel(product),
+            href: appendStorefrontTenantContext(`/produkt/${product.slug}`),
+            depth: 0 as const,
+            kind: "product" as const,
+            imageUrl: product.image_url,
+            productSlug: product.slug,
+            category: product.category,
+          })),
+        };
+      })
+      .filter((section) => section.items.length > 0);
 
     if (sections.length > 0) return sections;
 
-    return [
-      {
-        key: "all-products",
+    return [{
+      key: "all-products",
         label: "Produkter",
-        products: allProducts,
-      },
-    ];
-  }, [allProducts, productCategoryRows]);
+        items: allProducts.map((product) => ({
+          key: product.id,
+          label: getProductLabel(product),
+          href: appendStorefrontTenantContext(`/produkt/${product.slug}`),
+          depth: 0 as const,
+          kind: "product" as const,
+          imageUrl: product.image_url,
+        productSlug: product.slug,
+        category: product.category,
+      })),
+    }];
+  }, [
+    allProducts,
+    branchProductsByCategoryId,
+    buildProductsMenuHref,
+    childrenByParentId,
+    productCategoryRows,
+    taxonomyEnabled,
+    normalizedTaxonomyCategories,
+    visibleOverviews,
+  ]);
+
+  const isLocalhostDemo = typeof window !== "undefined"
+    && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  const masterDemoPath = isLocalhostDemo
+    ? "/shop?tenantId=00000000-0000-0000-0000-000000000000"
+    : "/shop";
 
   const navItems = [
     { label: t("home"), path: "/" },
     // Show "Shop Demo" only if fallback/master? Or just hide it for tenants?
     // For now keep it if not production tenant?
     // Let's hide it for specific tenants
-    ...(settings.data?.id !== '00000000-0000-0000-0000-000000000000' && settings.data?.id ? [] : [{ label: "Shop Demo", path: "/shop" }]),
+    ...(settings.data?.id !== '00000000-0000-0000-0000-000000000000' && settings.data?.id ? [] : [{ label: "Shop Demo", path: masterDemoPath }]),
     { label: t("contact"), path: "/kontakt" },
     { label: t("about"), path: "/om-os" },
   ];
@@ -336,7 +606,7 @@ const Header = () => {
     async function fetchProducts() {
       if (settings.isLoading) return;
 
-      const [productsResponse, categoriesResponse] = await Promise.all([
+      const [productsResponse, hierarchyCategoriesResponse, fallbackCategoriesResponse, overviewsResponse] = await Promise.all([
         (supabase
           .from('products') as any)
           .select('id, name, icon_text, slug, image_url, category')
@@ -346,13 +616,41 @@ const Header = () => {
           .order('name'),
         (supabase
           .from('product_categories' as any))
-          .select('name, slug, sort_order')
+          .select('id, name, slug, sort_order, overview_id, parent_category_id, navigation_mode')
+          .eq('tenant_id', tenantId)
+          .order('sort_order', { ascending: true }),
+        (supabase
+          .from('product_categories' as any))
+          .select('id, name, slug, sort_order, overview_id')
+          .eq('tenant_id', tenantId)
+          .order('sort_order', { ascending: true }),
+        (supabase
+          .from('product_overviews' as any))
+          .select('id, name, slug, sort_order')
           .eq('tenant_id', tenantId)
           .order('sort_order', { ascending: true }),
       ]);
 
-      const categoryRows = ((categoriesResponse.error ? [] : categoriesResponse.data) || []) as ProductCategoryRecord[];
+      let categoryRows: ProductCategoryRecord[] = [];
+      if (!hierarchyCategoriesResponse.error) {
+        categoryRows = ((hierarchyCategoriesResponse.data as ProductCategoryRecord[]) || []).map((row) => ({
+          ...row,
+          navigation_mode: row.navigation_mode || "all_in_one",
+        }));
+      } else if (isMissingCategoryHierarchyColumns(hierarchyCategoriesResponse.error)) {
+        categoryRows = ((fallbackCategoriesResponse.error ? [] : fallbackCategoriesResponse.data) || []) as ProductCategoryRecord[];
+      } else {
+        console.error("Failed to load header product categories:", hierarchyCategoriesResponse.error);
+      }
+
       setProductCategoryRows(categoryRows);
+      if (!overviewsResponse.error) {
+        setProductOverviews((overviewsResponse.data as ProductOverviewRecord[]) || []);
+      } else if (!isMissingProductOverviewsTable(overviewsResponse.error)) {
+        console.error("Failed to load header product overviews:", overviewsResponse.error);
+      } else {
+        setProductOverviews([]);
+      }
 
       if (productsResponse.data) {
         const mappedProducts = (productsResponse.data as DbProduct[]).map((product) => {
@@ -362,6 +660,10 @@ const Header = () => {
             category: product.category || resolvedCategory.label,
             categoryKey: resolvedCategory.key,
             categoryLabel: resolvedCategory.label,
+            categoryId: resolvedCategory.id ?? null,
+            categoryOverviewId: resolvedCategory.overviewId ?? null,
+            categoryParentId: resolvedCategory.parentCategoryId ?? null,
+            categoryNavigationMode: resolvedCategory.navigationMode ?? null,
           };
         });
         setAllProducts(mappedProducts);
@@ -418,11 +720,13 @@ const Header = () => {
     // Force navigation to work even if the current page is in a bad render loop
     e.preventDefault();
     setSelectedMenuId(id);
-    if (location.pathname === href) return;
+    const resolvedHref = appendStorefrontTenantContext(href);
+    const currentRelativeUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (currentRelativeUrl === resolvedHref || location.pathname === href) return;
     try {
-      navigate(href);
+      navigate(resolvedHref);
     } catch {
-      window.location.assign(href);
+      window.location.assign(resolvedHref);
     }
   }, [location.pathname, navigate]);
 
@@ -520,7 +824,11 @@ const Header = () => {
             : 'justify-between'
           }`}>
           {/* Logo - with improved auto-fit/scale */}
-          <Link to="/" className="hover:opacity-90 transition-opacity flex items-center" data-branding-id="header.logo">
+          <Link
+            to={appendStorefrontTenantContext("/")}
+            className="hover:opacity-90 transition-opacity flex items-center"
+            data-branding-id="header.logo"
+          >
             {/* Text Logo - when logoType is 'text' */}
             {headerSettings.logoType === 'text' ? (
               <span
@@ -530,7 +838,7 @@ const Header = () => {
                   fontFamily: `'${headerSettings.logoFont || 'Inter'}', sans-serif`,
                 }}
               >
-                {headerSettings.logoText || 'WebPrinter'}
+                {headerSettings.logoText || tenantName || 'WebPrinter'}
               </span>
             ) : settings.data?.id === '00000000-0000-0000-0000-000000000000' && !headerSettings.logoImageUrl ? (
               // Master tenant with no image - show WebprinterLogo
@@ -631,20 +939,20 @@ const Header = () => {
                               <div
                                 className="grid gap-2"
                                 style={{
-                                  gridTemplateColumns: `repeat(${Math.ceil(section.products.length / 2)}, 1fr)`,
+                                  gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(section.items.length / 2))}, 1fr)`,
                                   gridTemplateRows: 'repeat(2, 1fr)',
                                 }}
                               >
-                                {section.products.map((product) => (
-                                  <DropdownMenuItem key={product.id} asChild>
+                                {section.items.map((item) => (
+                                  <DropdownMenuItem key={item.key} asChild>
                                     <Link
-                                      to={`/produkt/${product.slug}`}
+                                      to={item.href}
                                       className="dropdown-product-link cursor-pointer flex flex-col items-center gap-2 p-3 transition-all hover:scale-105 rounded-md"
                                     >
-                                      {product.image_url && (
+                                      {item.imageUrl && (
                                         <img
-                                          src={getProductImage(product.slug, product.image_url)}
-                                          alt={product.name}
+                                          src={getProductImage(item.productSlug, item.imageUrl)}
+                                          alt={item.label}
                                           className="w-14 h-14 object-contain"
                                           style={{ filter: 'var(--product-filter)' }}
                                         />
@@ -652,12 +960,14 @@ const Header = () => {
                                       {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
                                         <span className="inline-flex items-center gap-1.5 text-xs text-center" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>
                                           <ProductCategoryIcon
-                                            slug={product.slug}
-                                            category={product.category}
+                                            slug={item.productSlug}
+                                            category={item.category}
                                             packId={selectedIconPackId}
                                             className="h-4 w-4"
                                           />
-                                          <span>{getProductLabel(product)}</span>
+                                          <span className={item.depth > 0 ? "opacity-80" : ""}>
+                                            {item.depth > 0 ? `- ${item.label}` : item.label}
+                                          </span>
                                         </span>
                                       )}
                                     </Link>
@@ -666,19 +976,21 @@ const Header = () => {
                               </div>
                             ) : (
                               <div className="flex flex-col">
-                                {section.products.map((product) => (
-                                  <DropdownMenuItem key={product.id} asChild>
+                                {section.items.map((item) => (
+                                  <DropdownMenuItem key={item.key} asChild>
                                     <Link
-                                      to={`/produkt/${product.slug}`}
+                                      to={item.href}
                                       className="dropdown-product-link cursor-pointer px-2 py-1.5 text-sm transition-colors rounded inline-flex items-center gap-2"
                                       style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
                                     >
                                       <ProductCategoryIcon
-                                        slug={product.slug}
-                                        category={product.category}
+                                        slug={item.productSlug}
+                                        category={item.category}
                                         packId={selectedIconPackId}
                                       />
-                                      {getProductLabel(product)}
+                                      <span className={item.depth > 0 ? "pl-3 opacity-80" : ""}>
+                                        {item.label}
+                                      </span>
                                     </Link>
                                   </DropdownMenuItem>
                                 ))}
@@ -694,7 +1006,7 @@ const Header = () => {
                 return (
                   <Link
                     key={item.id}
-                    to={item.href}
+                    to={appendStorefrontTenantContext(item.href)}
                     className="header-nav-link text-sm font-medium"
                     style={{
                       color: selectedMenuId === item.id
@@ -755,7 +1067,7 @@ const Header = () => {
                       {filteredProducts.map((product) => (
                         <Link
                           key={product.id}
-                          to={`/produkt/${product.slug}`}
+                          to={appendStorefrontTenantContext(`/produkt/${product.slug}`)}
                           onClick={handleSearchClose}
                           className="flex items-center gap-3 p-2 rounded-md hover:bg-muted transition-colors"
                         >
@@ -858,7 +1170,9 @@ const Header = () => {
                   color: headerSettings.cta.textColor || '#FFFFFF',
                 }}
               >
-                <Link to={headerSettings.cta.href || '/kontakt'} className="no-link-color">{headerSettings.cta.label || t("orderNow")}</Link>
+                <Link to={appendStorefrontTenantContext(headerSettings.cta.href || '/kontakt')} className="no-link-color">
+                  {headerSettings.cta.label || t("orderNow")}
+                </Link>
               </Button>
             )}
 
@@ -873,19 +1187,19 @@ const Header = () => {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56 bg-card">
                   <DropdownMenuItem asChild>
-                    <Link to="/min-konto" className="cursor-pointer">
+                    <Link to={appendStorefrontTenantContext("/min-konto")} className="cursor-pointer">
                       <User className="h-4 w-4 mr-2" />
                       Min Konto
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link to="/min-konto/ordrer" className="cursor-pointer">
+                    <Link to={appendStorefrontTenantContext("/min-konto/ordrer")} className="cursor-pointer">
                       <Package className="h-4 w-4 mr-2" />
                       Mine Ordrer
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link to="/min-konto/adresser" className="cursor-pointer">
+                    <Link to={appendStorefrontTenantContext("/min-konto/adresser")} className="cursor-pointer">
                       <MapPin className="h-4 w-4 mr-2" />
                       Adresser
                     </Link>
@@ -909,8 +1223,15 @@ const Header = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Button asChild variant="outline" size="sm" className="header-action-link" style={{ borderColor: effectiveTextColor }}>
-                <Link to="/auth">{t("login")}</Link>
+              <Button
+                asChild
+                size="sm"
+                className="header-cta-button shadow-none"
+                style={{
+                  color: headerSettings.cta.textColor || '#FFFFFF',
+                }}
+              >
+                <Link to={appendStorefrontTenantContext("/auth")} className="no-link-color">{t("login")}</Link>
               </Button>
             )}
 
@@ -932,7 +1253,7 @@ const Header = () => {
             {navItems.map((item) => (
               <Link
                 key={item.path}
-                to={item.path}
+                to={appendStorefrontTenantContext(item.path)}
                 onClick={() => setMobileMenuOpen(false)}
                 className={`block py-3 text-base font-medium transition-colors hover:text-primary ${isActive(item.path) ? "text-primary" : "text-foreground"
                   }`}
@@ -944,28 +1265,37 @@ const Header = () => {
             {/* Mobile Products Section */}
             <div className="py-3">
               <p className="text-sm font-semibold text-muted-foreground mb-2">{t("products")}</p>
-              {allProducts.map((product) => (
-                <Link
-                  key={product.id}
-                  to={`/produkt/${product.slug}`}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center gap-2 py-2 pl-4 text-base transition-colors hover:text-primary"
-                >
-                  {product.image_url && (
-                    <img
-                      src={getProductImage(product.slug, product.image_url)}
-                      alt={product.name}
-                      className="w-5 h-5 object-contain"
-                      style={{ filter: 'var(--product-filter)' }}
-                    />
-                  )}
-                  <ProductCategoryIcon
-                    slug={product.slug}
-                    category={product.category}
-                    packId={selectedIconPackId}
-                  />
-                  {getProductLabel(product)}
-                </Link>
+              {groupedProductSections.map((section) => (
+                <div key={section.key} className="mb-3">
+                  <p className="px-4 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
+                    {section.label}
+                  </p>
+                  {section.items.map((item) => (
+                    <Link
+                      key={item.key}
+                      to={item.href}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="flex items-center gap-2 py-2 text-base transition-colors hover:text-primary"
+                      style={{ paddingLeft: item.depth > 0 ? "2.25rem" : "1rem" }}
+                    >
+                      {item.imageUrl ? (
+                        <img
+                          src={getProductImage(item.productSlug, item.imageUrl)}
+                          alt={item.label}
+                          className="w-5 h-5 object-contain"
+                          style={{ filter: 'var(--product-filter)' }}
+                        />
+                      ) : (
+                        <ProductCategoryIcon
+                          slug={item.productSlug}
+                          category={item.category}
+                          packId={selectedIconPackId}
+                        />
+                      )}
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
               ))}
             </div>
 
@@ -1016,7 +1346,11 @@ const Header = () => {
                   color: headerSettings.cta.textColor || '#FFFFFF',
                 }}
               >
-                <Link to={headerSettings.cta.href || '/kontakt'} onClick={() => setMobileMenuOpen(false)} className="no-link-color">
+                <Link
+                  to={appendStorefrontTenantContext(headerSettings.cta.href || '/kontakt')}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="no-link-color"
+                >
                   {headerSettings.cta.label || t("orderNow")}
                 </Link>
               </Button>
@@ -1034,7 +1368,7 @@ const Header = () => {
                   variant="outline"
                   className="w-full"
                 >
-                  <Link to="/min-konto" onClick={() => setMobileMenuOpen(false)}>
+                    <Link to={appendStorefrontTenantContext("/min-konto")} onClick={() => setMobileMenuOpen(false)}>
                     <User className="h-4 w-4 mr-2" />
                     Min Konto
                   </Link>
@@ -1044,7 +1378,7 @@ const Header = () => {
                   variant="outline"
                   className="w-full"
                 >
-                  <Link to="/min-konto/ordrer" onClick={() => setMobileMenuOpen(false)}>
+                    <Link to={appendStorefrontTenantContext("/min-konto/ordrer")} onClick={() => setMobileMenuOpen(false)}>
                     <Package className="h-4 w-4 mr-2" />
                     Mine Ordrer
                   </Link>
@@ -1054,7 +1388,7 @@ const Header = () => {
                   variant="outline"
                   className="w-full"
                 >
-                  <Link to="/min-konto/adresser" onClick={() => setMobileMenuOpen(false)}>
+                    <Link to={appendStorefrontTenantContext("/min-konto/adresser")} onClick={() => setMobileMenuOpen(false)}>
                     <MapPin className="h-4 w-4 mr-2" />
                     Adresser
                   </Link>
@@ -1084,8 +1418,18 @@ const Header = () => {
                 </Button>
               </div>
             ) : (
-              <Button asChild variant="outline" className="w-full mt-4">
-                <Link to="/auth" onClick={() => setMobileMenuOpen(false)}>
+              <Button
+                asChild
+                className="mt-4 w-full header-cta-button shadow-none"
+                style={{
+                  color: headerSettings.cta.textColor || '#FFFFFF',
+                }}
+              >
+                <Link
+                  to={appendStorefrontTenantContext("/auth")}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="no-link-color"
+                >
                   {t("login")}
                 </Link>
               </Button>

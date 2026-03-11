@@ -16,10 +16,11 @@ export function CompanyHubGrid({ company }: { company: CompanyAccount }) {
 
     const handleBuy = (item: HubItem) => {
         const qty = quantities[item.id] || item.default_quantity;
+        const tenantQuery = typeof window !== "undefined" ? window.location.search : "";
 
         // Navigate to existing checkout configuration
         // We pass minimal required state. FileUploadConfiguration will fetch the product details.
-        navigate("/checkout/konfigurer", {
+        navigate(`/checkout/konfigurer${tenantQuery}`, {
             state: {
                 productId: item.product_id,
                 quantity: qty,

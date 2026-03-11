@@ -6,6 +6,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useSidebar } from "@/components/ui/sidebar";
 import { toast } from "sonner";
 import { VisitorStatsWidget } from "./VisitorStatsWidget";
+import { resolveAdminTenant, MASTER_TENANT_ID } from "@/lib/adminTenant";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -14,14 +15,23 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useShopSettings } from "@/hooks/useShopSettings";
 
 const ADMIN_DARK_MODE_KEY = 'admin_dark_mode';
 
 export function AdminHeader() {
-    const { data: tenant } = useShopSettings();
     const [userEmail, setUserEmail] = useState("");
     const [unreadCount, setUnreadCount] = useState(0);
+    const [adminContext, setAdminContext] = useState<{
+        tenantId: string | null;
+        tenantName: string;
+        domain: string | null;
+        isMasterAdmin: boolean;
+    }>({
+        tenantId: null,
+        tenantName: "Panel",
+        domain: null,
+        isMasterAdmin: false,
+    });
     const [isDarkMode, setIsDarkMode] = useState(() => {
         // Initialize from localStorage
         if (typeof window !== 'undefined') {
@@ -58,9 +68,51 @@ export function AdminHeader() {
         loadUser();
     }, []);
 
+    useEffect(() => {
+        let active = true;
+
+        const loadAdminContext = async () => {
+            const resolution = await resolveAdminTenant();
+            if (!active) return;
+
+            if (!resolution.tenantId) {
+                setAdminContext({
+                    tenantId: null,
+                    tenantName: "Panel",
+                    domain: null,
+                    isMasterAdmin: resolution.isMasterAdmin,
+                });
+                return;
+            }
+
+            const { data: tenant } = await (supabase
+                .from("tenants") as any)
+                .select("id, name, domain")
+                .eq("id", resolution.tenantId)
+                .maybeSingle();
+
+            if (!active) return;
+
+            setAdminContext({
+                tenantId: resolution.tenantId,
+                tenantName: resolution.tenantId === MASTER_TENANT_ID
+                    ? "Webprinter Master"
+                    : (tenant?.name || "Tenant"),
+                domain: tenant?.domain || null,
+                isMasterAdmin: resolution.isMasterAdmin,
+            });
+        };
+
+        loadAdminContext();
+
+        return () => {
+            active = false;
+        };
+    }, [navigate]);
+
     // Fetch messages logic
     useEffect(() => {
-        if (!tenant?.id) return;
+        if (!adminContext.tenantId) return;
 
         const fetchMessages = async () => {
             try {
@@ -72,7 +124,7 @@ export function AdminHeader() {
                     .eq('sender_type', 'customer');
 
                 // 2. Support Messages (Unread)
-                const isMaster = tenant.id === '00000000-0000-0000-0000-000000000000';
+                const isMaster = adminContext.tenantId === MASTER_TENANT_ID;
 
                 const { count: supportCount } = await supabase
                     .from('platform_messages' as any)
@@ -90,7 +142,7 @@ export function AdminHeader() {
         fetchMessages();
         const interval = setInterval(fetchMessages, 30000); // Poll every 30s
         return () => clearInterval(interval);
-    }, [tenant?.id]);
+    }, [adminContext.tenantId]);
 
     // Notify on new messages
     useEffect(() => {
@@ -115,17 +167,20 @@ export function AdminHeader() {
 
     const handleVisitShop = () => {
         const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const masterDemoUrl = `${window.location.origin}/shop?tenantId=${MASTER_TENANT_ID}`;
 
         // Use domain from settings hook
-        if (tenant?.domain && !isLocalhost) {
-            window.open(`https://${tenant.domain}`, '_blank');
+        if (adminContext.domain && !isLocalhost) {
+            window.open(`https://${adminContext.domain}`, '_blank');
+        } else if (isLocalhost && adminContext.tenantId === MASTER_TENANT_ID) {
+            window.open(masterDemoUrl, '_blank');
         } else {
             window.open(`${window.location.origin}/shop`, '_blank');
         }
     };
 
-    // Determine display name
-    const displayTenantName = tenant?.company?.name || tenant?.tenant_name || "Virksomhed";
+    const displayTenantName = adminContext.tenantName;
+    const contextBadge = adminContext.tenantId === MASTER_TENANT_ID ? "Master" : "Tenant";
 
     return (
         <header className="sticky top-0 z-30 flex h-16 items-center border-b bg-background px-6 shadow-sm">
@@ -133,7 +188,12 @@ export function AdminHeader() {
                 <Button variant="ghost" size="icon" onClick={toggleSidebar} className="md:hidden">
                     <Menu className="h-5 w-5" />
                 </Button>
-                <h1 className="text-3xl font-bold text-foreground">{displayTenantName} Panel</h1>
+                <div className="flex items-center gap-3">
+                    <h1 className="text-3xl font-bold text-foreground">{displayTenantName} Panel</h1>
+                    <span className="inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground">
+                        {contextBadge}
+                    </span>
+                </div>
                 <VisitorStatsWidget />
             </div>
 

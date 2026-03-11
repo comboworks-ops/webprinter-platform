@@ -5,6 +5,9 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  // Keep Vite cache outside node_modules to avoid cache corruption
+  // when dependencies change during local tooling/import runs.
+  cacheDir: ".vite",
   server: {
     host: "::",
     port: 8080,

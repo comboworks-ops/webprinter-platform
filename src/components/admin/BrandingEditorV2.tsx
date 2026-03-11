@@ -9,7 +9,7 @@ import {
     Loader2, Save, RotateCcw, Send, Trash2, List,
     X, ChevronRight, Layout, Type, Palette, Sparkles, Image as ImageIcon,
     ExternalLink, Monitor, Smartphone, Tablet, FolderUp, LayoutTemplate, ShoppingCart,
-    Pencil, Eye, EyeOff, Check, History, ArrowUp, ArrowDown, ArrowLeft, ArrowRight
+    Pencil, Eye, EyeOff, Check, History, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, type LucideIcon
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -115,6 +115,158 @@ const PREVIEW_PAGE_LINKS: PreviewPageLink[] = [
     { label: "Grafisk vejledning", path: "/grafisk-vejledning" },
     { label: "Kontakt", path: "/kontakt" },
     { label: "Om os", path: "/om-os" },
+];
+
+const SECTION_LABELS: Record<string, string> = {
+    theme: "Tema",
+    logo: "Logo & Favicon",
+    header: "Header & Menu",
+    typography: "Typografi",
+    colors: "Farver",
+    banner: "Banner (Hero)",
+    products: "Forside produkter",
+    "product-page-matrix": "Produktside matrix & knapper",
+    content: "Indholdsblokke",
+    footer: "Footer",
+    icons: "Produktbilleder (Ikoner)",
+};
+
+type SectionGroupId = "global" | "home" | "product";
+
+interface SectionGroupConfig {
+    id: SectionGroupId;
+    title: string;
+    description: string;
+}
+
+interface SectionButtonConfig {
+    id: string;
+    label: string;
+    group: SectionGroupId;
+    icon: LucideIcon;
+    buttonClassName: string;
+    iconWrapperClassName: string;
+    iconClassName: string;
+}
+
+const SECTION_GROUPS: SectionGroupConfig[] = [
+    {
+        id: "global",
+        title: "Globalt",
+        description: "Disse indstillinger påvirker overordnede dele af sitet på tværs af sider.",
+    },
+    {
+        id: "home",
+        title: "Forside",
+        description: "Disse værktøjer bruges på forsiden og katalogvisningen.",
+    },
+    {
+        id: "product",
+        title: "Produktside",
+        description: "Disse værktøjer gælder kun for produktsidens matrix og valgknapper.",
+    },
+];
+
+const SECTION_BUTTON_CONFIGS: SectionButtonConfig[] = [
+    {
+        id: "logo",
+        label: "Logo & Favicon",
+        group: "global",
+        icon: ImageIcon,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-indigo-100 text-indigo-900 hover:bg-indigo-50/50 hover:border-indigo-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-indigo-100/50 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "header",
+        label: "Header & Menu",
+        group: "global",
+        icon: Layout,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-slate-100 text-slate-900 hover:bg-slate-50/50 hover:border-slate-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-slate-100/50 flex items-center justify-center text-slate-600 group-hover:bg-slate-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "typography",
+        label: "Typografi",
+        group: "global",
+        icon: Type,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-amber-100 text-amber-900 hover:bg-amber-50/50 hover:border-amber-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-amber-100/50 flex items-center justify-center text-amber-600 group-hover:bg-amber-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "colors",
+        label: "Farver",
+        group: "global",
+        icon: Palette,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-pink-100 text-pink-900 hover:bg-pink-50/50 hover:border-pink-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-pink-100/50 flex items-center justify-center text-pink-600 group-hover:bg-pink-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "theme",
+        label: "Tema",
+        group: "global",
+        icon: LayoutTemplate,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-violet-100 text-violet-900 hover:bg-violet-50/50 hover:border-violet-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-violet-100/50 flex items-center justify-center text-violet-600 group-hover:bg-violet-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "footer",
+        label: "Footer",
+        group: "global",
+        icon: Layout,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-slate-100 text-slate-900 hover:bg-slate-50/50 hover:border-slate-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-slate-100/50 flex items-center justify-center text-slate-600 group-hover:bg-slate-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "banner",
+        label: "Banner (Hero)",
+        group: "home",
+        icon: ImageIcon,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-blue-100 text-blue-900 hover:bg-blue-50/50 hover:border-blue-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-blue-100/50 flex items-center justify-center text-blue-600 group-hover:bg-blue-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "products",
+        label: "Forside produkter",
+        group: "home",
+        icon: ShoppingCart,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-sky-100 text-sky-900 hover:bg-sky-50/50 hover:border-sky-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-sky-100/50 flex items-center justify-center text-sky-600 group-hover:bg-sky-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "content",
+        label: "Indholdsblokke",
+        group: "home",
+        icon: Layout,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-violet-100 text-violet-900 hover:bg-violet-50/50 hover:border-violet-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-violet-100/50 flex items-center justify-center text-violet-600 group-hover:bg-violet-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "icons",
+        label: "Produktbilleder (Ikoner)",
+        group: "home",
+        icon: Sparkles,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-emerald-100 text-emerald-900 hover:bg-emerald-50/50 hover:border-emerald-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-emerald-100/50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "product-page-matrix",
+        label: "Produktside matrix & knapper",
+        group: "product",
+        icon: Layout,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-cyan-100 text-cyan-900 hover:bg-cyan-50/50 hover:border-cyan-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-cyan-100/50 flex items-center justify-center text-cyan-600 group-hover:bg-cyan-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
 ];
 
 const BRANDING_COLOR_GROUPS: BrandingColorGroupConfig[] = [
@@ -533,6 +685,24 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
         || currentPreviewPage === "/prisberegner";
     const isProductPreviewPage = currentPreviewPage === "/produkt" || currentPreviewPage.startsWith("/produkt/");
 
+    const currentPreviewPageLabel = useMemo(() => {
+        if (currentPreviewPage.startsWith("/produkt/") || currentPreviewPage === "/produkt") {
+            return "Produktside";
+        }
+        const exactMatch = PREVIEW_PAGE_LINKS.find((page) => page.path === currentPreviewPage);
+        if (exactMatch) return exactMatch.label;
+        if (currentPreviewPage === "/shop" || currentPreviewPage === "/prisberegner") {
+            return "Produkter";
+        }
+        return currentPreviewPage;
+    }, [currentPreviewPage]);
+
+    const currentPreviewPageTypeLabel = isProductPreviewPage
+        ? "Produktside"
+        : isHomePreviewPage
+            ? "Forside / katalog"
+            : "Indholdsside";
+
     const allowedSections = useMemo(() => {
         const sections = new Set<string>(["theme"]);
         if (capabilities.sections.logo) sections.add("logo");
@@ -563,6 +733,10 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
         isHomePreviewPage,
         isProductPreviewPage,
     ]);
+
+    const allowedSectionLabels = useMemo(() => {
+        return Array.from(allowedSections).map((section) => SECTION_LABELS[section] || section);
+    }, [allowedSections]);
 
     useEffect(() => {
         if (activeSection && !allowedSections.has(activeSection)) {
@@ -649,153 +823,44 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                     <h2 className="font-extrabold text-2xl text-foreground pb-4 px-1">
                         Vælg sektion:
                     </h2>
-                    <div className="grid gap-2">
-                        <div className="rounded-xl border bg-white/90 px-3 py-3 space-y-2">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-muted-foreground">Preview side</span>
-                                <span className="text-[11px] text-muted-foreground truncate max-w-[170px]">
-                                    {currentPreviewPage}
-                                </span>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {PREVIEW_PAGE_LINKS.map((page) => (
-                                    <Button
-                                        key={`${page.label}-${page.path}-${page.action || "path"}`}
-                                        variant="secondary"
-                                        size="sm"
-                                        className="h-7 px-2 text-xs"
-                                        onClick={() => {
-                                            if (page.action === "first-product") {
-                                                navigatePreviewToFirstProduct();
-                                            } else {
-                                                navigatePreviewTo(page.path);
-                                            }
-                                        }}
-                                    >
-                                        {page.label}
-                                    </Button>
-                                ))}
-                            </div>
-                        </div>
-                        {allowedSections.has("logo") && (
-                            <button
-                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-indigo-100 text-indigo-900 hover:bg-indigo-50/50 hover:border-indigo-200 group"
-                                onClick={() => setActiveSection('logo')}
-                            >
-                                <div className="h-8 w-8 rounded-lg bg-indigo-100/50 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-100 transition-colors">
-                                    <ImageIcon className="h-4 w-4" />
+                    <div className="space-y-4">
+                        {SECTION_GROUPS.map((group) => {
+                            const groupButtons = SECTION_BUTTON_CONFIGS.filter((config) =>
+                                config.group === group.id && allowedSections.has(config.id)
+                            );
+
+                            if (groupButtons.length === 0) return null;
+
+                            return (
+                                <div key={group.id} className="space-y-2">
+                                    <div className="px-1">
+                                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                            {group.title}
+                                        </div>
+                                        <div className="text-[11px] text-muted-foreground">
+                                            {group.description}
+                                        </div>
+                                    </div>
+                                    <div className="grid gap-2">
+                                        {groupButtons.map((config) => {
+                                            const Icon = config.icon;
+                                            return (
+                                                <button
+                                                    key={config.id}
+                                                    className={config.buttonClassName}
+                                                    onClick={() => setActiveSection(config.id)}
+                                                >
+                                                    <div className={config.iconWrapperClassName}>
+                                                        <Icon className={config.iconClassName} />
+                                                    </div>
+                                                    <span className="font-semibold">{config.label}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
-                                <span className="font-semibold">Logo & Favicon</span>
-                            </button>
-                        )}
-                        {allowedSections.has("header") && (
-                            <button
-                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-slate-100 text-slate-900 hover:bg-slate-50/50 hover:border-slate-200 group"
-                                onClick={() => setActiveSection('header')}
-                            >
-                                <div className="h-8 w-8 rounded-lg bg-slate-100/50 flex items-center justify-center text-slate-600 group-hover:bg-slate-100 transition-colors">
-                                    <Layout className="h-4 w-4" />
-                                </div>
-                                <span className="font-semibold">Header & Menu</span>
-                            </button>
-                        )}
-                        {allowedSections.has("typography") && (
-                            <button
-                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-amber-100 text-amber-900 hover:bg-amber-50/50 hover:border-amber-200 group"
-                                onClick={() => setActiveSection('typography')}
-                            >
-                                <div className="h-8 w-8 rounded-lg bg-amber-100/50 flex items-center justify-center text-amber-600 group-hover:bg-amber-100 transition-colors">
-                                    <Type className="h-4 w-4" />
-                                </div>
-                                <span className="font-semibold">Typografi</span>
-                            </button>
-                        )}
-                        {allowedSections.has("colors") && (
-                            <button
-                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-pink-100 text-pink-900 hover:bg-pink-50/50 hover:border-pink-200 group"
-                                onClick={() => setActiveSection('colors')}
-                            >
-                                <div className="h-8 w-8 rounded-lg bg-pink-100/50 flex items-center justify-center text-pink-600 group-hover:bg-pink-100 transition-colors">
-                                    <Palette className="h-4 w-4" />
-                                </div>
-                                <span className="font-semibold">Farver</span>
-                            </button>
-                        )}
-                        <button
-                            className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-violet-100 text-violet-900 hover:bg-violet-50/50 hover:border-violet-200 group"
-                            onClick={() => setActiveSection('theme')}
-                        >
-                            <div className="h-8 w-8 rounded-lg bg-violet-100/50 flex items-center justify-center text-violet-600 group-hover:bg-violet-100 transition-colors">
-                                <LayoutTemplate className="h-4 w-4" />
-                            </div>
-                            <span className="font-semibold">Tema</span>
-                        </button>
-                        {allowedSections.has("banner") && (
-                            <button
-                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-blue-100 text-blue-900 hover:bg-blue-50/50 hover:border-blue-200 group"
-                                onClick={() => setActiveSection('banner')}
-                            >
-                                <div className="h-8 w-8 rounded-lg bg-blue-100/50 flex items-center justify-center text-blue-600 group-hover:bg-blue-100 transition-colors">
-                                    <ImageIcon className="h-4 w-4" />
-                                </div>
-                                <span className="font-semibold">Banner (Hero)</span>
-                            </button>
-                        )}
-                        {allowedSections.has("products") && (
-                            <button
-                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-sky-100 text-sky-900 hover:bg-sky-50/50 hover:border-sky-200 group"
-                                onClick={() => setActiveSection('products')}
-                            >
-                                <div className="h-8 w-8 rounded-lg bg-sky-100/50 flex items-center justify-center text-sky-600 group-hover:bg-sky-100 transition-colors">
-                                    <ShoppingCart className="h-4 w-4" />
-                                </div>
-                                <span className="font-semibold">Forside produkter</span>
-                            </button>
-                        )}
-                        {allowedSections.has("product-page-matrix") && (
-                            <button
-                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-cyan-100 text-cyan-900 hover:bg-cyan-50/50 hover:border-cyan-200 group"
-                                onClick={() => setActiveSection('product-page-matrix')}
-                            >
-                                <div className="h-8 w-8 rounded-lg bg-cyan-100/50 flex items-center justify-center text-cyan-600 group-hover:bg-cyan-100 transition-colors">
-                                    <Layout className="h-4 w-4" />
-                                </div>
-                                <span className="font-semibold">Produktside matrix & knapper</span>
-                            </button>
-                        )}
-                        {allowedSections.has("content") && (
-                            <button
-                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-violet-100 text-violet-900 hover:bg-violet-50/50 hover:border-violet-200 group"
-                                onClick={() => setActiveSection('content')}
-                            >
-                                <div className="h-8 w-8 rounded-lg bg-violet-100/50 flex items-center justify-center text-violet-600 group-hover:bg-violet-100 transition-colors">
-                                    <Layout className="h-4 w-4" />
-                                </div>
-                                <span className="font-semibold">Indholdsblokke</span>
-                            </button>
-                        )}
-                        {allowedSections.has("footer") && (
-                            <button
-                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-slate-100 text-slate-900 hover:bg-slate-50/50 hover:border-slate-200 group"
-                                onClick={() => setActiveSection('footer')}
-                            >
-                                <div className="h-8 w-8 rounded-lg bg-slate-100/50 flex items-center justify-center text-slate-600 group-hover:bg-slate-100 transition-colors">
-                                    <Layout className="h-4 w-4" />
-                                </div>
-                                <span className="font-semibold">Footer</span>
-                            </button>
-                        )}
-                        {allowedSections.has("icons") && (
-                            <button
-                                className="menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-emerald-100 text-emerald-900 hover:bg-emerald-50/50 hover:border-emerald-200 group"
-                                onClick={() => setActiveSection('icons')}
-                            >
-                                <div className="h-8 w-8 rounded-lg bg-emerald-100/50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-100 transition-colors">
-                                    <Sparkles className="h-4 w-4" />
-                                </div>
-                                <span className="font-semibold">Produktbilleder (Ikoner)</span>
-                            </button>
-                        )}
+                            );
+                        })}
                     </div>
                 </div>
             );
@@ -1051,6 +1116,11 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                     updateFeaturedProductConfig({ quantityPresets: nextPresets });
                 };
                 const featuredSidePanelItems = (featuredProductConfig.sidePanel?.items || []).slice(0, 5);
+                const featuredSidePanelMode = featuredProductConfig.sidePanel?.mode || "banner";
+                const hasFeaturedSidePanelItems = featuredSidePanelItems.length > 0;
+                const isSimpleSideProductMode = !hasFeaturedSidePanelItems && featuredSidePanelMode === "product";
+                const isSimpleSideBannerMode = !hasFeaturedSidePanelItems && featuredSidePanelMode === "banner";
+                const showSidePanelTransitionControls = hasFeaturedSidePanelItems || featuredSidePanelMode === "banner";
                 const updateFeaturedSidePanelItems = (items: typeof featuredSidePanelItems) => {
                     updateFeaturedSidePanel({ items: items.slice(0, 5) });
                 };
@@ -1969,7 +2039,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                 <div className="space-y-2">
                                                     <Label>Sidepanel type</Label>
                                                     <Select
-                                                        value={featuredProductConfig.sidePanel?.mode || "banner"}
+                                                        value={featuredSidePanelMode}
                                                         onValueChange={(value) => updateFeaturedSidePanel({ mode: value as "banner" | "product" })}
                                                         disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
                                                     >
@@ -1982,6 +2052,34 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                         </SelectContent>
                                                     </Select>
                                                 </div>
+                                                {isSimpleSideProductMode && (
+                                                    <div className="space-y-2">
+                                                        <Label>Sideprodukt</Label>
+                                                        <Select
+                                                            value={featuredProductConfig.sidePanel?.productId || "none"}
+                                                            onValueChange={(value) => updateFeaturedSidePanel({
+                                                                productId: value === "none" ? undefined : value,
+                                                            })}
+                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
+                                                        >
+                                                            <SelectTrigger>
+                                                                <SelectValue placeholder="Vælg produkt" />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="none">Ingen valgt</SelectItem>
+                                                                {featuredProducts.map((product) => (
+                                                                    <SelectItem key={product.id} value={product.id}>
+                                                                        {product.name}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            Vælg et ekstra produkt til sidepanelet. Bannerfelter skjules i denne tilstand.
+                                                        </p>
+                                                    </div>
+                                                )}
+                                                {showSidePanelTransitionControls && (
                                                 <div className="space-y-2">
                                                     <div className="flex items-center justify-between">
                                                         <Label>Skifteinterval</Label>
@@ -1999,6 +2097,8 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                         disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
                                                     />
                                                 </div>
+                                                )}
+                                                {showSidePanelTransitionControls && (
                                                 <div className="grid gap-3 md:grid-cols-2">
                                                     <div className="flex items-center justify-between rounded-md border px-3 py-2">
                                                         <div>
@@ -2027,7 +2127,8 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                         />
                                                     </div>
                                                 </div>
-                                                {(featuredProductConfig.sidePanel?.fadeTransition ?? true) && (
+                                                )}
+                                                {showSidePanelTransitionControls && (featuredProductConfig.sidePanel?.fadeTransition ?? true) && (
                                                     <div className="space-y-2">
                                                         <div className="flex items-center justify-between">
                                                             <Label>Fade varighed</Label>
@@ -2218,32 +2319,8 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                         </div>
                                                     )}
                                                 </div>
-                                                {featuredSidePanelItems.length === 0 && featuredProductConfig.sidePanel?.mode === 'product' ? (
-                                                    <div className="space-y-2">
-                                                        <Label>Sideprodukt</Label>
-                                                        <Select
-                                                            value={featuredProductConfig.sidePanel?.productId || "none"}
-                                                            onValueChange={(value) => updateFeaturedSidePanel({
-                                                                productId: value === "none" ? undefined : value,
-                                                            })}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        >
-                                                            <SelectTrigger>
-                                                                <SelectValue placeholder="Vælg produkt" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="none">Ingen valgt</SelectItem>
-                                                                {featuredProducts.map((product) => (
-                                                                    <SelectItem key={product.id} value={product.id}>
-                                                                        {product.name}
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                ) : null}
                                             </div>
-                                            {featuredSidePanelItems.length === 0 && featuredProductConfig.sidePanel?.mode === 'banner' && (
+                                            {isSimpleSideBannerMode && (
                                                 <>
                                                     <div className="space-y-3 rounded-lg border border-dashed p-3">
                                                         <div className="space-y-2">
@@ -2998,6 +3075,72 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                             <Button variant="ghost" size="icon" className="h-6 w-6 lg:hidden" onClick={() => setSidebarOpen(false)}>
                                 <X className="h-3.5 w-3.5" />
                             </Button>
+                        </div>
+                        <div className="border-b bg-white/90 px-2.5 py-2 space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Preview side
+                                    </div>
+                                    <div className="text-xs font-semibold text-foreground">
+                                        {currentPreviewPageLabel}
+                                    </div>
+                                    <div className="text-[11px] text-muted-foreground truncate">
+                                        {currentPreviewPage}
+                                    </div>
+                                </div>
+                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                    <Badge variant="secondary" className="rounded-sm px-1.5 py-0 text-[10px]">
+                                        {currentPreviewPageTypeLabel}
+                                    </Badge>
+                                    {activeSection && (
+                                        <Badge variant="outline" className="rounded-sm px-1.5 py-0 text-[10px] max-w-[160px] truncate">
+                                            {SECTION_LABELS[activeSection] || activeSection}
+                                        </Badge>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {PREVIEW_PAGE_LINKS.map((page) => {
+                                    const isActive = page.action === "first-product"
+                                        ? isProductPreviewPage
+                                        : page.path === currentPreviewPage
+                                            || (page.path === "/produkter" && currentPreviewPage === "/shop");
+                                    return (
+                                        <Button
+                                            key={`${page.label}-${page.path}-${page.action || "path"}`}
+                                            variant="outline"
+                                            size="sm"
+                                            className={
+                                                isActive
+                                                    ? "h-6 px-2 text-[11px] rounded-sm border-slate-300 bg-slate-900 text-white hover:bg-slate-800 hover:text-white"
+                                                    : "h-6 px-2 text-[11px] rounded-sm border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                                            }
+                                            onClick={() => {
+                                                if (page.action === "first-product") {
+                                                    navigatePreviewToFirstProduct();
+                                                } else {
+                                                    navigatePreviewTo(page.path);
+                                                }
+                                            }}
+                                        >
+                                            {page.label}
+                                        </Button>
+                                    );
+                                })}
+                            </div>
+                            <div className="space-y-1">
+                                <div className="text-[11px] font-medium text-muted-foreground">
+                                    Værktøjer på denne side
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                    {allowedSectionLabels.map((label) => (
+                                        <Badge key={label} variant="outline" className="rounded-sm px-1.5 py-0 text-[10px] font-normal">
+                                            {label}
+                                        </Badge>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                         <ScrollArea className="flex-1">
                             <div className="py-2">

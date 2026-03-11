@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useNavigate, Routes, Route } from 'react-router-dom';
+import { useNavigate, Routes, Route, Navigate } from 'react-router-dom';
 import { useUserRole } from '@/hooks/useUserRole';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
@@ -118,8 +118,9 @@ export default function Admin() {
                 <Route path="/beskeder" element={<AdminMessages />} />
                 {/* Min Konto routes */}
                 <Route path="/domaene" element={<DomainSettings />} />
-                <Route path="/branding" element={<TenantBrandingSettings />} />
+                <Route path="/branding" element={<Navigate to="/admin/branding-v2" replace />} />
                 <Route path="/branding-v2" element={<TenantBrandingSettingsV2 />} />
+                <Route path="/branding-classic" element={<TenantBrandingSettings />} />
                 <Route path="/abonnement" element={<SubscriptionSettings />} />
                 <Route path="/indstillinger" element={<ShopSettings />} />
                 <Route path="/indstillinger/betaling" element={<TenantPaymentSettings />} />

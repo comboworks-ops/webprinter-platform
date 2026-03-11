@@ -23,6 +23,10 @@ import {
     type StorformatConfig,
     type StorformatMaterial,
 } from "@/utils/storformatPricing";
+import {
+    buildStorefrontProductHref,
+    getStorefrontProductButtonLabel,
+} from "@/lib/catalog/categoryLanding";
 import { cn } from "@/lib/utils";
 import type { FeaturedProductConfig, HeroTextAnimation } from "@/hooks/useBrandingDraft";
 
@@ -42,6 +46,7 @@ interface ProductData {
     default_variant?: string | null;
     default_quantity?: number | null;
     banner_config?: any;
+    technical_specs?: unknown;
 }
 
 interface OptionGroup {
@@ -392,13 +397,14 @@ export function FeaturedProductConfigurator({
         sidePanelFadeEnabled,
         sidePanelTransitionDurationMs
     );
-    const sidePanelCarouselTransitionVisible = useFadeTransition(
-        hasSidePanelCarousel ? `${sidePanelItemIndex}:${activeSidePanelItem?.id || ""}` : null,
-        sidePanelFadeEnabled && hasSidePanelCarousel
-    );
-    const sidePanelBannerTransitionVisible = useFadeTransition(
-        !hasSidePanelCarousel && sidePanel?.mode === "banner" ? sideBannerIndex : null,
-        sidePanelFadeEnabled && !hasSidePanelCarousel && sidePanel?.mode === "banner"
+    const sidePanelContentTransitionKey = hasSidePanelCarousel
+        ? `carousel:${sidePanelItemIndex}:${activeSidePanelItem?.id || ""}:${activeSidePanelItem?.mode || ""}:${activeSidePanelItem?.productId || ""}:${activeSidePanelItem?.imageUrl || ""}`
+        : sidePanel?.mode === "product"
+            ? `simple-product:${sidePanel?.productId || ""}`
+            : `simple-banner:${sideBannerIndex}:${sidePanelBannerImageTarget || ""}:${sidePanel?.title || ""}:${sidePanel?.subtitle || ""}:${sidePanel?.ctaLabel || ""}:${sidePanel?.ctaHref || ""}`;
+    const sidePanelContentVisible = useFadeTransition(
+        sidePanelEnabled ? sidePanelContentTransitionKey : null,
+        sidePanelFadeEnabled && sidePanelEnabled
     );
 
     const resolveValueName = useCallback((value: string) => {
@@ -417,7 +423,7 @@ export function FeaturedProductConfigurator({
             setLoading(true);
             const productRes = await supabase
                 .from("products")
-                .select("id, name, slug, description, image_url, pricing_type, default_variant, default_quantity, banner_config")
+                .select("id, name, slug, description, image_url, pricing_type, default_variant, default_quantity, banner_config, technical_specs")
                 .eq("id", config.productId)
                 .single();
 
@@ -453,7 +459,7 @@ export function FeaturedProductConfigurator({
             async function fetchSidePanelProducts() {
                 const { data } = await supabase
                     .from("products")
-                    .select("id, name, slug, description, image_url, pricing_type, default_variant, default_quantity, banner_config")
+                    .select("id, name, slug, description, image_url, pricing_type, default_variant, default_quantity, banner_config, technical_specs")
                     .in("id", productIds);
 
                 if (cancelled) return;
@@ -1161,6 +1167,10 @@ export function FeaturedProductConfigurator({
     const displayPriceLabel = selectedFeaturedPrice > 0
         ? `${selectedFeaturedPrice.toLocaleString("da-DK")} kr`
         : fallbackPriceLabel;
+    const featuredProductHref = buildStorefrontProductHref(product);
+    const featuredProductButtonLabel = getStorefrontProductButtonLabel(product) === "Se produkter"
+        ? "Se produkter"
+        : (config.ctaLabel || "Bestil nu");
     const isShadowless = config.cardStyle === "glass";
     const currentRowLabel = activeRowId ? resolveValueName(activeRowId) : "";
     const featuredPriceContextLabel = product.pricing_type === "STORFORMAT"
@@ -1177,11 +1187,15 @@ export function FeaturedProductConfigurator({
     const activeSideBannerImage = sidePanelBannerImageTransition.currentSrc;
     const activeSideBannerPreviousImage = sidePanelBannerImageTransition.previousSrc;
     const activeSideBannerCurrentVisible = sidePanelBannerImageTransition.currentVisible;
+    const sideProductHref = activeSideProduct ? buildStorefrontProductHref(activeSideProduct) : "#";
+    const sideProductButtonLabel = activeSideProduct
+        ? (getStorefrontProductButtonLabel(activeSideProduct) === "Se produkter" ? "Se produkter" : "Bestil")
+        : "Bestil";
     const sideCarouselVisualVisible = sidePanelFadeEnabled
-        ? (sideBannerCurrentVisible && sidePanelCarouselTransitionVisible)
+        ? (sideBannerCurrentVisible && sidePanelContentVisible)
         : true;
     const sideImageListVisualVisible = sidePanelFadeEnabled
-        ? (activeSideBannerCurrentVisible && sidePanelBannerTransitionVisible)
+        ? (activeSideBannerCurrentVisible && sidePanelContentVisible)
         : true;
     const sharedOffsetStyle = config.position === "above" && config.overlapPx
         ? { marginTop: `-${config.overlapPx}px` }
@@ -1478,8 +1492,8 @@ export function FeaturedProductConfigurator({
                             }}
                             asChild
                         >
-                            <Link to={`/produkt/${product.slug}`}>
-                                {config.ctaLabel || "Bestil nu"}
+                            <Link to={featuredProductHref}>
+                                {featuredProductButtonLabel}
                             </Link>
                         </Button>
                     </div>
@@ -1496,7 +1510,7 @@ export function FeaturedProductConfigurator({
                     style={{
                         ...sidePanelCardStyle,
                         opacity: sidePanelFadeEnabled
-                            ? (sidePanelCarouselTransitionVisible ? 1 : 0)
+                            ? (sidePanelContentVisible ? 1 : 0)
                             : 1,
                         transition: sidePanelFadeEnabled
                             ? `opacity ${sidePanelTransitionDurationMs}ms ease`
@@ -1573,10 +1587,10 @@ export function FeaturedProductConfigurator({
                                 }}
                             >
                                 <Link
-                                    to={`/produkt/${activeSideProduct.slug}`}
+                                    to={sideProductHref}
                                     style={{ color: config.ctaTextColor || "#FFFFFF" }}
                                 >
-                                    Bestil
+                                    {sideProductButtonLabel}
                                 </Link>
                             </Button>
                         </div>
@@ -1647,7 +1661,7 @@ export function FeaturedProductConfigurator({
                             gap: `${sidePanelGapPx}px`,
                             padding: `${sidePanelPaddingPx}px`,
                             opacity: sidePanelFadeEnabled
-                                ? (sidePanelCarouselTransitionVisible ? 1 : 0)
+                                ? (sidePanelContentVisible ? 1 : 0)
                                 : 1,
                             transition: sidePanelFadeEnabled
                                 ? `opacity ${sidePanelTransitionDurationMs}ms ease`
@@ -1708,7 +1722,15 @@ export function FeaturedProductConfigurator({
             sidePanel?.mode === "product" && activeSideProduct ? (
                 <div
                     className="border bg-card overflow-hidden h-full shadow-sm"
-                    style={sidePanelCardStyle}
+                    style={{
+                        ...sidePanelCardStyle,
+                        opacity: sidePanelFadeEnabled
+                            ? (sidePanelContentVisible ? 1 : 0)
+                            : 1,
+                        transition: sidePanelFadeEnabled
+                            ? `opacity ${sidePanelTransitionDurationMs}ms ease`
+                            : undefined,
+                    }}
                 >
                     <img
                         src={getProductImage(activeSideProduct.slug, activeSideProduct.image_url)}
@@ -1780,10 +1802,10 @@ export function FeaturedProductConfigurator({
                                 }}
                             >
                                 <Link
-                                    to={`/produkt/${activeSideProduct.slug}`}
+                                    to={sideProductHref}
                                     style={{ color: config.ctaTextColor || "#FFFFFF" }}
                                 >
-                                    Bestil
+                                    {sideProductButtonLabel}
                                 </Link>
                             </Button>
                         </div>
@@ -1854,7 +1876,7 @@ export function FeaturedProductConfigurator({
                             gap: `${sidePanelGapPx}px`,
                             padding: `${sidePanelPaddingPx}px`,
                             opacity: sidePanelFadeEnabled
-                                ? (sidePanelBannerTransitionVisible ? 1 : 0)
+                                ? (sidePanelContentVisible ? 1 : 0)
                                 : 1,
                             transition: sidePanelFadeEnabled
                                 ? `opacity ${sidePanelTransitionDurationMs}ms ease`

@@ -1,0 +1,4 @@
+format,material,option_1_name,option_1_value,option_2_name,option_2_value,quantity,price,currency,source_url
+A4,Standard Material,,,,,10,100.00,EUR,https://example.com/product-page
+A4,Standard Material,,,,,25,200.00,EUR,https://example.com/product-page
+A4,Standard Material,,,,,50,350.00,EUR,https://example.com/product-page

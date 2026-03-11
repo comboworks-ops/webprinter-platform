@@ -19,6 +19,7 @@ interface ProductPreviewCardProps {
     promoPrice?: string;
     originalPrice?: string;
     showSavingsBadge?: boolean;
+    actionLabel?: string;
 }
 
 export function ProductPreviewCard({
@@ -35,7 +36,8 @@ export function ProductPreviewCard({
     specialBadge,
     promoPrice,
     originalPrice,
-    showSavingsBadge
+    showSavingsBadge,
+    actionLabel = "Priser",
 }: ProductPreviewCardProps) {
     const fontUrl = priceFont && priceFont !== 'inherit' ? getGoogleFontsUrl([priceFont]) : '';
     const normalizedImageScalePct = Math.max(60, Math.min(140, Number(imageScalePct) || 100));
@@ -148,7 +150,7 @@ export function ProductPreviewCard({
                     </CardContent>
                     <CardFooter className="justify-end gap-2 px-4 pb-4">
                         <Button size="sm" variant="outline" className="pointer-events-none">
-                            Priser
+                            {actionLabel}
                         </Button>
                     </CardFooter>
                 </Card>

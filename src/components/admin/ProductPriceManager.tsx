@@ -50,6 +50,19 @@ import { SmartPriceGenerator } from "./SmartPriceGenerator";
 import { useProductAttributes } from "@/hooks/useProductAttributes";
 import { cn } from "@/lib/utils";
 import { StorformatManager } from "./StorformatManager";
+import { SITE_PACKAGES } from "@/lib/sites/sitePackages";
+import { type CategoryLandingConfig } from "@/lib/catalog/categoryLanding";
+import {
+  isSiteExclusiveProduct,
+  readSiteFrontendConfig,
+  readProductSiteIds,
+  removeProductSiteAssignment,
+  type SiteFrontendConfig,
+  writeProductSiteIds,
+  writeSiteFrontendConfig,
+  writeSiteExclusiveProduct,
+} from "@/lib/sites/productSiteFrontends";
+import { type ProductCategoryRecord, type ProductOverviewRecord } from "@/utils/productCategories";
 
 
 interface BasePrice {
@@ -266,6 +279,33 @@ const DEFAULT_ORDER_DELIVERY_CONFIG: OrderDeliveryConfig = {
   }
 };
 
+function createDefaultSiteFrontendConfig(productName: string): SiteFrontendConfig {
+  return {
+    buttonKey: null,
+    buttonOrder: null,
+    buttonLabel: productName || null,
+    buttonDescription: null,
+    buttonImageUrl: null,
+    activeFinishIds: [],
+    activeProductItemIds: [],
+  };
+}
+
+const FALLBACK_OVERVIEW_ID = "__default_overview__";
+const FALLBACK_OVERVIEW_NAME = "Produkter";
+
+function createDefaultCategoryLandingConfig(): CategoryLandingConfig {
+  return {
+    enabled: false,
+    overviewId: null,
+    overviewSlug: null,
+    categoryId: null,
+    categorySlug: null,
+    subcategoryId: null,
+    subcategorySlug: null,
+  };
+}
+
 function getPricingTypeLabel(type: string | undefined): string {
   if (!type) return 'Ukendt';
   const labels: Record<string, string> = {
@@ -305,6 +345,7 @@ export function ProductPriceManager() {
   const [editedHoverImageUrl, setEditedHoverImageUrl] = useState<string | null>(null);
   const [editedImageScalePct, setEditedImageScalePct] = useState<number>(100);
   const [editedSpecialBadge, setEditedSpecialBadge] = useState<ProductBadgeConfig | undefined>(undefined);
+  const [editedCategoryLanding, setEditedCategoryLanding] = useState<CategoryLandingConfig>(createDefaultCategoryLandingConfig());
   const [configSectionThumbs, setConfigSectionThumbs] = useState({
     format: null as string | null,
     storformat: null as string | null,
@@ -368,10 +409,31 @@ export function ProductPriceManager() {
   const [hasOrderDeliveryEdits, setHasOrderDeliveryEdits] = useState(false);
   const [isMasterAdmin, setIsMasterAdmin] = useState(false);
   const [podCarrierUploadIndex, setPodCarrierUploadIndex] = useState<number | null>(null);
+  const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
+  const [editedSiteOnly, setEditedSiteOnly] = useState(false);
+  const [hasSiteFrontendEdits, setHasSiteFrontendEdits] = useState(false);
+  const [siteFrontendConfigs, setSiteFrontendConfigs] = useState<Record<string, SiteFrontendConfig>>({});
+  const [siteStorformatFinishes, setSiteStorformatFinishes] = useState<Array<{ id: string; name: string }>>([]);
+  const [siteStorformatProducts, setSiteStorformatProducts] = useState<Array<{ id: string; name: string }>>([]);
+  const [catalogOverviews, setCatalogOverviews] = useState<ProductOverviewRecord[]>([]);
+  const [catalogCategories, setCatalogCategories] = useState<ProductCategoryRecord[]>([]);
 
   const publishedPricesFingerprint = useMemo(
     () => createPriceFingerprint(prices),
     [prices]
+  );
+
+  const rootLandingCategories = useMemo(
+    () => catalogCategories.filter((category) =>
+      (category.overview_id || FALLBACK_OVERVIEW_ID) === (editedCategoryLanding.overviewId || FALLBACK_OVERVIEW_ID)
+      && !category.parent_category_id,
+    ),
+    [catalogCategories, editedCategoryLanding.overviewId],
+  );
+
+  const subcategoryLandingOptions = useMemo(
+    () => catalogCategories.filter((category) => category.parent_category_id === editedCategoryLanding.categoryId),
+    [catalogCategories, editedCategoryLanding.categoryId],
   );
 
   // Hook for product attribute groups (used in pricing structure)
@@ -534,6 +596,53 @@ export function ProductPriceManager() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+
+    const loadCatalogTaxonomy = async () => {
+      try {
+        const { tenantId } = await resolveAdminTenant();
+        if (!tenantId || !active) return;
+
+        const [overviewsResponse, categoriesResponse] = await Promise.all([
+          supabase
+            .from("product_overviews" as any)
+            .select("id, name, slug, sort_order")
+            .eq("tenant_id", tenantId)
+            .order("sort_order", { ascending: true }),
+          supabase
+            .from("product_categories" as any)
+            .select("id, name, slug, sort_order, overview_id, parent_category_id, navigation_mode")
+            .eq("tenant_id", tenantId)
+            .order("sort_order", { ascending: true }),
+        ]);
+
+        if (!active) return;
+
+        const overviewRows = ((overviewsResponse.error ? [] : overviewsResponse.data) || []) as ProductOverviewRecord[];
+        const categoryRows = ((categoriesResponse.error ? [] : categoriesResponse.data) || []) as ProductCategoryRecord[];
+
+        setCatalogOverviews(
+          overviewRows.length > 0
+            ? overviewRows
+            : [{ id: FALLBACK_OVERVIEW_ID, name: FALLBACK_OVERVIEW_NAME, slug: "produkter", sort_order: 0 }],
+        );
+        setCatalogCategories(categoryRows);
+      } catch (error) {
+        if (!active) return;
+        console.warn("Could not load catalog taxonomy for product landing cards:", error);
+        setCatalogOverviews([{ id: FALLBACK_OVERVIEW_ID, name: FALLBACK_OVERVIEW_NAME, slug: "produkter", sort_order: 0 }]);
+        setCatalogCategories([]);
+      }
+    };
+
+    loadCatalogTaxonomy();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (product) {
       fetchPrices();
       setEditedName(product.name);
@@ -566,11 +675,25 @@ export function ProductPriceManager() {
       setEditedMinDpi(specs.min_dpi?.toString() || "300");
       setEditedIsFreeForm(specs.is_free_form || false);
       setEditedStandardFormat(specs.standard_format || "");
+      setEditedCategoryLanding({
+        ...createDefaultCategoryLandingConfig(),
+        ...(typeof specs.category_landing === "object" && specs.category_landing ? specs.category_landing : {}),
+      });
       setEditedPodPreflightEnabled(Boolean(specs.pod_preflight_enabled));
       setEditedPodPreflightAutoFix(specs.pod_preflight_auto_fix ?? true);
+      const initialSiteIds = readProductSiteIds(specs);
+      setSelectedSiteIds(initialSiteIds);
+      setEditedSiteOnly(isSiteExclusiveProduct(specs));
+      setSiteFrontendConfigs(
+        initialSiteIds.reduce<Record<string, SiteFrontendConfig>>((acc, siteId) => {
+          acc[siteId] = readSiteFrontendConfig(specs, siteId);
+          return acc;
+        }, {}),
+      );
       setHasProductEdits(false);
       setHasSpecEdits(false);
       setHasMachineEdits(false);
+      setHasSiteFrontendEdits(false);
       setEditedOutputColorProfileId(product.output_color_profile_id || null);
       setOrderDeliveryConfig(applyOrderDeliveryDefaults((bc as any).order_delivery));
       setHasOrderDeliveryEdits(false);
@@ -603,6 +726,57 @@ export function ProductPriceManager() {
       setActiveConfigSection("format");
     }
   }, [product, pricingType, activeConfigSection]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadSiteFrontendStorformatOptions = async () => {
+      if (!product?.id) {
+        setSiteStorformatFinishes([]);
+        setSiteStorformatProducts([]);
+        return;
+      }
+
+      try {
+        const [{ data: finishRows }, { data: productRows }] = await Promise.all([
+          supabase
+            .from("storformat_finishes" as any)
+            .select("id, name")
+            .eq("product_id", product.id)
+            .order("sort_order", { ascending: true }),
+          supabase
+            .from("storformat_products" as any)
+            .select("id, name")
+            .eq("product_id", product.id)
+            .order("sort_order", { ascending: true }),
+        ]);
+
+        if (!active) return;
+
+        setSiteStorformatFinishes(
+          ((finishRows as Array<{ id: string; name: string }> | null) || []).filter(
+            (row) => !!row?.id && !!row?.name,
+          ),
+        );
+        setSiteStorformatProducts(
+          ((productRows as Array<{ id: string; name: string }> | null) || []).filter(
+            (row) => !!row?.id && !!row?.name,
+          ),
+        );
+      } catch (error) {
+        if (!active) return;
+        console.warn("Could not load storformat site-frontend options:", error);
+        setSiteStorformatFinishes([]);
+        setSiteStorformatProducts([]);
+      }
+    };
+
+    loadSiteFrontendStorformatOptions();
+
+    return () => {
+      active = false;
+    };
+  }, [product?.id]);
 
   const fetchMpaConfig = async (productId: string) => {
     try {
@@ -863,6 +1037,11 @@ export function ProductPriceManager() {
     );
   };
 
+  const updateCategoryLanding = (patch: Partial<CategoryLandingConfig>) => {
+    setEditedCategoryLanding((current) => ({ ...current, ...patch }));
+    setHasProductEdits(true);
+  };
+
   const handleImageUpdate = (newImageUrl: string) => {
     setProduct({ ...product, image_url: newImageUrl });
   };
@@ -878,14 +1057,33 @@ export function ProductPriceManager() {
     setSaving(true);
     try {
       const currentConfig = (product.banner_config as any) || {};
+      const currentSpecs = (product.technical_specs as any) || {};
 
       // Determine values (state or override)
       const hoverImg = overrides.hover_image_url !== undefined ? overrides.hover_image_url : editedHoverImageUrl;
+      const selectedOverview = catalogOverviews.find((overview) => overview.id === editedCategoryLanding.overviewId);
+      const selectedCategory = catalogCategories.find((category) => category.id === editedCategoryLanding.categoryId);
+      const selectedSubcategory = catalogCategories.find((category) => category.id === editedCategoryLanding.subcategoryId);
+      const nextCategoryLanding = editedCategoryLanding.enabled
+        ? {
+            enabled: true,
+            overviewId: editedCategoryLanding.overviewId || null,
+            overviewSlug: selectedOverview?.slug || editedCategoryLanding.overviewSlug || null,
+            categoryId: editedCategoryLanding.categoryId || null,
+            categorySlug: selectedCategory?.slug || editedCategoryLanding.categorySlug || null,
+            subcategoryId: editedCategoryLanding.subcategoryId || null,
+            subcategorySlug: selectedSubcategory?.slug || editedCategoryLanding.subcategorySlug || null,
+          }
+        : null;
 
       const updates: any = {
         name: editedName,
         icon_text: editedIconText,
         description: editedDescription,
+        technical_specs: {
+          ...currentSpecs,
+          category_landing: nextCategoryLanding,
+        },
         banner_config: {
           ...currentConfig,
           price_from: parseFloat(editedPriceFrom) || null,
@@ -989,6 +1187,102 @@ export function ProductPriceManager() {
     } catch (error) {
       console.error('Error updating technical specs:', error);
       toast.error('Kunne ikke opdatere tekniske specifikationer');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleSiteAssignment = (siteId: string, nextChecked: boolean) => {
+    setSelectedSiteIds((current) => {
+      const nextSiteIds = nextChecked
+        ? Array.from(new Set([...current, siteId]))
+        : current.filter((value) => value !== siteId);
+
+      if (nextSiteIds.length === 0) {
+        setEditedSiteOnly(false);
+      }
+
+      return nextSiteIds;
+    });
+    if (nextChecked) {
+      setSiteFrontendConfigs((current) => ({
+        ...current,
+        [siteId]: current[siteId] || createDefaultSiteFrontendConfig(product?.icon_text || product?.name || ""),
+      }));
+    }
+    setHasSiteFrontendEdits(true);
+  };
+
+  const updateSiteFrontendConfig = (
+    siteId: string,
+    patch: Partial<SiteFrontendConfig>,
+  ) => {
+    setSiteFrontendConfigs((current) => ({
+      ...current,
+      [siteId]: {
+        ...(current[siteId] || createDefaultSiteFrontendConfig(product?.icon_text || product?.name || "")),
+        ...patch,
+      },
+    }));
+    setHasSiteFrontendEdits(true);
+  };
+
+  const toggleSiteFrontendPricingSelection = (
+    siteId: string,
+    key: "activeFinishIds" | "activeProductItemIds",
+    itemId: string,
+    nextChecked: boolean,
+  ) => {
+    const currentConfig = siteFrontendConfigs[siteId] || createDefaultSiteFrontendConfig(product?.icon_text || product?.name || "");
+    const currentValues = currentConfig[key] || [];
+    const nextValues = nextChecked
+      ? Array.from(new Set([...currentValues, itemId]))
+      : currentValues.filter((value) => value !== itemId);
+
+    updateSiteFrontendConfig(siteId, { [key]: nextValues } as Partial<SiteFrontendConfig>);
+  };
+
+  const handleSaveSiteFrontends = async () => {
+    if (!product || !hasSiteFrontendEdits) return;
+
+    setSaving(true);
+    try {
+      const existingSpecs = (product.technical_specs as any) || {};
+      const existingSiteIds = readProductSiteIds(existingSpecs);
+      let nextSpecs = existingSpecs;
+
+      existingSiteIds
+        .filter((siteId) => !selectedSiteIds.includes(siteId))
+        .forEach((siteId) => {
+          nextSpecs = removeProductSiteAssignment(nextSpecs, siteId);
+        });
+
+      nextSpecs = writeProductSiteIds(nextSpecs, selectedSiteIds);
+      selectedSiteIds.forEach((siteId) => {
+        nextSpecs = writeSiteFrontendConfig(
+          nextSpecs,
+          siteId,
+          siteFrontendConfigs[siteId] || createDefaultSiteFrontendConfig(product.icon_text || product.name || ""),
+        );
+      });
+      nextSpecs = writeSiteExclusiveProduct(
+        nextSpecs,
+        selectedSiteIds.length > 0 ? editedSiteOnly : false,
+      );
+
+      const { error } = await supabase
+        .from("products")
+        .update({ technical_specs: nextSpecs })
+        .eq("id", product.id);
+
+      if (error) throw error;
+
+      toast.success("Site-tilknytning gemt");
+      setHasSiteFrontendEdits(false);
+      await fetchProduct();
+    } catch (error) {
+      console.error("Error updating product site assignments:", error);
+      toast.error("Kunne ikke gemme site-tilknytning");
     } finally {
       setSaving(false);
     }
@@ -2873,6 +3167,142 @@ export function ProductPriceManager() {
                           </div>
                         </div>
 
+                        <div className="bg-muted/10 p-3 rounded-md border space-y-4">
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <Label className="text-sm">Brug kortet som kategori-link</Label>
+                              <p className="text-[10px] text-muted-foreground mt-1">
+                                Beholder billede, titel og tekst som normalt, men klik går til en kategori-side i stedet for produktets prisliste.
+                              </p>
+                            </div>
+                            <Switch
+                              checked={editedCategoryLanding.enabled}
+                              onCheckedChange={(checked) =>
+                                updateCategoryLanding({
+                                  enabled: checked,
+                                  overviewId: checked
+                                    ? (editedCategoryLanding.overviewId || catalogOverviews[0]?.id || FALLBACK_OVERVIEW_ID)
+                                    : null,
+                                  overviewSlug: checked
+                                    ? (editedCategoryLanding.overviewSlug || catalogOverviews[0]?.slug || "produkter")
+                                    : null,
+                                  categoryId: checked ? editedCategoryLanding.categoryId || null : null,
+                                  categorySlug: checked ? editedCategoryLanding.categorySlug || null : null,
+                                  subcategoryId: checked ? editedCategoryLanding.subcategoryId || null : null,
+                                  subcategorySlug: checked ? editedCategoryLanding.subcategorySlug || null : null,
+                                })
+                              }
+                            />
+                          </div>
+
+                          {editedCategoryLanding.enabled && (
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <div className="space-y-2">
+                                <Label>Hovedgruppe</Label>
+                                <Select
+                                  value={editedCategoryLanding.overviewId || FALLBACK_OVERVIEW_ID}
+                                  onValueChange={(value) => {
+                                    const nextOverview = catalogOverviews.find((overview) => overview.id === value);
+                                    updateCategoryLanding({
+                                      overviewId: value,
+                                      overviewSlug: nextOverview?.slug || "produkter",
+                                      categoryId: null,
+                                      categorySlug: null,
+                                      subcategoryId: null,
+                                      subcategorySlug: null,
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Vælg hovedgruppe" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {catalogOverviews.map((overview) => (
+                                      <SelectItem key={overview.id} value={overview.id}>
+                                        {overview.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="space-y-2">
+                                <Label>Kategori</Label>
+                                <Select
+                                  value={editedCategoryLanding.categoryId || "__none__"}
+                                  onValueChange={(value) => {
+                                    if (value === "__none__") {
+                                      updateCategoryLanding({
+                                        categoryId: null,
+                                        categorySlug: null,
+                                        subcategoryId: null,
+                                        subcategorySlug: null,
+                                      });
+                                      return;
+                                    }
+                                    const nextCategory = rootLandingCategories.find((category) => category.id === value);
+                                    updateCategoryLanding({
+                                      categoryId: value,
+                                      categorySlug: nextCategory?.slug || null,
+                                      subcategoryId: null,
+                                      subcategorySlug: null,
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Vælg kategori" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__none__">Ingen kategori valgt</SelectItem>
+                                    {rootLandingCategories.map((category) => (
+                                      <SelectItem key={category.id} value={category.id as string}>
+                                        {category.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="space-y-2 md:col-span-2">
+                                <Label>Underkategori</Label>
+                                <Select
+                                  value={editedCategoryLanding.subcategoryId || "__none__"}
+                                  onValueChange={(value) => {
+                                    if (value === "__none__") {
+                                      updateCategoryLanding({
+                                        subcategoryId: null,
+                                        subcategorySlug: null,
+                                      });
+                                      return;
+                                    }
+                                    const nextSubcategory = subcategoryLandingOptions.find((category) => category.id === value);
+                                    updateCategoryLanding({
+                                      subcategoryId: value,
+                                      subcategorySlug: nextSubcategory?.slug || null,
+                                    });
+                                  }}
+                                  disabled={!editedCategoryLanding.categoryId || subcategoryLandingOptions.length === 0}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Vælg underkategori (valgfrit)" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__none__">Vis hele kategorien</SelectItem>
+                                    {subcategoryLandingOptions.map((category) => (
+                                      <SelectItem key={category.id} value={category.id as string}>
+                                        {category.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <p className="text-[10px] text-muted-foreground">
+                                  Hvis du vælger en underkategori, åbner kortet direkte på den. Hvis ikke, åbner det på hele kategorien.
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
                         {/* Special Badge Editor */}
                         <SpecialBadgeEditor
                           value={editedSpecialBadge}
@@ -2901,6 +3331,7 @@ export function ProductPriceManager() {
                           promoPrice={editedPromoPrice}
                           originalPrice={editedOriginalPrice}
                           showSavingsBadge={editedShowSavingsBadge}
+                          actionLabel={editedCategoryLanding.enabled ? "Se produkter" : "Priser"}
                         />
                         <div className="pt-4 w-full">
                           <Button
@@ -2943,12 +3374,294 @@ export function ProductPriceManager() {
                 </Card>
               </div>
 
+              <div className="space-y-3">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-md font-medium flex items-center gap-2">
+                      <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">3</span>
+                      Site-tilknytning
+                    </CardTitle>
+                    <CardDescription>
+                      Vælg hvilke facade-sites dette produkt skal indgå i. Dette gemmes i
+                      <code className="mx-1">technical_specs.site_frontends</code>
+                      uden at ændre priser eller publicering.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span>Valgte sites:</span>
+                      {selectedSiteIds.length > 0 ? (
+                        selectedSiteIds.map((siteId) => {
+                          const sitePackage = SITE_PACKAGES.find((entry) => entry.id === siteId);
+                          return (
+                            <Badge key={siteId} variant="secondary" className="font-normal">
+                              {sitePackage?.name || siteId}
+                            </Badge>
+                          );
+                        })
+                      ) : (
+                        <Badge variant="outline" className="font-normal">
+                          Ingen sites valgt
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {SITE_PACKAGES.map((sitePackage) => {
+                        const isSelected = selectedSiteIds.includes(sitePackage.id);
+                        return (
+                          <div
+                            key={sitePackage.id}
+                            className={cn(
+                              "rounded-lg border p-3 transition-colors",
+                              isSelected ? "border-primary bg-primary/5" : "border-border bg-background",
+                            )}
+                          >
+                            <div className="flex items-start gap-3">
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={(checked) =>
+                                  toggleSiteAssignment(sitePackage.id, checked === true)
+                                }
+                                className="mt-1"
+                              />
+                              <div className="min-w-0 flex-1 space-y-2">
+                                <div>
+                                  <p className="text-sm font-medium leading-none">{sitePackage.name}</p>
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    {sitePackage.description}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {sitePackage.tags.slice(0, 4).map((tag) => (
+                                    <Badge key={tag} variant="outline" className="text-[10px] font-normal">
+                                      {tag}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {selectedSiteIds.length > 0 && (
+                      <div className="space-y-4 rounded-lg border bg-muted/10 p-4">
+                        <div>
+                          <p className="text-sm font-medium">Site-specifik visning</p>
+                          <p className="text-xs text-muted-foreground">
+                            Disse felter bruges af Sites-previewet til knapper, rækkefølge og
+                            eventuelle storformat-filtre for hvert valgt site.
+                          </p>
+                        </div>
+
+                        <div className="space-y-4">
+                          {selectedSiteIds.map((siteId) => {
+                            const sitePackage = SITE_PACKAGES.find((entry) => entry.id === siteId);
+                            const config =
+                              siteFrontendConfigs[siteId] ||
+                              createDefaultSiteFrontendConfig(product?.icon_text || product?.name || "");
+
+                            return (
+                              <div key={siteId} className="rounded-lg border bg-background p-4 space-y-4">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-sm font-medium">{sitePackage?.name || siteId}</p>
+                                  <Badge variant="outline" className="font-normal">
+                                    {siteId}
+                                  </Badge>
+                                </div>
+
+                                <div className="grid gap-4 md:grid-cols-2">
+                                  <div className="space-y-2">
+                                    <Label>Button key</Label>
+                                    <Input
+                                      value={config.buttonKey || ""}
+                                      placeholder="f.eks. pvc-banner"
+                                      onChange={(event) =>
+                                        updateSiteFrontendConfig(siteId, {
+                                          buttonKey: event.target.value || null,
+                                        })
+                                      }
+                                    />
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label>Button rækkefølge</Label>
+                                    <Input
+                                      type="number"
+                                      value={config.buttonOrder ?? ""}
+                                      placeholder="1"
+                                      onChange={(event) =>
+                                        updateSiteFrontendConfig(siteId, {
+                                          buttonOrder: event.target.value
+                                            ? Number(event.target.value)
+                                            : null,
+                                        })
+                                      }
+                                    />
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label>Button label</Label>
+                                    <Input
+                                      value={config.buttonLabel || ""}
+                                      placeholder="Visningsnavn i site"
+                                      onChange={(event) =>
+                                        updateSiteFrontendConfig(siteId, {
+                                          buttonLabel: event.target.value || null,
+                                        })
+                                      }
+                                    />
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label>Billede-url</Label>
+                                    <Input
+                                      value={config.buttonImageUrl || ""}
+                                      placeholder="https://... eller storage-url"
+                                      onChange={(event) =>
+                                        updateSiteFrontendConfig(siteId, {
+                                          buttonImageUrl: event.target.value || null,
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label>Button beskrivelse</Label>
+                                  <Textarea
+                                    value={config.buttonDescription || ""}
+                                    placeholder="Kort tekst til site-preview og site-specifik produktvisning"
+                                    rows={2}
+                                    onChange={(event) =>
+                                      updateSiteFrontendConfig(siteId, {
+                                        buttonDescription: event.target.value || null,
+                                      })
+                                    }
+                                  />
+                                </div>
+
+                                {(siteStorformatFinishes.length > 0 || siteStorformatProducts.length > 0) && (
+                                  <div className="grid gap-4 lg:grid-cols-2">
+                                    {siteStorformatFinishes.length > 0 && (
+                                      <div className="space-y-2">
+                                        <Label>Aktive finishes</Label>
+                                        <div className="grid gap-2">
+                                          {siteStorformatFinishes.map((finish) => {
+                                            const checked = config.activeFinishIds.includes(finish.id);
+                                            return (
+                                              <label
+                                                key={finish.id}
+                                                className="flex items-center gap-2 text-sm"
+                                              >
+                                                <Checkbox
+                                                  checked={checked}
+                                                  onCheckedChange={(value) =>
+                                                    toggleSiteFrontendPricingSelection(
+                                                      siteId,
+                                                      "activeFinishIds",
+                                                      finish.id,
+                                                      value === true,
+                                                    )
+                                                  }
+                                                />
+                                                <span>{finish.name}</span>
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {siteStorformatProducts.length > 0 && (
+                                      <div className="space-y-2">
+                                        <Label>Aktive produktvalg</Label>
+                                        <div className="grid gap-2">
+                                          {siteStorformatProducts.map((productItem) => {
+                                            const checked = config.activeProductItemIds.includes(productItem.id);
+                                            return (
+                                              <label
+                                                key={productItem.id}
+                                                className="flex items-center gap-2 text-sm"
+                                              >
+                                                <Checkbox
+                                                  checked={checked}
+                                                  onCheckedChange={(value) =>
+                                                    toggleSiteFrontendPricingSelection(
+                                                      siteId,
+                                                      "activeProductItemIds",
+                                                      productItem.id,
+                                                      value === true,
+                                                    )
+                                                  }
+                                                />
+                                                <span>{productItem.name}</span>
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between rounded-lg border border-dashed px-3 py-3">
+                      <div className="pr-4">
+                        <p className="text-sm font-medium">Kun synlig i sites</p>
+                        <p className="text-xs text-muted-foreground">
+                          Bruges hvis produktet kun skal leve i site-pakker og ikke i den almindelige
+                          produktkatalog-visning.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={editedSiteOnly}
+                        disabled={selectedSiteIds.length === 0}
+                        onCheckedChange={(checked) => {
+                          setEditedSiteOnly(checked && selectedSiteIds.length > 0);
+                          setHasSiteFrontendEdits(true);
+                        }}
+                      />
+                    </div>
+
+                    <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                      Denne sektion gør produktet klar til site-pakker som f.eks.
+                      <span className="mx-1 font-medium text-foreground">Banner Builder Pro</span>
+                      ved at knytte produktet til et eller flere sites. Site-specifikke knapper,
+                      billeder og prisfiltre kan tilføjes senere oven på denne basis.
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <Button
+                        onClick={handleSaveSiteFrontends}
+                        size="sm"
+                        disabled={!hasSiteFrontendEdits || saving}
+                      >
+                        {saving ? (
+                          <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                        ) : (
+                          <Save className="mr-2 h-3 w-3" />
+                        )}
+                        Gem site-tilknytning
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
               {(product?.technical_specs?.is_pod || product?.technical_specs?.is_pod_v2) && (
                 <div className="space-y-3">
                   <Card>
                     <CardHeader className="pb-3">
                       <CardTitle className="text-md font-medium flex items-center gap-2">
-                        <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">3</span>
+                        <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">4</span>
                         Print.com PDF Preflight (POD)
                       </CardTitle>
                       <CardDescription>

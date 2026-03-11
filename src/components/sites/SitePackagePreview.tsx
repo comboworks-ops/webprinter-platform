@@ -22,6 +22,7 @@ import {
 interface SitePackagePreviewProps {
   siteId: string;
   tenantId?: string | null;
+  mode?: 'preview' | 'live';
 }
 
 type SitePreviewManifest = {
@@ -479,8 +480,9 @@ function previewPrice(name: string, index: number): number {
   return 49 + ((seed + index * 17) % 18) * 10;
 }
 
-export function SitePackagePreview({ siteId, tenantId }: SitePackagePreviewProps) {
+export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SitePackagePreviewProps) {
   const sitePackage = SITE_PACKAGE_MAP[siteId];
+  const isPreviewMode = mode === 'preview';
 
   if (!sitePackage) {
     return (
@@ -909,6 +911,19 @@ export function SitePackagePreview({ siteId, tenantId }: SitePackagePreviewProps
       ];
 
   if (manifest?.mode === 'iframe' && iframeEntryPath) {
+    if (!isPreviewMode) {
+      return (
+        <div className="min-h-screen bg-white">
+          <iframe
+            title={sitePackage.name}
+            src={iframeEntryPath}
+            className="w-full min-h-screen border-0 bg-white"
+            loading="lazy"
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100">
         <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl">
@@ -952,10 +967,13 @@ export function SitePackagePreview({ siteId, tenantId }: SitePackagePreviewProps
     return productImageForName(name, index);
   };
 
-  const heroHeadline = manifest?.headline || `${sitePackage.name} visual storefront preview`;
-  const heroSubline =
-    manifest?.subline ||
-    'Dette er en visuel mock af site-pakken i WebPrinter. Produktvalg, formater og efterbehandlinger er koblet til samme backend og checkout-flow.';
+  const heroHeadline = isPreviewMode
+    ? manifest?.headline || `${sitePackage.name} visual storefront preview`
+    : manifest?.headline || sitePackage.name;
+  const heroSubline = isPreviewMode
+    ? manifest?.subline ||
+      'Dette er en visuel mock af site-pakken i WebPrinter. Produktvalg, formater og efterbehandlinger er koblet til samme backend og checkout-flow.'
+    : manifest?.subline || sitePackage.description;
 
   return (
     <div
@@ -977,7 +995,7 @@ export function SitePackagePreview({ siteId, tenantId }: SitePackagePreviewProps
             </div>
             <div className="min-w-0">
               <p className="text-[11px] uppercase tracking-[0.16em]" style={{ color: palette.mutedText }}>
-                Sites Preview
+                {isPreviewMode ? 'Sites Preview' : 'Facade site'}
               </p>
               <p className="text-sm font-semibold truncate">{sitePackage.name}</p>
             </div>
@@ -988,28 +1006,32 @@ export function SitePackagePreview({ siteId, tenantId }: SitePackagePreviewProps
             <span>Formater</span>
             <span>Efterbehandling</span>
             <span>Checkout</span>
-            <Badge
-              className="border text-[10px]"
-              style={{
-                backgroundColor: manifestStatus === 'ready' ? '#14532D' : palette.bgSoft,
-                borderColor: manifestStatus === 'ready' ? '#22C55E' : palette.border,
-                color: manifestStatus === 'ready' ? '#DCFCE7' : palette.mutedText,
-              }}
-            >
-              {manifestStatus === 'ready' ? 'Repo assets loaded' : 'Mock assets'}
-            </Badge>
+            {isPreviewMode && (
+              <Badge
+                className="border text-[10px]"
+                style={{
+                  backgroundColor: manifestStatus === 'ready' ? '#14532D' : palette.bgSoft,
+                  borderColor: manifestStatus === 'ready' ? '#22C55E' : palette.border,
+                  color: manifestStatus === 'ready' ? '#DCFCE7' : palette.mutedText,
+                }}
+              >
+                {manifestStatus === 'ready' ? 'Repo assets loaded' : 'Mock assets'}
+              </Badge>
+            )}
           </div>
 
-          <Button
-            asChild
-            className="border-0"
-            style={{ background: palette.primary, color: '#FFFFFF' }}
-          >
-            <a href={sitePackage.repoUrl} target="_blank" rel="noreferrer noopener">
-              <ExternalLink className="h-4 w-4 mr-2" />
-              GitHub
-            </a>
-          </Button>
+          {isPreviewMode && (
+            <Button
+              asChild
+              className="border-0"
+              style={{ background: palette.primary, color: '#FFFFFF' }}
+            >
+              <a href={sitePackage.repoUrl} target="_blank" rel="noreferrer noopener">
+                <ExternalLink className="h-4 w-4 mr-2" />
+                GitHub
+              </a>
+            </Button>
+          )}
         </div>
       </header>
 
@@ -1023,7 +1045,11 @@ export function SitePackagePreview({ siteId, tenantId }: SitePackagePreviewProps
         >
           <div className="space-y-5">
             <Badge className="text-xs px-3 py-1 bg-white/15 text-white border-transparent">
-              {manifestStatus === 'ready' ? 'Repo visual bundle' : 'Fallback mock preview'}
+              {isPreviewMode
+                ? manifestStatus === 'ready'
+                  ? 'Repo visual bundle'
+                  : 'Fallback mock preview'
+                : 'Aktivt facade-site'}
             </Badge>
             <h1 className="text-3xl md:text-5xl font-semibold leading-tight">{heroHeadline}</h1>
             <p className="text-sm md:text-base max-w-2xl text-white/90">
@@ -1052,7 +1078,7 @@ export function SitePackagePreview({ siteId, tenantId }: SitePackagePreviewProps
       </section>
 
       <main className="max-w-7xl mx-auto px-4 md:px-8 pb-16 space-y-10">
-        {manifestStatus !== 'ready' && (
+        {isPreviewMode && manifestStatus !== 'ready' && (
           <Card style={{ backgroundColor: palette.panel, borderColor: palette.border }}>
             <CardContent className="p-4 text-sm" style={{ color: palette.mutedText }}>
               Repo preview bundle ikke fundet. Tilfoej `public/site-previews/{siteId}/manifest.json`
@@ -1099,9 +1125,11 @@ export function SitePackagePreview({ siteId, tenantId }: SitePackagePreviewProps
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl md:text-2xl font-semibold">Populaere produkter</h2>
-            <p className="text-sm" style={{ color: palette.mutedText }}>
-              Preview af den valgte site facade
-            </p>
+            {isPreviewMode && (
+              <p className="text-sm" style={{ color: palette.mutedText }}>
+                Preview af den valgte site facade
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {visualProducts.map((product, index) => (
@@ -1215,31 +1243,33 @@ export function SitePackagePreview({ siteId, tenantId }: SitePackagePreviewProps
           </Card>
         </section>
 
-        <Card style={{ backgroundColor: palette.panel, borderColor: palette.border }}>
-          <CardContent className="p-5">
-            <h3 className="text-lg font-semibold flex items-center gap-2">
-              <ShoppingCart className="h-5 w-5" />
-              Shared checkout flow
-            </h3>
-            <p className="text-sm mt-2" style={{ color: palette.mutedText }}>
-              Kunden vaelger produkt og konfiguration i dette site UI, og checkout koerer i WebPrinter backend.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Badge className="border" style={{ backgroundColor: palette.bgSoft, borderColor: palette.border, color: palette.text }}>
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                Shared products
-              </Badge>
-              <Badge className="border" style={{ backgroundColor: palette.bgSoft, borderColor: palette.border, color: palette.text }}>
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                Shared pricing
-              </Badge>
-              <Badge className="border" style={{ backgroundColor: palette.bgSoft, borderColor: palette.border, color: palette.text }}>
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                Shared checkout
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
+        {isPreviewMode && (
+          <Card style={{ backgroundColor: palette.panel, borderColor: palette.border }}>
+            <CardContent className="p-5">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <ShoppingCart className="h-5 w-5" />
+                Shared checkout flow
+              </h3>
+              <p className="text-sm mt-2" style={{ color: palette.mutedText }}>
+                Kunden vaelger produkt og konfiguration i dette site UI, og checkout koerer i WebPrinter backend.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge className="border" style={{ backgroundColor: palette.bgSoft, borderColor: palette.border, color: palette.text }}>
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                  Shared products
+                </Badge>
+                <Badge className="border" style={{ backgroundColor: palette.bgSoft, borderColor: palette.border, color: palette.text }}>
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                  Shared pricing
+                </Badge>
+                <Badge className="border" style={{ backgroundColor: palette.bgSoft, borderColor: palette.border, color: palette.text }}>
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                  Shared checkout
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </main>
     </div>
   );

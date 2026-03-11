@@ -9,6 +9,7 @@ import {
   Palette,
   LayoutGrid,
   Layers3,
+  Globe,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -18,17 +19,29 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { SITE_PACKAGES, SITE_PACKAGE_MAP, type SitePackage } from '@/lib/sites/sitePackages';
 import { buildPreviewShopUrl } from '@/lib/preview/previewSession';
 import {
   installSitePackageTemplates,
   type SiteInstallSummary,
 } from '@/lib/sites/installSitePackage';
+import { readProductSiteIds } from '@/lib/sites/productSiteFrontends';
 
 type TenantData = {
   id: string;
   name: string;
   settings: any;
+  domain?: string | null;
 };
 
 type SiteFrontendState = {
@@ -87,10 +100,29 @@ export default function SitesAdmin() {
   const [loading, setLoading] = useState(true);
   const [workingSiteId, setWorkingSiteId] = useState<string | null>(null);
   const [isMasterAdmin, setIsMasterAdmin] = useState(false);
+  const [mappedProductCounts, setMappedProductCounts] = useState<Record<string, number>>({});
+  const [mappingStatsLoading, setMappingStatsLoading] = useState(false);
+  const [launchSiteId, setLaunchSiteId] = useState<string | null>(null);
+  const rootDomain = import.meta.env.VITE_ROOT_DOMAIN || 'webprinter.dk';
+  const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
+  const isLocalhost = currentHostname === 'localhost' || currentHostname === '127.0.0.1';
 
   const siteState = useMemo(() => parseSiteFrontendState(tenant?.settings), [tenant?.settings]);
 
   const activeSite = siteState.activeSiteId ? SITE_PACKAGE_MAP[siteState.activeSiteId] : undefined;
+  const runtimeLiveHost = !isLocalhost && currentHostname ? currentHostname : null;
+  const liveHost = tenant?.domain
+    ? tenant.domain
+    : runtimeLiveHost || (tenant?.id === MASTER_TENANT_ID ? rootDomain : null);
+  const liveUrl = liveHost
+    ? `https://${liveHost}`
+    : null;
+  const liveAddressLabel = liveHost;
+  const hasCustomDomain = Boolean(tenant?.domain);
+  const activeSiteMappedCount = activeSite ? mappedProductCounts[activeSite.id] ?? 0 : 0;
+  const activeSiteInstalled = activeSite ? siteState.installedSiteIds.includes(activeSite.id) : false;
+  const activeSiteLaunchReady = Boolean(activeSite && activeSiteInstalled && activeSiteMappedCount > 0 && liveUrl);
+  const launchSite = launchSiteId ? SITE_PACKAGE_MAP[launchSiteId] : undefined;
 
   const persistSettings = async (nextSettings: any) => {
     if (!tenant) return;
@@ -130,7 +162,7 @@ export default function SitesAdmin() {
 
       const { data, error } = await supabase
         .from('tenants' as any)
-        .select('id, name, settings')
+        .select('id, name, settings, domain')
         .eq('id', targetTenantId)
         .maybeSingle();
 
@@ -155,6 +187,57 @@ export default function SitesAdmin() {
     refreshTenant();
   }, []);
 
+  useEffect(() => {
+    let isActive = true;
+
+    const refreshMappedProducts = async () => {
+      if (!tenant?.id) {
+        if (isActive) setMappedProductCounts({});
+        return;
+      }
+
+      setMappingStatsLoading(true);
+
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('id, technical_specs')
+          .eq('tenant_id', tenant.id);
+
+        if (error) throw error;
+
+        const nextCounts = Object.fromEntries(SITE_PACKAGES.map((site) => [site.id, 0]));
+
+        (data || []).forEach((product: { technical_specs?: unknown }) => {
+          readProductSiteIds(product.technical_specs).forEach((siteId) => {
+            if (Object.prototype.hasOwnProperty.call(nextCounts, siteId)) {
+              nextCounts[siteId] += 1;
+            }
+          });
+        });
+
+        if (isActive) {
+          setMappedProductCounts(nextCounts);
+        }
+      } catch (error) {
+        console.error('Failed to load site product mappings:', error);
+        if (isActive) {
+          setMappedProductCounts({});
+        }
+      } finally {
+        if (isActive) {
+          setMappingStatsLoading(false);
+        }
+      }
+    };
+
+    refreshMappedProducts();
+
+    return () => {
+      isActive = false;
+    };
+  }, [tenant?.id]);
+
   const getPreviewHref = (siteId: string) => {
     if (!tenant) return '/preview-shop';
     return buildPreviewShopUrl({
@@ -163,6 +246,23 @@ export default function SitesAdmin() {
       sitePreviewMode: true,
       page: '/',
     });
+  };
+
+  const getSiteLaunchState = (sitePackage: SitePackage) => {
+    const isInstalled = siteState.installedSiteIds.includes(sitePackage.id);
+    const mappedProducts = mappedProductCounts[sitePackage.id] ?? 0;
+    const issues: string[] = [];
+
+    if (!isInstalled) issues.push('Biblioteket er ikke installeret endnu');
+    if (mappedProducts === 0) issues.push('Der er endnu ikke tilknyttet produkter til dette site');
+    if (!liveUrl) issues.push('Shoppen mangler live adresse eller domæne');
+
+    return {
+      isInstalled,
+      mappedProducts,
+      isReady: isInstalled && mappedProducts > 0 && Boolean(liveUrl),
+      issues,
+    };
   };
 
   const handleActivateSite = async (sitePackage: SitePackage) => {
@@ -182,6 +282,39 @@ export default function SitesAdmin() {
     } catch (error: any) {
       console.error('Failed to activate site package:', error);
       toast.error(error?.message || 'Kunne ikke aktivere site');
+    } finally {
+      setWorkingSiteId(null);
+    }
+  };
+
+  const handleGoLive = async (sitePackage: SitePackage) => {
+    if (!tenant) return;
+    if (!isMasterAdmin) {
+      toast.error('Sites styres af master-tenant og kan ikke gøres live her.');
+      return;
+    }
+
+    const launchState = getSiteLaunchState(sitePackage);
+    if (!launchState.isReady) {
+      toast.error(launchState.issues[0] || 'Site er ikke klar til live endnu.');
+      return;
+    }
+
+    setWorkingSiteId(sitePackage.id);
+    try {
+      const nextSettings = mergeSiteFrontendState(tenant.settings, {
+        activeSiteId: sitePackage.id,
+      });
+      await persistSettings(nextSettings);
+      setLaunchSiteId(null);
+      toast.success(
+        liveUrl
+          ? `${sitePackage.name} er nu live på ${liveAddressLabel}`
+          : `${sitePackage.name} er nu gjort live`
+      );
+    } catch (error: any) {
+      console.error('Failed to launch site package:', error);
+      toast.error(error?.message || 'Kunne ikke gøre site live');
     } finally {
       setWorkingSiteId(null);
     }
@@ -304,6 +437,101 @@ export default function SitesAdmin() {
                 Gaa til produkter
               </Link>
             </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/admin/domaene">
+                <Globe className="h-4 w-4 mr-2" />
+                Domæne & DNS
+              </Link>
+            </Button>
+            {activeSite && liveUrl && (
+              <Button asChild size="sm">
+                <a href={liveUrl} target="_blank" rel="noreferrer noopener">
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Åbn live site
+                </a>
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5" />
+            Go Live-status
+          </CardTitle>
+          <CardDescription>
+            Samlet status for aktivt facade-site: valgt site, produkt-tilknytning og live adresse.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-md border p-3 space-y-2">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">Aktivt site</div>
+              {activeSite ? (
+                <>
+                  <div className="font-medium">{activeSite.name}</div>
+                  <Badge className="gap-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Valgt
+                  </Badge>
+                </>
+              ) : (
+                <>
+                  <div className="font-medium">Intet valgt</div>
+                  <Badge variant="outline">Mangler</Badge>
+                </>
+              )}
+            </div>
+
+            <div className="rounded-md border p-3 space-y-2">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">Bibliotek</div>
+              <div className="font-medium">
+                {activeSiteInstalled ? 'Installeret for aktivt site' : 'Ikke installeret endnu'}
+              </div>
+              <Badge variant={activeSiteInstalled ? 'secondary' : 'outline'}>
+                {activeSiteInstalled ? 'Klar' : 'Mangler'}
+              </Badge>
+            </div>
+
+            <div className="rounded-md border p-3 space-y-2">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">Produkter tilknyttet</div>
+              <div className="font-medium">
+                {mappingStatsLoading ? 'Henter…' : `${activeSiteMappedCount} produkter`}
+              </div>
+              <Badge variant={activeSiteMappedCount > 0 ? 'secondary' : 'outline'}>
+                {activeSiteMappedCount > 0 ? 'Klar' : 'Mangler'}
+              </Badge>
+            </div>
+
+            <div className="rounded-md border p-3 space-y-2">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">Live adresse</div>
+              <div className="font-medium break-all">
+                {liveAddressLabel || 'Ingen live adresse endnu'}
+              </div>
+              <Badge variant={liveUrl ? 'secondary' : 'outline'}>
+                {hasCustomDomain ? 'Eget domæne' : liveUrl ? 'WebPrinter-subdomæne' : 'Mangler'}
+              </Badge>
+            </div>
+          </div>
+
+          <div className="rounded-md border bg-muted/20 px-4 py-3 text-sm space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">Launch-status:</span>
+              {activeSiteLaunchReady ? (
+                <Badge className="gap-1">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Klar til live
+                </Badge>
+              ) : (
+                <Badge variant="outline">Ikke klar endnu</Badge>
+              )}
+            </div>
+            <p className="text-muted-foreground">
+              Et site er klar til live, når et facade-site er aktivt, biblioteket er installeret,
+              mindst ét produkt er tilknyttet, og shoppen har en live adresse.
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -315,6 +543,9 @@ export default function SitesAdmin() {
           const counts = countByType(sitePackage);
           const lastInstall = siteState.lastInstallBySite[sitePackage.id];
           const isWorking = workingSiteId === sitePackage.id;
+          const launchState = getSiteLaunchState(sitePackage);
+          const mappedProducts = launchState.mappedProducts;
+          const launchReady = launchState.isReady;
 
           return (
             <Card key={sitePackage.id} className={isActive ? 'border-primary' : undefined}>
@@ -357,6 +588,25 @@ export default function SitesAdmin() {
                   )}
                 </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-md border px-3 py-2 space-y-1">
+                    <div className="text-muted-foreground">Produkter tilknyttet</div>
+                    <div className="font-medium">{mappingStatsLoading ? 'Henter…' : mappedProducts}</div>
+                  </div>
+                  <div className="rounded-md border px-3 py-2 space-y-1">
+                    <div className="text-muted-foreground">Launch-status</div>
+                    <div className="font-medium">
+                      {isActive
+                        ? launchReady
+                          ? 'Klar til live'
+                          : 'Mangler opsætning'
+                        : launchReady
+                          ? 'Kan gøres live'
+                          : 'Ikke klar endnu'}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
@@ -369,6 +619,20 @@ export default function SitesAdmin() {
                       <CheckCircle2 className="h-4 w-4 mr-2" />
                     )}
                     Aktivér site
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant={isActive ? 'secondary' : 'default'}
+                    disabled={isWorking || !isMasterAdmin || !launchReady}
+                    onClick={() => setLaunchSiteId(sitePackage.id)}
+                  >
+                    {isWorking ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                    )}
+                    Gør live
                   </Button>
 
                   <Button size="sm" variant="secondary" asChild>
@@ -406,6 +670,22 @@ export default function SitesAdmin() {
                       GitHub
                     </a>
                   </Button>
+
+                  <Button size="sm" variant="ghost" asChild>
+                    <Link to="/admin/domaene">
+                      <Globe className="h-4 w-4 mr-2" />
+                      Domæne & DNS
+                    </Link>
+                  </Button>
+
+                  {isActive && liveUrl && (
+                    <Button size="sm" variant="ghost" asChild>
+                      <a href={liveUrl} target="_blank" rel="noreferrer noopener">
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        Åbn live site
+                      </a>
+                    </Button>
+                  )}
                 </div>
 
                 <div className="rounded-md border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground space-y-1">
@@ -419,12 +699,81 @@ export default function SitesAdmin() {
                     Importerer site-specifikke formater, materialer, efterbehandlinger og produkter til biblioteket.
                     Kan køres igen sikkert, eksisterende elementer springes over.
                   </p>
+                  <p>
+                    <span className="font-medium text-foreground">Go Live:</span>{' '}
+                    Kræver aktivt site, mindst ét tilknyttet produkt og en live adresse. Brug
+                    <span className="mx-1">Site-tilknytning</span>på produkter for at få dem ind i facade-sitet.
+                  </p>
                 </div>
               </CardContent>
             </Card>
           );
         })}
       </div>
+
+      <AlertDialog open={Boolean(launchSite)} onOpenChange={(open) => !open && setLaunchSiteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Gør site live?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Dette gør det valgte facade-site til den aktive live shop på den tilknyttede adresse.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {launchSite && (
+            <div className="space-y-4">
+              <div className="rounded-md border bg-muted/20 px-4 py-3 text-sm space-y-2">
+                <div className="font-medium">{launchSite.name}</div>
+                <div className="text-muted-foreground">
+                  Live adresse: {liveAddressLabel || 'Ingen live adresse endnu'}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+                <div className="rounded-md border px-3 py-2">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Bibliotek</div>
+                  <div className="mt-1 font-medium">
+                    {getSiteLaunchState(launchSite).isInstalled ? 'Klar' : 'Mangler'}
+                  </div>
+                </div>
+                <div className="rounded-md border px-3 py-2">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Produkter</div>
+                  <div className="mt-1 font-medium">
+                    {getSiteLaunchState(launchSite).mappedProducts} tilknyttet
+                  </div>
+                </div>
+                <div className="rounded-md border px-3 py-2">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Domæne</div>
+                  <div className="mt-1 font-medium">
+                    {liveUrl ? 'Klar' : 'Mangler'}
+                  </div>
+                </div>
+              </div>
+
+              {getSiteLaunchState(launchSite).issues.length > 0 && (
+                <div className="rounded-md border border-amber-300/70 bg-amber-100/50 px-4 py-3 text-sm text-amber-900 space-y-1">
+                  <div className="font-medium">Før dette site kan gøres live, mangler der:</div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    {getSiteLaunchState(launchSite).issues.map((issue) => (
+                      <li key={issue}>{issue}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuller</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => launchSite && handleGoLive(launchSite)}
+              disabled={!launchSite || !getSiteLaunchState(launchSite).isReady || Boolean(workingSiteId)}
+            >
+              {workingSiteId === launchSite?.id ? 'Gør live…' : 'Gør live'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

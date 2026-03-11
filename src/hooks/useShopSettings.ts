@@ -5,6 +5,13 @@ import { supabase } from "@/integrations/supabase/client";
 // Define the root domain for subdomain parsing
 const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
+const LOCAL_STOREFRONT_TENANT_KEY = "wp_local_storefront_tenant";
+
+type LocalStorefrontTenantPin = {
+    id: string;
+    name?: string | null;
+    domain?: string | null;
+};
 
 /**
  * Helper to extract the correct branding object.
@@ -50,6 +57,51 @@ function normalizeSettings(tenant: any): any {
     };
 }
 
+function readLocalStorefrontTenantPin(): LocalStorefrontTenantPin | null {
+    if (typeof window === "undefined") return null;
+    try {
+        const raw = window.localStorage.getItem(LOCAL_STOREFRONT_TENANT_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as LocalStorefrontTenantPin;
+        if (!parsed?.id || typeof parsed.id !== "string") return null;
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+function writeLocalStorefrontTenantPin(tenant: any): void {
+    if (typeof window === "undefined" || !tenant?.id || tenant.id === MASTER_TENANT_ID) return;
+    try {
+        const payload: LocalStorefrontTenantPin = {
+            id: tenant.id,
+            name: tenant.name ?? null,
+            domain: tenant.domain ?? null,
+        };
+        window.localStorage.setItem(LOCAL_STOREFRONT_TENANT_KEY, JSON.stringify(payload));
+    } catch {
+        // Ignore storage errors
+    }
+}
+
+function isLocalStorefrontContext(pathname: string): boolean {
+    if (!pathname) return true;
+    const blockedPrefixes = ["/admin", "/preview", "/platform"];
+    if (blockedPrefixes.some((prefix) => pathname.startsWith(prefix))) return false;
+    const blockedExactPaths = new Set([
+        "/priser",
+        "/white-label",
+        "/beregning",
+        "/order-flow",
+        "/online-designer",
+        "/privacy-policy",
+        "/handelsbetingelser",
+        "/cookiepolitik",
+        "/opret-shop",
+    ]);
+    return !blockedExactPaths.has(pathname);
+}
+
 function isTransportError(error: any): boolean {
     if (!error) return false;
     const message = String(error?.message || '').toLowerCase();
@@ -82,7 +134,9 @@ export function useShopSettings() {
     const forceSubdomain = searchParams.get('tenant_subdomain');
     const forceTenantId = searchParams.get('tenantId') || searchParams.get('tenant_id');
     const hostname = window.location.hostname;
+    const pathname = window.location.pathname;
     const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+    const shouldHonorLocalStorefrontPin = isLocalhost && isLocalStorefrontContext(pathname);
 
     // Track session state to invalidate query on login/logout
     const [userId, setUserId] = useState<string | null>(null);
@@ -171,6 +225,9 @@ export function useShopSettings() {
                         throwIfTransportError(tenantByIdError, 'tenantById');
 
                         if (tenantById) {
+                            if (shouldHonorLocalStorefrontPin) {
+                                writeLocalStorefrontTenantPin(tenantById);
+                            }
                             return normalizeSettings(tenantById);
                         }
                     }
@@ -206,6 +263,9 @@ export function useShopSettings() {
                     throwIfTransportError(tenantByDomainError, 'tenantByDomain');
 
                     if (tenantByDomain) {
+                        if (shouldHonorLocalStorefrontPin) {
+                            writeLocalStorefrontTenantPin(tenantByDomain);
+                        }
                         return normalizeSettings(tenantByDomain);
                     }
 
@@ -230,7 +290,27 @@ export function useShopSettings() {
                         throwIfTransportError(tenantBySubdomainError, 'tenantByConstructedSubdomain');
 
                         if (tenantBySubdomainDomain) {
+                            if (shouldHonorLocalStorefrontPin) {
+                                writeLocalStorefrontTenantPin(tenantBySubdomainDomain);
+                            }
                             return normalizeSettings(tenantBySubdomainDomain);
+                        }
+                    }
+                }
+
+                // 1c. Local storefront pin: keep the chosen tenant stable across refresh/logout on localhost.
+                if (shouldHonorLocalStorefrontPin) {
+                    const pinnedTenant = readLocalStorefrontTenantPin();
+                    if (pinnedTenant?.id) {
+                        const { data: tenantByPinnedId, error: tenantByPinnedIdError } = await supabase
+                            .from('tenants' as any)
+                            .select('*')
+                            .eq('id', pinnedTenant.id)
+                            .maybeSingle();
+                        throwIfTransportError(tenantByPinnedIdError, 'tenantByPinnedId');
+
+                        if (tenantByPinnedId) {
+                            return normalizeSettings(tenantByPinnedId);
                         }
                     }
                 }
@@ -284,6 +364,9 @@ export function useShopSettings() {
                         console.log("[useShopSettings] Filtered real shops (Fix Applied):", realShops.map(t => t.name));
 
                         if (realShops.length > 0) {
+                            if (shouldHonorLocalStorefrontPin) {
+                                writeLocalStorefrontTenantPin(realShops[0]);
+                            }
                             return normalizeSettings(realShops[0]);
                         }
 

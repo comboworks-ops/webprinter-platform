@@ -5,6 +5,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { getProductImage } from "@/utils/productImages";
 import { Info } from "lucide-react";
 import { ProductBadge, type ProductBadgeConfig } from "@/components/ProductBadge";
+import {
+  buildStorefrontProductHref,
+  getStorefrontProductButtonLabel,
+} from "@/lib/catalog/categoryLanding";
 import { cn } from "@/lib/utils";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { useStorefrontCatalog, type StorefrontProduct } from "@/hooks/useStorefrontCatalog";
@@ -60,11 +64,15 @@ const ProductGrid = ({
   const loading = loadingOverride ?? catalog.loading;
   const errorMessage = errorMessageOverride ?? catalog.errorMessage;
   const warningMessage = warningMessageOverride ?? catalog.warningMessage;
+  const categoryRecords = catalog.categoryRecords;
+  const overviews = catalog.overviews;
 
-  const filteredProducts = products.filter((product) => {
-    const productCategory = product.categoryKey || normalizeProductCategoryKey(product.category);
-    return productCategory === normalizeProductCategoryKey(category);
-  });
+  const filteredProducts = category === "__all__"
+    ? products
+    : products.filter((product) => {
+      const productCategory = product.categoryKey || normalizeProductCategoryKey(product.category);
+      return productCategory === normalizeProductCategoryKey(category);
+    });
 
   if (loading) {
     return <div className="text-center py-8">Indlæser produkter...</div>;
@@ -162,6 +170,8 @@ const ProductGrid = ({
           isSlimLayout ? "gap-4 sm:gap-6" : "gap-6"
         )}>
           {filteredProducts.map((product) => {
+            const productHref = buildStorefrontProductHref(product, categoryRecords, overviews);
+            const productButtonLabel = getStorefrontProductButtonLabel(product);
             // Extract special badge config from banner_config
             const badgeConfig = (product.banner_config as any)?.special_badge as ProductBadgeConfig | undefined;
             const isHoverBadge = badgeConfig?.showOnHover;
@@ -170,7 +180,7 @@ const ProductGrid = ({
 
             const productImage = (
               <Link
-                to={`/produkt/${product.slug}`}
+                to={productHref}
                 className={cn(
                   "block overflow-hidden relative group flex items-center justify-center",
                   !isFlatLayout && !isSlimLayout && "p-2",
@@ -337,7 +347,7 @@ const ProductGrid = ({
                           }}
                           asChild
                         >
-                          <Link to={`/produkt/${product.slug}`}>Priser</Link>
+                          <Link to={productHref}>{productButtonLabel}</Link>
                         </Button>
                       </CardFooter>
                     )}

@@ -21,6 +21,12 @@ interface OrderEmailPayload {
     tracking_number?: string;
     estimated_delivery?: string;
     problem_description?: string;
+    customer_phone?: string;
+    delivery_type?: string;
+    delivery_summary?: string;
+    billing_summary?: string;
+    blind_shipping?: boolean;
+    sender_summary?: string;
   };
   customer: {
     email: string;
@@ -77,6 +83,12 @@ function getEmailHtml(payload: OrderEmailPayload): string {
       <h1 style="color: #16a34a;">✓ Tak for din ordre!</h1>
       <p>Hej ${customer.name},</p>
       <p>Vi har modtaget din ordre og går straks i gang med at behandle den.</p>
+      ${order.delivery_summary ? `<p><strong>Levering til:</strong> ${order.delivery_summary}</p>` : ""}
+      ${order.billing_summary ? `<p><strong>Fakturering:</strong> ${order.billing_summary}</p>` : ""}
+      ${order.delivery_type ? `<p><strong>Leveringsmetode:</strong> ${order.delivery_type}</p>` : ""}
+      ${order.customer_phone ? `<p><strong>Telefon:</strong> ${order.customer_phone}</p>` : ""}
+      ${order.blind_shipping ? `<p><strong>Blind forsendelse:</strong> Ja</p>` : ""}
+      ${order.sender_summary ? `<p><strong>Afsender på pakken:</strong> ${order.sender_summary}</p>` : ""}
     `;
   } else if (type === "status_change") {
     const statusEmoji = {

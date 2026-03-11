@@ -48,6 +48,8 @@ import { runPreflightChecks, PreflightWarning } from "@/utils/preflightChecks";
 import { useColorProofing } from "@/hooks/useColorProofing";
 import { useProductColorProfile } from "@/hooks/useProductColorProfile";
 import { getImageDpi } from "@/utils/imageMetadata";
+import { readSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
+import { ptToMm } from "@/utils/unitConversions";
 import {
     Loader2,
     ArrowLeft,
@@ -121,6 +123,7 @@ export function Designer() {
     const cutContourInputRef = useRef<HTMLInputElement>(null);
     const autoPreflightTimerRef = useRef<NodeJS.Timeout | null>(null);
     const canvasAreaRef = useRef<HTMLDivElement>(null);
+    const checkoutSession = useMemo(() => readSiteCheckoutSession(), []);
 
     const productId = searchParams.get("productId");
     const templateId = searchParams.get("templateId");
@@ -159,6 +162,7 @@ export function Designer() {
     const [zoomLevel, setZoomLevel] = useState(1);
     const [pendingCutContour, setPendingCutContour] = useState<string | null>(null);
     const [pendingTemplatePdf, setPendingTemplatePdf] = useState<string | null>(null);
+    const [checkoutUploadImported, setCheckoutUploadImported] = useState(false);
     // Keep URL-first initialization to avoid A4 flash before async spec loads.
     const [documentSpec, setDocumentSpec] = useState(() => {
         const defaultSpec = {
@@ -931,6 +935,105 @@ export function Designer() {
         editorRef.current?.addPdfTemplate(data.imageDataUrl, data.widthMm, data.heightMm);
     }, []);
 
+    useEffect(() => {
+        if (!orderMode || checkoutUploadImported) return;
+        const upload = checkoutSession?.siteUpload;
+        if (!upload?.fileUrl || !editorRef.current?.getCanvas()) return;
+        if (productId && checkoutSession?.productId && checkoutSession.productId !== productId) return;
+
+        const canvas = editorRef.current.getCanvas();
+        const existingUserObjects = canvas?.getObjects().filter((obj: any) =>
+            !obj.__isDocumentBackground && !obj.__isGuide
+        ) || [];
+        if (existingUserObjects.length > 0) {
+            setCheckoutUploadImported(true);
+            return;
+        }
+
+        let cancelled = false;
+
+        const importCheckoutUpload = async () => {
+            try {
+                const response = await fetch(upload.fileUrl as string);
+                if (!response.ok) throw new Error("Kunne ikke hente den uploadede fil til designeren.");
+                const blob = await response.blob();
+                if (cancelled) return;
+
+                const mimeType = upload.mimeType || blob.type || "";
+                const fileName = upload.name || "checkout-upload";
+
+                if (mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
+                    const pdfjsLib = await import("pdfjs-dist");
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+                    const arrayBuffer = await blob.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                    const page = await pdf.getPage(1);
+                    const baseViewport = page.getViewport({ scale: 1 });
+                    const widthMm = ptToMm(baseViewport.width);
+                    const heightMm = ptToMm(baseViewport.height);
+                    const renderScale = 3;
+                    const viewport = page.getViewport({ scale: renderScale });
+
+                    const offscreenCanvas = document.createElement("canvas");
+                    offscreenCanvas.width = Math.round(viewport.width);
+                    offscreenCanvas.height = Math.round(viewport.height);
+                    const context = offscreenCanvas.getContext("2d");
+                    if (!context) throw new Error("Kunne ikke oprette PDF-preview");
+
+                    context.fillStyle = "#ffffff";
+                    context.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+                    await page.render({
+                        canvasContext: context,
+                        viewport,
+                    }).promise;
+
+                    if (cancelled) return;
+
+                    handlePDFImport({
+                        imageDataUrl: offscreenCanvas.toDataURL("image/png", 1.0),
+                        pageNumber: 1,
+                        totalPages: pdf.numPages,
+                        widthMm,
+                        heightMm,
+                        renderedWidth: offscreenCanvas.width,
+                        renderedHeight: offscreenCanvas.height,
+                        originalPdfBytes: arrayBuffer.slice(0),
+                        originalFileName: fileName,
+                    });
+                } else {
+                    const file = new File([blob], fileName, { type: mimeType || "application/octet-stream" });
+                    const detectedDpi = await getImageDpi(file);
+                    const sourceDpi = detectedDpi || upload.sourceDpi || undefined;
+                    const dataUrl = await new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result as string);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                    });
+
+                    if (cancelled) return;
+                    await editorRef.current?.addImage(dataUrl, sourceDpi);
+                }
+
+                if (!cancelled) {
+                    setCheckoutUploadImported(true);
+                    toast.success("Uploadet fil indsat i designeren.");
+                }
+            } catch (error) {
+                if (cancelled) return;
+                console.error("Failed to import checkout upload into designer:", error);
+                toast.error("Kunne ikke åbne den uploadede fil i designeren.");
+            }
+        };
+
+        importCheckoutUpload();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [orderMode, checkoutUploadImported, checkoutSession, productId, handlePDFImport]);
+
     // Prompt to save - shows dialog for new designs
     const handleSave = async () => {
         // For new designs, show the save dialog to get a name
@@ -1319,7 +1422,10 @@ export function Designer() {
 
         // Navigate to checkout with design
         if (documentSpec.product_id) {
-            navigate(`/checkout/konfigurer?productId=${documentSpec.product_id}&designId=${designId}`);
+            const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+            params.set('productId', documentSpec.product_id);
+            params.set('designId', designId);
+            navigate(`/checkout/konfigurer?${params.toString()}`);
         } else {
             toast.info('Vælg et produkt for at tilføje til kurv');
         }

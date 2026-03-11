@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Printmaker System Visual Map</title>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --ink: #152033;
+        --muted: #58647a;
+        --line: #d7dfeb;
+        --blue: #2f5bea;
+        --cyan: #177a9a;
+        --green: #1b7f5d;
+        --amber: #b27409;
+        --red: #b63f3f;
+        --violet: #6e4ce3;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+      }
+
+      .page {
+        width: 1280px;
+        margin: 0 auto;
+        padding: 36px 40px 48px;
+      }
+
+      h1, h2, h3, p {
+        margin: 0;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 24px;
+        margin-bottom: 24px;
+      }
+
+      .title h1 {
+        font-size: 34px;
+        line-height: 1.05;
+        letter-spacing: -0.03em;
+      }
+
+      .title p {
+        margin-top: 8px;
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .meta {
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--panel);
+        font-size: 12px;
+        color: var(--muted);
+        min-width: 220px;
+      }
+
+      .section {
+        margin-top: 22px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 22px;
+        box-shadow: 0 12px 30px rgba(21, 32, 51, 0.05);
+      }
+
+      .section h2 {
+        font-size: 18px;
+        margin-bottom: 16px;
+      }
+
+      .section .intro {
+        color: var(--muted);
+        font-size: 13px;
+        margin-bottom: 16px;
+      }
+
+      .grid-4 {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+      }
+
+      .grid-3 {
+        display: grid;
+        grid-template-columns: 1.15fr 1.15fr 0.9fr;
+        gap: 14px;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 16px;
+        background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(246,248,252,1) 100%);
+      }
+
+      .card h3 {
+        font-size: 14px;
+        margin-bottom: 10px;
+      }
+
+      .tag {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        padding: 6px 8px;
+        border-radius: 999px;
+        margin-bottom: 10px;
+        color: white;
+      }
+
+      .blue { background: var(--blue); }
+      .cyan { background: var(--cyan); }
+      .green { background: var(--green); }
+      .amber { background: var(--amber); }
+      .red { background: var(--red); }
+      .violet { background: var(--violet); }
+
+      ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      li {
+        margin: 5px 0;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .backend {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+      }
+
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: #fbfcfe;
+        text-align: center;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 10px;
+        align-items: center;
+      }
+
+      .flow .step {
+        border: 1px solid var(--line);
+        background: #fbfcfe;
+        border-radius: 14px;
+        padding: 14px 12px;
+        min-height: 88px;
+      }
+
+      .flow .step strong {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 6px;
+      }
+
+      .flow .step span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .arrow-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 22px;
+        margin: 8px 0 0;
+        padding: 0 10px;
+      }
+
+      .stability {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+      }
+
+      .stability .bucket {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 16px;
+        background: #fbfcfe;
+      }
+
+      .stability .bucket h3 {
+        margin-bottom: 8px;
+      }
+
+      .contracts {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .contracts .pill {
+        min-height: 74px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+      }
+
+      .domains {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+      }
+
+      .domains .pill {
+        min-height: 72px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .footer-note {
+        margin-top: 16px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      @page {
+        size: A3 landscape;
+        margin: 14mm;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="header">
+        <div class="title">
+          <h1>Printmaker System Visual Map</h1>
+          <p>
+            Working architecture snapshot of the current platform. This map is meant to
+            support planning, API hardening, and safer system changes without touching
+            pricing or tenant isolation accidentally.
+          </p>
+        </div>
+        <div class="meta">
+          Based on `README.md`, `PROJECT_STATUS.md`, `docs/ARCHITECTURE_BOUNDARIES.md`,
+          `docs/REST_API_READINESS_DRAFT.md`, `docs/SITE_DESIGN_V2_STATUS.md`,
+          `docs/PRICING_SYSTEM.md`, `src/App.tsx`, and `src/pages/Admin.tsx`.
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>1. Platform Overview</h2>
+        <p class="intro">One application currently carries storefront, admin, design, imports, and tenant management.</p>
+        <div class="grid-4">
+          <div class="card">
+            <div class="tag blue">Storefront Runtime</div>
+            <h3>Customer-facing runtime</h3>
+            <ul>
+              <li>Front page / shop</li>
+              <li>Product pages</li>
+              <li>Matrix pricing / product configuration</li>
+              <li>Checkout-related flows</li>
+              <li>Content / company pages</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="tag cyan">Admin Runtime</div>
+            <h3>Operational control center</h3>
+            <ul>
+              <li>Products and pricing systems</li>
+              <li>Branding / Site Designer V1</li>
+              <li>Branding / Site Designer V2</li>
+              <li>Tenant / domain / publish control</li>
+              <li>POD v1 and POD v2</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="tag violet">Designer Module</div>
+            <h3>Production design toolchain</h3>
+            <ul>
+              <li>Canvas / Fabric editor</li>
+              <li>Preflight checks</li>
+              <li>PDF export</li>
+              <li>Color proofing</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="tag amber">Import Layer</div>
+            <h3>Supplier ingestion</h3>
+            <ul>
+              <li>Wir-machen-druck imports</li>
+              <li>Pixart imports</li>
+              <li>Other supplier scripts</li>
+            </ul>
+          </div>
+        </div>
+        <div class="backend">
+          <div class="pill">Supabase Auth</div>
+          <div class="pill">Supabase Database</div>
+          <div class="pill">Supabase Storage</div>
+          <div class="pill">Edge Functions</div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>2. Runtime Flow</h2>
+        <p class="intro">The publishing path is the critical line for branding, preview, and storefront behavior.</p>
+        <div class="flow">
+          <div class="step"><strong>Admin UI</strong><span>User edits settings, pages, colors, content, and product visibility.</span></div>
+          <div class="step"><strong>Draft State</strong><span>Temporary changes live here first and should be safe to test.</span></div>
+          <div class="step"><strong>Preview Runtime</strong><span>Preview reflects draft and published combinations.</span></div>
+          <div class="step"><strong>Publish Action</strong><span>Approved state is pushed forward as tenant configuration.</span></div>
+          <div class="step"><strong>Tenant Published Config</strong><span>Published tenant state becomes the runtime source.</span></div>
+          <div class="step"><strong>Live Storefront</strong><span>Customer sees final output and stable pricing/product behavior.</span></div>
+        </div>
+        <div class="arrow-row">
+          <span>→</span><span>→</span><span>→</span><span>→</span><span>→</span>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>3. Domain Boundaries</h2>
+        <p class="intro">These boundaries should become hard contracts, not just mental models.</p>
+        <div class="grid-3">
+          <div class="card">
+            <div class="tag green">Strongest Core</div>
+            <h3>Domains that should lead the architecture</h3>
+            <ul>
+              <li>Pricing</li>
+              <li>Product catalog basics</li>
+              <li>Published price reads</li>
+              <li>Tenant resolution basics</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="tag amber">Boundary Tension</div>
+            <h3>Areas where expectations and runtime can diverge</h3>
+            <ul>
+              <li>Branding V2 vs actual storefront wiring</li>
+              <li>Preview vs published behavior</li>
+              <li>Master/tenant copy and distribution behavior</li>
+              <li>UI configuration carrying business logic</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="tag red">Strict Isolation</div>
+            <h3>Must stay separate</h3>
+            <ul>
+              <li>POD v1</li>
+              <li>POD v2</li>
+              <li>Designer logic must not own pricing</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>4. Stability Map</h2>
+        <p class="intro">Not all domains are equally ready for API extraction or aggressive refactoring.</p>
+        <div class="stability">
+          <div class="bucket">
+            <div class="tag green">Stable Core</div>
+            <ul>
+              <li>Product catalog basics</li>
+              <li>Matrix pricing</li>
+              <li>Published price reads</li>
+              <li>Tenant resolution basics</li>
+            </ul>
+          </div>
+          <div class="bucket">
+            <div class="tag blue">Stable With Caution</div>
+            <ul>
+              <li>Storefront runtime</li>
+              <li>Product detail rendering</li>
+              <li>Reliable supplier import paths</li>
+            </ul>
+          </div>
+          <div class="bucket">
+            <div class="tag amber">Beta / Incomplete</div>
+            <ul>
+              <li>Branding V2 runtime wiring</li>
+              <li>Per-page theme controls</li>
+              <li>Advanced preview / publish expectations</li>
+            </ul>
+          </div>
+          <div class="bucket">
+            <div class="tag red">Isolated / Special Handling</div>
+            <ul>
+              <li>POD v1</li>
+              <li>POD v2</li>
+              <li>Any cross-tenant publish/sync logic</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>5. API Hardening Sequence</h2>
+        <p class="intro">Expose stable behavior behind contracts. Do not export instability into APIs.</p>
+        <div class="flow">
+          <div class="step"><strong>1. Stabilize</strong><span>Fix module behavior in UI/runtime until it is reliable.</span></div>
+          <div class="step"><strong>2. Declare Ready</strong><span>Mark the module ready for API hardening.</span></div>
+          <div class="step"><strong>3. Define Contract</strong><span>Request/response, errors, tenant scoping, rollback.</span></div>
+          <div class="step"><strong>4. Read-only API</strong><span>Wrap existing logic first. No rewrite.</span></div>
+          <div class="step"><strong>5. Shadow Compare</strong><span>Old path and API path must match under real data.</span></div>
+          <div class="step"><strong>6. Feature Flag</strong><span>Roll out safely. Writes come later.</span></div>
+        </div>
+        <div class="arrow-row">
+          <span>→</span><span>→</span><span>→</span><span>→</span><span>→</span>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>6. Target Contract-Based Architecture</h2>
+        <p class="intro">The platform should be organized by contracts first, domains second.</p>
+        <div class="contracts">
+          <div class="pill">Tenant Context Contract</div>
+          <div class="pill">Catalog Contract</div>
+          <div class="pill">Product Configuration Contract</div>
+          <div class="pill">Pricing Read Contract</div>
+          <div class="pill">Branding / Theme Contract</div>
+          <div class="pill">Publish / Visibility Contract</div>
+          <div class="pill">Asset / Media Contract</div>
+        </div>
+        <div class="domains">
+          <div class="pill">Storefront Runtime</div>
+          <div class="pill">Product Admin</div>
+          <div class="pill">Site Designer</div>
+          <div class="pill">Designer Module</div>
+          <div class="pill">Tenant Distribution</div>
+          <div class="pill">Import Jobs</div>
+          <div class="pill">POD v1</div>
+          <div class="pill">POD v2</div>
+        </div>
+        <p class="footer-note">
+          Practical rule: UI experiments should not redefine business rules. Contracts should outlive UI changes.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

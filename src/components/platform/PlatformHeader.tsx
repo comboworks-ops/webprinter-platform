@@ -183,8 +183,8 @@ const PlatformHeader = () => {
                                 </DropdownMenuContent>
                             </DropdownMenu>
                         ) : (
-                            <Link to="/auth">
-                                <Button variant="ghost" size="sm" className="hidden md:flex text-gray-700">
+                            <Link to="/admin/login">
+                                <Button size="sm" className="hidden border-transparent bg-slate-900 text-white shadow-none hover:bg-slate-800 hover:text-white md:flex">
                                     Log ind
                                 </Button>
                             </Link>
@@ -253,8 +253,8 @@ const PlatformHeader = () => {
                             <Button className="w-full">Start gratis</Button>
                         </Link>
                         {!user && (
-                            <Link to="/auth" onClick={() => setMobileMenuOpen(false)}>
-                                <Button variant="outline" className="w-full">Log ind</Button>
+                            <Link to="/admin/login" onClick={() => setMobileMenuOpen(false)}>
+                                <Button className="w-full border-transparent bg-slate-900 text-white shadow-none hover:bg-slate-800 hover:text-white">Log ind</Button>
                             </Link>
                         )}
                     </nav>

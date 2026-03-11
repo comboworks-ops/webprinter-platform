@@ -11,6 +11,12 @@ interface OrderEmailData {
         tracking_number?: string;
         estimated_delivery?: string;
         problem_description?: string;
+        customer_phone?: string;
+        delivery_type?: string;
+        delivery_summary?: string;
+        billing_summary?: string;
+        blind_shipping?: boolean;
+        sender_summary?: string;
     };
     customer: {
         email: string;
@@ -45,6 +51,12 @@ export async function sendOrderConfirmation(order: {
     total_price: number;
     customer_email: string;
     customer_name: string;
+    customer_phone?: string;
+    delivery_type?: string;
+    delivery_summary?: string;
+    billing_summary?: string;
+    blind_shipping?: boolean;
+    sender_summary?: string;
 }): Promise<boolean> {
     return sendOrderEmail({
         type: 'order_confirmation',
@@ -54,6 +66,12 @@ export async function sendOrderConfirmation(order: {
             quantity: order.quantity,
             total_price: order.total_price,
             status: 'pending',
+            customer_phone: order.customer_phone,
+            delivery_type: order.delivery_type,
+            delivery_summary: order.delivery_summary,
+            billing_summary: order.billing_summary,
+            blind_shipping: order.blind_shipping,
+            sender_summary: order.sender_summary,
         },
         customer: {
             email: order.customer_email,

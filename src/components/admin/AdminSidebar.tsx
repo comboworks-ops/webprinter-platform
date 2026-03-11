@@ -138,7 +138,10 @@ export function AdminSidebar() {
   useEffect(() => {
     async function fetchProducts() {
       const { tenantId } = await resolveAdminTenant();
-      if (!tenantId || !isAdmin) return;
+      if (!tenantId || !isAdmin) {
+        setProducts([]);
+        return;
+      }
 
       // Fetch products for THIS tenant
       const { data } = await (supabase
@@ -152,7 +155,7 @@ export function AdminSidebar() {
       }
     }
     fetchProducts();
-  }, []);
+  }, [isAdmin, location.pathname, isMasterAdmin]);
 
   // Fetch unread message count from customers (for Orders) AND System Updates
   useEffect(() => {

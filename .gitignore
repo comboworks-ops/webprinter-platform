@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+.vite/
 *.local
 
 # Environment files (secrets!)
@@ -68,6 +69,12 @@ dist-ssr
 !scripts/fetch-standard-rollup-import.js
 !scripts/fetch-premium-rollups-import.js
 !scripts/fetch-komplet-color-rollup-import.js
+!scripts/fetch-salesmapper-soft-touch-kashering-import.js
+!scripts/fetch-salesmapper-praeg-import.js
+!scripts/fetch-salesmapper-3laschen-import.js
+!scripts/fetch-salesmapper-3laschen-kachering-import.js
+!scripts/fetch-salesmapper-3laschen-uvlak-import.js
+!scripts/fetch-salesmapper-3laschen-praeg-import.js
 !scripts/product-import/tshirt-size-distribution-lock.js
 
 # Local agent / scratch artifacts
@@ -88,4 +95,6 @@ pricing_clean/*
 diff_output.txt
 test-drop.ts
 webprinter_home.png
+homepage.png
+classic-race-tilbud.html
 Salgsmapper_A4_4plus4_pricinghub_import_ready.csv

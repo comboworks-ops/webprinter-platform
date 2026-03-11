@@ -552,7 +552,8 @@ export function ProductPricePanel({
 
   const handleOrderClick = () => {
     if (orderValidationError) return;
-    navigate('/checkout/konfigurer', {
+    const tenantQuery = typeof window !== 'undefined' ? window.location.search : '';
+    navigate(`/checkout/konfigurer${tenantQuery}`, {
       state: {
         productId,
         quantity,
@@ -565,6 +566,10 @@ export function ProductPricePanel({
         productName,
         productSlug,
         selectedFormat,
+        designWidthMm: designWidthMm ?? null,
+        designHeightMm: designHeightMm ?? null,
+        designBleedMm: designBleedMm ?? null,
+        designSafeAreaMm: designSafeAreaMm ?? null,
         shippingSelected: activeDeliveryMethod?.id || null,
         shippingCost: activeShippingCost
       }

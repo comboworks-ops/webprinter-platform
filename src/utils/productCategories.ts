@@ -1,4 +1,16 @@
 export type ProductCategoryRecord = {
+  id?: string;
+  name: string;
+  slug: string;
+  sort_order?: number | null;
+  overview_id?: string | null;
+  parent_category_id?: string | null;
+  navigation_mode?: "all_in_one" | "submenu" | null;
+  frontend_product_id?: string | null;
+};
+
+export type ProductOverviewRecord = {
+  id: string;
   name: string;
   slug: string;
   sort_order?: number | null;
@@ -8,6 +20,10 @@ export type ResolvedProductCategory = {
   key: string;
   label: string;
   sortOrder: number | null;
+  id?: string | null;
+  overviewId?: string | null;
+  parentCategoryId?: string | null;
+  navigationMode?: "all_in_one" | "submenu" | null;
 };
 
 const transliterate = (value: string) =>
@@ -23,6 +39,8 @@ export const normalizeProductCategoryKey = (value?: string | null) =>
   transliterate(value || "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+
+export const normalizeProductOverviewKey = normalizeProductCategoryKey;
 
 const toDisplayLabel = (value?: string | null) => {
   const source = (value || "").trim();
@@ -81,6 +99,10 @@ export const resolveProductCategory = (
       key: normalizeProductCategoryKey(matched.slug || matched.name),
       label: matched.name || toDisplayLabel(rawValue),
       sortOrder: matched.sort_order ?? null,
+      id: matched.id ?? null,
+      overviewId: matched.overview_id ?? null,
+      parentCategoryId: matched.parent_category_id ?? null,
+      navigationMode: matched.navigation_mode ?? null,
     };
   }
 
@@ -88,6 +110,10 @@ export const resolveProductCategory = (
     key: normalizedKey || looseKey || "uncategorized",
     label: toDisplayLabel(rawValue),
     sortOrder: null,
+    id: null,
+    overviewId: null,
+    parentCategoryId: null,
+    navigationMode: null,
   };
 };
 

@@ -56,6 +56,12 @@ const FEATURES = [
 ];
 
 const Index = () => {
+  const isLocalhost = typeof window !== "undefined"
+    && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  const masterDemoHref = isLocalhost
+    ? "/shop?tenantId=00000000-0000-0000-0000-000000000000"
+    : "/shop";
+
   return (
     <div className="min-h-screen flex flex-col font-sans">
       <SEO />
@@ -81,7 +87,7 @@ const Index = () => {
                 Start gratis prøveperiode <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
-            <Link to="/shop">
+            <Link to={masterDemoHref}>
               <Button size="lg" variant="outline" className="h-12 px-8 text-lg">
                 Se demo
               </Button>
