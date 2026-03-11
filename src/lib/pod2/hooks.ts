@@ -417,6 +417,21 @@ export function usePodFulfillmentJobs(tenantId?: string) {
     });
 }
 
+export function usePodAllFulfillmentJobs() {
+    return useQuery({
+        queryKey: ['pod2-jobs', 'all'],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from('pod2_fulfillment_jobs' as any)
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            return data as unknown as PodFulfillmentJob[];
+        },
+    });
+}
+
 export function usePodApproveAndCharge() {
     const queryClient = useQueryClient();
 
@@ -458,6 +473,29 @@ export function usePodCreateJobsForOrder() {
         },
         onError: (err: any) => {
             toast.error('Oprettelse fejlede: ' + err.message);
+        },
+    });
+}
+
+export function usePodMasterForwardJob() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (params: { jobId: string; providerJobRef?: string; masterNotes?: string }) => {
+            const { data, error } = await supabase.functions.invoke('pod2-master-forward', {
+                body: params,
+            });
+
+            if (error) throw error;
+            if (!data?.success) throw new Error(data?.error || 'Forwarding failed');
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['pod2-jobs'] });
+            toast.success('Job videresendt fra master');
+        },
+        onError: (err: any) => {
+            toast.error('Videresendelse fejlede: ' + err.message);
         },
     });
 }

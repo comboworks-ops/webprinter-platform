@@ -1,6 +1,6 @@
 # POD v2 System (Print.com Integration) — High Priority
 
-Last updated: 2026-01-29
+Last updated: 2026-03-11
 
 This document is the authoritative guide for POD v2 in this repo.  
 Read this first before changing anything in POD v2, pricing, or catalog flows.
@@ -66,6 +66,10 @@ Located in `supabase/functions/`:
 - `pod2-tenant-import` — import a catalog product into product configuration
 - `pod2-tenant-merge` — merge multiple POD imports into one matrix product
 - `pod2-tenant-remove` — remove tenant import
+- `pod2-tenant-billing-setup` — create/reuse Stripe customer + SetupIntent for tenant POD v2 billing
+- `pod2-create-jobs` — create a POD v2 fulfillment job from an order for products linked via `technical_specs.pod2_catalog_id`
+- `pod2-tenant-approve-charge` — tenant approves + pays supplier cost; job moves to `paid`
+- `pod2-master-forward` — master marks paid jobs as forwarded to supplier; job moves to `submitted`
 - `pod2-pdf-preflight` — exists but **not deployed** (optional future feature)
 
 Deployment reminder:
@@ -73,7 +77,17 @@ Deployment reminder:
 supabase functions deploy pod2-tenant-import
 supabase functions deploy pod2-tenant-merge
 supabase functions deploy pod2-tenant-remove
+supabase functions deploy pod2-tenant-billing-setup
+supabase functions deploy pod2-create-jobs
+supabase functions deploy pod2-tenant-approve-charge
+supabase functions deploy pod2-master-forward
 ```
+
+Admin routes:
+- `/admin/pod2` — master catalog / API explorer
+- `/admin/pod2-katalog` — tenant catalog import view
+- `/admin/pod2-ordrer` — tenant approval queue + master forwarding queue
+- `/admin/pod2-betaling` — tenant billing setup for POD v2
 
 ---
 
@@ -81,6 +95,10 @@ supabase functions deploy pod2-tenant-remove
 - **Price inserts are chunked** (500 rows per batch).
 - **Matrix preview** is capped at **500 combinations** (UI safeguard).
 - Large combinations should be imported in **chunks** and merged.
+- Current POD v2 fulfillment is **two-step**:
+  1. tenant approves and pays supplier cost
+  2. master forwards the paid job to the print house
+- `submitted` currently means "master has forwarded". It does **not** yet mean supplier status sync is complete.
 
 Recommended:
 - Import **base product** (formats + materials)
@@ -129,9 +147,12 @@ If categories are needed, add a manual SKU → category mapping layer later.
 - Optional add‑on pricing (requires new pricing logic — do not start without approval).
 - Optional category/tag mapping for POD catalog UI.
 - Deploy `pod2-pdf-preflight` when ready.
+- Supplier submission/status sync after `pod2-master-forward`.
+- Dedicated print-house API adapter for sender/blind-shipping propagation.
 
 ---
 
 ## 12) TL;DR
 POD v2 feeds into the existing product system without touching pricing logic.  
 Keep POD v1 intact.  
+Current fulfillment flow is tenant payment first, then master forwarding.

@@ -129,6 +129,16 @@ function normalizeCategoryKey(categoryName?: string | null): string {
   return toSlug(normalized) || normalized.toLowerCase();
 }
 
+function getProductCardShellClass(product: Pick<Product, "is_published" | "is_ready">): string {
+  if (product.is_ready) {
+    return "border-emerald-300 bg-emerald-50/70 hover:border-emerald-400";
+  }
+  if (product.is_published) {
+    return "border-orange-300 bg-orange-50/70 hover:border-orange-400";
+  }
+  return "hover:border-primary bg-background";
+}
+
 type DbErrorLike = {
   code?: string | null;
   message?: string | null;
@@ -1865,7 +1875,7 @@ export function ProductOverview() {
                         return (
                       <Card
                         key={product.id}
-                        className="hover:border-primary transition-colors overflow-hidden relative"
+                        className={`transition-colors overflow-hidden relative ${getProductCardShellClass(product)}`}
                       >
                         {/* Ready Status Dot */}
                         <Tooltip>
@@ -1888,6 +1898,16 @@ export function ProductOverview() {
                               : 'Klik for at markere som færdig'}
                           </TooltipContent>
                         </Tooltip>
+                        {product.is_ready && (
+                          <div className="absolute left-2 top-2 z-10">
+                            <Badge
+                              variant="secondary"
+                              className="border border-emerald-300 bg-emerald-100 text-emerald-800"
+                            >
+                              Klar
+                            </Badge>
+                          </div>
+                        )}
                         <CardContent className="p-0">
                           {/* Thumbnail + Name */}
                           <div

@@ -676,6 +676,12 @@ export function AdminSidebar() {
                         {!collapsed && <span>Print on Demand v2</span>}
                       </AdminNavLink>
                     </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/pod2-ordrer">
+                        <ShoppingCart className="h-4 w-4" />
+                        {!collapsed && <span>POD v2 Ordrer</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
                   </SidebarMenu>
                 </SidebarGroupContent>
               )}
@@ -700,6 +706,18 @@ export function AdminSidebar() {
                           {unreadSystemCount > 9 ? '9+' : unreadSystemCount}
                         </span>
                       )}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/pod2-ordrer">
+                      <ShoppingCart className="h-4 w-4" />
+                      {!collapsed && <span>POD v2 Ordrer</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/pod2-betaling">
+                      <CreditCard className="h-4 w-4" />
+                      {!collapsed && <span>POD v2 Betaling</span>}
                     </AdminNavLink>
                   </SidebarMenuItem>
                 </SidebarMenu>

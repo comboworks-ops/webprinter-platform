@@ -84,12 +84,16 @@ export interface PodTenantBilling {
     updated_at: string;
 }
 
+export type PodSenderMode = 'standard' | 'blind' | 'custom';
+
 export interface PodFulfillmentJob {
     id: string;
     tenant_id: string;
     order_id: string;
     order_item_id: string;
     catalog_product_id: string;
+    product_id?: string;
+    product_name?: string;
     variant_signature: string;
     qty: number;
     tenant_cost: number;
@@ -98,6 +102,18 @@ export interface PodFulfillmentJob {
     stripe_payment_intent_id?: string;
     provider_job_ref?: string;
     error_message?: string;
+    customer_email?: string;
+    recipient_name?: string;
+    recipient_company?: string;
+    delivery_summary?: string;
+    shipping_method?: string;
+    sender_mode?: PodSenderMode;
+    sender_name?: string;
+    approved_by_tenant_at?: string;
+    approved_by_tenant_user_id?: string;
+    submitted_by_master_at?: string;
+    submitted_by_master_user_id?: string;
+    master_notes?: string;
     created_at: string;
     updated_at: string;
 }
@@ -126,7 +142,7 @@ export const POD_DEFAULT_QUANTITIES = [10, 25, 50, 100, 250, 500, 1000];
 export const POD_JOB_STATUS_LABELS: Record<PodFulfillmentJob['status'], string> = {
     awaiting_approval: 'Afventer godkendelse',
     payment_pending: 'Betaling afventer',
-    paid: 'Betalt',
+    paid: 'Betalt - afventer master',
     submitted: 'Sendt til leverandør',
     failed: 'Fejlet',
     completed: 'Afsluttet',

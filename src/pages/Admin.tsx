@@ -47,6 +47,8 @@ import PodOrdrer from '@/pages/admin/PodOrdrer';
 import PodBetaling from '@/pages/admin/PodBetaling';
 import { Pod2Admin } from '@/pages/admin/Pod2Admin';
 import { Pod2Katalog } from '@/pages/admin/Pod2Katalog';
+import Pod2Betaling from '@/pages/admin/Pod2Betaling';
+import Pod2Ordrer from '@/pages/admin/Pod2Ordrer';
 import { ShopModules } from '@/components/admin/ShopModules';
 import SitesAdmin from '@/pages/admin/SitesAdmin';
 
@@ -146,6 +148,8 @@ export default function Admin() {
                 {/* Print on Demand v2 Routes */}
                 <Route path="/pod2" element={<Pod2Admin />} />
                 <Route path="/pod2-katalog" element={<Pod2Katalog />} />
+                <Route path="/pod2-ordrer" element={<Pod2Ordrer />} />
+                <Route path="/pod2-betaling" element={<Pod2Betaling />} />
               </Routes>
             </div>
           </main>
