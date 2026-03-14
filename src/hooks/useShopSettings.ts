@@ -6,12 +6,15 @@ import { supabase } from "@/integrations/supabase/client";
 const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 const LOCAL_STOREFRONT_TENANT_KEY = "wp_local_storefront_tenant";
+const STOREFRONT_SETTINGS_CACHE_PREFIX = "wp_storefront_settings:";
 
 type LocalStorefrontTenantPin = {
     id: string;
     name?: string | null;
     domain?: string | null;
 };
+
+type NormalizedShopSettings = ReturnType<typeof normalizeSettings>;
 
 /**
  * Helper to extract the correct branding object.
@@ -84,6 +87,68 @@ function writeLocalStorefrontTenantPin(tenant: any): void {
     }
 }
 
+function buildStorefrontSettingsCacheKey(kind: "tenant" | "domain", value: string): string {
+    return `${STOREFRONT_SETTINGS_CACHE_PREFIX}${kind}:${value.toLowerCase()}`;
+}
+
+function getDomainCacheVariants(domain: string): string[] {
+    const normalized = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+    if (!normalized) return [];
+    const withoutWww = normalized.replace(/^www\./, "");
+    return Array.from(new Set([
+        normalized,
+        withoutWww,
+        `www.${withoutWww}`,
+    ]));
+}
+
+function readStorefrontSettingsCacheByKey(key: string): NormalizedShopSettings | null {
+    if (typeof window === "undefined") return null;
+    try {
+        const raw = window.sessionStorage.getItem(key);
+        if (!raw) return null;
+        return JSON.parse(raw) as NormalizedShopSettings;
+    } catch {
+        return null;
+    }
+}
+
+function readStorefrontSettingsCacheByTenantId(tenantId: string | null | undefined): NormalizedShopSettings | null {
+    if (!tenantId) return null;
+    return readStorefrontSettingsCacheByKey(buildStorefrontSettingsCacheKey("tenant", tenantId));
+}
+
+function readStorefrontSettingsCacheByDomain(domain: string | null | undefined): NormalizedShopSettings | null {
+    if (!domain) return null;
+    for (const variant of getDomainCacheVariants(domain)) {
+        const cached = readStorefrontSettingsCacheByKey(buildStorefrontSettingsCacheKey("domain", variant));
+        if (cached) return cached;
+    }
+    return null;
+}
+
+function writeStorefrontSettingsCache(settings: any): void {
+    if (typeof window === "undefined" || !settings?.id) return;
+    const tenantName = String(settings?.tenant_name || "");
+    if (tenantName.includes("(fallback)")) return;
+
+    try {
+        window.sessionStorage.setItem(
+            buildStorefrontSettingsCacheKey("tenant", settings.id),
+            JSON.stringify(settings),
+        );
+
+        for (const variant of getDomainCacheVariants(settings.domain || "")) {
+            window.sessionStorage.setItem(
+                buildStorefrontSettingsCacheKey("domain", variant),
+                JSON.stringify(settings),
+            );
+        }
+    } catch {
+        // Ignore storage errors
+    }
+}
+
 function isLocalStorefrontContext(pathname: string): boolean {
     if (!pathname) return true;
     const blockedPrefixes = ["/admin", "/preview", "/platform"];
@@ -137,6 +202,33 @@ export function useShopSettings() {
     const pathname = window.location.pathname;
     const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
     const shouldHonorLocalStorefrontPin = isLocalhost && isLocalStorefrontContext(pathname);
+    const marketingDomains = [ROOT_DOMAIN, `www.${ROOT_DOMAIN}`];
+    const cachedTenantPin = shouldHonorLocalStorefrontPin ? readLocalStorefrontTenantPin() : null;
+    const cachedMasterStorefrontSettings =
+        readStorefrontSettingsCacheByTenantId(MASTER_TENANT_ID)
+        || readStorefrontSettingsCacheByDomain(ROOT_DOMAIN);
+
+    const cachedStorefrontSettings = forceTenantId
+        ? (
+            forceTenantId === MASTER_TENANT_ID
+                ? (
+                    cachedMasterStorefrontSettings || {
+                        branding: undefined,
+                        _rawBranding: undefined,
+                        tenant_name: 'Webprinter',
+                        id: MASTER_TENANT_ID,
+                        subdomain: 'master',
+                        domain: ROOT_DOMAIN,
+                        is_platform_owned: true,
+                    }
+                )
+                : readStorefrontSettingsCacheByTenantId(forceTenantId)
+        )
+        : forceDomain
+            ? readStorefrontSettingsCacheByDomain(forceDomain)
+            : (!isLocalhost && !marketingDomains.includes(hostname)
+                ? readStorefrontSettingsCacheByDomain(hostname)
+                : readStorefrontSettingsCacheByTenantId(cachedTenantPin?.id));
 
     // Track session state to invalidate query on login/logout
     const [userId, setUserId] = useState<string | null>(null);
@@ -189,12 +281,12 @@ export function useShopSettings() {
         };
     }, []);
 
-    return useQuery({
+    const query = useQuery({
         // Include userId in query key to force refetch on login/logout
         queryKey: ["shop-settings", hostname, forceDomain, forceSubdomain, forceTenantId, userId, brandingPublishedAt],
+        placeholderData: cachedStorefrontSettings || undefined,
         queryFn: async () => {
             const isVercel = hostname.endsWith('.vercel.app');
-            const marketingDomains = [ROOT_DOMAIN, `www.${ROOT_DOMAIN}`];
             const isPreviewRoute = window.location.pathname.startsWith('/preview-shop') || window.location.pathname.startsWith('/preview-storefront');
             const isDraftPreview = searchParams.get('draft') === '1' || searchParams.get('preview_mode') === '1';
             const localhostFallback = {
@@ -412,4 +504,11 @@ export function useShopSettings() {
         refetchOnWindowFocus: true,
         refetchOnReconnect: true,
     });
+
+    useEffect(() => {
+        if (!query.data) return;
+        writeStorefrontSettingsCache(query.data);
+    }, [query.data]);
+
+    return query;
 }

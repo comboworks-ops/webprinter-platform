@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { getProductDisplayPrice } from "@/utils/productPriceDisplay";
 import { readTransientString, writeTransientString } from "@/lib/storage/transientStorage";
+import { fetchCatalogRead } from "@/lib/api/catalogRead";
 import {
   buildVisibleProductCategories,
   resolveProductCategory,
@@ -154,6 +155,46 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
       try {
         setErrorMessage(null);
         setWarningMessage(null);
+
+        try {
+          const apiResult = await fetchCatalogRead({
+            tenantId,
+            hostname: typeof window !== "undefined" ? window.location.hostname : undefined,
+            pathname: typeof window !== "undefined" ? window.location.pathname : undefined,
+          });
+
+          if (apiResult?.success && Array.isArray(apiResult.products) && Array.isArray(apiResult.categories) && Array.isArray(apiResult.overviews)) {
+            const productsWithPrices = await Promise.all(
+              (apiResult.products as Array<Omit<StorefrontProduct, "displayPrice">>).map(async (product) => ({
+                ...product,
+                displayPrice: await getProductDisplayPrice(product as any),
+              })),
+            );
+
+            const visibleCategories = buildVisibleProductCategories(
+              productsWithPrices.map((product) => product.category),
+              (apiResult.categories as ProductCategoryRecord[]) || [],
+            );
+
+            setProducts(productsWithPrices);
+            setCategories(visibleCategories);
+            setCategoryRecords((apiResult.categories as ProductCategoryRecord[]) || []);
+            setOverviews((apiResult.overviews as ProductOverviewRecord[]) || []);
+
+            const payload: ProductCachePayload = {
+              at: Date.now(),
+              tenantId,
+              categories: visibleCategories,
+              categoryRecords: (apiResult.categories as ProductCategoryRecord[]) || [],
+              overviews: (apiResult.overviews as ProductOverviewRecord[]) || [],
+              products: productsWithPrices,
+            };
+            writeProductCache(tenantCacheKey, payload);
+            return;
+          }
+        } catch (apiError) {
+          console.warn("[useStorefrontCatalog] catalog-read fallback to direct queries", apiError);
+        }
 
         const [productsResponse, hierarchyCategoriesResponse, fallbackCategoriesResponse, overviewsResponse] = await Promise.all([
           supabase

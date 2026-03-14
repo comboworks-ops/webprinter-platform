@@ -40,6 +40,7 @@ type StorefrontProductTabsProps = {
 
 const FALLBACK_OVERVIEW_ID = "__default_overview__";
 const FALLBACK_OVERVIEW_NAME = "Produkter";
+const ALL_OVERVIEWS_ID = "__all_overviews__";
 
 type TaxonomyCategory = ProductCategoryRecord & {
   id: string;
@@ -211,25 +212,45 @@ export function StorefrontProductTabs({
     return matched.length > 0 ? matched : [buildFallbackOverview()];
   }, [branchProductCountByCategoryId, hierarchyEnabled, normalizedCategories, normalizedOverviews]);
 
-  const [selectedOverviewId, setSelectedOverviewId] = useState<string>(visibleOverviews[0]?.id || FALLBACK_OVERVIEW_ID);
+  const [selectedOverviewId, setSelectedOverviewId] = useState<string>(ALL_OVERVIEWS_ID);
   const [selectedRootCategoryId, setSelectedRootCategoryId] = useState<string>("");
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>("");
 
   useEffect(() => {
     if (!hierarchyEnabled) return;
     if (visibleOverviews.length === 0) return;
+
+    if (!isCategoryRoute) {
+      const hasCurrent = selectedOverviewId === ALL_OVERVIEWS_ID
+        || visibleOverviews.some((overview) => overview.id === selectedOverviewId);
+      if (!hasCurrent) {
+        setSelectedOverviewId(ALL_OVERVIEWS_ID);
+      }
+      return;
+    }
+
     const matchFromQuery = isCategoryRoute && overviewParam
       ? visibleOverviews.find((overview) => normalizeProductOverviewKey(overview.slug || overview.name) === normalizeProductOverviewKey(overviewParam))
       : null;
-    const fallback = visibleOverviews[0];
-    const nextOverviewId = matchFromQuery?.id || fallback.id;
-    if (nextOverviewId !== selectedOverviewId) {
-      setSelectedOverviewId(nextOverviewId);
+    if (matchFromQuery) {
+      if (matchFromQuery.id !== selectedOverviewId) {
+        setSelectedOverviewId(matchFromQuery.id);
+      }
+      return;
+    }
+
+    const hasCurrent = visibleOverviews.some((overview) => overview.id === selectedOverviewId);
+    if (!hasCurrent) {
+      const fallback = visibleOverviews[0];
+      if (fallback && fallback.id !== selectedOverviewId) {
+        setSelectedOverviewId(fallback.id);
+      }
     }
   }, [hierarchyEnabled, isCategoryRoute, overviewParam, selectedOverviewId, visibleOverviews]);
 
   const rootCategories = useMemo(() => {
     if (!hierarchyEnabled) return [];
+    if (selectedOverviewId === ALL_OVERVIEWS_ID) return [];
     return normalizedCategories.filter(
       (category) =>
         category.overview_id === selectedOverviewId
@@ -317,6 +338,30 @@ export function StorefrontProductTabs({
 
   useEffect(() => {
     if (!isCategoryRoute || !hierarchyEnabled) return;
+    const matchedOverviewFromRoute = overviewParam
+      ? visibleOverviews.find((overview) => normalizeProductOverviewKey(overview.slug || overview.name) === normalizeProductOverviewKey(overviewParam))
+      : null;
+    const matchedCategoryFromRoute = categoryParam
+      ? rootCategories.find((category) => normalizeProductCategoryKey(category.slug || category.name) === normalizeProductCategoryKey(categoryParam))
+      : null;
+    const matchedSubcategoryFromRoute = subcategoryParam
+      ? childCategories.find((category) => normalizeProductCategoryKey(category.slug || category.name) === normalizeProductCategoryKey(subcategoryParam))
+      : null;
+
+    const routeOverviewNeedsHydration = Boolean(
+      matchedOverviewFromRoute && matchedOverviewFromRoute.id !== selectedOverviewId,
+    );
+    const routeCategoryNeedsHydration = Boolean(
+      matchedCategoryFromRoute && matchedCategoryFromRoute.id !== selectedRootCategory?.id,
+    );
+    const routeSubcategoryNeedsHydration = Boolean(
+      matchedSubcategoryFromRoute && matchedSubcategoryFromRoute.id !== selectedSubcategoryId,
+    );
+
+    if (routeOverviewNeedsHydration || routeCategoryNeedsHydration || routeSubcategoryNeedsHydration) {
+      return;
+    }
+
     const next = new URLSearchParams(searchParams);
     const selectedOverview = visibleOverviews.find((overview) => overview.id === selectedOverviewId);
     if (selectedOverview) {
@@ -347,14 +392,18 @@ export function StorefrontProductTabs({
       setSearchParams(next, { replace: true });
     }
   }, [
+    categoryParam,
     childCategories,
     hierarchyEnabled,
     isCategoryRoute,
+    overviewParam,
+    rootCategories,
     searchParams,
     selectedOverviewId,
     selectedRootCategory,
     selectedSubcategoryId,
     setSearchParams,
+    subcategoryParam,
     visibleOverviews,
   ]);
 
@@ -371,11 +420,12 @@ export function StorefrontProductTabs({
   const productsForBranch = useMemo(() => {
     if (!hierarchyEnabled) return visibleProducts;
 
-    const currentOverviewId = selectedOverviewId || visibleOverviews[0]?.id || FALLBACK_OVERVIEW_ID;
-    const overviewProducts = visibleProducts.filter((product) => {
-      const overviewId = product.categoryOverviewId || FALLBACK_OVERVIEW_ID;
-      return overviewId === currentOverviewId;
-    });
+    const overviewProducts = selectedOverviewId === ALL_OVERVIEWS_ID
+      ? visibleProducts
+      : visibleProducts.filter((product) => {
+        const overviewId = product.categoryOverviewId || FALLBACK_OVERVIEW_ID;
+        return overviewId === selectedOverviewId;
+      });
 
     if (!selectedRootCategory) return overviewProducts;
 
@@ -420,6 +470,16 @@ export function StorefrontProductTabs({
       setLegacySelectedCategory(preferred.key);
     }
   }, [hierarchyEnabled, legacySelectedCategory, legacyVisibleCategories]);
+
+  const overviewTabs = useMemo(() => {
+    if (!showCategoryTabs) return [];
+    if (visibleOverviews.length === 0) return [];
+    if (isCategoryRoute) return visibleOverviews;
+    return [
+      { id: ALL_OVERVIEWS_ID, name: "Alle produkter", slug: "alle-produkter", sort_order: -1 },
+      ...visibleOverviews,
+    ];
+  }, [isCategoryRoute, showCategoryTabs, visibleOverviews]);
 
   const renderOverviewTabs = (overviewOptions: ProductOverviewRecord[], value: string, onChange: (value: string) => void) => {
     const useCompactGrid = overviewOptions.length === 2 && variant === "default";
@@ -497,7 +557,7 @@ export function StorefrontProductTabs({
     );
   }
 
-  const shouldRenderOverviewTabs = showCategoryTabs && visibleOverviews.length > 1;
+  const shouldRenderOverviewTabs = overviewTabs.length > 1;
   const showRootCategoryCards = !selectedRootCategory && rootCategoryLeadProducts.length > 0;
   const showRootCategoryNav = rootCategories.length > 0;
   const childNavMode = selectedRootCategory?.navigation_mode || "all_in_one";
@@ -511,7 +571,7 @@ export function StorefrontProductTabs({
 
   return (
     <div className="space-y-6">
-      {shouldRenderOverviewTabs && renderOverviewTabs(visibleOverviews, selectedOverviewId, (nextOverviewId) => {
+      {shouldRenderOverviewTabs && renderOverviewTabs(overviewTabs, selectedOverviewId, (nextOverviewId) => {
         setSelectedOverviewId(nextOverviewId);
         setSelectedRootCategoryId("");
         setSelectedSubcategoryId("");

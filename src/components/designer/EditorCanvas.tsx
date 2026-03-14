@@ -89,9 +89,35 @@ export interface EditorCanvasRef {
     importJSON: (json: any) => void;
     importSVG: (svgString: string) => void;
     addCutContour: (svgString: string) => void;
+    addCutContourFromPdfSvg: (
+        svgString: string,
+        placement: {
+            left?: number;
+            top?: number;
+            originX?: fabric.OriginX;
+            originY?: fabric.OriginY;
+            angle?: number;
+            scaleX?: number;
+            scaleY?: number;
+            flipX?: boolean;
+            flipY?: boolean;
+            width?: number;
+            height?: number;
+        },
+        mode?: 'detected-contour' | 'vector-outline'
+    ) => Promise<boolean>;
+    createCutContourFromSelection: () => Promise<boolean>;
     addPdfTemplate: (imageDataUrl: string, widthMm: number, heightMm: number) => void;
     addText: (text?: string, options?: Partial<fabric.ITextOptions>) => void;
-    addImage: (url: string, sourceDpi?: number) => Promise<void>;
+    addImage: (
+        url: string,
+        sourceDpi?: number,
+        placement?: {
+            left?: number;
+            top?: number;
+            scaleMultiplier?: number;
+        }
+    ) => Promise<void>;
     addRectangle: (options?: Partial<fabric.IRectOptions>) => void;
     addCircle: (options?: Partial<fabric.ICircleOptions>) => void;
     addLine: () => void;
@@ -117,6 +143,19 @@ export interface EditorCanvasRef {
 // Internal canvas is at full DPI resolution; we zoom out for display
 const MAX_DISPLAY_WIDTH = 600;
 const MAX_DISPLAY_HEIGHT = 800;
+const SERIALIZED_CANVAS_PROPS = [
+    '__layerId',
+    '__isGuide',
+    '__isDocumentBackground',
+    '__isCutContour',
+    '__isGuideLabel',
+    '__guideType',
+    '__isStaticFrame',
+    '__isPdfTemplate',
+    'data',
+    'excludeFromExport',
+    'hoverCursor',
+] as const;
 const PASTEBOARD_PADDING_MM = 50;
 
 const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
@@ -144,7 +183,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     }, [selectedTool]);
 
     // Use refs for history to avoid stale closures in undo/redo
-    const historyRef = useRef<string[]>([]);
+    const historyRef = useRef<object[]>([]);
     const historyIndexRef = useRef(-1);
     const isUndoRedo = useRef(false);
     const objectCounter = useRef(0);
@@ -287,6 +326,227 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         onLayersChange?.(layers);
     }, [onLayersChange]);
 
+    const isVectorSafeCutContourCandidate = useCallback((obj: fabric.Object): boolean => {
+        if (!obj) return false;
+        if ((obj as any).__isGuide || (obj as any).__isDocumentBackground || (obj as any).__isCutContour) {
+            return false;
+        }
+        if ((obj as any).data?.kind === 'pdf_page_background') {
+            return false;
+        }
+        if (obj.type === 'image' || obj.type === 'i-text' || obj.type === 'text' || obj.type === 'textbox' || obj.type === 'activeSelection') {
+            return false;
+        }
+        if (obj.type === 'group' && (obj as fabric.Group).getObjects) {
+            return (obj as fabric.Group).getObjects().every(isVectorSafeCutContourCandidate);
+        }
+
+        return [
+            'path',
+            'polygon',
+            'polyline',
+            'rect',
+            'circle',
+            'ellipse',
+            'triangle',
+            'line',
+            'group',
+        ].includes(obj.type || '');
+    }, []);
+
+    const applyCutContourStyle = useCallback((obj: fabric.Object) => {
+        obj.set({
+            fill: 'transparent',
+            stroke: '#ff00ff',
+            strokeWidth: 2,
+            strokeDashArray: [6, 3],
+            selectable: true,
+            evented: true,
+            excludeFromExport: true,
+        });
+        (obj as any).__isCutContour = true;
+        (obj as any).__layerId = `cutcontour-${objectCounter.current++}`;
+
+        if (obj.type === 'group' && (obj as fabric.Group).getObjects) {
+            (obj as fabric.Group).getObjects().forEach((child) => {
+                child.set({
+                    fill: 'transparent',
+                    stroke: '#ff00ff',
+                    strokeWidth: 2,
+                    strokeDashArray: [6, 3],
+                });
+            });
+        }
+    }, []);
+
+    const objectLooksLikeCutContour = useCallback((obj: fabric.Object): boolean => {
+        const strokeValue = typeof obj.stroke === 'string' ? obj.stroke : '';
+        const normalizedStroke = strokeValue.replace(/\s+/g, '').toLowerCase();
+        const fillValue = typeof obj.fill === 'string' ? obj.fill : '';
+        const normalizedFill = fillValue.replace(/\s+/g, '').toLowerCase();
+        const hasStroke = Boolean(normalizedStroke && normalizedStroke !== 'none');
+        const fillIsTransparent =
+            !normalizedFill ||
+            normalizedFill === 'none' ||
+            normalizedFill === 'transparent' ||
+            normalizedFill === 'rgba(0,0,0,0)' ||
+            normalizedFill === 'rgba(255,255,255,0)';
+
+        if (
+            normalizedStroke === '#ff00ff' ||
+            normalizedStroke === 'magenta' ||
+            normalizedStroke === 'rgb(255,0,255)' ||
+            normalizedStroke === 'rgba(255,0,255,1)'
+        ) {
+            return true;
+        }
+
+        if (obj.type === 'group' && (obj as fabric.Group).getObjects) {
+            return (obj as fabric.Group).getObjects().some(objectLooksLikeCutContour);
+        }
+
+        if (
+            hasStroke &&
+            fillIsTransparent &&
+            ['path', 'polygon', 'polyline', 'rect', 'circle', 'ellipse', 'line'].includes(obj.type || '')
+        ) {
+            return true;
+        }
+
+        return false;
+    }, []);
+
+    const objectLooksLikeVectorOutlineFallback = useCallback((obj: fabric.Object): boolean => {
+        if (!obj) return false;
+        if (obj.type === 'group' && (obj as fabric.Group).getObjects) {
+            return (obj as fabric.Group).getObjects().some(objectLooksLikeVectorOutlineFallback);
+        }
+        if (!['path', 'polygon', 'polyline', 'rect', 'circle', 'ellipse', 'line'].includes(obj.type || '')) {
+            return false;
+        }
+
+        const strokeValue = typeof obj.stroke === 'string' ? obj.stroke : '';
+        const fillValue = typeof obj.fill === 'string' ? obj.fill : '';
+        const normalizedStroke = strokeValue.replace(/\s+/g, '').toLowerCase();
+        const normalizedFill = fillValue.replace(/\s+/g, '').toLowerCase();
+        const hasStroke = Boolean(normalizedStroke && normalizedStroke !== 'none' && normalizedStroke !== 'transparent');
+        const hasVisibleFill = Boolean(
+            normalizedFill &&
+            normalizedFill !== 'none' &&
+            normalizedFill !== 'transparent' &&
+            normalizedFill !== '#fff' &&
+            normalizedFill !== '#ffffff' &&
+            normalizedFill !== 'rgb(255,255,255)' &&
+            normalizedFill !== 'rgba(255,255,255,1)'
+        );
+
+        return hasStroke || hasVisibleFill;
+    }, []);
+
+    const cloneCanvasSnapshot = useCallback((snapshot: object) => {
+        if (typeof structuredClone === 'function') {
+            return structuredClone(snapshot);
+        }
+        return JSON.parse(JSON.stringify(snapshot));
+    }, []);
+
+    const buildCanvasSnapshot = useCallback((canvas: fabric.Canvas) => {
+        return cloneCanvasSnapshot(canvas.toJSON([...SERIALIZED_CANVAS_PROPS]) as object);
+    }, [cloneCanvasSnapshot]);
+
+    const buildHistorySnapshot = useCallback((canvas: fabric.Canvas) => {
+        const objects = canvas
+            .getObjects()
+            .filter((obj) => !(obj as any).__isStaticFrame)
+            .map((obj) => obj.toObject([...SERIALIZED_CANVAS_PROPS]));
+
+        return cloneCanvasSnapshot({
+            version: (fabric as any).version,
+            objects,
+        });
+    }, [cloneCanvasSnapshot]);
+
+    const restoreCanvasSnapshot = useCallback((snapshot: object, onDone?: () => void) => {
+        const canvas = fabricRef.current;
+        if (!canvas) return;
+
+        canvas.loadFromJSON(snapshot, () => {
+            canvas.getObjects().forEach((obj) => {
+                if ((obj as any).__isDocumentBackground) {
+                    obj.set({
+                        selectable: false,
+                        evented: false,
+                        excludeFromExport: true,
+                        hoverCursor: 'default',
+                    });
+                    canvas.sendToBack(obj);
+                }
+            });
+
+            canvas.getObjects().forEach((obj) => {
+                if ((obj as any).__isPdfTemplate || (obj as any).__isCutContour) {
+                    obj.bringToFront();
+                }
+            });
+
+            canvas.getObjects().forEach((obj) => {
+                if ((obj as any).__isGuide || (obj as any).__isGuideLabel) {
+                    obj.set({ excludeFromExport: true });
+                    obj.bringToFront();
+                }
+            });
+
+            canvas.renderAll();
+            emitLayersUpdate();
+            onDone?.();
+        });
+    }, [emitLayersUpdate]);
+
+    const restoreHistorySnapshot = useCallback((snapshot: any, onDone?: () => void) => {
+        const canvas = fabricRef.current;
+        if (!canvas) return;
+
+        canvas.getObjects().forEach((obj) => {
+            if (!(obj as any).__isStaticFrame) {
+                canvas.remove(obj);
+            }
+        });
+
+        const objects = Array.isArray(snapshot?.objects) ? snapshot.objects : [];
+        if (objects.length === 0) {
+            canvas.getObjects().forEach((obj) => {
+                if ((obj as any).__isGuide || (obj as any).__isGuideLabel) {
+                    obj.bringToFront();
+                }
+            });
+            canvas.renderAll();
+            emitLayersUpdate();
+            onDone?.();
+            return;
+        }
+
+        fabric.util.enlivenObjects(objects, (enlivenedObjects: fabric.Object[]) => {
+            enlivenedObjects.forEach((obj) => canvas.add(obj));
+
+            canvas.getObjects().forEach((obj) => {
+                if ((obj as any).__isPdfTemplate || (obj as any).__isCutContour) {
+                    obj.bringToFront();
+                }
+            });
+
+            canvas.getObjects().forEach((obj) => {
+                if ((obj as any).__isGuide || (obj as any).__isGuideLabel) {
+                    obj.set({ excludeFromExport: true });
+                    obj.bringToFront();
+                }
+            });
+
+            canvas.renderAll();
+            emitLayersUpdate();
+            onDone?.();
+        });
+    }, [emitLayersUpdate]);
+
     // Initialize Fabric.js canvas
     useEffect(() => {
         if (!canvasRef.current || fabricRef.current) return;
@@ -329,6 +589,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             hoverCursor: 'default'
         });
         (bgRect as any).__isDocumentBackground = true;
+        (bgRect as any).__isStaticFrame = true;
         canvas.add(bgRect);
 
         // Calculate trim dimensions (document WITHOUT bleed)
@@ -352,6 +613,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             excludeFromExport: true
         });
         (trimRect as any).__isGuide = true;
+        (trimRect as any).__isStaticFrame = true;
         canvas.add(trimRect);
 
         // Safe Zone (Green dashed line, stay inside this for important content)
@@ -371,6 +633,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             excludeFromExport: true
         });
         (safeRect as any).__isGuide = true;
+        (safeRect as any).__isStaticFrame = true;
         canvas.add(safeRect);
 
         // Send guides to back (reverse order of addition essentially, or explicit)
@@ -558,12 +821,12 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     const saveHistory = useCallback(() => {
         if (!fabricRef.current || isUndoRedo.current) return;
 
-        const json = JSON.stringify(fabricRef.current.toJSON(['__layerId']));
+        const snapshot = buildHistorySnapshot(fabricRef.current);
 
         // Trim history to current position (discards any redo states)
         const currentIndex = historyIndexRef.current;
         const newHistory = historyRef.current.slice(0, currentIndex + 1);
-        newHistory.push(json);
+        newHistory.push(snapshot);
 
         // Keep max 50 states
         if (newHistory.length > 50) {
@@ -577,7 +840,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
 
         // Trigger re-render for UI updates
         forceUpdate(n => n + 1);
-    }, []);
+    }, [buildHistorySnapshot]);
 
 
 
@@ -628,15 +891,14 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         getCanvas: () => fabricRef.current,
 
         getJSON: () => {
-            return fabricRef.current?.toJSON(['__layerId']) || {};
+            return fabricRef.current ? buildCanvasSnapshot(fabricRef.current) : {};
         },
 
         loadJSON: (json: object) => {
-            fabricRef.current?.loadFromJSON(json, () => {
-                fabricRef.current?.renderAll();
-                emitLayersUpdate();
-                // When we load a full JSON (Replace document), we should reset history to this point
-                historyRef.current = [JSON.stringify(fabricRef.current?.toJSON(['__layerId']))];
+            restoreCanvasSnapshot(json, () => {
+                const canvas = fabricRef.current;
+                if (!canvas) return;
+                historyRef.current = [buildCanvasSnapshot(canvas)];
                 historyIndexRef.current = 0;
             });
         },
@@ -785,6 +1047,98 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             });
         },
 
+        addCutContourFromPdfSvg: (svgString, placement, mode = 'detected-contour') => {
+            const canvas = fabricRef.current;
+            if (!canvas) return Promise.resolve(false);
+
+            return new Promise<boolean>((resolve) => {
+                fabric.loadSVGFromString(svgString, (objects, options) => {
+                    const contourObjects = objects.filter(
+                        mode === 'vector-outline'
+                            ? objectLooksLikeVectorOutlineFallback
+                            : objectLooksLikeCutContour
+                    );
+                    if (contourObjects.length === 0) {
+                        resolve(false);
+                        return;
+                    }
+
+                    const obj = fabric.util.groupSVGElements(contourObjects, options);
+                    const targetCanvasWidth = Math.max(1, (placement.width || 1) * Math.abs(placement.scaleX || 1));
+                    const targetCanvasHeight = Math.max(1, (placement.height || 1) * Math.abs(placement.scaleY || 1));
+                    const scaleXSign = (placement.scaleX || 1) < 0 ? -1 : 1;
+                    const scaleYSign = (placement.scaleY || 1) < 0 ? -1 : 1;
+
+                    applyCutContourStyle(obj);
+                    obj.set({
+                        left: placement.left,
+                        top: placement.top,
+                        originX: placement.originX || 'center',
+                        originY: placement.originY || 'center',
+                        angle: placement.angle || 0,
+                        scaleX: scaleXSign * (targetCanvasWidth / Math.max(obj.width || 1, 1)),
+                        scaleY: scaleYSign * (targetCanvasHeight / Math.max(obj.height || 1, 1)),
+                        flipX: placement.flipX,
+                        flipY: placement.flipY,
+                    });
+
+                    canvas.add(obj);
+                    obj.bringToFront();
+                    canvas.getObjects().forEach((canvasObj) => {
+                        if ((canvasObj as any).__isGuide) {
+                            canvasObj.bringToFront();
+                        }
+                    });
+                    canvas.setActiveObject(obj);
+                    canvas.renderAll();
+                    emitLayersUpdate();
+                    saveHistory();
+                    resolve(true);
+                });
+            });
+        },
+
+        createCutContourFromSelection: async () => {
+            const canvas = fabricRef.current;
+            if (!canvas) return false;
+
+            const activeObject = canvas.getActiveObject();
+            if (!activeObject || !isVectorSafeCutContourCandidate(activeObject)) {
+                return false;
+            }
+
+            const clone = await new Promise<fabric.Object>((resolve) => {
+                activeObject.clone((cloned: fabric.Object) => resolve(cloned));
+            });
+
+            clone.set({
+                left: activeObject.left,
+                top: activeObject.top,
+                originX: activeObject.originX,
+                originY: activeObject.originY,
+                angle: activeObject.angle,
+                scaleX: activeObject.scaleX,
+                scaleY: activeObject.scaleY,
+                skewX: activeObject.skewX,
+                skewY: activeObject.skewY,
+                flipX: activeObject.flipX,
+                flipY: activeObject.flipY,
+            });
+
+            applyCutContourStyle(clone);
+            canvas.add(clone);
+            clone.bringToFront();
+            canvas.getObjects().forEach((canvasObj) => {
+                if ((canvasObj as any).__isGuide) {
+                    canvasObj.bringToFront();
+                }
+            });
+            canvas.setActiveObject(clone);
+            canvas.renderAll();
+
+            return true;
+        },
+
         addPdfTemplate: (imageDataUrl: string, widthMm: number, heightMm: number) => {
             const canvas = fabricRef.current;
             if (!canvas) return;
@@ -871,7 +1225,15 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             canvas.renderAll();
         },
 
-        addImage: async (url: string, sourceDpi?: number) => {
+        addImage: async (
+            url: string,
+            sourceDpi?: number,
+            placement?: {
+                left?: number;
+                top?: number;
+                scaleMultiplier?: number;
+            }
+        ) => {
             const canvas = fabricRef.current;
             if (!canvas) return;
 
@@ -897,9 +1259,13 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                         }
                     }
 
+                    if (placement?.scaleMultiplier && Number.isFinite(placement.scaleMultiplier) && placement.scaleMultiplier > 0) {
+                        img.scale((img.scaleX || 1) * placement.scaleMultiplier);
+                    }
+
                     img.set({
-                        left: canvasWidth / 2,
-                        top: canvasHeight / 2,
+                        left: placement?.left ?? canvasWidth / 2,
+                        top: placement?.top ?? canvasHeight / 2,
                         originX: 'center',
                         originY: 'center',
                     });
@@ -1194,11 +1560,9 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 return;
             }
 
-            canvas.loadFromJSON(JSON.parse(state), () => {
-                canvas.renderAll();
+            restoreHistorySnapshot(state, () => {
                 historyIndexRef.current = newIndex;
                 isUndoRedo.current = false;
-                emitLayersUpdate();
                 forceUpdate(n => n + 1);
             });
         },
@@ -1219,11 +1583,9 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 return;
             }
 
-            canvas.loadFromJSON(JSON.parse(state), () => {
-                canvas.renderAll();
+            restoreHistorySnapshot(state, () => {
                 historyIndexRef.current = newIndex;
                 isUndoRedo.current = false;
-                emitLayersUpdate();
                 forceUpdate(n => n + 1);
             });
         },

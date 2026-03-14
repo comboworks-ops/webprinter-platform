@@ -81,3 +81,27 @@ When a page appears to show the wrong tenant, separate these questions:
 - The tenant really does have that label/logo/header config stored
 
 Do not treat branding differences as isolation failures until tenant context is verified first.
+
+## Residual UI Follow-up
+
+### 4. Minor desktop auth-chip flicker during products dropdown hover
+
+Current state:
+- The main tenant-isolation issue is fixed.
+- The desktop header dropdown no longer switches tenant context.
+- Console noise from the related storefront errors is cleaned up.
+
+Remaining issue:
+- On the WebPrinter storefront, the desktop auth/email chip in the top-right corner can still flicker slightly while hovering the `Produkter` dropdown.
+- The logo, main header bar, and tenant context stay correct.
+- This is a visual compositing/painter issue, not a routing or data leak.
+
+What has already been done:
+- Moved product dropdown hover state into a local child component
+- Memoized the desktop action cluster
+- Raised the desktop action cluster above the dropdown panel z-layer
+- Isolated the auth chip on its own paint layer
+
+Conclusion:
+- Treat this as low-priority UI polish.
+- Do not block tenant-context/API work on this issue unless the flicker gets worse or starts affecting interaction.

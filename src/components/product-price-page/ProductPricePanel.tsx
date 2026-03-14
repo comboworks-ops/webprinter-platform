@@ -388,6 +388,9 @@ export function ProductPricePanel({
   const activeShippingCost = computeShippingCost(activeDeliveryMethod);
   const totalPrice = baseTotal + (baseTotal > 0 ? activeShippingCost : 0);
   const deliveryLabel = activeDeliveryMethod?.name || (externalMode ? "Levering beregnes" : "Levering");
+  const hasStableSelection = quantity > 0 || !!selectedVariant || !!summary;
+  const canDownloadOffer = baseTotal > 0;
+  const canOrder = baseTotal > 0 && !orderValidationError;
 
   const generatePDF = () => {
     const doc = new jsPDF();
@@ -580,12 +583,13 @@ export function ProductPricePanel({
     <div className="sticky top-24 bg-primary/5 border-2 border-primary/20 rounded-lg p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-2xl font-heading font-bold">Prisberegning</h3>
-        {baseTotal > 0 && (
+        {hasStableSelection && (
           <Button
             variant="outline"
             size="sm"
             onClick={generatePDF}
             className="gap-2"
+            disabled={!canDownloadOffer}
           >
             <Download className="h-4 w-4" />
             Download tilbud
@@ -624,7 +628,7 @@ export function ProductPricePanel({
               {baseTotal > 0 ? `${baseTotal} kr` : "-"}
             </p>
           </div>
-          {baseTotal > 0 && (
+          {hasStableSelection && (
             <div className="flex flex-col items-stretch gap-2">
               <Button
                 variant="outline"
@@ -669,11 +673,11 @@ export function ProductPricePanel({
                 size="lg"
                 className="px-6 py-6 text-lg font-semibold"
                 onClick={handleOrderClick}
-                disabled={!!orderValidationError}
+                disabled={!canOrder}
               >
                 Bestil nu!
               </Button>
-              {orderValidationError && (
+              {!canOrder && orderValidationError && (
                 <p className="text-xs text-destructive max-w-[260px]">
                   {orderValidationError}
                 </p>
@@ -684,7 +688,7 @@ export function ProductPricePanel({
       </div>
 
       {/* Delivery options - Always Visible */}
-      {baseTotal > 0 && (
+      {hasStableSelection && (
         <div className="space-y-3 pt-4">
           <Label className="text-base font-semibold">Levering</Label>
           {externalMode && externalDeliveryLoading && (

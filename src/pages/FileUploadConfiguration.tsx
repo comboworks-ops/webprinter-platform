@@ -89,6 +89,33 @@ interface ProofingPreviewData {
     pageCount?: number;
 }
 
+interface ProofingHandlePosition {
+    key: string;
+    left?: string;
+    right?: string;
+    top?: string;
+    bottom?: string;
+    translate: string;
+    cursor: string;
+}
+
+interface CheckoutPreflightResult {
+    dpi?: number;
+    width_px?: number;
+    height_px?: number;
+    aspectRatioMatch: boolean;
+    dpiOk: boolean;
+    issues: string[];
+}
+
+interface PdfContourScanResult {
+    cutContourNameDetected: boolean;
+    separationHintDetected: boolean;
+    overprintHintDetected: boolean;
+    summary: string;
+    note: string;
+}
+
 interface CheckoutSavedAddress {
     id: string;
     label: string | null;
@@ -105,6 +132,38 @@ interface CheckoutSavedAddress {
 }
 
 type CheckoutSenderMode = "standard" | "blind" | "custom";
+const PROOFING_MIN_SCALE = 40;
+const PROOFING_OVERFLOW_MARGIN_PERCENT = 25;
+const PROOFING_HANDLE_POSITIONS: ProofingHandlePosition[] = [
+    {
+        key: "top-left",
+        left: "0%",
+        top: "0%",
+        translate: "translate(-50%, -50%)",
+        cursor: "nwse-resize",
+    },
+    {
+        key: "top-right",
+        right: "0%",
+        top: "0%",
+        translate: "translate(50%, -50%)",
+        cursor: "nesw-resize",
+    },
+    {
+        key: "bottom-left",
+        left: "0%",
+        bottom: "0%",
+        translate: "translate(-50%, 50%)",
+        cursor: "nesw-resize",
+    },
+    {
+        key: "bottom-right",
+        right: "0%",
+        bottom: "0%",
+        translate: "translate(50%, 50%)",
+        cursor: "nwse-resize",
+    },
+];
 
 const STANDARD_SPECS: Record<string, { width_mm: number; height_mm: number; min_dpi: number }> = {
     "A6": { width_mm: 105, height_mm: 148, min_dpi: 300 },
@@ -255,6 +314,82 @@ const formatCountdown = (ms: number) => {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+const approximatelyMatchesSize = (
+    widthMm: number,
+    heightMm: number,
+    targetWidthMm: number,
+    targetHeightMm: number,
+    toleranceMm = 1.5
+) => {
+    const directMatch = Math.abs(widthMm - targetWidthMm) <= toleranceMm && Math.abs(heightMm - targetHeightMm) <= toleranceMm;
+    const rotatedMatch = Math.abs(widthMm - targetHeightMm) <= toleranceMm && Math.abs(heightMm - targetWidthMm) <= toleranceMm;
+    return directMatch || rotatedMatch;
+};
+
+const PDF_MARKS_MARGIN_MM = 25;
+
+const resolvePdfPrintableSize = (
+    widthMm: number,
+    heightMm: number,
+    specs: TechnicalSpecs
+) => {
+    const trimWidthMm = specs.width_mm;
+    const trimHeightMm = specs.height_mm;
+    const bleedWidthMm = specs.width_mm + (specs.bleed_mm * 2);
+    const bleedHeightMm = specs.height_mm + (specs.bleed_mm * 2);
+
+    const matchesTrim = approximatelyMatchesSize(widthMm, heightMm, trimWidthMm, trimHeightMm);
+    const matchesBleed = approximatelyMatchesSize(widthMm, heightMm, bleedWidthMm, bleedHeightMm);
+
+    const trimWithMarks =
+        widthMm >= trimWidthMm - 1
+        && heightMm >= trimHeightMm - 1
+        && widthMm <= trimWidthMm + (PDF_MARKS_MARGIN_MM * 2)
+        && heightMm <= trimHeightMm + (PDF_MARKS_MARGIN_MM * 2);
+
+    const bleedWithMarks =
+        widthMm >= bleedWidthMm - 1
+        && heightMm >= bleedHeightMm - 1
+        && widthMm <= bleedWidthMm + (PDF_MARKS_MARGIN_MM * 2)
+        && heightMm <= bleedHeightMm + (PDF_MARKS_MARGIN_MM * 2);
+
+    if (matchesBleed || bleedWithMarks) {
+        return {
+            displayWidthMm: bleedWidthMm,
+            displayHeightMm: bleedHeightMm,
+            matchesExpected: true,
+        };
+    }
+
+    if (matchesTrim || trimWithMarks) {
+        return {
+            displayWidthMm: trimWidthMm,
+            displayHeightMm: trimHeightMm,
+            matchesExpected: true,
+        };
+    }
+
+    return {
+        displayWidthMm: widthMm,
+        displayHeightMm: heightMm,
+        matchesExpected: false,
+    };
+};
+
+const clampProofingOffset = (
+    nextOffset: { x: number; y: number },
+    displayedWidthPercent: number,
+    displayedHeightPercent: number
+) => {
+    const maxX = Math.max(50, ((displayedWidthPercent + 100) / 2) + PROOFING_OVERFLOW_MARGIN_PERCENT);
+    const maxY = Math.max(50, ((displayedHeightPercent + 100) / 2) + PROOFING_OVERFLOW_MARGIN_PERCENT);
+
+    return {
+        x: clamp(nextOffset.x, -maxX, maxX),
+        y: clamp(nextOffset.y, -maxY, maxY),
+    };
+};
+
 const parsePositiveNumber = (value: unknown): number | null => {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) return null;
@@ -276,10 +411,30 @@ const normalizeFormatKey = (value: unknown): string | null => {
     return trimmed;
 };
 
+const getStandardFormatLabelFromSpecs = (specs: TechnicalSpecs | null) => {
+    if (!specs?.width_mm || !specs?.height_mm) return null;
+
+    const width = Math.round(specs.width_mm);
+    const height = Math.round(specs.height_mm);
+
+    for (const [label, dims] of Object.entries(STANDARD_SPECS)) {
+        if (Math.round(dims.width_mm) === width && Math.round(dims.height_mm) === height) {
+            return label;
+        }
+    }
+
+    return null;
+};
+
 const getReadableFormatLabel = (
     rawFormat: unknown,
     specs: TechnicalSpecs | null
 ) => {
+    const standardFormatLabel = getStandardFormatLabelFromSpecs(specs);
+    if (standardFormatLabel) {
+        return standardFormatLabel;
+    }
+
     if (typeof rawFormat === "string" && rawFormat.trim()) {
         const trimmed = rawFormat.trim();
         const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed);
@@ -367,6 +522,7 @@ const FileUploadConfiguration = () => {
     const initialTotalPrice = Number.isFinite(Number(state?.totalPrice)) ? Math.round(Number(state.totalPrice)) : 0;
     const initialBasePrice = Math.round(Number(state?.productPrice || 0) + Number(state?.extraPrice || 0));
     const initialOrderSubtotal = Math.max(0, initialTotalPrice - initialShippingCost) || initialBasePrice || initialTotalPrice;
+    const persistedSiteUpload = state?.siteUpload;
 
     const [loading, setLoading] = useState(true);
     const [product, setProduct] = useState<any>(null);
@@ -374,7 +530,14 @@ const FileUploadConfiguration = () => {
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadDropActive, setUploadDropActive] = useState(false);
-    const [uploadedFile, setUploadedFile] = useState<{ name: string; url: string; path: string } | null>(null);
+    const [uploadedFile, setUploadedFile] = useState<{ name: string; url: string; path: string } | null>(() => {
+        if (!persistedSiteUpload?.fileUrl || !persistedSiteUpload?.filePath) return null;
+        return {
+            name: String(persistedSiteUpload.name || "upload"),
+            url: String(persistedSiteUpload.fileUrl),
+            path: String(persistedSiteUpload.filePath),
+        };
+    });
     const [checkoutUserId, setCheckoutUserId] = useState<string | null>(null);
     const [savedCustomerProfiles, setSavedCustomerProfiles] = useState<CheckoutCustomerProfile[]>([]);
     const [selectedCustomerProfileId, setSelectedCustomerProfileId] = useState(String(state?.checkoutCustomer?.selectedCustomerProfileId || "new"));
@@ -430,8 +593,32 @@ const FileUploadConfiguration = () => {
         message?: string;
     } | null>(null);
     const [platformPreflightLoading, setPlatformPreflightLoading] = useState(false);
-    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-    const [proofingPreview, setProofingPreview] = useState<ProofingPreviewData | null>(null);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(() => {
+        const persistedPreview = persistedSiteUpload?.previewDataUrl || persistedSiteUpload?.fileUrl;
+        return persistedPreview ? String(persistedPreview) : null;
+    });
+    const [proofingPreview, setProofingPreview] = useState<ProofingPreviewData | null>(() => {
+        if (!persistedSiteUpload?.previewDataUrl) return null;
+        const physicalWidthMm = Number(persistedSiteUpload.physicalWidthMm || 0);
+        const physicalHeightMm = Number(persistedSiteUpload.physicalHeightMm || 0);
+        if (!Number.isFinite(physicalWidthMm) || !Number.isFinite(physicalHeightMm) || physicalWidthMm <= 0 || physicalHeightMm <= 0) {
+            return null;
+        }
+
+        const fileName = String(persistedSiteUpload.name || "");
+        const mimeType = String(persistedSiteUpload.mimeType || "");
+        const fileType = mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf") ? "pdf" : "image";
+
+        return {
+            fileType,
+            previewUrl: String(persistedSiteUpload.previewDataUrl),
+            physicalWidthMm,
+            physicalHeightMm,
+            sourceWidthPx: Number(persistedSiteUpload.widthPx || 0),
+            sourceHeightPx: Number(persistedSiteUpload.heightPx || 0),
+        };
+    });
+    const [pdfContourScan, setPdfContourScan] = useState<PdfContourScanResult | null>(null);
     const [proofingOpen, setProofingOpen] = useState(false);
     const [proofingApproved, setProofingApproved] = useState(false);
     const [proofingScale, setProofingScale] = useState(100);
@@ -513,48 +700,6 @@ const FileUploadConfiguration = () => {
         const timer = window.setInterval(() => setDeliveryNow(new Date()), 1000);
         return () => window.clearInterval(timer);
     }, []);
-
-    useEffect(() => {
-        if (!proofingDragging && !proofingResizing) return;
-
-        const handlePointerMove = (event: MouseEvent) => {
-            if (proofingDragging) {
-                const start = proofingDragStartRef.current;
-                if (!start) return;
-                const artboardRect = proofingArtboardRef.current?.getBoundingClientRect();
-                if (!artboardRect) return;
-                setProofingOffset({
-                    x: start.startX + (((event.clientX - start.x) / artboardRect.width) * 100),
-                    y: start.startY + (((event.clientY - start.y) / artboardRect.height) * 100),
-                });
-                return;
-            }
-
-            if (proofingResizing) {
-                const start = proofingResizeStartRef.current;
-                if (!start) return;
-                const currentDistance = Math.max(
-                    1,
-                    Math.hypot(event.clientX - start.centerX, event.clientY - start.centerY)
-                );
-                setProofingScale(clamp(start.startScale * (currentDistance / start.startDistance), 40, 220));
-            }
-        };
-
-        const handlePointerUp = () => {
-            setProofingDragging(false);
-            setProofingResizing(false);
-            proofingDragStartRef.current = null;
-            proofingResizeStartRef.current = null;
-        };
-
-        window.addEventListener("mousemove", handlePointerMove);
-        window.addEventListener("mouseup", handlePointerUp);
-        return () => {
-            window.removeEventListener("mousemove", handlePointerMove);
-            window.removeEventListener("mouseup", handlePointerUp);
-        };
-    }, [proofingDragging, proofingResizing]);
 
     useEffect(() => {
         return () => {
@@ -972,21 +1117,41 @@ const FileUploadConfiguration = () => {
 
             setCreatedOrderNumber(insertedOrder.order_number);
 
-            if (uploadedFile?.url) {
-                const fileType = uploadedFile.name.includes(".")
-                    ? uploadedFile.name.split(".").pop()?.toLowerCase() || null
+            const latestCheckoutSession = readSiteCheckoutSession();
+            const finalOrderFile = latestCheckoutSession?.designerExport?.fileUrl
+                ? {
+                    name: String(latestCheckoutSession.designerExport.name || "designer-production.pdf"),
+                    url: String(latestCheckoutSession.designerExport.fileUrl),
+                    path: String(latestCheckoutSession.designerExport.filePath || ""),
+                    mimeType: String(latestCheckoutSession.designerExport.mimeType || "application/pdf"),
+                  }
+                : uploadedFile
+                    ? {
+                        name: uploadedFile.name,
+                        url: uploadedFile.url,
+                        path: uploadedFile.path,
+                        mimeType: uploadedFile.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : null,
+                      }
+                    : null;
+
+            if (finalOrderFile?.url) {
+                const fileType = finalOrderFile.name.includes(".")
+                    ? finalOrderFile.name.split(".").pop()?.toLowerCase() || null
                     : null;
 
                 const { error: orderFileError } = await supabase
                     .from("order_files" as any)
                     .insert({
                         order_id: insertedOrder.id,
-                        file_name: uploadedFile.name,
-                        file_url: uploadedFile.url,
+                        file_name: finalOrderFile.name,
+                        file_url: finalOrderFile.url,
                         file_type: fileType,
                         is_current: true,
                         uploaded_by: user?.id || null,
-                        notes: productConfigurationText ? `Konfiguration: ${productConfigurationText}` : null,
+                        notes: [
+                            productConfigurationText ? `Konfiguration: ${productConfigurationText}` : null,
+                            latestCheckoutSession?.designerExport?.fileUrl ? "Kilde: designer production export" : null,
+                        ].filter(Boolean).join(" | ") || null,
                     });
 
                 if (orderFileError) {
@@ -1095,7 +1260,8 @@ const FileUploadConfiguration = () => {
     };
 
     const isPodProduct = Boolean(product?.technical_specs?.is_pod || product?.technical_specs?.is_pod_v2);
-    const podPreflightEnabled = Boolean(product?.technical_specs?.pod_preflight_enabled);
+    const isPodV2Product = Boolean(product?.technical_specs?.is_pod_v2);
+    const podPreflightEnabled = Boolean(product?.technical_specs?.pod_preflight_enabled) && isPodV2Product;
     const podPreflightAutoFix = (product?.technical_specs as any)?.pod_preflight_auto_fix ?? true;
     const platformPreflightBlocking = isPodProduct
         && podPreflightEnabled
@@ -1105,6 +1271,7 @@ const FileUploadConfiguration = () => {
             || (platformPreflight?.errors?.length ?? 0) > 0);
 
     const specs = getResolvedSpecs();
+    const displayProductName = product?.name || state?.productName || "Produkt";
     const resolvedFormatLabel = useMemo(
         () => getReadableFormatLabel(state?.selectedFormat || locationSearchParams.get("format"), specs),
         [state?.selectedFormat, locationSearchParams, specs]
@@ -1118,22 +1285,143 @@ const FileUploadConfiguration = () => {
     const safeXPercent = specs ? ((specs.bleed_mm + safeAreaMm) / targetWidth) * 100 : 0;
     const safeYPercent = specs ? ((specs.bleed_mm + safeAreaMm) / targetHeight) * 100 : 0;
     const proofingScaleFactor = proofingScale / 100;
+    const proofingMinScale = PROOFING_MIN_SCALE;
+    const proofingMaxScale = useMemo(() => {
+        if (!proofingPreview || targetWidth <= 0 || targetHeight <= 0) return 220;
+
+        const widthFillScale = proofingPreview.physicalWidthMm > 0
+            ? (targetWidth / proofingPreview.physicalWidthMm) * 100
+            : 100;
+        const heightFillScale = proofingPreview.physicalHeightMm > 0
+            ? (targetHeight / proofingPreview.physicalHeightMm) * 100
+            : 100;
+        const requiredFillScale = Math.max(widthFillScale, heightFillScale);
+
+        return clamp(Math.ceil(requiredFillScale * 1.8), 220, 3000);
+    }, [proofingPreview, targetWidth, targetHeight]);
+    const proofingEffectiveDpi = useMemo(() => {
+        if (!proofingPreview || !specs?.min_dpi) return preflightResults?.dpi || null;
+
+        if (proofingPreview.fileType === "image") {
+            return Math.round(specs.min_dpi / Math.max(proofingScaleFactor, 0.01));
+        }
+
+        return null;
+    }, [proofingPreview, specs?.min_dpi, preflightResults?.dpi, proofingScaleFactor]);
     const proofingBaseWidthPercent = proofingPreview && targetWidth > 0
         ? (proofingPreview.physicalWidthMm / targetWidth) * 100
         : 100;
     const proofingBaseHeightPercent = proofingPreview && targetHeight > 0
         ? (proofingPreview.physicalHeightMm / targetHeight) * 100
         : 100;
-    const proofingApprovalPending = Boolean(uploadedFile) && !proofingApproved;
-    const proofingDpiWarning = Boolean(preflightResults?.dpi && specs?.min_dpi && preflightResults.dpi < specs.min_dpi);
-    const proofingPhysicalMismatch = Boolean(
-        proofingPreview &&
-        (proofingPreview.physicalWidthMm < targetWidth || proofingPreview.physicalHeightMm < targetHeight)
+    const proofingDisplayedWidthPercent = proofingBaseWidthPercent * proofingScaleFactor;
+    const proofingDisplayedHeightPercent = proofingBaseHeightPercent * proofingScaleFactor;
+    const proofingArtworkBounds = proofingPreview
+        ? {
+            left: 50 + proofingOffset.x - (proofingDisplayedWidthPercent / 2),
+            right: 50 + proofingOffset.x + (proofingDisplayedWidthPercent / 2),
+            top: 50 + proofingOffset.y - (proofingDisplayedHeightPercent / 2),
+            bottom: 50 + proofingOffset.y + (proofingDisplayedHeightPercent / 2),
+        }
+        : null;
+    const proofingTrimBounds = {
+        left: bleedXPercent,
+        right: 100 - bleedXPercent,
+        top: bleedYPercent,
+        bottom: 100 - bleedYPercent,
+    };
+    const proofingArtworkOutsideArtboard = Boolean(
+        proofingArtworkBounds
+        && (
+            proofingArtworkBounds.left < 0
+            || proofingArtworkBounds.right > 100
+            || proofingArtworkBounds.top < 0
+            || proofingArtworkBounds.bottom > 100
+        )
     );
+    const proofingPlacementIssues = proofingPreview
+        ? [
+            ...((proofingEffectiveDpi && specs?.min_dpi && proofingEffectiveDpi < specs.min_dpi)
+                ? [`Motivet er forstørret så den effektive opløsning falder til ca. ${proofingEffectiveDpi} DPI. Hold dig på mindst ${specs.min_dpi} DPI for trykkvalitet.`]
+                : []),
+            ...(proofingArtworkOutsideArtboard ? ["Motivet ligger delvist uden for trykfladen. Flyt eller skalér det ind, så hele motivet ligger inden for rammen."] : []),
+        ]
+        : [];
+    const originalFilePrimaryIssue = preflightResults?.issues?.[0] || platformPreflight?.errors?.[0] || null;
+    const proofingPlacementPrimaryIssue = proofingPlacementIssues[0] || null;
+    const proofingApprovalPending = Boolean(uploadedFile) && !proofingApproved;
+    const proofingDpiWarning = Boolean(proofingEffectiveDpi && specs?.min_dpi && proofingEffectiveDpi < specs.min_dpi);
+    const proofingPhysicalMismatch = false;
+    const proofingRequiresModalReview = Boolean(
+        originalFilePrimaryIssue
+        || proofingPlacementPrimaryIssue
+        || platformPreflightBlocking
+    );
+    const quickApproveAvailable = Boolean(proofingApprovalPending && !proofingRequiresModalReview);
+    const proofingFileKindLabel = proofingPreview?.fileType === "image" ? "Rasterfil" : "PDF / vektor";
+    const proofingApprovalLabel = proofingApproved ? "Godkendt" : "Afventer godkendelse";
+
+    useEffect(() => {
+        if (!proofingDragging && !proofingResizing) return;
+
+        const handlePointerMove = (event: MouseEvent) => {
+            if (proofingDragging) {
+                const start = proofingDragStartRef.current;
+                if (!start) return;
+                const artboardRect = proofingArtboardRef.current?.getBoundingClientRect();
+                if (!artboardRect) return;
+                const rawOffset = {
+                    x: start.startX + (((event.clientX - start.x) / artboardRect.width) * 100),
+                    y: start.startY + (((event.clientY - start.y) / artboardRect.height) * 100),
+                };
+                setProofingOffset(
+                    clampProofingOffset(
+                        rawOffset,
+                        proofingDisplayedWidthPercent,
+                        proofingDisplayedHeightPercent
+                    )
+                );
+                return;
+            }
+
+            if (proofingResizing) {
+                const start = proofingResizeStartRef.current;
+                if (!start) return;
+                const currentDistance = Math.max(
+                    1,
+                    Math.hypot(event.clientX - start.centerX, event.clientY - start.centerY)
+                );
+                setProofingScale(clamp(start.startScale * (currentDistance / start.startDistance), proofingMinScale, proofingMaxScale));
+            }
+        };
+
+        const handlePointerUp = () => {
+            setProofingDragging(false);
+            setProofingResizing(false);
+            proofingDragStartRef.current = null;
+            proofingResizeStartRef.current = null;
+        };
+
+        window.addEventListener("mousemove", handlePointerMove);
+        window.addEventListener("mouseup", handlePointerUp);
+        return () => {
+            window.removeEventListener("mousemove", handlePointerMove);
+            window.removeEventListener("mouseup", handlePointerUp);
+        };
+    }, [
+        proofingDragging,
+        proofingResizing,
+        proofingMinScale,
+        proofingMaxScale,
+        proofingDisplayedWidthPercent,
+        proofingDisplayedHeightPercent,
+    ]);
 
     useEffect(() => {
         if (!state) return;
+        const existingSession = readSiteCheckoutSession();
         writeSiteCheckoutSession({
+            ...existingSession,
             ...state,
             quantity: orderQuantity,
             productPrice: orderPrice,
@@ -1160,9 +1448,14 @@ const FileUploadConfiguration = () => {
                 filePath: uploadedFile.path,
                 widthPx: proofingPreview?.sourceWidthPx || preflightResults?.width_px || null,
                 heightPx: proofingPreview?.sourceHeightPx || preflightResults?.height_px || null,
+                physicalWidthMm: proofingPreview?.physicalWidthMm || null,
+                physicalHeightMm: proofingPreview?.physicalHeightMm || null,
                 estimatedDpi: preflightResults?.dpi || null,
                 sourceDpi: preflightResults?.dpi || null,
                 previewDataUrl: proofingPreview?.previewUrl || previewUrl || null,
+                proofingScalePercent: proofingScale,
+                proofingOffsetXPercent: proofingOffset.x,
+                proofingOffsetYPercent: proofingOffset.y,
             } : null,
             checkoutCustomer: {
                 selectedCustomerProfileId,
@@ -1499,6 +1792,37 @@ const FileUploadConfiguration = () => {
         setProofingOffset({ x: 0, y: 0 });
     };
 
+    const scanPdfContourSignals = async (file: File): Promise<PdfContourScanResult | null> => {
+        if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+            return null;
+        }
+
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const rawPdf = new TextDecoder().decode(bytes);
+        const cutContourNameDetected = /(?:\/|\()CutContour\b/i.test(rawPdf) || /\bCutContour\b/i.test(rawPdf);
+        const separationHintDetected = /\/Separation\s*\/CutContour\b/i.test(rawPdf)
+            || /\/DeviceN\s*\[[^\]]*\/CutContour\b/i.test(rawPdf);
+        const overprintHintDetected = /\/OP\s+true\b/i.test(rawPdf)
+            || /\/op\s+true\b/i.test(rawPdf)
+            || /\/OPM\s+[12]\b/i.test(rawPdf);
+
+        const summary = cutContourNameDetected
+            ? "CutContour-navn fundet i PDF-data"
+            : "CutContour-navn blev ikke fundet i PDF-data";
+
+        const note = cutContourNameDetected
+            ? "Scannen er vejledende. Brug fuld designer eller professionel preflight for at bekræfte spotfarve og overprint."
+            : "Scannen er vejledende. Komprimerede eller tredjeparts-PDF'er kan skjule konturdata, så brug fuld designer hvis produktet kræver konturskæring.";
+
+        return {
+            cutContourNameDetected,
+            separationHintDetected,
+            overprintHintDetected,
+            summary,
+            note,
+        };
+    };
+
     const prepareImageProofingPreview = async (file: File, specs: TechnicalSpecs): Promise<ProofingPreviewData> => {
         const objectUrl = URL.createObjectURL(file);
         const img = new Image();
@@ -1518,7 +1842,7 @@ const FileUploadConfiguration = () => {
         };
     };
 
-    const preparePdfProofingPreview = async (file: File): Promise<ProofingPreviewData> => {
+    const preparePdfProofingPreview = async (file: File, specs: TechnicalSpecs): Promise<ProofingPreviewData> => {
         const pdfjsLib = await import("pdfjs-dist");
         pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
@@ -1528,6 +1852,7 @@ const FileUploadConfiguration = () => {
         const baseViewport = page.getViewport({ scale: 1 });
         const widthMm = ptToMm(baseViewport.width);
         const heightMm = ptToMm(baseViewport.height);
+        const printableSize = resolvePdfPrintableSize(widthMm, heightMm, specs);
 
         const previewMaxSize = 1400;
         const renderScale = Math.min(previewMaxSize / baseViewport.width, previewMaxSize / baseViewport.height, 2.5);
@@ -1551,8 +1876,8 @@ const FileUploadConfiguration = () => {
         return {
             fileType: "pdf",
             previewUrl: canvas.toDataURL("image/png"),
-            physicalWidthMm: widthMm,
-            physicalHeightMm: heightMm,
+            physicalWidthMm: printableSize.displayWidthMm,
+            physicalHeightMm: printableSize.displayHeightMm,
             sourceWidthPx: canvas.width,
             sourceHeightPx: canvas.height,
             pageCount: pdf.numPages,
@@ -1563,7 +1888,7 @@ const FileUploadConfiguration = () => {
         if (file.type.startsWith("image/")) {
             return prepareImageProofingPreview(file, specs);
         }
-        return preparePdfProofingPreview(file);
+        return preparePdfProofingPreview(file, specs);
     };
 
     const processUploadFile = async (file: File | null | undefined) => {
@@ -1582,7 +1907,11 @@ const FileUploadConfiguration = () => {
         setProofingApproved(false);
         setProofingOpen(false);
         setProofingPreview(null);
+        setPdfContourScan(null);
         resetProofingAdjustments();
+        if (state?.productId) {
+            sessionStorage.removeItem(`order-design:${state.productId}`);
+        }
 
         try {
             const specs = getResolvedSpecs();
@@ -1607,12 +1936,27 @@ const FileUploadConfiguration = () => {
                 .getPublicUrl(filePath);
 
             const preparedPreview = await prepareProofingPreview(file, specs);
+            const contourScan = await scanPdfContourSignals(file);
             setUploadedFile({ name: file.name, url: publicUrl, path: filePath });
             setPreviewUrl(preparedPreview.previewUrl);
             setProofingPreview(preparedPreview);
+            setPdfContourScan(contourScan);
 
-            await runPreflight(file, { filePath, publicUrl });
-            setProofingOpen(true);
+            const existingSession = readSiteCheckoutSession();
+            if (existingSession?.designerExport) {
+                writeSiteCheckoutSession({
+                    ...existingSession,
+                    designerExport: null,
+                });
+            }
+
+            const preflightResult = await runPreflight(file, { filePath, publicUrl });
+            const shouldAutoOpenProofing = Boolean(
+                preflightResult?.issues.length
+                || (isPodProduct && podPreflightEnabled)
+            );
+
+            setProofingOpen(shouldAutoOpenProofing);
 
             toast.success("Fil uploadet og tjekket");
         } catch (err) {
@@ -1647,9 +1991,12 @@ const FileUploadConfiguration = () => {
         await processUploadFile(event.dataTransfer?.files?.[0]);
     };
 
-    const runPreflight = async (file: File, uploadInfo?: { filePath: string; publicUrl: string }) => {
+    const runPreflight = async (
+        file: File,
+        uploadInfo?: { filePath: string; publicUrl: string }
+    ): Promise<CheckoutPreflightResult | null> => {
         const specs = getResolvedSpecs();
-        if (!specs) return;
+        if (!specs) return null;
 
         const issues: string[] = [];
         let dpi = 0;
@@ -1666,24 +2013,9 @@ const FileUploadConfiguration = () => {
             width_px = img.width;
             height_px = img.height;
 
-            const targetWidthMm = specs.width_mm + (specs.bleed_mm * 2);
-            const targetHeightMm = specs.height_mm + (specs.bleed_mm * 2);
-
-            const dpiW = width_px / (targetWidthMm / 25.4);
-            const dpiH = height_px / (targetHeightMm / 25.4);
-            dpi = Math.min(dpiW, dpiH);
-
-            if (dpi < specs.min_dpi) {
-                dpiOk = false;
-                issues.push(`Opløsningen er for lav: ${Math.round(dpi)} DPI (Minimum ${specs.min_dpi} DPI påkrævet inkl. beskæring)`);
-            }
-
-            const fileRatio = width_px / height_px;
-            const targetRatio = targetWidthMm / targetHeightMm;
-            if (Math.abs(fileRatio - targetRatio) > 0.05) {
-                aspectRatioMatch = false;
-                issues.push("Størrelsesforholdet matcher ikke produktet. Filen kan blive beskåret uhensigtsmæssigt.");
-            }
+            dpi = specs.min_dpi;
+            dpiOk = true;
+            aspectRatioMatch = true;
         } else if (file.type === 'application/pdf') {
             try {
                 const pdfjsLib = await import("pdfjs-dist");
@@ -1695,14 +2027,15 @@ const FileUploadConfiguration = () => {
 
                 const pdfWidthMm = ptToMm(viewport.width);
                 const pdfHeightMm = ptToMm(viewport.height);
+                const trimWidthMm = specs.width_mm;
+                const trimHeightMm = specs.height_mm;
                 const targetWidthMm = specs.width_mm + (specs.bleed_mm * 2);
                 const targetHeightMm = specs.height_mm + (specs.bleed_mm * 2);
-                const widthDelta = Math.abs(pdfWidthMm - targetWidthMm);
-                const heightDelta = Math.abs(pdfHeightMm - targetHeightMm);
+                const printableSize = resolvePdfPrintableSize(pdfWidthMm, pdfHeightMm, specs);
 
-                if (widthDelta > 1 || heightDelta > 1) {
+                if (!printableSize.matchesExpected) {
                     aspectRatioMatch = false;
-                    issues.push(`PDF-formatet er ${Math.round(pdfWidthMm)} × ${Math.round(pdfHeightMm)} mm og matcher ikke målformatet ${Math.round(targetWidthMm)} × ${Math.round(targetHeightMm)} mm.`);
+                    issues.push(`PDF-formatet er ${Math.round(pdfWidthMm)} × ${Math.round(pdfHeightMm)} mm og matcher hverken trimformatet ${Math.round(trimWidthMm)} × ${Math.round(trimHeightMm)} mm eller formatet med bleed ${Math.round(targetWidthMm)} × ${Math.round(targetHeightMm)} mm.`);
                 }
             } catch (pdfError) {
                 console.error("PDF dimension check failed:", pdfError);
@@ -1717,19 +2050,20 @@ const FileUploadConfiguration = () => {
                     specs,
                     autoFix: podPreflightAutoFix,
                 });
-            } else {
-                issues.push("PDF preflight er begrænset i browseren. Vi tjekker formatet manuelt ved modtagelse.");
             }
         }
 
-        setPreflightResults({
+        const result = {
             dpi: Math.round(dpi),
             width_px,
             height_px,
             aspectRatioMatch,
             dpiOk,
             issues
-        });
+        } satisfies CheckoutPreflightResult;
+
+        setPreflightResults(result);
+        return result;
     };
 
     const runPlatformPreflight = async (params: {
@@ -1790,17 +2124,29 @@ const FileUploadConfiguration = () => {
         );
     }
 
-    const proofingPrimaryIssue = preflightResults?.issues?.[0] || platformPreflight?.errors?.[0] || null;
-
-    const handleProofingPointerDown = (event: React.MouseEvent<HTMLDivElement>) => {
-        event.preventDefault();
+    const beginProofingDrag = (clientX: number, clientY: number) => {
         proofingDragStartRef.current = {
-            x: event.clientX,
-            y: event.clientY,
+            x: clientX,
+            y: clientY,
             startX: proofingOffset.x,
             startY: proofingOffset.y,
         };
         setProofingDragging(true);
+    };
+
+    const handleProofingPointerDown = (event: React.MouseEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        beginProofingDrag(event.clientX, event.clientY);
+    };
+
+    const handleProofingArtboardPointerDown = (event: React.MouseEvent<HTMLDivElement>) => {
+        if (!proofingPreview) return;
+        const target = event.target as HTMLElement | null;
+        if (target?.closest("button")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        beginProofingDrag(event.clientX, event.clientY);
     };
 
     const handleProofingResizeStart = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -1827,6 +2173,19 @@ const FileUploadConfiguration = () => {
     };
 
     const handleOpenFullDesigner = () => {
+        const existingSession = readSiteCheckoutSession();
+        if (existingSession?.siteUpload) {
+            writeSiteCheckoutSession({
+                ...existingSession,
+                siteUpload: {
+                    ...existingSession.siteUpload,
+                    proofingScalePercent: proofingScale,
+                    proofingOffsetXPercent: proofingOffset.x,
+                    proofingOffsetYPercent: proofingOffset.y,
+                },
+            });
+        }
+
         const params = new URLSearchParams(location.search);
         if (state?.productId) params.set("productId", String(state.productId));
         if (resolvedFormatLabel && resolvedFormatLabel !== "Standard") {
@@ -1877,7 +2236,7 @@ const FileUploadConfiguration = () => {
                                 </CardHeader>
                                 <CardContent className="space-y-4">
                                     <div className="pb-4 border-b border-black/5">
-                                        <h4 className="font-bold text-lg">{state.productName}</h4>
+                                        <h4 className="font-bold text-lg">{displayProductName}</h4>
                                         <p className="text-sm text-muted-foreground">{state.summary}</p>
                                         <div className="mt-2 space-y-1">
                                             {Object.values(nonSizeOptionSelections).map((opt: CheckoutOptionSelection, idx: number) => (
@@ -1982,7 +2341,7 @@ const FileUploadConfiguration = () => {
                                         </div>
                                     )}
 
-                                    {proofingApprovalPending && (
+                                    {proofingApprovalPending && proofingRequiresModalReview && (
                                         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 flex items-start gap-2 shadow-sm">
                                             <AlertCircle className="h-4 w-4 mt-0.5" />
                                             <div className="space-y-1">
@@ -1999,6 +2358,34 @@ const FileUploadConfiguration = () => {
                                                 >
                                                     Åbn korrektur
                                                 </Button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {quickApproveAvailable && (
+                                        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 flex items-start gap-2 shadow-sm">
+                                            <CheckCircle2 className="h-4 w-4 mt-0.5" />
+                                            <div className="space-y-2">
+                                                <div>
+                                                    <p className="font-medium">Filen ser klar ud</p>
+                                                    <p className="text-xs text-emerald-800">
+                                                        Du kan godkende filen direkte eller åbne korrekturvinduet for manuel kontrol.
+                                                    </p>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    <Button type="button" size="sm" className="h-8" onClick={handleApproveProofing}>
+                                                        Godkend fil
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-8 bg-white"
+                                                        onClick={() => setProofingOpen(true)}
+                                                    >
+                                                        Åbn korrektur
+                                                    </Button>
+                                                </div>
                                             </div>
                                         </div>
                                     )}
@@ -2514,21 +2901,41 @@ const FileUploadConfiguration = () => {
                                         </div>
                                     ) : (
                                         <div className="space-y-6">
-                                            <div className="flex items-center justify-between rounded-lg border border-green-100 bg-green-50 p-4 shadow-sm">
-                                                <div className="flex items-center gap-3">
-                                                    <CheckCircle2 className="h-6 w-6 text-green-600" />
-                                                    <div>
-                                                        <p className="font-semibold text-green-900">{uploadedFile.name}</p>
+                                            <div className="flex flex-col gap-3 rounded-lg border border-green-100 bg-green-50 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                                                <div className="flex min-w-0 items-center gap-3">
+                                                    <CheckCircle2 className="h-6 w-6 shrink-0 text-green-600" />
+                                                    <div className="min-w-0">
+                                                        <p className="break-words text-sm font-semibold text-green-900 sm:text-base">
+                                                            {uploadedFile.name}
+                                                        </p>
                                                         <p className="text-xs text-green-700">
-                                                            {proofingApproved ? "Filen er godkendt til ordre" : "Filen er klar til korrektur"}
+                                                            {proofingApproved ? "Godkendt til ordre" : "Klar til korrektur"}
                                                         </p>
                                                     </div>
                                                 </div>
-                                            <div className="flex items-center gap-2">
+                                                <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 text-xs sm:w-auto sm:justify-end">
+                                                    <span className="font-medium text-green-900">
+                                                        {proofingApprovalLabel}
+                                                    </span>
+                                                    {proofingPreview && (
+                                                        <span className="text-slate-600">
+                                                            {proofingFileKindLabel}
+                                                        </span>
+                                                    )}
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
                                                         onClick={() => {
+                                                            if (state?.productId) {
+                                                                sessionStorage.removeItem(`order-design:${state.productId}`);
+                                                            }
+                                                            const existingSession = readSiteCheckoutSession();
+                                                            if (existingSession?.designerExport) {
+                                                                writeSiteCheckoutSession({
+                                                                    ...existingSession,
+                                                                    designerExport: null,
+                                                                });
+                                                            }
                                                             setUploadedFile(null);
                                                             setPreviewUrl(null);
                                                             setProofingPreview(null);
@@ -2545,62 +2952,128 @@ const FileUploadConfiguration = () => {
                                             </div>
 
                                             {previewUrl && (
-                                                <div className="relative border bg-white shadow-inner p-4">
-                                                    <div className="absolute top-2 right-2 flex gap-2">
-                                                        <Badge className="bg-white/90 text-primary border-primary/20 backdrop-blur-sm">Visuel Preview</Badge>
-                                                    </div>
-                                                    <div className="mx-auto flex w-full max-w-md justify-center">
-                                                        <div
-                                                            className="relative w-full overflow-hidden border border-slate-300 bg-white"
-                                                            style={{ aspectRatio: targetWidth > 0 && targetHeight > 0 ? `${targetWidth} / ${targetHeight}` : "1 / 1" }}
-                                                        >
+                                                <div className="border border-slate-200 bg-white p-4 shadow-inner">
+                                                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[11px] uppercase tracking-[0.12em] text-slate-500">
+                                                        <span className="font-semibold text-slate-700">
+                                                            Visuel preview
+                                                        </span>
+                                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                            <span className={proofingApproved ? "text-green-700" : "text-amber-700"}>
+                                                                {proofingApprovalLabel}
+                                                            </span>
                                                             {proofingPreview && (
-                                                                <div
-                                                                    className="absolute left-1/2 top-1/2"
-                                                                    style={{
-                                                                        width: `${proofingBaseWidthPercent}%`,
-                                                                        height: `${proofingBaseHeightPercent}%`,
-                                                                        transform: `translate(calc(-50% + ${proofingOffset.x}%), calc(-50% + ${proofingOffset.y}%)) scale(${proofingScaleFactor})`,
-                                                                        transformOrigin: "center center",
-                                                                    }}
-                                                                >
-                                                                    <img
-                                                                        src={proofingPreview.previewUrl}
-                                                                        alt="Preview"
-                                                                        className="h-full w-full object-contain select-none"
-                                                                        draggable={false}
-                                                                    />
-                                                                </div>
-                                                            )}
-                                                            {specs && (
-                                                                <>
-                                                                    <div
-                                                                        className="absolute inset-0 border-2 border-dashed border-red-500/90 pointer-events-none z-20"
-                                                                        style={{
-                                                                            top: `${bleedYPercent}%`,
-                                                                            bottom: `${bleedYPercent}%`,
-                                                                            left: `${bleedXPercent}%`,
-                                                                            right: `${bleedXPercent}%`,
-                                                                        }}
-                                                                    />
-                                                                    <div
-                                                                        className="absolute inset-0 border border-emerald-500/90 pointer-events-none z-20"
-                                                                        style={{
-                                                                            top: `${safeYPercent}%`,
-                                                                            bottom: `${safeYPercent}%`,
-                                                                            left: `${safeXPercent}%`,
-                                                                            right: `${safeXPercent}%`,
-                                                                        }}
-                                                                    />
-                                                                </>
+                                                                <span className="text-slate-500">
+                                                                    {proofingFileKindLabel}
+                                                                </span>
                                                             )}
                                                         </div>
                                                     </div>
-                                                    <div className="mt-3 flex justify-center">
+                                                    <div className="mx-auto flex w-full max-w-md justify-center">
+                                                        <div className="relative w-full">
+                                                            <div
+                                                                className="relative w-full overflow-hidden border border-slate-300 bg-white"
+                                                                style={{ aspectRatio: targetWidth > 0 && targetHeight > 0 ? `${targetWidth} / ${targetHeight}` : "1 / 1" }}
+                                                            >
+                                                                {proofingPreview && (
+                                                                    <div
+                                                                        className="absolute"
+                                                                        style={{
+                                                                            width: `${proofingBaseWidthPercent}%`,
+                                                                            height: `${proofingBaseHeightPercent}%`,
+                                                                            left: `${50 + proofingOffset.x}%`,
+                                                                            top: `${50 + proofingOffset.y}%`,
+                                                                            transform: `translate(-50%, -50%) scale(${proofingScaleFactor})`,
+                                                                            transformOrigin: "center center",
+                                                                        }}
+                                                                    >
+                                                                        <img
+                                                                            src={proofingPreview.previewUrl}
+                                                                            alt="Preview"
+                                                                            className="h-full w-full object-contain select-none"
+                                                                            draggable={false}
+                                                                        />
+                                                                    </div>
+                                                                )}
+                                                                {specs && (
+                                                                    <>
+                                                                        <div
+                                                                            className="absolute inset-0 z-20 border-2 border-dashed border-red-500/90 pointer-events-none"
+                                                                            style={{
+                                                                                top: `${bleedYPercent}%`,
+                                                                                bottom: `${bleedYPercent}%`,
+                                                                                left: `${bleedXPercent}%`,
+                                                                                right: `${bleedXPercent}%`,
+                                                                            }}
+                                                                        />
+                                                                        <div
+                                                                            className="absolute inset-0 z-20 border border-emerald-500/90 pointer-events-none"
+                                                                            style={{
+                                                                                top: `${safeYPercent}%`,
+                                                                                bottom: `${safeYPercent}%`,
+                                                                                left: `${safeXPercent}%`,
+                                                                                right: `${safeXPercent}%`,
+                                                                            }}
+                                                                        />
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                            {specs && (
+                                                                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="h-2 w-2 bg-red-500" />
+                                                                        <span>Beskæringslinje ({specs?.bleed_mm || 0}mm)</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="h-2 w-2 bg-emerald-500" />
+                                                                        <span>Sikkerhedszone ({safeAreaMm}mm)</span>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="mt-4 flex flex-wrap justify-center gap-2 border-t border-slate-200 pt-4">
+                                                        {quickApproveAvailable && (
+                                                            <Button size="sm" onClick={handleApproveProofing}>
+                                                                Godkend fil
+                                                            </Button>
+                                                        )}
                                                         <Button variant="outline" size="sm" onClick={() => setProofingOpen(true)}>
                                                             Åbn korrektur
                                                         </Button>
                                                     </div>
+                                                    {(proofingPreview?.fileType === "pdf" || proofingPreview?.fileType === "image") && (
+                                                        <div className={`mt-4 rounded-lg border px-3 py-3 text-sm ${
+                                                            proofingPreview?.fileType === "pdf"
+                                                                ? (pdfContourScan?.cutContourNameDetected ? "border-green-200 bg-green-50" : "border-slate-200 bg-slate-50")
+                                                                : "border-amber-200 bg-amber-50"
+                                                        }`}>
+                                                            <p className="font-medium text-slate-900">
+                                                                {proofingPreview?.fileType === "pdf" ? "PDF / CutContour scan" : "Rasterfil"}
+                                                            </p>
+                                                            {proofingPreview?.fileType === "pdf" ? (
+                                                                <>
+                                                                    <p className="mt-1 text-xs text-slate-700">
+                                                                        {pdfContourScan?.summary || "PDF uploadet. CutContour-scannen kører."}
+                                                                    </p>
+                                                                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-600">
+                                                                        <span>
+                                                                            Spotfarve: {pdfContourScan?.separationHintDetected ? "indikation fundet" : "ikke bekræftet"}
+                                                                        </span>
+                                                                        <span>
+                                                                            Overprint: {pdfContourScan?.overprintHintDetected ? "indikation fundet" : "ikke bekræftet"}
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="mt-2 text-xs text-slate-500">
+                                                                        {pdfContourScan?.note}
+                                                                    </p>
+                                                                </>
+                                                            ) : (
+                                                                <p className="mt-1 text-xs text-amber-700">
+                                                                    Rasterfiler kan ikke verificeres som ægte CutContour her. Brug fuld designer hvis produktet kræver konturskæring.
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
 
@@ -2632,7 +3105,9 @@ const FileUploadConfiguration = () => {
                                                         <div className="rounded-lg border border-black/5 bg-white/50 p-3 shadow-sm">
                                                             <p className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Opløsning</p>
                                                             <p className={`text-sm font-semibold ${preflightResults.dpiOk ? 'text-green-600' : 'text-amber-600'}`}>
-                                                                {preflightResults.dpi ? `${preflightResults.dpi} DPI` : 'PDF (Tjekkes manuelt)'}
+                                                                {proofingPreview?.fileType === "image"
+                                                                    ? `Ca. ${proofingEffectiveDpi || specs?.min_dpi || 300} DPI ved nuværende størrelse`
+                                                                    : 'PDF / vektorbaseret preview'}
                                                             </p>
                                                         </div>
                                                         <div className="rounded-lg border border-black/5 bg-white/50 p-3 shadow-sm">
@@ -2723,7 +3198,7 @@ const FileUploadConfiguration = () => {
                                         </div>
                                         <div className="grid grid-cols-1 gap-3">
                                             <div className="rounded-lg bg-muted/50 p-4 shadow-sm">
-                                                <h4 className="mb-2 text-sm font-semibold">Mål for {state.productName} ({resolvedFormatLabel})</h4>
+                                                <h4 className="mb-2 text-sm font-semibold">Mål for valgt format ({resolvedFormatLabel})</h4>
                                                 <ul className="space-y-1 text-xs text-muted-foreground">
                                                     <li>Nettoformat: {specs?.width_mm} x {specs?.height_mm} mm</li>
                                                     <li>Bruttoformat (+beskæring): {targetWidth} x {targetHeight} mm</li>
@@ -2843,75 +3318,92 @@ const FileUploadConfiguration = () => {
                             </div>
 
                             <div className="mx-auto flex w-full max-w-3xl justify-center">
-                                <div
-                                    ref={proofingArtboardRef}
-                                    className="relative w-full overflow-hidden border border-slate-300 bg-white shadow-2xl"
-                                    style={{ aspectRatio: targetWidth > 0 && targetHeight > 0 ? `${targetWidth} / ${targetHeight}` : "1 / 1" }}
-                                >
-                                    {proofingPreview && (
-                                        <div
-                                            ref={proofingArtworkRef}
-                                            className="absolute left-1/2 top-1/2 cursor-grab active:cursor-grabbing"
-                                            onMouseDown={handleProofingPointerDown}
-                                            style={{
-                                                width: `${proofingBaseWidthPercent}%`,
-                                                height: `${proofingBaseHeightPercent}%`,
-                                                transform: `translate(calc(-50% + ${proofingOffset.x}%), calc(-50% + ${proofingOffset.y}%)) scale(${proofingScaleFactor})`,
-                                                transformOrigin: "center center",
-                                            }}
-                                        >
-                                                <img
-                                                    src={proofingPreview.previewUrl}
-                                                    alt="Korrektur preview"
-                                                    className="h-full w-full select-none object-contain"
-                                                    draggable={false}
-                                                />
-                                                {[
-                                                    "left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize",
-                                                    "right-0 top-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize",
-                                                    "left-0 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize",
-                                                    "right-0 bottom-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize",
-                                                ].map((positionClass, index) => (
-                                                    <button
-                                                        key={positionClass}
-                                                        type="button"
-                                                        aria-label={`Skaler motiv ${index + 1}`}
-                                                        onMouseDown={handleProofingResizeStart}
-                                                        className={`absolute h-4 w-4 border border-white bg-primary shadow-sm ${positionClass}`}
+                                <div className="relative w-full">
+                                    <div
+                                        ref={proofingArtboardRef}
+                                        className={`relative w-full overflow-hidden border border-slate-300 bg-white shadow-2xl ${proofingPreview ? "cursor-grab active:cursor-grabbing" : ""}`}
+                                        onMouseDown={handleProofingArtboardPointerDown}
+                                        style={{ aspectRatio: targetWidth > 0 && targetHeight > 0 ? `${targetWidth} / ${targetHeight}` : "1 / 1" }}
+                                    >
+                                        {proofingPreview && (
+                                            <div
+                                                ref={proofingArtworkRef}
+                                                className="absolute"
+                                                onMouseDown={handleProofingPointerDown}
+                                                style={{
+                                                    left: `${50 + proofingOffset.x}%`,
+                                                    top: `${50 + proofingOffset.y}%`,
+                                                    width: `${proofingBaseWidthPercent}%`,
+                                                    height: `${proofingBaseHeightPercent}%`,
+                                                    transform: `translate(-50%, -50%) scale(${proofingScaleFactor})`,
+                                                    transformOrigin: "center center",
+                                                }}
+                                            >
+                                                    <img
+                                                        src={proofingPreview.previewUrl}
+                                                        alt="Korrektur preview"
+                                                        className="h-full w-full select-none object-contain"
+                                                        draggable={false}
                                                     />
-                                                ))}
-                                            </div>
-                                    )}
+                                                    {PROOFING_HANDLE_POSITIONS.map((handle, index) => (
+                                                        <div
+                                                            key={handle.key}
+                                                            className="absolute"
+                                                            style={{
+                                                                left: handle.left,
+                                                                right: handle.right,
+                                                                top: handle.top,
+                                                                bottom: handle.bottom,
+                                                                transform: handle.translate,
+                                                            }}
+                                                        >
+                                                            <button
+                                                                type="button"
+                                                                aria-label={`Skaler motiv ${index + 1}`}
+                                                                onMouseDown={handleProofingResizeStart}
+                                                                className="h-4 w-4 border border-white bg-primary shadow-sm"
+                                                                style={{
+                                                                    transform: `scale(${1 / Math.max(proofingScaleFactor, 0.01)})`,
+                                                                    transformOrigin: "center center",
+                                                                    cursor: handle.cursor,
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                        )}
 
-                                    <div
-                                        className="absolute inset-0 border-2 border-dashed border-red-400/90 pointer-events-none z-20"
-                                        style={{
-                                            top: `${bleedYPercent}%`,
-                                            bottom: `${bleedYPercent}%`,
-                                            left: `${bleedXPercent}%`,
-                                            right: `${bleedXPercent}%`,
-                                        }}
-                                    >
-                                        <div className="absolute -top-6 left-0 bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm whitespace-nowrap">
-                                            BESKÆRINGSLINJE ({specs?.bleed_mm || 0}mm)
-                                        </div>
+                                        <div
+                                            className="absolute inset-0 border-2 border-dashed border-red-400/90 pointer-events-none z-20"
+                                            style={{
+                                                top: `${bleedYPercent}%`,
+                                                bottom: `${bleedYPercent}%`,
+                                                left: `${bleedXPercent}%`,
+                                                right: `${bleedXPercent}%`,
+                                            }}
+                                        />
+                                        <div
+                                            className="absolute inset-0 border border-emerald-300/95 pointer-events-none z-20"
+                                            style={{
+                                                top: `${safeYPercent}%`,
+                                                bottom: `${safeYPercent}%`,
+                                                left: `${safeXPercent}%`,
+                                                right: `${safeXPercent}%`,
+                                            }}
+                                        />
                                     </div>
-                                    <div
-                                        className="absolute inset-0 border border-emerald-300/95 pointer-events-none z-20"
-                                        style={{
-                                            top: `${safeYPercent}%`,
-                                            bottom: `${safeYPercent}%`,
-                                            left: `${safeXPercent}%`,
-                                            right: `${safeXPercent}%`,
-                                        }}
-                                    >
-                                        <div className="absolute -top-6 right-0 bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm whitespace-nowrap">
-                                            SIKKERHEDSZONE ({safeAreaMm}mm)
+                                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+                                        <div className="flex items-center gap-2">
+                                            <span className="h-2 w-2 bg-red-500" />
+                                            <span>Beskæringslinje ({specs?.bleed_mm || 0}mm)</span>
                                         </div>
-                                    </div>
-
-                                    <div className="absolute bottom-3 left-3 bg-black/55 px-3 py-2 text-[11px] text-white/90 backdrop-blur-sm">
-                                        Artboard: {Math.round(targetWidth)} × {Math.round(targetHeight)} mm
+                                        <div className="flex items-center gap-2">
+                                            <span className="h-2 w-2 bg-emerald-500" />
+                                            <span>Sikkerhedszone ({safeAreaMm}mm)</span>
+                                        </div>
+                                        <div className="text-slate-500">
+                                            Artboard: {Math.round(targetWidth)} × {Math.round(targetHeight)} mm
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -2920,23 +3412,60 @@ const FileUploadConfiguration = () => {
                         <div className="space-y-5 bg-white p-6">
                             <div className="space-y-2">
                                 <p className="text-sm font-semibold text-slate-900">Filstatus</p>
-                                <div className={`rounded-lg border px-3 py-3 text-sm ${proofingPrimaryIssue ? "border-amber-200 bg-amber-50 text-amber-900" : "border-green-200 bg-green-50 text-green-900"}`}>
+                                <div className={`rounded-lg border px-3 py-3 text-sm ${originalFilePrimaryIssue ? "border-amber-200 bg-amber-50 text-amber-900" : "border-green-200 bg-green-50 text-green-900"}`}>
                                     <p className="font-medium">
-                                        {proofingPrimaryIssue ? "Filen kræver kontrol" : "Filen ser klar ud"}
+                                        {originalFilePrimaryIssue ? "Originalfil: tjek" : "Originalfil: ok"}
                                     </p>
                                     <p className="mt-1 text-xs">
-                                        {proofingPrimaryIssue || "Placering, størrelse og bleed er klar til godkendelse."}
+                                        {originalFilePrimaryIssue || `${proofingFileKindLabel}. Filformatet ser korrekt ud.`}
                                     </p>
                                 </div>
                                 {proofingDpiWarning && (
                                     <p className="text-xs text-amber-700">
-                                        Opløsningen er under {specs?.min_dpi} DPI. Filen vises mindre for at bevare trykkvaliteten.
+                                        Rasterfilen er under {specs?.min_dpi} DPI ved den nuværende størrelse.
                                     </p>
                                 )}
                                 {proofingPhysicalMismatch && (
                                     <p className="text-xs text-amber-700">
                                         Filen er fysisk mindre end det bestilte layout. Den vises proportionelt i artboardet, så du kan se den reelle dækning.
                                     </p>
+                                )}
+                                <div className={`rounded-lg border px-3 py-3 text-sm ${proofingPlacementPrimaryIssue ? "border-amber-200 bg-amber-50 text-amber-900" : "border-green-200 bg-green-50 text-green-900"}`}>
+                                    <p className="font-medium">
+                                        {proofingPlacementPrimaryIssue ? "Placering: justér" : "Placering: ok"}
+                                    </p>
+                                    <p className="mt-1 text-xs">
+                                        {proofingPlacementPrimaryIssue || "Placeringen ser korrekt ud i previewet."}
+                                    </p>
+                                </div>
+                                {proofingPreview?.fileType === "pdf" && (
+                                    <div className={`rounded-lg border px-3 py-3 text-sm ${
+                                        pdfContourScan?.cutContourNameDetected
+                                            ? "border-green-200 bg-green-50 text-green-900"
+                                            : "border-slate-200 bg-slate-50 text-slate-900"
+                                    }`}>
+                                        <p className="font-medium">
+                                            {pdfContourScan?.cutContourNameDetected ? "CutContour: fundet" : "CutContour: ikke bekræftet"}
+                                        </p>
+                                        <p className="mt-1 text-xs">
+                                            {pdfContourScan?.summary || "PDF uploadet. CutContour-scannen kører."}
+                                        </p>
+                                        <div className="mt-2 grid grid-cols-1 gap-1 text-xs">
+                                            <p>Spotfarve/separation: {pdfContourScan?.separationHintDetected ? "indikation fundet" : "ikke bekræftet"}</p>
+                                            <p>Overprint: {pdfContourScan?.overprintHintDetected ? "indikation fundet" : "ikke bekræftet"}</p>
+                                        </div>
+                                        <p className="mt-2 text-xs text-slate-500">
+                                            {pdfContourScan?.note}
+                                        </p>
+                                    </div>
+                                )}
+                                {proofingPreview?.fileType === "image" && (
+                                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                                        <p className="font-medium">Rasterfil</p>
+                                        <p className="mt-1 text-xs">
+                                            Rasterfiler kan ikke verificeres som ægte CutContour her. Brug fuld designer hvis produktet kræver konturskæring.
+                                        </p>
+                                    </div>
                                 )}
                             </div>
 
@@ -2950,6 +3479,7 @@ const FileUploadConfiguration = () => {
                                     <p className="text-sm font-medium text-slate-900">
                                         {proofingPreview ? `${Math.round(proofingPreview.physicalWidthMm)} × ${Math.round(proofingPreview.physicalHeightMm)} mm` : "Beregnede mål"}
                                     </p>
+                                    <p className="text-xs text-slate-500">{proofingFileKindLabel}</p>
                                     {proofingPreview?.pageCount && (
                                         <p className="text-xs text-slate-500">PDF preview viser side 1 af {proofingPreview.pageCount}</p>
                                     )}
@@ -2957,8 +3487,15 @@ const FileUploadConfiguration = () => {
                                 <div>
                                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Opløsning</p>
                                     <p className="text-sm font-medium text-slate-900">
-                                        {preflightResults?.dpi ? `${preflightResults.dpi} DPI` : "PDF / vektorbaseret preview"}
+                                        {proofingPreview?.fileType === "image"
+                                            ? `${proofingEffectiveDpi || specs?.min_dpi || 300} DPI ved nuværende størrelse`
+                                            : "PDF / vektorbaseret preview"}
                                     </p>
+                                    {proofingEffectiveDpi && proofingScale !== 100 && (
+                                        <p className="text-xs text-slate-500">
+                                            Effektiv opløsning ved nuværende skalering: ca. {proofingEffectiveDpi} DPI
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
                                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sikkerhedszone</p>

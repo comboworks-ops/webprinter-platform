@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X, Search, ChevronDown, LogOut, User, Shield, Package, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -71,6 +71,654 @@ type HeaderProductMenuSection = {
   items: HeaderProductMenuItem[];
 };
 
+type HeaderProductMenuProduct = {
+  key: string;
+  label: string;
+  href: string;
+  imageUrl: string | null;
+  productSlug: string;
+  category: string;
+};
+
+type HeaderDesktopMenuChild = {
+  key: string;
+  label: string;
+  href: string;
+  count: number;
+  products: HeaderProductMenuProduct[];
+};
+
+type HeaderDesktopMenuGroup = {
+  key: string;
+  label: string;
+  href: string;
+  count: number;
+  imageUrl: string | null;
+  products: HeaderProductMenuProduct[];
+  children: HeaderDesktopMenuChild[];
+};
+
+type HeaderDesktopMenuSection = {
+  key: string;
+  label: string;
+  groups: HeaderDesktopMenuGroup[];
+};
+
+type DesktopProductsDropdownProps = {
+  itemId: string;
+  itemLabel: string;
+  isSelected: boolean;
+  onSelect: () => void;
+  headerSettings: any;
+  usesRichDropdownMenu: boolean;
+  desktopProductSections: HeaderDesktopMenuSection[];
+  groupedProductSections: HeaderProductMenuSection[];
+  getDropdownStyles: () => React.CSSProperties;
+  categoryColor: string;
+  categoryFont: string;
+  productColor: string;
+  productFont: string;
+  selectedIconPackId: string;
+};
+
+type DesktopHeaderActionsProps = {
+  allProducts: DbProduct[];
+  authReady: boolean;
+  user: SupabaseUser | null;
+  isAdmin: boolean;
+  language: string;
+  setLanguage: (language: "da" | "en") => void;
+  ctaEnabled: boolean;
+  ctaLabel: string;
+  ctaHref: string;
+  ctaTextColor: string;
+  handleLogout: () => void | Promise<void>;
+  selectedIconPackId: string;
+  loginLabel: string;
+  adminPanelLabel: string;
+  logoutLabel: string;
+};
+
+const DesktopHeaderActions = memo(({
+  allProducts,
+  authReady,
+  user,
+  isAdmin,
+  language,
+  setLanguage,
+  ctaEnabled,
+  ctaLabel,
+  ctaHref,
+  ctaTextColor,
+  handleLogout,
+  selectedIconPackId,
+  loginLabel,
+  adminPanelLabel,
+  logoutLabel,
+}: DesktopHeaderActionsProps) => {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const filteredProducts = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const normalized = searchQuery.toLowerCase();
+    return allProducts.filter((product) =>
+      product.name.toLowerCase().includes(normalized)
+      || (product.icon_text || "").toLowerCase().includes(normalized)
+      || product.slug.toLowerCase().includes(normalized)
+      || (product.category && product.category.toLowerCase().includes(normalized))
+    );
+  }, [allProducts, searchQuery]);
+
+  const handleSearchClose = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+  }, []);
+
+  const handleSearchToggle = useCallback(() => {
+    setSearchOpen((open) => {
+      const next = !open;
+      if (!next) {
+        setSearchQuery("");
+      } else {
+        setTimeout(() => searchInputRef.current?.focus(), 150);
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (searchOpen && !target.closest(".search-container")) {
+        handleSearchClose();
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [handleSearchClose, searchOpen]);
+
+  return (
+    <>
+      <div className="hidden md:flex items-center relative search-container">
+        <div
+          className={`flex items-center overflow-hidden transition-all duration-300 ease-in-out ${searchOpen
+            ? "w-64 opacity-100 mr-2"
+            : "w-0 opacity-0"
+            }`}
+        >
+          <div className="relative w-full">
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Søg produkter..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") handleSearchClose();
+              }}
+              className="w-full h-9 px-3 pr-8 rounded-lg border border-border bg-background/80 backdrop-blur-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              style={{ color: "#1F2937" }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground header-action-link"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {searchOpen && searchQuery && (
+          <div className="absolute top-full right-0 mt-2 w-72 max-h-80 overflow-y-auto bg-card rounded-lg shadow-lg border border-border z-50">
+            {filteredProducts.length > 0 ? (
+              <div className="p-2">
+                <p className="text-xs text-muted-foreground px-2 py-1">
+                  {filteredProducts.length} produkt{filteredProducts.length !== 1 ? "er" : ""} fundet
+                </p>
+                {filteredProducts.map((product) => (
+                  <Link
+                    key={product.id}
+                    to={appendStorefrontTenantContext(`/produkt/${product.slug}`)}
+                    onClick={handleSearchClose}
+                    className="flex items-center gap-3 p-2 rounded-md hover:bg-muted transition-colors"
+                  >
+                    {product.image_url && (
+                      <img
+                        src={getProductImage(product.slug, product.image_url)}
+                        alt={product.name}
+                        className="w-10 h-10 object-cover rounded"
+                        style={{ filter: "var(--product-filter)" }}
+                      />
+                    )}
+                    <ProductCategoryIcon
+                      slug={product.slug}
+                      category={product.category}
+                      packId={selectedIconPackId}
+                      className="h-5 w-5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{product.name}</p>
+                      <p className="text-xs text-muted-foreground capitalize">{product.category}</p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="p-4 text-center text-sm text-muted-foreground">
+                Ingen produkter fundet for "{searchQuery}"
+              </div>
+            )}
+          </div>
+        )}
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleSearchToggle}
+          className="header-action-link"
+        >
+          {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
+        </Button>
+      </div>
+
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="hidden md:flex header-action-link">
+            {language === "da" ? (
+              <svg className="h-5 w-5 rounded-sm" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="20" height="14" fill="#C8102E" />
+                <rect x="6" width="2" height="14" fill="white" />
+                <rect y="6" width="20" height="2" fill="white" />
+              </svg>
+            ) : (
+              <svg className="h-5 w-5 rounded-sm" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="20" height="14" fill="#012169" />
+                <path d="M0 0L20 14M20 0L0 14" stroke="white" strokeWidth="2.5" />
+                <path d="M0 0L20 14M20 0L0 14" stroke="#C8102E" strokeWidth="1.5" />
+                <path d="M10 0V14M0 7H20" stroke="white" strokeWidth="4" />
+                <path d="M10 0V14M0 7H20" stroke="#C8102E" strokeWidth="2" />
+              </svg>
+            )}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-36 bg-card z-50">
+          <DropdownMenuItem
+            onClick={() => setLanguage("da")}
+            className={`flex items-center gap-2 ${language === "da" ? "bg-muted" : ""}`}
+          >
+            <svg className="h-4 w-4 rounded-sm shrink-0" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="20" height="14" fill="#C8102E" />
+              <rect x="6" width="2" height="14" fill="white" />
+              <rect y="6" width="20" height="2" fill="white" />
+            </svg>
+            Dansk
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => setLanguage("en")}
+            className={`flex items-center gap-2 ${language === "en" ? "bg-muted" : ""}`}
+          >
+            <svg className="h-4 w-4 rounded-sm shrink-0" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="20" height="14" fill="#012169" />
+              <path d="M0 0L20 14M20 0L0 14" stroke="white" strokeWidth="2.5" />
+              <path d="M0 0L20 14M20 0L0 14" stroke="#C8102E" strokeWidth="1.5" />
+              <path d="M10 0V14M0 7H20" stroke="white" strokeWidth="4" />
+              <path d="M10 0V14M0 7H20" stroke="#C8102E" strokeWidth="2" />
+            </svg>
+            English
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {ctaEnabled && (
+        <Button
+          asChild
+          className="hidden md:flex header-cta-button"
+          style={{ color: ctaTextColor || "#FFFFFF" }}
+        >
+          <Link to={appendStorefrontTenantContext(ctaHref || "/kontakt")} className="no-link-color">
+            {ctaLabel}
+          </Link>
+        </Button>
+      )}
+
+      <div className="relative z-[1220] hidden min-w-[220px] justify-end isolate [contain:paint] md:flex">
+        {!authReady ? (
+          <div className="h-9 w-[220px]" aria-hidden="true" />
+        ) : user ? (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex min-w-[220px] items-center justify-end gap-2 header-action-link [backface-visibility:hidden] [transform:translateZ(0)]"
+                style={{ willChange: "transform", WebkitFontSmoothing: "antialiased" }}
+              >
+                <User className="h-4 w-4" />
+                <span className="block max-w-[180px] truncate text-right [backface-visibility:hidden] [transform:translateZ(0)]">
+                  {user.email}
+                </span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56 bg-card">
+              <DropdownMenuItem asChild>
+                <Link to={appendStorefrontTenantContext("/min-konto")} className="cursor-pointer">
+                  <User className="h-4 w-4 mr-2" />
+                  Min Konto
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to={appendStorefrontTenantContext("/min-konto/ordrer")} className="cursor-pointer">
+                  <Package className="h-4 w-4 mr-2" />
+                  Mine Ordrer
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to={appendStorefrontTenantContext("/min-konto/adresser")} className="cursor-pointer">
+                  <MapPin className="h-4 w-4 mr-2" />
+                  Adresser
+                </Link>
+              </DropdownMenuItem>
+              {isAdmin && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link to="/admin" className="cursor-pointer">
+                      <Shield className="h-4 w-4 mr-2" />
+                      {adminPanelLabel}
+                    </Link>
+                  </DropdownMenuItem>
+                </>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive">
+                <LogOut className="h-4 w-4 mr-2" />
+                {logoutLabel}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <Button
+            asChild
+            size="sm"
+            className="header-cta-button shadow-none min-w-[220px] justify-center"
+            style={{ color: ctaTextColor || "#FFFFFF" }}
+          >
+            <Link to={appendStorefrontTenantContext("/auth")} className="no-link-color">{loginLabel}</Link>
+          </Button>
+        )}
+      </div>
+    </>
+  );
+});
+
+const DesktopProductsDropdown = ({
+  itemId,
+  itemLabel,
+  isSelected,
+  onSelect,
+  headerSettings,
+  usesRichDropdownMenu,
+  desktopProductSections,
+  groupedProductSections,
+  getDropdownStyles,
+  categoryColor,
+  categoryFont,
+  productColor,
+  productFont,
+  selectedIconPackId,
+}: DesktopProductsDropdownProps) => {
+  const [activeDesktopDropdownGroupKey, setActiveDesktopDropdownGroupKey] = useState<string | null>(null);
+  const [activeDesktopDropdownChildKey, setActiveDesktopDropdownChildKey] = useState<string | null>(null);
+
+  return (
+    <DropdownMenu
+      modal={false}
+      onOpenChange={(open) => {
+        if (!open) {
+          setActiveDesktopDropdownGroupKey(null);
+          setActiveDesktopDropdownChildKey(null);
+        }
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <button
+          className="header-nav-link text-sm font-medium inline-flex items-center gap-1"
+          style={{
+            color: isSelected
+              ? (headerSettings.activeTextColor || '#0284C7')
+              : (headerSettings.textColor || '#1F2937')
+          }}
+          onClick={onSelect}
+        >
+          {itemLabel}
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        sideOffset={10}
+        className={`backdrop-blur-md z-[1205] ${headerSettings.dropdownShowBorder !== false ? 'border shadow-2xl' : 'border-0 shadow-none'} ${usesRichDropdownMenu
+          ? 'min-w-[760px] max-w-[1120px] max-h-[calc(100vh-7rem)] overflow-y-auto rounded-2xl p-4'
+          : (headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT')
+            ? 'min-w-[600px] max-w-4xl rounded-xl p-4'
+            : 'min-w-[200px] rounded-xl p-2'
+          } animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-200`}
+        style={getDropdownStyles()}
+      >
+        {usesRichDropdownMenu ? (
+          <div className="space-y-5">
+            {desktopProductSections.map((section) => (
+              <div key={section.key} className="space-y-3">
+                <div className="px-1">
+                  <h3
+                    className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                    style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.75 }}
+                  >
+                    {section.label}
+                  </h3>
+                </div>
+                <div className="flex flex-wrap items-start gap-x-8 gap-y-5">
+                  {section.groups.map((group) => {
+                    const activeChild =
+                      activeDesktopDropdownGroupKey === group.key
+                        ? group.children.find((child) => child.key === activeDesktopDropdownChildKey) || null
+                        : null;
+                    const showRootProducts =
+                      activeDesktopDropdownGroupKey === group.key
+                      && activeDesktopDropdownChildKey === "__self__"
+                      && group.children.length === 0
+                      && group.products.length > 0;
+
+                    return (
+                      <div key={group.key} className="min-w-[180px] flex-1 basis-[220px]">
+                        <div
+                          className="min-w-0"
+                          onMouseEnter={() => {
+                            if (group.children.length === 0 && group.products.length > 0) {
+                              setActiveDesktopDropdownGroupKey(group.key);
+                              setActiveDesktopDropdownChildKey("__self__");
+                            }
+                          }}
+                          onFocus={() => {
+                            if (group.children.length === 0 && group.products.length > 0) {
+                              setActiveDesktopDropdownGroupKey(group.key);
+                              setActiveDesktopDropdownChildKey("__self__");
+                            }
+                          }}
+                        >
+                          <Link
+                            to={group.href}
+                            className="inline-flex items-center text-sm font-semibold transition-colors hover:text-primary"
+                            style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
+                          >
+                            {group.label}
+                          </Link>
+                        </div>
+
+                        {group.children.length > 0 && (
+                          <div
+                            className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2"
+                            onMouseLeave={() => {
+                              if (activeDesktopDropdownGroupKey === group.key) {
+                                setActiveDesktopDropdownGroupKey(null);
+                                setActiveDesktopDropdownChildKey(null);
+                              }
+                            }}
+                          >
+                            {group.children.map((child) => {
+                              const isActive = activeChild?.key === child.key;
+
+                              return (
+                                <button
+                                  key={child.key}
+                                  type="button"
+                                  className="dropdown-product-link h-auto cursor-pointer rounded-md px-0 py-1 text-left text-xs font-medium transition-colors hover:text-primary focus:text-primary"
+                                  style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
+                                  onMouseEnter={() => {
+                                    setActiveDesktopDropdownGroupKey(group.key);
+                                    setActiveDesktopDropdownChildKey(child.key);
+                                  }}
+                                  onFocus={() => {
+                                    setActiveDesktopDropdownGroupKey(group.key);
+                                    setActiveDesktopDropdownChildKey(child.key);
+                                  }}
+                                  onClick={() => {
+                                    setActiveDesktopDropdownGroupKey(group.key);
+                                    setActiveDesktopDropdownChildKey(child.key);
+                                  }}
+                                >
+                                  <span className={isActive ? "text-primary" : undefined}>{child.label}</span>
+                                </button>
+                              );
+                            })}
+
+                            <div
+                              aria-hidden={!activeChild}
+                              className="mt-3 w-full overflow-hidden border-t border-black/5 pt-3 transition-all duration-500 ease-out"
+                              style={{
+                                maxHeight: activeChild ? "520px" : "0px",
+                                opacity: activeChild ? 1 : 0,
+                                transform: activeChild ? "translateY(0)" : "translateY(-6px)",
+                                paddingTop: activeChild ? "0.75rem" : "0rem",
+                                pointerEvents: activeChild ? "auto" : "none",
+                              }}
+                            >
+                              {activeChild && (
+                                <>
+                                  <div className="mb-2 flex items-center justify-between gap-3">
+                                    <p className="text-xs font-medium text-muted-foreground">
+                                      Produkter i {activeChild.label}
+                                    </p>
+                                    <Link to={activeChild.href} className="text-xs font-medium text-primary transition-colors hover:text-primary/80">
+                                      Se alle
+                                    </Link>
+                                  </div>
+                                  <div className="grid gap-x-4 gap-y-2 md:grid-cols-2">
+                                    {activeChild.products.map((product) => (
+                                      <Link
+                                        key={product.key}
+                                        to={product.href}
+                                        className="dropdown-product-link flex items-center gap-3 rounded-md px-1 py-1.5 transition-all duration-200 hover:translate-x-0.5"
+                                      >
+                                        {product.imageUrl ? (
+                                          <img
+                                            src={getProductImage(product.productSlug, product.imageUrl)}
+                                            alt={product.label}
+                                            className="h-10 w-10 shrink-0 object-contain"
+                                            style={{ filter: "var(--product-filter)" }}
+                                          />
+                                        ) : (
+                                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-black/5">
+                                            <ProductCategoryIcon slug={product.productSlug} category={product.category} packId={selectedIconPackId} className="h-4 w-4" />
+                                          </div>
+                                        )}
+                                        <div className="min-w-0">
+                                          <p className="truncate text-sm font-medium" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>
+                                            {product.label}
+                                          </p>
+                                          <p className="truncate text-[11px] text-muted-foreground">{product.category}</p>
+                                        </div>
+                                      </Link>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {group.children.length === 0 && group.products.length > 0 && (
+                          <div
+                            aria-hidden={!showRootProducts}
+                            className="mt-3 overflow-hidden border-t border-black/5 pt-3 transition-all duration-500 ease-out"
+                            style={{
+                              maxHeight: showRootProducts ? "520px" : "0px",
+                              opacity: showRootProducts ? 1 : 0,
+                              transform: showRootProducts ? "translateY(0)" : "translateY(-6px)",
+                              paddingTop: showRootProducts ? "0.75rem" : "0rem",
+                              pointerEvents: showRootProducts ? "auto" : "none",
+                            }}
+                          >
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                              <p className="text-xs font-medium text-muted-foreground">Produkter i {group.label}</p>
+                              <Link to={group.href} className="text-xs font-medium text-primary transition-colors hover:text-primary/80">
+                                Se alle
+                              </Link>
+                            </div>
+                            <div className="grid gap-x-4 gap-y-2 md:grid-cols-2">
+                              {group.products.map((product) => (
+                                <Link
+                                  key={product.key}
+                                  to={product.href}
+                                  className="dropdown-product-link flex items-center gap-3 rounded-md px-1 py-1.5 transition-all duration-200 hover:translate-x-0.5"
+                                >
+                                  {product.imageUrl ? (
+                                    <img
+                                      src={getProductImage(product.productSlug, product.imageUrl)}
+                                      alt={product.label}
+                                      className="h-10 w-10 shrink-0 object-contain"
+                                      style={{ filter: 'var(--product-filter)' }}
+                                    />
+                                  ) : (
+                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-black/5">
+                                      <ProductCategoryIcon slug={product.productSlug} category={product.category} packId={selectedIconPackId} className="h-4 w-4" />
+                                    </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>
+                                      {product.label}
+                                    </p>
+                                    <p className="truncate text-[11px] text-muted-foreground">{product.category}</p>
+                                  </div>
+                                </Link>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : groupedProductSections.map((section) => (
+          <div key={section.key} className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}>
+            <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>
+              {section.label}
+            </h3>
+            {(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? (
+              <div
+                className="grid gap-2"
+                style={{
+                  gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(section.items.length / 2))}, 1fr)`,
+                  gridTemplateRows: 'repeat(2, 1fr)',
+                }}
+              >
+                {section.items.map((item) => (
+                  <DropdownMenuItem key={item.key} asChild>
+                    <Link to={item.href} className="dropdown-product-link cursor-pointer flex flex-col items-center gap-2 p-3 transition-all hover:scale-105 rounded-md">
+                      {item.imageUrl && (
+                        <img src={getProductImage(item.productSlug, item.imageUrl)} alt={item.label} className="w-14 h-14 object-contain" style={{ filter: 'var(--product-filter)' }} />
+                      )}
+                      {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-center" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>
+                          <ProductCategoryIcon slug={item.productSlug} category={item.category} packId={selectedIconPackId} className="h-4 w-4" />
+                          <span className={item.depth > 0 ? "opacity-80" : ""}>{item.depth > 0 ? `- ${item.label}` : item.label}</span>
+                        </span>
+                      )}
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col">
+                {section.items.map((item) => (
+                  <DropdownMenuItem key={item.key} asChild>
+                    <Link
+                      to={item.href}
+                      className="dropdown-product-link cursor-pointer px-2 py-1.5 text-sm transition-colors rounded inline-flex items-center gap-2"
+                      style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
+                    >
+                      <ProductCategoryIcon slug={item.productSlug} category={item.category} packId={selectedIconPackId} />
+                      <span className={item.depth > 0 ? "pl-3 opacity-80" : ""}>{item.label}</span>
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
+
 const FALLBACK_OVERVIEW_ID = "__default_overview__";
 const FALLBACK_OVERVIEW_NAME = "Produkter";
 
@@ -106,6 +754,7 @@ const isMissingCategoryHierarchyColumns = (error: unknown) => {
 const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [allProducts, setAllProducts] = useState<DbProduct[]>([]);
   const [productCategoryRows, setProductCategoryRows] = useState<ProductCategoryRecord[]>([]);
   const [productOverviews, setProductOverviews] = useState<ProductOverviewRecord[]>([]);
@@ -114,11 +763,6 @@ const Header = () => {
   const { toast } = useToast();
   const { isAdmin } = useUserRole();
   const { language, setLanguage, t } = useLanguage();
-
-  // Search state
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Scroll state for header behaviors
   const [scrollY, setScrollY] = useState(0);
@@ -469,6 +1113,71 @@ const Header = () => {
     return appendStorefrontTenantContext(`/produkter?${params.toString()}`);
   }, []);
 
+  const toDesktopMenuProduct = useCallback((product: DbProduct): HeaderProductMenuProduct => ({
+    key: `product:${product.id}`,
+    label: getProductLabel(product),
+    href: appendStorefrontTenantContext(`/produkt/${product.slug}`),
+    imageUrl: product.image_url,
+    productSlug: product.slug,
+    category: product.category,
+  }), []);
+
+  const desktopProductSections = useMemo<HeaderDesktopMenuSection[]>(() => {
+    if (!taxonomyEnabled) return [];
+
+    return visibleOverviews
+      .map((overview) => {
+        const groups = normalizedTaxonomyCategories
+          .filter(
+            (category) =>
+              category.overview_id === overview.id
+              && !category.parent_category_id
+              && (branchProductsByCategoryId.get(category.id) || []).length > 0,
+          )
+          .map((rootCategory) => {
+            const rootBranchProducts = branchProductsByCategoryId.get(rootCategory.id) || [];
+            const rootChildren = (childrenByParentId.get(rootCategory.id) || [])
+              .filter((childCategory) => (branchProductsByCategoryId.get(childCategory.id) || []).length > 0)
+              .map((childCategory) => {
+                const childProducts = branchProductsByCategoryId.get(childCategory.id) || [];
+                return {
+                  key: `subcategory:${childCategory.id}`,
+                  label: childCategory.name,
+                  href: buildProductsMenuHref(overview, rootCategory, childCategory),
+                  count: childProducts.length,
+                  products: childProducts.slice(0, 8).map(toDesktopMenuProduct),
+                };
+              });
+
+            return {
+              key: `category:${rootCategory.id}`,
+              label: rootCategory.name,
+              href: buildProductsMenuHref(overview, rootCategory),
+              count: rootBranchProducts.length,
+              imageUrl: rootBranchProducts[0]?.image_url || null,
+              products: rootBranchProducts.slice(0, 8).map(toDesktopMenuProduct),
+              children: rootChildren,
+            };
+          })
+          .filter((group) => group.products.length > 0 || group.children.length > 0);
+
+        return {
+          key: overview.id,
+          label: overview.name,
+          groups,
+        };
+      })
+      .filter((section) => section.groups.length > 0);
+  }, [
+    branchProductsByCategoryId,
+    buildProductsMenuHref,
+    childrenByParentId,
+    normalizedTaxonomyCategories,
+    taxonomyEnabled,
+    toDesktopMenuProduct,
+    visibleOverviews,
+  ]);
+
   const groupedProductSections = useMemo<HeaderProductMenuSection[]>(() => {
     if (!allProducts.length) return [];
 
@@ -590,6 +1299,7 @@ const Header = () => {
   const masterDemoPath = isLocalhostDemo
     ? "/shop?tenantId=00000000-0000-0000-0000-000000000000"
     : "/shop";
+  const usesRichDropdownMenu = desktopProductSections.length > 0;
 
   const navItems = [
     { label: t("home"), path: "/" },
@@ -602,10 +1312,18 @@ const Header = () => {
   ];
 
   useEffect(() => {
-    // Fetch published products from database based on RESOLVED TENANT ID
-    async function fetchProducts() {
-      if (settings.isLoading) return;
+    // Prevent stale tenant products/categories from flashing in the header dropdown
+    // while storefront tenant resolution is still using placeholder data.
+    if (settings.isLoading || settings.isPlaceholderData || !settings.data?.id) {
+      setAllProducts([]);
+      setProductCategoryRows([]);
+      setProductOverviews([]);
+      return;
+    }
 
+    let cancelled = false;
+
+    async function fetchProducts() {
       const [productsResponse, hierarchyCategoriesResponse, fallbackCategoriesResponse, overviewsResponse] = await Promise.all([
         (supabase
           .from('products') as any)
@@ -630,6 +1348,8 @@ const Header = () => {
           .eq('tenant_id', tenantId)
           .order('sort_order', { ascending: true }),
       ]);
+
+      if (cancelled) return;
 
       let categoryRows: ProductCategoryRecord[] = [];
       if (!hierarchyCategoriesResponse.error) {
@@ -667,38 +1387,33 @@ const Header = () => {
           };
         });
         setAllProducts(mappedProducts);
+      } else {
+        setAllProducts([]);
       }
     }
+
     fetchProducts();
-  }, [tenantId, settings.isLoading]); // Re-run when tenantId changes
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId, settings.data?.id, settings.isLoading, settings.isPlaceholderData]); // Re-run when tenant context is fully resolved
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+      setAuthReady(true);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      setAuthReady(true);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Close search when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      // Check if click is outside the search area
-      if (searchOpen && !target.closest('.search-container')) {
-        handleSearchClose();
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [searchOpen]);
-
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     const { error } = await supabase.auth.signOut();
     if (error) {
       toast({
@@ -712,7 +1427,7 @@ const Header = () => {
         description: t("loggedOut"),
       });
     }
-  };
+  }, [t, toast]);
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -729,28 +1444,6 @@ const Header = () => {
       window.location.assign(resolvedHref);
     }
   }, [location.pathname, navigate]);
-
-  // Search functionality
-  const filteredProducts = allProducts.filter(product =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (product.icon_text || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (product.category && product.category.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
-
-  const handleSearchToggle = () => {
-    setSearchOpen(!searchOpen);
-    setSearchQuery('');
-    // Focus input when opening
-    if (!searchOpen) {
-      setTimeout(() => searchInputRef.current?.focus(), 150);
-    }
-  };
-
-  const handleSearchClose = () => {
-    setSearchOpen(false);
-    setSearchQuery('');
-  };
 
   // Build position class - let inline styles control position for hero pages
   // const positionClass = isHome ? '' : (headerSettings.scroll.sticky ? 'sticky top-0' : 'relative');
@@ -904,102 +1597,23 @@ const Header = () => {
 
                 if (isProductLink) {
                   return (
-                    <DropdownMenu key={item.id}>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          className="header-nav-link text-sm font-medium inline-flex items-center gap-1"
-                          style={{
-                            color: selectedMenuId === item.id
-                              ? (headerSettings.activeTextColor || '#0284C7')
-                              : (headerSettings.textColor || '#1F2937')
-                          }}
-                          onClick={() => setSelectedMenuId(item.id)}
-                        >
-                          {item.label}
-                          <ChevronDown className="h-4 w-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="start"
-                        className={`backdrop-blur-sm z-50 ${headerSettings.dropdownShowBorder !== false ? 'border shadow-xl' : 'border-0 shadow-none'} ${(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT')
-                          ? 'min-w-[600px] max-w-4xl p-4'
-                          : 'min-w-[200px] p-2'
-                          } animate-in fade-in-0 slide-in-from-top-2 duration-200`}
-                        style={getDropdownStyles()}
-                      >
-                        {groupedProductSections.map((section) => (
-                          <div
-                            key={section.key}
-                            className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}
-                          >
-                            <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>
-                              {section.label}
-                            </h3>
-                            {(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? (
-                              <div
-                                className="grid gap-2"
-                                style={{
-                                  gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(section.items.length / 2))}, 1fr)`,
-                                  gridTemplateRows: 'repeat(2, 1fr)',
-                                }}
-                              >
-                                {section.items.map((item) => (
-                                  <DropdownMenuItem key={item.key} asChild>
-                                    <Link
-                                      to={item.href}
-                                      className="dropdown-product-link cursor-pointer flex flex-col items-center gap-2 p-3 transition-all hover:scale-105 rounded-md"
-                                    >
-                                      {item.imageUrl && (
-                                        <img
-                                          src={getProductImage(item.productSlug, item.imageUrl)}
-                                          alt={item.label}
-                                          className="w-14 h-14 object-contain"
-                                          style={{ filter: 'var(--product-filter)' }}
-                                        />
-                                      )}
-                                      {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
-                                        <span className="inline-flex items-center gap-1.5 text-xs text-center" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>
-                                          <ProductCategoryIcon
-                                            slug={item.productSlug}
-                                            category={item.category}
-                                            packId={selectedIconPackId}
-                                            className="h-4 w-4"
-                                          />
-                                          <span className={item.depth > 0 ? "opacity-80" : ""}>
-                                            {item.depth > 0 ? `- ${item.label}` : item.label}
-                                          </span>
-                                        </span>
-                                      )}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="flex flex-col">
-                                {section.items.map((item) => (
-                                  <DropdownMenuItem key={item.key} asChild>
-                                    <Link
-                                      to={item.href}
-                                      className="dropdown-product-link cursor-pointer px-2 py-1.5 text-sm transition-colors rounded inline-flex items-center gap-2"
-                                      style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
-                                    >
-                                      <ProductCategoryIcon
-                                        slug={item.productSlug}
-                                        category={item.category}
-                                        packId={selectedIconPackId}
-                                      />
-                                      <span className={item.depth > 0 ? "pl-3 opacity-80" : ""}>
-                                        {item.label}
-                                      </span>
-                                    </Link>
-                                  </DropdownMenuItem>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <DesktopProductsDropdown
+                      key={item.id}
+                      itemId={item.id}
+                      itemLabel={item.label}
+                      isSelected={selectedMenuId === item.id}
+                      onSelect={() => setSelectedMenuId(item.id)}
+                      headerSettings={headerSettings}
+                      usesRichDropdownMenu={usesRichDropdownMenu}
+                      desktopProductSections={desktopProductSections}
+                      groupedProductSections={groupedProductSections}
+                      getDropdownStyles={getDropdownStyles}
+                      categoryColor={categoryColor}
+                      categoryFont={categoryFont}
+                      productColor={productColor}
+                      productFont={productFont}
+                      selectedIconPackId={selectedIconPackId}
+                    />
                   );
                 }
 
@@ -1022,218 +1636,24 @@ const Header = () => {
           </nav>
 
           {/* Right Side Actions */}
-          <div className="flex items-center gap-3">
-            {/* Animated Search Bar */}
-            <div className="hidden md:flex items-center relative search-container">
-              {/* Search Input - Animated */}
-              <div
-                className={`flex items-center overflow-hidden transition-all duration-300 ease-in-out ${searchOpen
-                  ? 'w-64 opacity-100 mr-2'
-                  : 'w-0 opacity-0'
-                  }`}
-              >
-                <div className="relative w-full">
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    placeholder="Søg produkter..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') handleSearchClose();
-                    }}
-                    className="w-full h-9 px-3 pr-8 rounded-lg border border-border bg-background/80 backdrop-blur-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    style={{ color: '#1F2937' }}
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground header-action-link"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Search Results Dropdown */}
-              {searchOpen && searchQuery && (
-                <div className="absolute top-full right-0 mt-2 w-72 max-h-80 overflow-y-auto bg-card rounded-lg shadow-lg border border-border z-50">
-                  {filteredProducts.length > 0 ? (
-                    <div className="p-2">
-                      <p className="text-xs text-muted-foreground px-2 py-1">
-                        {filteredProducts.length} produkt{filteredProducts.length !== 1 ? 'er' : ''} fundet
-                      </p>
-                      {filteredProducts.map((product) => (
-                        <Link
-                          key={product.id}
-                          to={appendStorefrontTenantContext(`/produkt/${product.slug}`)}
-                          onClick={handleSearchClose}
-                          className="flex items-center gap-3 p-2 rounded-md hover:bg-muted transition-colors"
-                        >
-                          {product.image_url && (
-                            <img
-                              src={getProductImage(product.slug, product.image_url)}
-                              alt={product.name}
-                              className="w-10 h-10 object-cover rounded"
-                              style={{ filter: 'var(--product-filter)' }}
-                            />
-                          )}
-                          <ProductCategoryIcon
-                            slug={product.slug}
-                            category={product.category}
-                            packId={selectedIconPackId}
-                            className="h-5 w-5"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{product.name}</p>
-                            <p className="text-xs text-muted-foreground capitalize">{product.category}</p>
-                          </div>
-                        </Link>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-4 text-center text-sm text-muted-foreground">
-                      Ingen produkter fundet for "{searchQuery}"
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Search Toggle Button */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleSearchToggle}
-                className="header-action-link"
-              >
-                {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
-              </Button>
-            </div>
-
-            {/* Language Switcher */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="hidden md:flex header-action-link">
-                  {/* Danish Flag (Dannebrog) or current language flag */}
-                  {language === 'da' ? (
-                    <svg className="h-5 w-5 rounded-sm" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <rect width="20" height="14" fill="#C8102E" />
-                      <rect x="6" width="2" height="14" fill="white" />
-                      <rect y="6" width="20" height="2" fill="white" />
-                    </svg>
-                  ) : (
-                    <svg className="h-5 w-5 rounded-sm" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <rect width="20" height="14" fill="#012169" />
-                      <path d="M0 0L20 14M20 0L0 14" stroke="white" strokeWidth="2.5" />
-                      <path d="M0 0L20 14M20 0L0 14" stroke="#C8102E" strokeWidth="1.5" />
-                      <path d="M10 0V14M0 7H20" stroke="white" strokeWidth="4" />
-                      <path d="M10 0V14M0 7H20" stroke="#C8102E" strokeWidth="2" />
-                    </svg>
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-36 bg-card z-50">
-                <DropdownMenuItem
-                  onClick={() => setLanguage("da")}
-                  className={`flex items-center gap-2 ${language === "da" ? "bg-muted" : ""}`}
-                >
-                  <svg className="h-4 w-4 rounded-sm shrink-0" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect width="20" height="14" fill="#C8102E" />
-                    <rect x="6" width="2" height="14" fill="white" />
-                    <rect y="6" width="20" height="2" fill="white" />
-                  </svg>
-                  Dansk
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setLanguage("en")}
-                  className={`flex items-center gap-2 ${language === "en" ? "bg-muted" : ""}`}
-                >
-                  <svg className="h-4 w-4 rounded-sm shrink-0" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect width="20" height="14" fill="#012169" />
-                    <path d="M0 0L20 14M20 0L0 14" stroke="white" strokeWidth="2.5" />
-                    <path d="M0 0L20 14M20 0L0 14" stroke="#C8102E" strokeWidth="1.5" />
-                    <path d="M10 0V14M0 7H20" stroke="white" strokeWidth="4" />
-                    <path d="M10 0V14M0 7H20" stroke="#C8102E" strokeWidth="2" />
-                  </svg>
-                  English
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* CTA Button - only show when enabled in settings */}
-            {headerSettings.cta?.enabled && (
-              <Button
-                asChild
-                className="hidden md:flex header-cta-button"
-                style={{
-                  color: headerSettings.cta.textColor || '#FFFFFF',
-                }}
-              >
-                <Link to={appendStorefrontTenantContext(headerSettings.cta.href || '/kontakt')} className="no-link-color">
-                  {headerSettings.cta.label || t("orderNow")}
-                </Link>
-              </Button>
-            )}
-
-            {/* Auth Buttons - Desktop */}
-            {user ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="hidden md:flex items-center gap-2 header-action-link">
-                    <User className="h-4 w-4" />
-                    {user.email}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 bg-card">
-                  <DropdownMenuItem asChild>
-                    <Link to={appendStorefrontTenantContext("/min-konto")} className="cursor-pointer">
-                      <User className="h-4 w-4 mr-2" />
-                      Min Konto
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link to={appendStorefrontTenantContext("/min-konto/ordrer")} className="cursor-pointer">
-                      <Package className="h-4 w-4 mr-2" />
-                      Mine Ordrer
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link to={appendStorefrontTenantContext("/min-konto/adresser")} className="cursor-pointer">
-                      <MapPin className="h-4 w-4 mr-2" />
-                      Adresser
-                    </Link>
-                  </DropdownMenuItem>
-                  {isAdmin && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem asChild>
-                        <Link to="/admin" className="cursor-pointer">
-                          <Shield className="h-4 w-4 mr-2" />
-                          {t("adminPanel")}
-                        </Link>
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive">
-                    <LogOut className="h-4 w-4 mr-2" />
-                    {t("logout")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Button
-                asChild
-                size="sm"
-                className="header-cta-button shadow-none"
-                style={{
-                  color: headerSettings.cta.textColor || '#FFFFFF',
-                }}
-              >
-                <Link to={appendStorefrontTenantContext("/auth")} className="no-link-color">{t("login")}</Link>
-              </Button>
-            )}
+          <div className="relative z-[1210] flex items-center gap-3">
+            <DesktopHeaderActions
+              allProducts={allProducts}
+              authReady={authReady}
+              user={user}
+              isAdmin={isAdmin}
+              language={language}
+              setLanguage={setLanguage}
+              ctaEnabled={Boolean(headerSettings.cta?.enabled)}
+              ctaLabel={headerSettings.cta?.label || t("orderNow")}
+              ctaHref={headerSettings.cta?.href || "/kontakt"}
+              ctaTextColor={headerSettings.cta?.textColor || "#FFFFFF"}
+              handleLogout={handleLogout}
+              selectedIconPackId={selectedIconPackId}
+              loginLabel={t("login")}
+              adminPanelLabel={t("adminPanel")}
+              logoutLabel={t("logout")}
+            />
 
             {/* Mobile Menu Button */}
             <Button

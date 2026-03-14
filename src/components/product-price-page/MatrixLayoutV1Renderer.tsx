@@ -20,6 +20,7 @@ import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { readTransientString, writeTransientString } from "@/lib/storage/transientStorage";
+import { fetchPricingRead } from "@/lib/api/pricingRead";
 
 // Types from pricing structure
 interface VerticalAxisConfig {
@@ -87,6 +88,7 @@ interface PreparedPriceRow {
     verticalIds: string[];
     variantName: string;
     variantNameNorm: string;
+    variantNameLooseNorm: string;
     selectionMapFormat: string | null;
     selectionMapMaterial: string | null;
     selectionMapVariantSortedKey: string;
@@ -117,8 +119,100 @@ const CACHE_TTL_MS = 120_000;
 const PERSISTED_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PRICE_PAGE_SIZE = 500;
 const PRICE_PAGE_FALLBACK_SIZES = [PRICE_PAGE_SIZE, 250, 100, 50, 25] as const;
+const PRICING_SHADOW_READ_ENABLED = false;
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const normalizeLooseText = (value?: string | null): string => {
+    return String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/\buv[\s-]*varnish\b/g, "uv lak")
+        .replace(/\buv[\s-]*lak\b/g, "uv lak")
+        .replace(/\bgloss(?:y)?\b/g, "glans")
+        .replace(/\bmatte\b/g, "matt")
+        .replace(/\bmat\b/g, "matt")
+        .replace(/\b(?:cashiering|cachering|kachering|kachering|kashering|kasjering)\b/g, "kashering")
+        .replace(/[^a-z0-9+]+/g, " ")
+        .trim();
+};
+
+const normalizeLooseVariantKey = (value?: string | null): string => {
+    return String(value || "")
+        .split("|")
+        .map((part) => normalizeLooseText(part))
+        .filter(Boolean)
+        .sort()
+        .join("|");
+};
+
+const RESERVED_SELECTION_MAP_KEYS = new Set([
+    "format",
+    "material",
+    "variant",
+    "variantvalueids",
+    "formatid",
+    "materialid",
+]);
+
+const collectSelectionMapVariantIds = (
+    selectionMap: any,
+    options?: {
+        allowedIds?: Set<string>;
+        excludedIds?: Set<string>;
+    }
+): string[] => {
+    const allowedIds = options?.allowedIds;
+    const excludedIds = options?.excludedIds;
+
+    const rawValues = [
+        ...(Array.isArray(selectionMap?.variantValueIds) ? selectionMap.variantValueIds : []),
+        ...Object.entries(selectionMap || {}).flatMap(([key, value]) => {
+            const normalizedKey = key.toLowerCase();
+            if (RESERVED_SELECTION_MAP_KEYS.has(normalizedKey)) {
+                return [];
+            }
+            if (Array.isArray(value)) {
+                return value.map((entry) => String(entry));
+            }
+            if (typeof value === "string" || typeof value === "number") {
+                return [String(value)];
+            }
+            return [];
+        }),
+    ]
+        .filter(Boolean)
+        .map((value) => String(value).trim())
+        .filter(Boolean);
+
+    return Array.from(
+        new Set(
+            rawValues.filter((valueId) => {
+                if (excludedIds?.has(valueId)) return false;
+                if (allowedIds && allowedIds.size > 0) {
+                    return allowedIds.has(valueId);
+                }
+                return true;
+            })
+        )
+    );
+};
+
+const collectLegacyVariantIds = (extra: any): string[] => {
+    return [
+        extra?.printModeId,
+        extra?.uvLakId,
+        extra?.kacheringId,
+        extra?.glossCachingId,
+        extra?.surfaceId,
+        extra?.foldId,
+        extra?.pagesId,
+        extra?.orientationId,
+    ]
+        .filter(Boolean)
+        .map((value) => String(value));
+};
 
 const hexToRgba = (color: string, alpha: number): string => {
     const normalized = String(color || "").trim();
@@ -370,6 +464,7 @@ export function MatrixLayoutV1Renderer({
     const lastNotifiedCellRef = useRef<string>("");
     const lastLoadedProductIdRef = useRef<string | null>(null);
     const lastVariantProductIdRef = useRef<string | null>(null);
+    const pricingShadowSignatureRef = useRef<string>("");
 
     const pictureButtonsConfig = useMemo(() => {
         const cfg = activeBranding?.productPage?.matrix?.pictureButtons || {};
@@ -484,6 +579,54 @@ export function MatrixLayoutV1Renderer({
         return map;
     }, [pricingStructure]);
 
+    const formatValueIdSet = useMemo(() => {
+        const ids = new Set<string>();
+        if (pricingStructure.vertical_axis.sectionType === "formats") {
+            (pricingStructure.vertical_axis.valueIds || []).forEach((valueId) => ids.add(String(valueId)));
+        }
+        pricingStructure.layout_rows.forEach((row) => {
+            row.columns.forEach((col) => {
+                if (col.sectionType === "formats") {
+                    (col.valueIds || []).forEach((valueId) => ids.add(String(valueId)));
+                }
+            });
+        });
+        return ids;
+    }, [pricingStructure]);
+
+    const materialValueIdSet = useMemo(() => {
+        const ids = new Set<string>();
+        if (pricingStructure.vertical_axis.sectionType === "materials") {
+            (pricingStructure.vertical_axis.valueIds || []).forEach((valueId) => ids.add(String(valueId)));
+        }
+        pricingStructure.layout_rows.forEach((row) => {
+            row.columns.forEach((col) => {
+                if (col.sectionType === "materials") {
+                    (col.valueIds || []).forEach((valueId) => ids.add(String(valueId)));
+                }
+            });
+        });
+        return ids;
+    }, [pricingStructure]);
+
+    const nonVerticalSelectorValueIdSet = useMemo(() => {
+        const ids = new Set<string>();
+        pricingStructure.layout_rows.forEach((row) => {
+            row.columns.forEach((col) => {
+                if (col.id === pricingStructure.vertical_axis.sectionId) return;
+                (col.valueIds || []).forEach((valueId) => ids.add(String(valueId)));
+            });
+        });
+        return ids;
+    }, [pricingStructure]);
+
+    const nonVerticalExcludedValueIdSet = useMemo(() => {
+        return new Set<string>([
+            ...Array.from(formatValueIdSet),
+            ...Array.from(materialValueIdSet),
+        ]);
+    }, [formatValueIdSet, materialValueIdSet]);
+
     const isOptionalSectionId = useCallback((sectionId: string) => {
         return selectionModeById[sectionId] === 'optional';
     }, [selectionModeById]);
@@ -567,6 +710,7 @@ export function MatrixLayoutV1Renderer({
         variantKey: string;
         variantKeyNorm?: string;
         variantValueIds: string[];
+        variantDisplayParts?: { valueId: string; label: string }[];
         formatId?: string;
         materialId?: string;
         verticalValueId?: string | null;
@@ -583,10 +727,24 @@ export function MatrixLayoutV1Renderer({
             effectiveSelectedIds = effectiveSelectedIds.filter(id => id !== args.materialId);
         }
 
+        let effectiveDisplayParts = args.variantDisplayParts || [];
+        if (row.selectionMapFormat && args.formatId) {
+            effectiveDisplayParts = effectiveDisplayParts.filter(entry => entry.valueId !== args.formatId);
+        }
+        if (row.selectionMapMaterial && args.materialId) {
+            effectiveDisplayParts = effectiveDisplayParts.filter(entry => entry.valueId !== args.materialId);
+        }
+
         const matchesSelectionMap =
             (row.selectionMapFormat ? row.selectionMapFormat === args.formatId : true) &&
             (row.selectionMapMaterial ? row.selectionMapMaterial === args.materialId : true) &&
             (row.variantValueIdsNorm === normalizeVariantKey(effectiveSelectedIds.join('|')));
+
+        const selectedDisplayKeyNorm = normalizeLooseVariantKey(
+            effectiveDisplayParts.map(entry => entry.label).join('|')
+        );
+        const matchesLegacyDisplayNames =
+            !!selectedDisplayKeyNorm && row.variantNameLooseNorm === selectedDisplayKeyNorm;
 
         const matchesVariant =
             args.variantKey === 'none'
@@ -594,7 +752,8 @@ export function MatrixLayoutV1Renderer({
                 : row.variantName === args.variantKey
                 || row.variantNameNorm === (args.variantKeyNorm || normalizeVariantKey(args.variantKey))
                 || (row.selectionMapVariantSortedKey === args.variantKey)
-                || matchesSelectionMap;
+                || matchesSelectionMap
+                || matchesLegacyDisplayNames;
 
         const matchesQuantity = args.quantity == null || row.quantity === args.quantity;
         return matchesVertical && matchesVariant && matchesQuantity;
@@ -656,24 +815,6 @@ export function MatrixLayoutV1Renderer({
         });
     }, [pricingStructure, isOptionalSectionId]);
 
-    const computeVariantKey = useMemo(() => {
-        return buildVariantKeyFromSelections(selectedSectionValues);
-    }, [buildVariantKeyFromSelections, selectedSectionValues]);
-
-    const selectedVariantKey = computeVariantKey;
-    const selectedVariantValueIds = useMemo(() => {
-        return selectedVariantKey === 'none'
-            ? []
-            : selectedVariantKey.split('|').filter(Boolean);
-    }, [selectedVariantKey]);
-
-    const selectedFormatMaterial = useMemo(() => {
-        return resolveFormatAndMaterialFromSelections(selectedSectionValues);
-    }, [resolveFormatAndMaterialFromSelections, selectedSectionValues]);
-
-    const selectedFormatId = selectedFormatMaterial.formatId;
-    const selectedMaterialId = selectedFormatMaterial.materialId;
-
     const preparePriceRows = useCallback((sourceRows: any[]): PreparedPriceRow[] => {
         return sourceRows
             .map((p): PreparedPriceRow | null => {
@@ -684,12 +825,28 @@ export function MatrixLayoutV1Renderer({
                 const extra = p.extra_data || {};
                 const selectionMap = extra.selectionMap || {};
                 const rawVariantName = (p.variant_name || '') as string;
+                const selectionMapVariantValueIds = collectSelectionMapVariantIds(selectionMap, {
+                    allowedIds: nonVerticalSelectorValueIdSet,
+                    excludedIds: nonVerticalExcludedValueIdSet,
+                });
+                const extraVariantValueIds = (Array.isArray(extra.variantValueIds) ? extra.variantValueIds : [])
+                    .filter(Boolean)
+                    .map((value) => String(value))
+                    .filter((valueId) => !nonVerticalExcludedValueIdSet.has(valueId))
+                    .filter((valueId) => nonVerticalSelectorValueIdSet.has(valueId));
+                const legacyVariantIds = collectLegacyVariantIds(extra)
+                    .filter((valueId) => !nonVerticalExcludedValueIdSet.has(valueId))
+                    .filter((valueId) => nonVerticalSelectorValueIdSet.has(valueId));
 
-                const rawVariantValueIds = Array.isArray(selectionMap.variantValueIds)
-                    ? selectionMap.variantValueIds
-                    : Array.isArray(extra.variantValueIds)
-                        ? extra.variantValueIds
-                        : [];
+                const rawVariantValueIds = Array.from(new Set(
+                    [
+                        ...selectionMapVariantValueIds,
+                        ...extraVariantValueIds,
+                        ...legacyVariantIds,
+                    ]
+                        .filter(Boolean)
+                        .map((value) => String(value))
+                ));
 
                 const verticalIds = Array.from(new Set(
                     [p.variant_value, extra.verticalAxisValueId, extra.formatId, extra.materialId]
@@ -704,16 +861,17 @@ export function MatrixLayoutV1Renderer({
                     verticalIds,
                     variantName: rawVariantName,
                     variantNameNorm: normalizeVariantKey(rawVariantName),
-                    selectionMapFormat: selectionMap.format ? String(selectionMap.format) : null,
-                    selectionMapMaterial: selectionMap.material ? String(selectionMap.material) : null,
-                    selectionMapVariantSortedKey: Array.isArray(selectionMap.variantValueIds)
-                        ? selectionMap.variantValueIds.slice().sort().join('|')
+                    variantNameLooseNorm: normalizeLooseVariantKey(rawVariantName),
+                    selectionMapFormat: selectionMap.format ? String(selectionMap.format) : (extra.formatId ? String(extra.formatId) : null),
+                    selectionMapMaterial: selectionMap.material ? String(selectionMap.material) : (extra.materialId ? String(extra.materialId) : null),
+                    selectionMapVariantSortedKey: selectionMapVariantValueIds.length > 0
+                        ? selectionMapVariantValueIds.slice().sort().join('|')
                         : '',
                     variantValueIdsNorm: normalizeVariantKey(rawVariantValueIds.join('|')),
                 };
             })
             .filter((row): row is PreparedPriceRow => row !== null);
-    }, [normalizeVariantKey]);
+    }, [nonVerticalExcludedValueIdSet, nonVerticalSelectorValueIdSet, normalizeVariantKey]);
 
     const availabilityPreparedPrices = useMemo(() => {
         return preparePriceRows(availabilityPrices);
@@ -725,6 +883,8 @@ export function MatrixLayoutV1Renderer({
         }
         return availabilityPreparedPrices;
     }, [variantPrices, availabilityPreparedPrices, preparePriceRows]);
+
+    const hasResolvedPriceRows = availabilityPreparedPrices.length > 0 || variantPrices.length > 0;
 
     const selectorSections = useMemo<SelectorSectionConfig[]>(() => {
         const sections: SelectorSectionConfig[] = [
@@ -750,6 +910,56 @@ export function MatrixLayoutV1Renderer({
 
         return sections;
     }, [pricingStructure, isHiddenColumn]);
+
+    const normalizeSelectionsForPricing = useCallback((selections: Record<string, string | null>) => {
+        const normalized = { ...selections };
+        const finishSectionsByGroup = new Map<string, string[]>();
+
+        selectorSections.forEach((section) => {
+            if (section.sectionType !== "finishes") return;
+            const groupKey = section.groupId || section.id;
+            const entries = finishSectionsByGroup.get(groupKey) || [];
+            entries.push(section.id);
+            finishSectionsByGroup.set(groupKey, entries);
+        });
+
+        finishSectionsByGroup.forEach((sectionIds) => {
+            const hasOptionalFinishSelected = sectionIds.some((sectionId) =>
+                isOptionalSectionId(sectionId) && !!normalized[sectionId]
+            );
+            if (!hasOptionalFinishSelected) return;
+
+            sectionIds.forEach((sectionId) => {
+                if (!isOptionalSectionId(sectionId)) {
+                    delete normalized[sectionId];
+                }
+            });
+        });
+
+        return normalized;
+    }, [isOptionalSectionId, selectorSections]);
+
+    const pricingSelectedSectionValues = useMemo(() => {
+        return normalizeSelectionsForPricing(selectedSectionValues);
+    }, [normalizeSelectionsForPricing, selectedSectionValues]);
+
+    const computeVariantKey = useMemo(() => {
+        return buildVariantKeyFromSelections(pricingSelectedSectionValues);
+    }, [buildVariantKeyFromSelections, pricingSelectedSectionValues]);
+
+    const selectedVariantKey = computeVariantKey;
+    const selectedVariantValueIds = useMemo(() => {
+        return selectedVariantKey === 'none'
+            ? []
+            : selectedVariantKey.split('|').filter(Boolean);
+    }, [selectedVariantKey]);
+
+    const selectedFormatMaterial = useMemo(() => {
+        return resolveFormatAndMaterialFromSelections(pricingSelectedSectionValues);
+    }, [pricingSelectedSectionValues, resolveFormatAndMaterialFromSelections]);
+
+    const selectedFormatId = selectedFormatMaterial.formatId;
+    const selectedMaterialId = selectedFormatMaterial.materialId;
 
     const sectionOrderById = useMemo(() => {
         const map: Record<string, number> = {};
@@ -867,11 +1077,22 @@ export function MatrixLayoutV1Renderer({
         const section = sectionById[sectionId];
         const groupName = (attributeGroups.find(group => group.id === section?.groupId)?.name || '').toLowerCase();
         const selectionMap = extra.selectionMap || {};
-        const variantValueIds = Array.isArray(selectionMap.variantValueIds)
-            ? selectionMap.variantValueIds.map((id: unknown) => String(id))
-            : Array.isArray(extra.variantValueIds)
-                ? extra.variantValueIds.map((id: unknown) => String(id))
-                : [];
+        const selectionMapVariantValueIds = collectSelectionMapVariantIds(selectionMap, {
+            allowedIds: nonVerticalSelectorValueIdSet,
+            excludedIds: nonVerticalExcludedValueIdSet,
+        });
+        const variantValueIds = Array.from(new Set(
+            [
+                ...selectionMapVariantValueIds,
+                ...(Array.isArray(extra.variantValueIds)
+                    ? extra.variantValueIds.map((id: unknown) => String(id))
+                    : []),
+                ...collectLegacyVariantIds(extra),
+            ]
+                .map((id) => String(id))
+                .filter((valueId) => !nonVerticalExcludedValueIdSet.has(valueId))
+                .filter((valueId) => nonVerticalSelectorValueIdSet.has(valueId))
+        ));
 
         if (sectionType === 'formats') {
             return row.selectionMapFormat || extra.formatId || null;
@@ -885,6 +1106,13 @@ export function MatrixLayoutV1Renderer({
         if (section?.valueIds?.length) {
             const matched = section.valueIds.find(valueId => variantValueIds.includes(String(valueId)));
             if (matched) return matched;
+        }
+
+        const directLegacyId = collectLegacyVariantIds(extra).find((valueId) =>
+            section?.valueIds?.includes(String(valueId))
+        );
+        if (directLegacyId) {
+            return directLegacyId;
         }
 
         // Legacy fallback path for older imports using explicit keys.
@@ -916,8 +1144,33 @@ export function MatrixLayoutV1Renderer({
             return extra.kacheringId || null;
         }
 
+        if (section?.valueIds?.length) {
+            const groupValues = attributeGroups.find(group => group.id === section.groupId)?.values || [];
+            const rowText = normalizeLooseText([
+                row.variantName,
+                row.raw?.variant_value,
+                JSON.stringify(extra || {}),
+            ].filter(Boolean).join(' | '));
+
+            if (rowText) {
+                const matchedByName = section.valueIds
+                    .map((valueId) => ({
+                        valueId,
+                        label: groupValues.find((value) => value.id === valueId)?.name || "",
+                    }))
+                    .filter((entry) => !!entry.label)
+                    .sort((a, b) => b.label.length - a.label.length)
+                    .find((entry) => {
+                        const candidate = normalizeLooseText(entry.label);
+                        return candidate.length >= 4 && rowText.includes(candidate);
+                    });
+
+                if (matchedByName) return matchedByName.valueId;
+            }
+        }
+
         return null;
-    }, [sectionTypeById, sectionById, attributeGroups]);
+    }, [sectionTypeById, sectionById, attributeGroups, nonVerticalExcludedValueIdSet, nonVerticalSelectorValueIdSet]);
 
     const mappableSectionIds = useMemo(() => {
         const ids = new Set<string>();
@@ -975,7 +1228,7 @@ export function MatrixLayoutV1Renderer({
             const ignoreVerticalSelection = section.id !== pricingStructure.vertical_axis.sectionId;
             const currentSectionOrder = sectionOrderById[section.id] ?? 0;
             const upstreamSelections = Object.fromEntries(
-                Object.entries(selectedSectionValues).filter(([selectedSectionId]) => {
+                Object.entries(pricingSelectedSectionValues).filter(([selectedSectionId]) => {
                     if (selectedSectionId === pricingStructure.vertical_axis.sectionId) return true;
                     if (selectedSectionId === section.id) return false;
                     return (sectionOrderById[selectedSectionId] ?? 0) < currentSectionOrder;
@@ -1007,7 +1260,7 @@ export function MatrixLayoutV1Renderer({
         mappableSectionIds,
         availabilityPreparedPrices,
         rowMatchesSelections,
-        selectedSectionValues,
+        pricingSelectedSectionValues,
         pricingStructure.vertical_axis.sectionId,
         getSectionValueIdForPreparedRow,
     ]);
@@ -1026,6 +1279,7 @@ export function MatrixLayoutV1Renderer({
 
             selectorSections.forEach(section => {
                 if (section.id === pricingStructure.vertical_axis.sectionId) return;
+                if (isOptionalSectionId(section.id)) return;
 
                 const available = availableValueIdsBySection[section.id];
                 if (!available || available.size === 0) return;
@@ -1042,7 +1296,7 @@ export function MatrixLayoutV1Renderer({
 
             return changed ? next : prev;
         });
-    }, [availableValueIdsBySection, availabilityLoading, pricingStructure.vertical_axis.sectionId, selectorSections]);
+    }, [availableValueIdsBySection, availabilityLoading, isOptionalSectionId, pricingStructure.vertical_axis.sectionId, selectorSections]);
 
     const priceIndexByVerticalQty = useMemo(() => {
         const index = new Map<string, PreparedPriceRow[]>();
@@ -1105,6 +1359,16 @@ export function MatrixLayoutV1Renderer({
         const sectionName = sectionId ? valueSettingsById[sectionId]?.[valueId]?.displayName?.trim() : "";
         return sectionName || fallback;
     }, [attributeValueById, pricingStructure.vertical_axis.sectionId, pricingStructure.vertical_axis.valueSettings, valueSettingsById]);
+
+    const selectedVariantDisplayParts = useMemo(() => {
+        return Object.entries(pricingSelectedSectionValues)
+            .filter(([sectionId, valueId]) => sectionId !== pricingStructure.vertical_axis.sectionId && !!valueId)
+            .map(([sectionId, valueId]) => ({
+                valueId: String(valueId),
+                label: getDisplayValueName(String(valueId), sectionId),
+            }))
+            .filter((entry) => !!entry.label);
+    }, [getDisplayValueName, pricingSelectedSectionValues, pricingStructure.vertical_axis.sectionId]);
 
     const sortValuesForDisplay = useCallback((sectionId: string, values: AttributeValue[]): AttributeValue[] => {
         const groupName = (sectionGroupNameById[sectionId] || '').toLowerCase();
@@ -1276,7 +1540,7 @@ export function MatrixLayoutV1Renderer({
             .filter(section => section.id !== pricingStructure.vertical_axis.sectionId)
             .filter(section => mappableSectionIds.has(section.id))
             .map(section => {
-                const valueId = selectedSectionValues[section.id];
+                const valueId = pricingSelectedSectionValues[section.id];
                 return valueId ? { sectionId: section.id, valueId } : null;
             })
             .filter((entry): entry is { sectionId: string; valueId: string } => !!entry);
@@ -1313,6 +1577,7 @@ export function MatrixLayoutV1Renderer({
                         variantKey: selectedVariantKey,
                         variantKeyNorm: selectedVariantKeyNorm,
                         variantValueIds: selectedVariantValueIds,
+                        variantDisplayParts: selectedVariantDisplayParts,
                         formatId: selectedFormatId,
                         materialId: selectedMaterialId,
                         verticalValueId: vertValueId,
@@ -1331,7 +1596,7 @@ export function MatrixLayoutV1Renderer({
         const rows = allRows;
 
         return { rows, columns, cells };
-    }, [computeVariantKey, getDisplayValueName, getSectionValueIdForPreparedRow, matchesPreparedPriceForSelection, mappableSectionIds, normalizeVariantKey, priceIndexByVerticalQty, pricingStructure, selectedFormatId, selectedMaterialId, selectedSectionValues, selectedVariantValueIds, selectorSections]);
+    }, [computeVariantKey, getDisplayValueName, getSectionValueIdForPreparedRow, matchesPreparedPriceForSelection, mappableSectionIds, normalizeVariantKey, priceIndexByVerticalQty, pricingSelectedSectionValues, pricingStructure, selectedFormatId, selectedMaterialId, selectedVariantDisplayParts, selectedVariantValueIds, selectorSections]);
 
     // Ensure a default selection so the price panel can render totals.
     useEffect(() => {
@@ -1401,14 +1666,158 @@ export function MatrixLayoutV1Renderer({
         }
 
         const verticalValueId = updated[pricingStructure.vertical_axis.sectionId] || undefined;
-        const variantKey = buildVariantKeyFromSelections(updated);
+        const variantKey = buildVariantKeyFromSelections(normalizeSelectionsForPricing(updated));
 
         onSelectionChange(updated, formatId, materialId, { variantKey, verticalValueId });
-    }, [buildVariantKeyFromSelections, onSelectionChange, pricingStructure]);
+    }, [buildVariantKeyFromSelections, normalizeSelectionsForPricing, onSelectionChange, pricingStructure]);
 
     useEffect(() => {
         emitSelectionChange(selectedSectionValues);
     }, [selectedSectionValues, emitSelectionChange]);
+
+    useEffect(() => {
+        if (!PRICING_SHADOW_READ_ENABLED) return;
+        if (settings.isLoading) return;
+        if (matrixLoading) return;
+        if (!selectedCell) return;
+        if (!selectedFormatId || !selectedMaterialId) return;
+
+        const currentMatrixPrice = matrixData.cells[selectedCell.row]?.[selectedCell.column] ?? null;
+        if (currentMatrixPrice == null) return;
+
+        const tenantId = settings.data?.id || "00000000-0000-0000-0000-000000000000";
+        const selectedVerticalValueId = pricingSelectedSectionValues[pricingStructure.vertical_axis.sectionId] || null;
+        const expectedRowLabel = selectedVerticalValueId
+            ? getDisplayValueName(selectedVerticalValueId, pricingStructure.vertical_axis.sectionId)
+            : null;
+
+        if (expectedRowLabel && selectedCell.row !== expectedRowLabel) {
+            return;
+        }
+
+        const requestSignature = JSON.stringify({
+            productId,
+            tenantId,
+            formatId: selectedFormatId,
+            materialId: selectedMaterialId,
+            quantity: selectedCell.column,
+            variantValueIds: selectedVariantValueIds,
+            selectedSectionValues: pricingSelectedSectionValues,
+            verticalValueId: selectedVerticalValueId,
+            row: selectedCell.row,
+        });
+
+        if (pricingShadowSignatureRef.current === requestSignature) return;
+
+        let active = true;
+        const timeout = window.setTimeout(async () => {
+            if (!active) return;
+            pricingShadowSignatureRef.current = requestSignature;
+            try {
+                const result = await fetchPricingRead({
+                    tenantId,
+                    productId,
+                    hostname: typeof window !== "undefined" ? window.location.hostname : undefined,
+                    pathname: typeof window !== "undefined" ? window.location.pathname : undefined,
+                    formatId: selectedFormatId,
+                    materialId: selectedMaterialId,
+                    verticalValueId: selectedVerticalValueId || undefined,
+                    variantKey: selectedVariantKey,
+                    quantity: selectedCell.column,
+                    variantValueIds: selectedVariantValueIds,
+                    variantDisplayLabels: selectedVariantDisplayParts.map((entry) => entry.label),
+                    selectedSectionValues: pricingSelectedSectionValues,
+                });
+
+                if (!active || !result?.success) return;
+
+                const apiPrice = Number(result.bestMatch?.price_dkk || 0);
+                const uiPrice = Number(currentMatrixPrice || 0);
+                const matchedRows = Number(result.summary?.matchedRows || 0);
+
+                if (!result.bestMatch || matchedRows === 0) {
+                    console.warn("[Matrix V1][shadow-read] pricing-read mismatch", {
+                        productId,
+                        tenantId,
+                        reason: "no_best_match",
+                        request: result.request,
+                        ui: {
+                            row: selectedCell.row,
+                            quantity: selectedCell.column,
+                            price: uiPrice,
+                        },
+                        api: {
+                            matchedRows,
+                            bestMatch: result.bestMatch,
+                        },
+                    });
+                    return;
+                }
+
+                if (Math.round(apiPrice) !== Math.round(uiPrice)) {
+                    console.warn("[Matrix V1][shadow-read] pricing-read mismatch", {
+                        productId,
+                        tenantId,
+                        reason: "price_mismatch",
+                        request: result.request,
+                        ui: {
+                            row: selectedCell.row,
+                            quantity: selectedCell.column,
+                            price: uiPrice,
+                        },
+                        api: {
+                            matchedRows,
+                            price: apiPrice,
+                            bestMatch: result.bestMatch,
+                        },
+                    });
+                    return;
+                }
+
+                console.debug("[Matrix V1][shadow-read] pricing-read ok", {
+                    productId,
+                    tenantId,
+                    quantity: selectedCell.column,
+                    price: uiPrice,
+                    matchedRows,
+                    request: result.request,
+                });
+            } catch (error) {
+                if (!active) return;
+                console.warn("[Matrix V1][shadow-read] pricing-read failed", {
+                    productId,
+                    tenantId,
+                    error,
+                    selection: {
+                        formatId: selectedFormatId,
+                        materialId: selectedMaterialId,
+                        quantity: selectedCell.column,
+                        variantValueIds: selectedVariantValueIds,
+                    },
+                });
+            }
+        }, 250);
+
+        return () => {
+            active = false;
+            window.clearTimeout(timeout);
+        };
+    }, [
+        settings.isLoading,
+        settings.data?.id,
+        matrixLoading,
+        productId,
+        selectedCell,
+        selectedFormatId,
+        selectedMaterialId,
+        selectedVariantValueIds,
+        selectedVariantKey,
+        selectedVariantDisplayParts,
+        pricingSelectedSectionValues,
+        pricingStructure.vertical_axis.sectionId,
+        matrixData.cells,
+        getDisplayValueName,
+    ]);
 
     // Handle section selection change
     const handleSectionSelect = (sectionId: string, valueId: string) => {
@@ -1687,10 +2096,39 @@ export function MatrixLayoutV1Renderer({
         );
     };
 
-    if (matrixLoading && variantPrices.length === 0 && availabilityPreparedPrices.length === 0) {
+    if (matrixLoading && !hasResolvedPriceRows) {
         return (
-            <div className="flex justify-center items-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+            <div className="space-y-6 min-h-[560px]">
+                <div className="h-4 text-xs text-muted-foreground" aria-live="polite">
+                    Opdaterer priser...
+                </div>
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {Array.from({ length: 4 }).map((_, index) => (
+                            <div key={index} className="space-y-2 rounded bg-muted/20 p-3">
+                                <div className="h-3 w-24 rounded bg-muted/60 animate-pulse" />
+                                <div className="flex flex-wrap gap-2">
+                                    {Array.from({ length: 3 }).map((__, valueIndex) => (
+                                        <div
+                                            key={valueIndex}
+                                            className="h-9 w-24 rounded-md bg-muted/60 animate-pulse"
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="rounded-lg border border-border/60 bg-muted/10 p-4 min-h-[320px]">
+                        <div className="grid grid-cols-5 gap-2">
+                            {Array.from({ length: 20 }).map((_, index) => (
+                                <div
+                                    key={index}
+                                    className="h-10 rounded bg-muted/60 animate-pulse"
+                                />
+                            ))}
+                        </div>
+                    </div>
+                </div>
             </div>
         );
     }
@@ -1698,7 +2136,7 @@ export function MatrixLayoutV1Renderer({
     return (
         <div className="space-y-6">
             <div className="h-4 text-xs text-muted-foreground" aria-live="polite">
-                {matrixLoading ? 'Opdaterer priser...' : availabilityLoading ? 'Opdaterer valgmuligheder...' : '\u00A0'}
+                {matrixLoading ? 'Opdaterer priser...' : '\u00A0'}
             </div>
             {/* Render layout rows */}
             <div className="space-y-4">

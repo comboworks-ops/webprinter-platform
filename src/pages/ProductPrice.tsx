@@ -27,6 +27,7 @@ import {
 } from "@/utils/pricingDatabase";
 import { getDimensionsFromVariant } from "@/utils/formatStandards";
 import { readTransientString, writeTransientString } from "@/lib/storage/transientStorage";
+import { fetchProductDetailRead } from "@/lib/api/productDetailRead";
 
 // Legacy product configurations removed on user request (2025-01-30)
 // specificPricingProducts and productConfigs were deleted to unify on the generic pricing system.
@@ -323,6 +324,20 @@ const ProductPrice = () => {
         }
       };
 
+      const mapApiProductToLocalShape = (apiProduct: Record<string, unknown> | null) => {
+        if (!apiProduct || typeof apiProduct !== "object") return null;
+        return {
+          id: String(apiProduct.id || ""),
+          name: typeof apiProduct.name === "string" ? apiProduct.name : "",
+          description: typeof apiProduct.description === "string" ? apiProduct.description : "",
+          image_url: typeof apiProduct.image_url === "string" ? apiProduct.image_url : null,
+          technical_specs: (apiProduct.technical_specs && typeof apiProduct.technical_specs === "object") ? apiProduct.technical_specs : null,
+          pricing_structure: apiProduct.pricing_structure ?? null,
+          pricing_type: typeof apiProduct.pricing_type === "string" ? apiProduct.pricing_type : null,
+          banner_config: (apiProduct.banner_config && typeof apiProduct.banner_config === "object") ? apiProduct.banner_config : null,
+        };
+      };
+
       const throwIfTransportError = (err: any, context: string) => {
         if (!err) return;
         if (!isTransportError(err)) return;
@@ -332,6 +347,44 @@ const ProductPrice = () => {
       };
 
       try {
+        try {
+          const apiResult = await fetchProductDetailRead({
+            tenantId,
+            slug,
+            hostname: typeof window !== "undefined" ? window.location.hostname : undefined,
+            pathname: typeof window !== "undefined" ? window.location.pathname : undefined,
+          });
+
+          const apiProduct = mapApiProductToLocalShape(apiResult.product as Record<string, unknown> | null);
+          if (apiResult.success && apiProduct?.id) {
+            console.log('[ProductPrice] product-detail-read result:', { data: apiProduct, source: apiResult.source });
+            console.log('[ProductPrice] Setting dbProductId to:', apiProduct.id);
+            applyProductData(apiProduct);
+
+            const { data: cfg } = await supabase
+              .from('product_pricing_configs' as any)
+              .select('*')
+              .eq('product_id', apiProduct.id)
+              .eq('pricing_type', 'MACHINE_PRICED')
+              .maybeSingle();
+
+            if (cfg) {
+              setMpaConfig(cfg);
+            }
+
+            writeDetailCache(tenantId, slug, {
+              at: Date.now(),
+              tenantId,
+              product: apiProduct,
+              mpaConfig: cfg || null,
+            });
+
+            return;
+          }
+        } catch (apiError) {
+          console.warn('[ProductPrice] product-detail-read failed, falling back to direct query:', apiError);
+        }
+
         const { data: tenantScopedRows, error: tenantScopedError } = await supabase
           .from('products')
           .select(productSelect)

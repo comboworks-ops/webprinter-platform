@@ -89,7 +89,7 @@ export function PreflightPanel({
             </div>
 
             {/* Items */}
-            <div className="space-y-2 max-h-60 overflow-y-auto">
+            <div className="space-y-2">
                 {visibleItems.map((item) => {
                     const Icon = getIcon(item.type);
                     const colorClasses = getWarningColor(item.type);

@@ -19,6 +19,10 @@ const FORMAT_GROUPS: Record<string, string[]> = {
     "Special": ["M65", "VISITKORT", "SALGSMAPPE_A4", "SALGSMAPPE_A5", "BANNER_STANDARD", "ROLLUP", "CUSTOM"],
 };
 
+// The dedicated pdf_templates table is not available in the active Supabase project.
+// Keep the storefront silent until that feature is migrated or the table is restored.
+const PDF_TEMPLATES_ENABLED = false;
+
 interface PdfTemplate {
     id: string;
     scope_type: "MASTER" | "TENANT";
@@ -44,6 +48,10 @@ export function TemplatesDownloadSection({ currentTenantId, defaultOpen = false 
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
     const [filterFormat, setFilterFormat] = useState<string>("all");
+
+    if (!PDF_TEMPLATES_ENABLED) {
+        return null;
+    }
 
     // Group templates by category
     const groupByCategory = (templates: PdfTemplate[]) => {

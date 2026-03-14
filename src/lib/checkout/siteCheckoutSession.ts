@@ -7,9 +7,23 @@ export interface SiteCheckoutUpload {
   filePath?: string | null;
   widthPx?: number | null;
   heightPx?: number | null;
+  physicalWidthMm?: number | null;
+  physicalHeightMm?: number | null;
   estimatedDpi?: number | null;
   sourceDpi?: number | null;
   previewDataUrl?: string | null;
+  proofingScalePercent?: number | null;
+  proofingOffsetXPercent?: number | null;
+  proofingOffsetYPercent?: number | null;
+}
+
+export interface SiteCheckoutDesignerExport {
+  name?: string | null;
+  mimeType?: string | null;
+  fileUrl?: string | null;
+  filePath?: string | null;
+  sourceMode?: "vector_pdf" | "print_pdf" | null;
+  generatedAt?: string | null;
 }
 
 export interface SiteCheckoutCustomerDraft {
@@ -55,6 +69,7 @@ export interface SiteCheckoutState {
   optionSelections?: Record<string, unknown>;
   sourceSiteId?: string | null;
   siteUpload?: SiteCheckoutUpload | null;
+  designerExport?: SiteCheckoutDesignerExport | null;
   checkoutCustomer?: SiteCheckoutCustomerDraft | null;
   createdAt?: string | null;
 }

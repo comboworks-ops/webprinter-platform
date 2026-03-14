@@ -196,16 +196,26 @@ export function StorformatConfigurator({
           supabase.from("storformat_product_fixed_prices" as any).select("*").eq("product_id", productId).order("sort_order")
         ]);
 
+        const perM2ProductIds = (productRows || [])
+          .filter((row: any) => row?.pricing_mode === "per_m2")
+          .map((row: any) => row.id)
+          .filter((id: unknown): id is string => typeof id === "string");
+        const hasCompletePrimaryProductTiers = perM2ProductIds.every((id) =>
+          (productTiers || []).some((tier: any) => tier?.product_item_id === id)
+        );
+
         let legacyProductM2Rows: any[] = [];
-        try {
-          const { data } = await supabase
-            .from("storformat_product_m2_prices" as any)
-            .select("*")
-            .eq("product_id", productId)
-            .order("from_m2");
-          legacyProductM2Rows = data || [];
-        } catch {
-          legacyProductM2Rows = [];
+        if (perM2ProductIds.length > 0 && !hasCompletePrimaryProductTiers) {
+          try {
+            const { data } = await supabase
+              .from("storformat_product_m2_prices" as any)
+              .select("*")
+              .eq("product_id", productId)
+              .order("from_m2");
+            legacyProductM2Rows = data || [];
+          } catch {
+            legacyProductM2Rows = [];
+          }
         }
 
         const materialsWithTiers = (materialRows || []).map((m: any) => {

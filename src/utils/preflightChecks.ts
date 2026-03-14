@@ -91,7 +91,8 @@ export function runPreflightChecks(
         if ((obj as any).__isGuide ||
             (obj as any).__isDocumentBackground ||
             (obj as any).__isPdfTemplate ||
-            (obj as any).__isCutContour) {
+            (obj as any).__isCutContour ||
+            (obj as any).data?.kind === 'pdf_page_background') {
             return;
         }
 

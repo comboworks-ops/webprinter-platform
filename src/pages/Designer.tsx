@@ -42,13 +42,14 @@ import PDFImportModal, { PDFImportData } from "@/components/designer/PDFImportMo
 import { DesignLibraryDrawer } from "@/components/designer/DesignLibraryDrawer";
 import { ExportDialog } from "@/components/designer/ExportDialog";
 import { runDesignerExport } from "@/lib/designer/export/exportActions";
+import { buildVectorPdfBackgroundPdf, detectPdfBackground } from "@/lib/designer/export/exportVectorPdfBackground";
 import type { ExportOptions } from "@/lib/designer/export/types";
 import { mmToPx } from "@/utils/unitConversions";
 import { runPreflightChecks, PreflightWarning } from "@/utils/preflightChecks";
 import { useColorProofing } from "@/hooks/useColorProofing";
 import { useProductColorProfile } from "@/hooks/useProductColorProfile";
 import { getImageDpi } from "@/utils/imageMetadata";
-import { readSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
+import { readSiteCheckoutSession, writeSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
 import { ptToMm } from "@/utils/unitConversions";
 import {
     Loader2,
@@ -94,6 +95,12 @@ const ZOOM_MAX = 3;
 const ZOOM_STEP = 0.1;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+interface CheckoutImportPlacement {
+    left: number;
+    top: number;
+    scaleMultiplier: number;
+}
+
 const STANDARD_FORMATS: Record<string, { width: number; height: number; bleed?: number }> = {
     "A0": { width: 841, height: 1189 },
     "A1": { width: 594, height: 841 },
@@ -122,6 +129,8 @@ export function Designer() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cutContourInputRef = useRef<HTMLInputElement>(null);
     const autoPreflightTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const pdfRerenderTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const pdfRerenderInFlightRef = useRef<Set<string>>(new Set());
     const canvasAreaRef = useRef<HTMLDivElement>(null);
     const checkoutSession = useMemo(() => readSiteCheckoutSession(), []);
 
@@ -163,6 +172,7 @@ export function Designer() {
     const [pendingCutContour, setPendingCutContour] = useState<string | null>(null);
     const [pendingTemplatePdf, setPendingTemplatePdf] = useState<string | null>(null);
     const [checkoutUploadImported, setCheckoutUploadImported] = useState(false);
+    const [returningToOrder, setReturningToOrder] = useState(false);
     // Keep URL-first initialization to avoid A4 flash before async spec loads.
     const [documentSpec, setDocumentSpec] = useState(() => {
         const defaultSpec = {
@@ -718,17 +728,81 @@ export function Designer() {
     }, [documentSpec.product_id]);
 
     const handleReturnToOrder = useCallback(() => {
-        markDesignReady();
-        if (safeReturnTo) {
-            navigate(safeReturnTo);
-            return;
-        }
-        if (window.history.length > 1) {
-            navigate(-1);
-            return;
-        }
-        navigate('/');
-    }, [markDesignReady, navigate, safeReturnTo]);
+        const completeReturn = () => {
+            markDesignReady();
+            if (safeReturnTo) {
+                navigate(safeReturnTo);
+                return;
+            }
+            if (window.history.length > 1) {
+                navigate(-1);
+                return;
+            }
+            navigate('/');
+        };
+
+        const prepareDesignerOrderFile = async () => {
+            if (!orderMode || returningToOrder) return;
+
+            const fabricCanvas = editorRef.current?.getCanvas();
+            const pdfBackgroundMeta = detectPdfBackground(fabricCanvas || null);
+
+            if (!fabricCanvas || !pdfBackgroundMeta) {
+                completeReturn();
+                return;
+            }
+
+            setReturningToOrder(true);
+            try {
+                const { pdfBytes, filename } = await buildVectorPdfBackgroundPdf({
+                    documentSpec,
+                    fabricCanvas,
+                    pdfBackgroundMeta,
+                    includeBleed: true,
+                });
+
+                const productRef = documentSpec.product_id || productId || "designer";
+                const safeFileName = filename.replace(/[^a-z0-9_.-]/gi, "_");
+                const filePath = `designer-production/${productRef}-${Date.now()}-${safeFileName}`;
+                const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+
+                const { error: uploadError } = await supabase.storage
+                    .from("order-files")
+                    .upload(filePath, blob, {
+                        contentType: "application/pdf",
+                        upsert: false,
+                    });
+
+                if (uploadError) throw uploadError;
+
+                const { data: { publicUrl } } = supabase.storage
+                    .from("order-files")
+                    .getPublicUrl(filePath);
+
+                const existingSession = readSiteCheckoutSession();
+                writeSiteCheckoutSession({
+                    ...existingSession,
+                    designerExport: {
+                        name: filename,
+                        mimeType: "application/pdf",
+                        fileUrl: publicUrl,
+                        filePath,
+                        sourceMode: "vector_pdf",
+                        generatedAt: new Date().toISOString(),
+                    },
+                });
+
+                completeReturn();
+            } catch (error) {
+                console.error("[Designer] Failed to prepare production PDF for checkout:", error);
+                toast.error("Kunne ikke lave produktionsfil til checkout. Bliv i designeren og prov igen.");
+            } finally {
+                setReturningToOrder(false);
+            }
+        };
+
+        void prepareDesignerOrderFile();
+    }, [documentSpec, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo]);
 
     // Save and then navigate back
     const handleSaveAndLeave = useCallback(async () => {
@@ -887,8 +961,113 @@ export function Designer() {
         setSelectedTool('select');
     }, []);
 
+    const extractCutContourSvgFromPdf = useCallback(async (pdfBytes: ArrayBuffer, pageIndex = 0): Promise<string | null> => {
+        const pdfjsLib = await import("pdfjs-dist");
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+        const pdf = await pdfjsLib.getDocument({ data: pdfBytes.slice(0) }).promise;
+        const page = await pdf.getPage(pageIndex + 1);
+        const viewport = page.getViewport({ scale: 1 });
+        const operatorList = await page.getOperatorList();
+        const svgGfx = new (pdfjsLib as any).SVGGraphics(page.commonObjs, page.objs);
+        const svgElement = await svgGfx.getSVG(operatorList, viewport) as SVGSVGElement;
+        const serializer = new XMLSerializer();
+        return serializer.serializeToString(svgElement);
+    }, []);
+
+    const handleCutContourAction = useCallback(async () => {
+        if (hasSelection) {
+            const activeObject = editorRef.current?.getCanvas()?.getActiveObject();
+            const activePdfBytes =
+                activeObject && (activeObject as any).data?.kind === 'pdf_page_background'
+                    ? ((activeObject as any).data?.originalPdfBytes as ArrayBuffer | undefined)
+                    : undefined;
+
+            if (activePdfBytes) {
+                const rawPdf = new TextDecoder().decode(new Uint8Array(activePdfBytes));
+                const cutContourDetected =
+                    /(?:\/|\()CutContour\b/i.test(rawPdf) || /\bCutContour\b/i.test(rawPdf);
+
+                if (cutContourDetected) {
+                    try {
+                        const svgString = await extractCutContourSvgFromPdf(
+                            activePdfBytes,
+                            ((activeObject as any).data?.pageIndex as number | undefined) || 0
+                        );
+                        const created = svgString
+                            ? await editorRef.current?.addCutContourFromPdfSvg(svgString, {
+                                left: activeObject?.left,
+                                top: activeObject?.top,
+                                originX: activeObject?.originX as fabric.OriginX,
+                                originY: activeObject?.originY as fabric.OriginY,
+                                angle: activeObject?.angle,
+                                scaleX: activeObject?.scaleX,
+                                scaleY: activeObject?.scaleY,
+                                flipX: activeObject?.flipX,
+                                flipY: activeObject?.flipY,
+                                width: activeObject?.width,
+                                height: activeObject?.height,
+                            }, 'detected-contour')
+                            : false;
+
+                        if (created) {
+                            toast.success('Embedded CutContour importeret fra PDF.');
+                        } else {
+                            toast.error('PDF-scannen fandt CutContour-navnet, men kunne ikke udlede en magenta contour-sti til lærredet.');
+                        }
+                    } catch (error) {
+                        console.error('[Designer] Failed to extract embedded PDF CutContour:', error);
+                        toast.error('Kunne ikke importere embedded CutContour fra PDF.');
+                    }
+                } else {
+                    try {
+                        const svgString = await extractCutContourSvgFromPdf(
+                            activePdfBytes,
+                            ((activeObject as any).data?.pageIndex as number | undefined) || 0
+                        );
+                        const created = svgString
+                            ? await editorRef.current?.addCutContourFromPdfSvg(svgString, {
+                                left: activeObject?.left,
+                                top: activeObject?.top,
+                                originX: activeObject?.originX as fabric.OriginX,
+                                originY: activeObject?.originY as fabric.OriginY,
+                                angle: activeObject?.angle,
+                                scaleX: activeObject?.scaleX,
+                                scaleY: activeObject?.scaleY,
+                                flipX: activeObject?.flipX,
+                                flipY: activeObject?.flipY,
+                                width: activeObject?.width,
+                                height: activeObject?.height,
+                            }, 'vector-outline')
+                            : false;
+
+                        if (created) {
+                            toast.success('CutContour oprettet fra PDF-vektorformer.');
+                        } else {
+                            toast.error('Denne PDF kunne ikke omsættes til en brugbar vector contour. Brug eksisterende contour eller importér en separat SVG.');
+                        }
+                    } catch (error) {
+                        console.error('[Designer] Failed to generate CutContour from PDF vectors:', error);
+                        toast.error('Kunne ikke oprette contour fra PDF-vektorformer.');
+                    }
+                }
+                return;
+            }
+
+            const created = await editorRef.current?.createCutContourFromSelection();
+            if (created) {
+                toast.success('CutContour oprettet fra valgt vektor');
+            } else {
+                toast.error('Vælg en vektorform eller SVG-sti for at oprette CutContour. PDF-baggrunde og rasterfiler kræver eksisterende contour eller SVG-import.');
+            }
+            return;
+        }
+
+        cutContourInputRef.current?.click();
+    }, [extractCutContourSvgFromPdf, hasSelection]);
+
     // Handle PDF import with correct physical scaling
-    const handlePDFImport = useCallback((data: PDFImportData) => {
+    const handlePDFImport = useCallback((data: PDFImportData, placement?: CheckoutImportPlacement) => {
         const canvas = editorRef.current?.getCanvas();
         if (!canvas) return;
 
@@ -899,13 +1078,13 @@ export function Designer() {
         // Calculate scale factor to apply to the rendered raster
         const scaleX = desiredWidthPx / data.renderedWidth;
         const scaleY = desiredHeightPx / data.renderedHeight;
-        const scale = Math.min(scaleX, scaleY); // Use uniform scale
+        const scale = Math.min(scaleX, scaleY) * (placement?.scaleMultiplier || 1); // Use uniform scale
 
         // Add the image with correct scaling
         fabric.Image.fromURL(data.imageDataUrl, (img) => {
             img.set({
-                left: canvas.getWidth() / 2,
-                top: canvas.getHeight() / 2,
+                left: placement?.left ?? canvasWidth / 2,
+                top: placement?.top ?? canvasHeight / 2,
                 originX: 'center',
                 originY: 'center',
                 scaleX: scale,
@@ -919,6 +1098,10 @@ export function Designer() {
                     originalPdfBytes: data.originalPdfBytes,
                     pageIndex: data.pageNumber - 1,  // Convert to 0-based index
                     originalFileName: data.originalFileName,
+                    renderWidthPx: data.renderedWidth,
+                    renderHeightPx: data.renderedHeight,
+                    pdfWidthMm: data.widthMm,
+                    pdfHeightMm: data.heightMm,
                 };
             }
 
@@ -930,6 +1113,85 @@ export function Designer() {
         }, { crossOrigin: 'anonymous' });
     }, [displayDpi]);
 
+    const rerenderPdfBackgroundForQuality = useCallback(async (pdfObject: fabric.Image, viewportScale: number) => {
+        const data = (pdfObject as any).data;
+        if (data?.kind !== 'pdf_page_background' || !data.originalPdfBytes) return;
+
+        const objectId = (pdfObject as any).__layerId || `pdf-bg-${data.pageIndex || 0}`;
+        if (pdfRerenderInFlightRef.current.has(objectId)) return;
+
+        const currentDisplayWidthPx = Math.max(1, (pdfObject.width || 1) * Math.abs(pdfObject.scaleX || 1));
+        const currentDisplayHeightPx = Math.max(1, (pdfObject.height || 1) * Math.abs(pdfObject.scaleY || 1));
+        const currentRenderedWidth = data.renderWidthPx || pdfObject.width || 0;
+        const currentRenderedHeight = data.renderHeightPx || pdfObject.height || 0;
+        const desiredRenderWidth = Math.min(6000, Math.max(1400, Math.round(currentDisplayWidthPx * Math.max(viewportScale, 1) * 1.25)));
+        const desiredRenderHeight = Math.min(6000, Math.max(1400, Math.round(currentDisplayHeightPx * Math.max(viewportScale, 1) * 1.25)));
+
+        if (desiredRenderWidth <= currentRenderedWidth * 1.1 && desiredRenderHeight <= currentRenderedHeight * 1.1) {
+            return;
+        }
+
+        pdfRerenderInFlightRef.current.add(objectId);
+        try {
+            const pdfjsLib = await import("pdfjs-dist");
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+            const pdf = await pdfjsLib.getDocument({ data: data.originalPdfBytes.slice(0) }).promise;
+            const page = await pdf.getPage((data.pageIndex || 0) + 1);
+            const baseViewport = page.getViewport({ scale: 1 });
+            const renderScale = Math.min(
+                8,
+                Math.max(
+                    desiredRenderWidth / Math.max(baseViewport.width, 1),
+                    desiredRenderHeight / Math.max(baseViewport.height, 1),
+                    2
+                )
+            );
+            const viewport = page.getViewport({ scale: renderScale });
+
+            const offscreenCanvas = document.createElement("canvas");
+            offscreenCanvas.width = Math.round(viewport.width);
+            offscreenCanvas.height = Math.round(viewport.height);
+            const context = offscreenCanvas.getContext("2d");
+            if (!context) return;
+
+            context.fillStyle = "#ffffff";
+            context.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+            await page.render({
+                canvasContext: context,
+                viewport,
+            }).promise;
+
+            const currentScaleX = pdfObject.scaleX || 1;
+            const currentScaleY = pdfObject.scaleY || 1;
+            const currentCanvasWidth = (pdfObject.width || 1) * currentScaleX;
+            const currentCanvasHeight = (pdfObject.height || 1) * currentScaleY;
+            const nextDataUrl = offscreenCanvas.toDataURL("image/png", 1.0);
+
+            await new Promise<void>((resolve) => {
+                (pdfObject as any).setSrc(nextDataUrl, () => {
+                    const nextWidth = pdfObject.width || offscreenCanvas.width || 1;
+                    const nextHeight = pdfObject.height || offscreenCanvas.height || 1;
+                    pdfObject.set({
+                        scaleX: currentCanvasWidth / nextWidth,
+                        scaleY: currentCanvasHeight / nextHeight,
+                    });
+                    (pdfObject as any).data = {
+                        ...data,
+                        renderWidthPx: offscreenCanvas.width,
+                        renderHeightPx: offscreenCanvas.height,
+                    };
+                    pdfObject.canvas?.requestRenderAll();
+                    resolve();
+                }, { crossOrigin: 'anonymous' });
+            });
+        } catch (error) {
+            console.error('[Designer] Failed to rerender PDF background sharply:', error);
+        } finally {
+            pdfRerenderInFlightRef.current.delete(objectId);
+        }
+    }, []);
+
     // Handle PDF import as template overlay (semi-transparent, non-printing)
     const handlePDFImportAsTemplate = useCallback((data: PDFImportData) => {
         editorRef.current?.addPdfTemplate(data.imageDataUrl, data.widthMm, data.heightMm);
@@ -940,6 +1202,20 @@ export function Designer() {
         const upload = checkoutSession?.siteUpload;
         if (!upload?.fileUrl || !editorRef.current?.getCanvas()) return;
         if (productId && checkoutSession?.productId && checkoutSession.productId !== productId) return;
+        const expectedWidth = Number(checkoutSession?.designWidthMm || 0);
+        const expectedHeight = Number(checkoutSession?.designHeightMm || 0);
+        const expectedBleed = Number(checkoutSession?.designBleedMm || 0);
+        if (
+            expectedWidth > 0 &&
+            expectedHeight > 0 &&
+            (
+                Math.abs(documentSpec.width_mm - expectedWidth) > 0.5 ||
+                Math.abs(documentSpec.height_mm - expectedHeight) > 0.5 ||
+                Math.abs(documentSpec.bleed_mm - expectedBleed) > 0.5
+            )
+        ) {
+            return;
+        }
 
         const canvas = editorRef.current.getCanvas();
         const existingUserObjects = canvas?.getObjects().filter((obj: any) =>
@@ -961,17 +1237,39 @@ export function Designer() {
 
                 const mimeType = upload.mimeType || blob.type || "";
                 const fileName = upload.name || "checkout-upload";
+                const targetWidthMm = Number(checkoutSession?.designWidthMm || 0) + (Number(checkoutSession?.designBleedMm || 0) * 2);
+                const targetHeightMm = Number(checkoutSession?.designHeightMm || 0) + (Number(checkoutSession?.designBleedMm || 0) * 2);
+                const logicalCanvasCenterX = canvasWidth / 2;
+                const logicalCanvasCenterY = canvasHeight / 2;
+                const placement: CheckoutImportPlacement | undefined =
+                    Number.isFinite(Number(upload.proofingScalePercent))
+                    && Number.isFinite(Number(upload.proofingOffsetXPercent))
+                    && Number.isFinite(Number(upload.proofingOffsetYPercent))
+                    && targetWidthMm > 0
+                    && targetHeightMm > 0
+                        ? {
+                            left: logicalCanvasCenterX + mmToPx(targetWidthMm, displayDpi) * (Number(upload.proofingOffsetXPercent || 0) / 100),
+                            top: logicalCanvasCenterY + mmToPx(targetHeightMm, displayDpi) * (Number(upload.proofingOffsetYPercent || 0) / 100),
+                            scaleMultiplier: Math.max(0.01, Number(upload.proofingScalePercent || 100) / 100),
+                        }
+                        : undefined;
 
                 if (mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
                     const pdfjsLib = await import("pdfjs-dist");
                     pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
                     const arrayBuffer = await blob.arrayBuffer();
-                    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                    const originalPdfBytes = arrayBuffer.slice(0);
+                    const renderPdfBytes = arrayBuffer.slice(0);
+                    const pdf = await pdfjsLib.getDocument({ data: renderPdfBytes }).promise;
                     const page = await pdf.getPage(1);
                     const baseViewport = page.getViewport({ scale: 1 });
-                    const widthMm = ptToMm(baseViewport.width);
-                    const heightMm = ptToMm(baseViewport.height);
+                    const widthMm = Number(upload.physicalWidthMm || 0) > 0
+                        ? Number(upload.physicalWidthMm)
+                        : ptToMm(baseViewport.width);
+                    const heightMm = Number(upload.physicalHeightMm || 0) > 0
+                        ? Number(upload.physicalHeightMm)
+                        : ptToMm(baseViewport.height);
                     const renderScale = 3;
                     const viewport = page.getViewport({ scale: renderScale });
 
@@ -998,9 +1296,9 @@ export function Designer() {
                         heightMm,
                         renderedWidth: offscreenCanvas.width,
                         renderedHeight: offscreenCanvas.height,
-                        originalPdfBytes: arrayBuffer.slice(0),
+                        originalPdfBytes,
                         originalFileName: fileName,
-                    });
+                    }, placement);
                 } else {
                     const file = new File([blob], fileName, { type: mimeType || "application/octet-stream" });
                     const detectedDpi = await getImageDpi(file);
@@ -1013,7 +1311,7 @@ export function Designer() {
                     });
 
                     if (cancelled) return;
-                    await editorRef.current?.addImage(dataUrl, sourceDpi);
+                    await editorRef.current?.addImage(dataUrl, sourceDpi, placement);
                 }
 
                 if (!cancelled) {
@@ -1032,7 +1330,30 @@ export function Designer() {
         return () => {
             cancelled = true;
         };
-    }, [orderMode, checkoutUploadImported, checkoutSession, productId, handlePDFImport]);
+    }, [orderMode, checkoutUploadImported, checkoutSession, productId, handlePDFImport, displayDpi, documentSpec.width_mm, documentSpec.height_mm, documentSpec.bleed_mm]);
+
+    useEffect(() => {
+        const canvas = editorRef.current?.getCanvas();
+        if (!canvas) return;
+
+        if (pdfRerenderTimerRef.current) {
+            clearTimeout(pdfRerenderTimerRef.current);
+        }
+
+        pdfRerenderTimerRef.current = setTimeout(() => {
+            canvas.getObjects().forEach((obj) => {
+                if ((obj as any).data?.kind === 'pdf_page_background') {
+                    void rerenderPdfBackgroundForQuality(obj as fabric.Image, effectiveScale);
+                }
+            });
+        }, 250);
+
+        return () => {
+            if (pdfRerenderTimerRef.current) {
+                clearTimeout(pdfRerenderTimerRef.current);
+            }
+        };
+    }, [effectiveScale, layers, rerenderPdfBackgroundForQuality]);
 
     // Prompt to save - shows dialog for new designs
     const handleSave = async () => {
@@ -1136,7 +1457,7 @@ export function Designer() {
                 product_id: documentSpec.product_id,
                 editor_json: editorJson,
                 preview_thumbnail_url,
-                preflight_warnings: [...preflightWarnings, ...preflightErrors, ...preflightInfos],
+                preflight_warnings: [...preflightWarnings, ...preflightErrors, ...combinedPreflightInfos],
                 preflight_errors_count: preflightErrors.length,
                 preflight_warnings_count: preflightWarnings.length,
                 warnings_accepted: dismissedWarnings.size > 0,
@@ -1471,6 +1792,78 @@ export function Designer() {
     ];
 
     // Total warnings count
+    const hasVectorPdfBase = useMemo(
+        () => layers.some((layer) => (layer.object as any).data?.kind === "pdf_page_background" && (layer.object as any).data?.originalPdfBytes),
+        [layers]
+    );
+    const hasCutContourOnCanvas = useMemo(
+        () => layers.some((layer) => Boolean((layer.object as any).__isCutContour)),
+        [layers]
+    );
+    const detectedPdfCutContour = useMemo(() => {
+        const pdfLayer = layers.find((layer) => (layer.object as any).data?.kind === "pdf_page_background" && (layer.object as any).data?.originalPdfBytes);
+        const pdfBytes = pdfLayer ? ((pdfLayer.object as any).data?.originalPdfBytes as ArrayBuffer | undefined) : undefined;
+        if (!pdfBytes) return null;
+
+        const rawPdf = new TextDecoder().decode(new Uint8Array(pdfBytes));
+        return {
+            cutContourNameDetected: /(?:\/|\()CutContour\b/i.test(rawPdf) || /\bCutContour\b/i.test(rawPdf),
+            separationHintDetected: /\/Separation\s*\/CutContour\b/i.test(rawPdf)
+                || /\/DeviceN\s*\[[^\]]*\/CutContour\b/i.test(rawPdf),
+            overprintHintDetected: /\/OP\s+true\b/i.test(rawPdf)
+                || /\/op\s+true\b/i.test(rawPdf)
+                || /\/OPM\s+[12]\b/i.test(rawPdf),
+        };
+    }, [layers]);
+    const designerReadinessInfos = useMemo<PreflightWarning[]>(() => {
+        const infos: PreflightWarning[] = [];
+
+        if (hasVectorPdfBase) {
+            infos.push({
+                id: "designer-vector-pdf-ready",
+                type: "info",
+                code: "VECTOR_PDF_READY",
+                message: "PDF-base er klar til vektor eksport",
+                details: "Den importerede PDF bevares som vektor i Vektor PDF-eksport. Live canvas-previewet vises stadig som renderet billede under redigering.",
+                canIgnore: false,
+            });
+        }
+
+        if (detectedPdfCutContour?.cutContourNameDetected) {
+            infos.push({
+                id: "designer-cut-contour-pdf-detected",
+                type: "info",
+                code: "CUT_CONTOUR_FOUND_IN_PDF",
+                message: "CutContour fundet i PDF-basen",
+                details: `PDF-scannen fandt CutContour${detectedPdfCutContour.separationHintDetected ? ", spotfarve/separation" : ""}${detectedPdfCutContour.overprintHintDetected ? " og overprint" : ""}. Du behøver ikke oprette en ny contour i designeren, hvis denne PDF skal bevares som vector ved eksport.`,
+                canIgnore: false,
+            });
+        } else if (hasVectorPdfBase && hasCutContourOnCanvas) {
+            infos.push({
+                id: "designer-cut-contour-ready",
+                type: "info",
+                code: "CUT_CONTOUR_READY",
+                message: "CutContour er tilføjet",
+                details: "Lærredet indeholder en CutContour. Brug Vektor PDF-eksport når du vil bevare PDF-basen skarpt.",
+                canIgnore: false,
+            });
+        } else if (hasVectorPdfBase) {
+            infos.push({
+                id: "designer-cut-contour-missing",
+                type: "info",
+                code: "CUT_CONTOUR_MISSING",
+                message: "CutContour mangler",
+                details: "Hvis produktet kræver konturskæring, skal du importere eller oprette en CutContour i designeren før eksport.",
+                canIgnore: false,
+            });
+        }
+
+        return infos;
+    }, [hasVectorPdfBase, hasCutContourOnCanvas, detectedPdfCutContour]);
+    const combinedPreflightInfos = useMemo(
+        () => [...preflightInfos, ...designerReadinessInfos],
+        [preflightInfos, designerReadinessInfos]
+    );
     const totalWarningsCount = preflightErrors.length + preflightWarnings.length - dismissedWarnings.size;
 
     // Keyboard shortcuts
@@ -1831,9 +2224,13 @@ export function Designer() {
                     </Button>
 
                     {orderMode ? (
-                        <Button onClick={handleReturnToOrder} className="bg-green-600 text-white hover:bg-green-700">
-                            <ShoppingCart className="h-4 w-4 mr-2" />
-                            Tilbage til bestilling
+                        <Button onClick={handleReturnToOrder} className="bg-green-600 text-white hover:bg-green-700" disabled={returningToOrder}>
+                            {returningToOrder ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <ShoppingCart className="h-4 w-4 mr-2" />
+                            )}
+                            {returningToOrder ? "Forbereder produktionsfil..." : "Tilbage til bestilling"}
                         </Button>
                     ) : (
                         <Button onClick={() => handleSave()} disabled={saving} className="bg-primary text-primary-foreground hover:bg-primary/90">
@@ -1920,9 +2317,9 @@ export function Designer() {
                     <Button
                         variant="ghost"
                         size="icon"
-                        title="Import CutContour (SVG)"
+                        title={hasSelection ? "Opret CutContour fra valgt vektor" : "Import CutContour (SVG)"}
                         className="h-10 w-10"
-                        onClick={() => cutContourInputRef.current?.click()}
+                        onClick={handleCutContourAction}
                     >
                         <Scissors className="h-5 w-5" />
                     </Button>
@@ -2180,7 +2577,7 @@ export function Designer() {
                             <PreflightPanel
                                 warnings={preflightWarnings}
                                 errors={preflightErrors}
-                                infos={preflightInfos}
+                                infos={combinedPreflightInfos}
                                 onAcceptAll={handleAcceptAllWarnings}
                                 onHighlightObject={handleHighlightObject}
                                 onDismiss={handleDismissWarning}
