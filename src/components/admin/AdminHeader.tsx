@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const ADMIN_DARK_MODE_KEY = 'admin_dark_mode';
+const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || 'webprinter.dk';
 
 export function AdminHeader() {
     const [userEmail, setUserEmail] = useState("");
@@ -166,17 +167,24 @@ export function AdminHeader() {
     };
 
     const handleVisitShop = () => {
-        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const masterDemoUrl = `${window.location.origin}/shop?tenantId=${MASTER_TENANT_ID}`;
+        const hostname = window.location.hostname;
+        const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+        const isCentralRootHost = hostname === ROOT_DOMAIN || hostname === `www.${ROOT_DOMAIN}`;
+        const masterDemoUrl = isLocalhost || isCentralRootHost
+            ? `${window.location.origin}/shop?tenantId=${MASTER_TENANT_ID}`
+            : `https://${ROOT_DOMAIN}/shop?tenantId=${MASTER_TENANT_ID}`;
 
-        // Use domain from settings hook
+        if (adminContext.tenantId === MASTER_TENANT_ID) {
+            window.open(masterDemoUrl, '_blank');
+            return;
+        }
+
         if (adminContext.domain && !isLocalhost) {
             window.open(`https://${adminContext.domain}`, '_blank');
-        } else if (isLocalhost && adminContext.tenantId === MASTER_TENANT_ID) {
-            window.open(masterDemoUrl, '_blank');
-        } else {
-            window.open(`${window.location.origin}/shop`, '_blank');
+            return;
         }
+
+        window.open(`${window.location.origin}/shop`, '_blank');
     };
 
     const displayTenantName = adminContext.tenantName;
