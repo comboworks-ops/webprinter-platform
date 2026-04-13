@@ -92,10 +92,10 @@ const Contact = () => {
                       <div>
                         <p className="font-medium">E-mail</p>
                         <a
-                          href="mailto:support@webprinter.dk"
+                          href="mailto:info@webprinter.dk"
                           className="text-muted-foreground hover:text-primary transition-colors"
                         >
-                          support@webprinter.dk
+                          info@webprinter.dk
                         </a>
                       </div>
                     </div>

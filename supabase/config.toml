@@ -3,5 +3,8 @@ project_id = "ziattmsmiirfweiuunfo"
 [functions.send-quote-emails]
 verify_jwt = true
 
+[functions.send-contact-message]
+verify_jwt = false
+
 [functions.verify-admin]
 verify_jwt = true

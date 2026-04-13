@@ -256,6 +256,9 @@ export interface HeaderNavItem {
     href: string;
     isVisible: boolean;
     order: number;
+    imageUrl?: string | null; // Custom image/icon for menu item
+    displayMode?: 'text_only' | 'image_only' | 'image_and_text'; // How to display the menu item
+    imageSizePx?: number; // Size of the image in pixels (default: 20)
 }
 
 // Header CTA button settings
@@ -293,6 +296,7 @@ export interface HeaderSettings {
 
     // Styling
     fontId: string;
+    menuFontSizePx?: number;
     bgColor: string;
     bgOpacity: number;
     textColor: string;              // Navigation text color
@@ -311,14 +315,26 @@ export interface HeaderSettings {
     dropdownBgOpacity: number;      // Dropdown background opacity (0-1)
     dropdownHoverColor?: string;    // Dropdown hover color
     dropdownShowBorder: boolean;    // Show border and shadow on dropdown
+    dropdownImageSizePx?: number;   // Large/tile dropdown image size
+    dropdownCompactImageSizePx?: number; // Compact/rich dropdown image size
+    dropdownBorderRadiusPx?: number;
+    dropdownImageRadiusPx?: number;
+    dropdownTextPosition?: 'side' | 'below'; // Text position relative to image
+    dropdownCustomImageUrl?: string | null; // Custom image for dropdown header
 
     // Category headers (Tryksager, Storformat, etc.)
     dropdownCategoryFontId: string;    // Category header font
+    dropdownCategoryFontSizePx?: number;
     dropdownCategoryColor: string;     // Category header color
+    dropdownCategoryImages?: Record<string, string | null>; // Category key -> image URL mapping
+    dropdownCategoryDisplayMode?: 'text' | 'image' | 'both'; // Show text, image, or both for categories
 
     // Product names
     dropdownProductFontId: string;     // Product name font
+    dropdownProductFontSizePx?: number;
     dropdownProductColor: string;      // Product name color
+    dropdownMetaColor?: string;
+    dropdownMetaFontSizePx?: number;
 
     // Scroll behavior
     scroll: HeaderScrollSettings;
@@ -367,6 +383,7 @@ const DEFAULT_HEADER: HeaderSettings = {
     logoLink: '/',
     navItems: DEFAULT_NAV_ITEMS,
     dropdownMode: 'IMAGE_AND_TEXT',
+    menuFontSizePx: 14,
     fontId: 'Inter',
     bgColor: '#FFFFFF',
     bgOpacity: 0.95,
@@ -384,10 +401,18 @@ const DEFAULT_HEADER: HeaderSettings = {
     dropdownBgOpacity: 0.95,
     dropdownHoverColor: '#F3F4F6', // Light gray hover
     dropdownShowBorder: true,
+    dropdownImageSizePx: 56,
+    dropdownCompactImageSizePx: 40,
+    dropdownBorderRadiusPx: 18,
+    dropdownImageRadiusPx: 10,
     dropdownCategoryFontId: 'Inter',
+    dropdownCategoryFontSizePx: 13,
     dropdownCategoryColor: '#6B7280',  // Slightly muted for category headers
     dropdownProductFontId: 'Inter',
+    dropdownProductFontSizePx: 14,
     dropdownProductColor: '#1F2937',   // Dark color for product names
+    dropdownMetaColor: '#6B7280',
+    dropdownMetaFontSizePx: 11,
     scroll: DEFAULT_HEADER_SCROLL,
     cta: DEFAULT_HEADER_CTA,
 };
@@ -486,6 +511,65 @@ export interface ContentBlock {
     textAlign: 'left' | 'center' | 'right';
 }
 
+export type Banner2Mode = 'cards' | 'logo-showcase';
+export type Banner2Animation = HeroTextAnimation;
+
+export interface Banner2Item {
+    id: string;
+    enabled: boolean;
+    title: string;
+    description: string;
+    titleFont: string;
+    titleColor: string;
+    descriptionFont: string;
+    descriptionColor: string;
+    iconType: 'icon' | 'image' | 'none';
+    iconName?: string;
+    iconUrl?: string;
+    groupAnimation: Banner2Animation;
+    titleAnimation: Banner2Animation;
+    descriptionAnimation: Banner2Animation;
+    iconAnimation: Banner2Animation;
+    linkHref?: string;
+}
+
+export interface Banner2Slide {
+    id: string;
+    enabled: boolean;
+    durationSeconds: number;
+    items: Banner2Item[];
+}
+
+export interface Banner2BackgroundSettings {
+    type: 'solid' | 'gradient';
+    color: string;
+    gradientStart: string;
+    gradientEnd: string;
+    gradientAngle: number;
+    animated: boolean;
+    animatedStart: string;
+    animatedMiddle: string;
+    animatedEnd: string;
+    animatedSpeed: 'slow' | 'slower';
+}
+
+export interface Banner2Settings {
+    enabled: boolean;
+    mode: Banner2Mode;
+    autoPlay: boolean;
+    showArrows: boolean;
+    showDots: boolean;
+    heading: string;
+    subtitle: string;
+    headingFont: string;
+    headingColor: string;
+    subtitleFont: string;
+    subtitleColor: string;
+    itemsPerRow: number;
+    slides: Banner2Slide[];
+    background: Banner2BackgroundSettings;
+}
+
 export interface FeaturedSidePanelItem {
     id: string;
     mode: 'banner' | 'product';
@@ -515,12 +599,14 @@ export interface FeaturedProductConfig {
     customTitle?: string;
     customDescription?: string;
     backgroundColor?: string;
+    customImageUrl?: string | null;
     galleryEnabled?: boolean;
     galleryImages?: string[];
     galleryIntervalMs?: number;
     ctaLabel?: string;
     ctaColor?: string;
     ctaTextColor?: string;
+    ctaBorderRadiusPx?: number;
     sidePanel?: {
         enabled: boolean;
         mode?: 'banner' | 'product';
@@ -543,6 +629,8 @@ export interface FeaturedProductConfig {
         subtitleColor?: string;
         ctaLabel?: string;
         ctaHref?: string;
+        ctaColor?: string;
+        ctaTextColor?: string;
         productId?: string;
     };
 }
@@ -553,6 +641,26 @@ export interface ForsideProductsSection {
     layoutStyle: 'cards' | 'flat' | 'grouped' | 'slim';
     showStorformatTab: boolean;
     featuredProductConfig: FeaturedProductConfig;
+    categoryTabs: {
+        font: string;
+        borderRadiusPx: number;
+        textColor: string;
+        hoverTextColor: string;
+        activeTextColor: string;
+        bgColor: string;
+        hoverBgColor: string;
+        activeBgColor: string;
+        borderColor: string;
+        activeBorderColor: string;
+    };
+    card: {
+        titleFont?: string;
+        titleColor?: string;
+        bodyFont?: string;
+        bodyColor?: string;
+        priceFont?: string;
+        priceColor?: string;
+    };
     button: {
         style: 'default' | 'bar' | 'center' | 'hidden';
         bgColor: string;
@@ -618,6 +726,8 @@ const DEFAULT_FEATURED_PRODUCT_CONFIG: FeaturedProductConfig = {
         subtitleColor: 'rgba(255, 255, 255, 0.9)',
         ctaLabel: 'Læs mere',
         ctaHref: '/shop',
+        ctaColor: '#0EA5E9',
+        ctaTextColor: '#FFFFFF',
         productId: undefined,
     },
 };
@@ -625,6 +735,7 @@ const DEFAULT_FEATURED_PRODUCT_CONFIG: FeaturedProductConfig = {
 // Forside (front page) settings
 export interface ForsideSettings {
     showBanner: boolean;
+    banner2: Banner2Settings;
     productsSection: ForsideProductsSection;
     contentBlocks: ContentBlock[];  // max 4
 }
@@ -644,15 +755,83 @@ const DEFAULT_CONTENT_BLOCK: ContentBlock = {
     textAlign: 'center',
 };
 
+const DEFAULT_BANNER2_ITEM: Banner2Item = {
+    id: 'banner2-item-1',
+    enabled: true,
+    title: 'Logo tekst',
+    description: '',
+    titleFont: 'Poppins',
+    titleColor: '#FFFFFF',
+    descriptionFont: 'Inter',
+    descriptionColor: '#E5E7EB',
+    iconType: 'image',
+    iconName: 'Sparkles',
+    iconUrl: '',
+    groupAnimation: 'fade',
+    titleAnimation: 'slide-up',
+    descriptionAnimation: 'fade',
+    iconAnimation: 'fade',
+    linkHref: '',
+};
+
+const DEFAULT_BANNER2: Banner2Settings = {
+    enabled: false,
+    mode: 'cards',
+    autoPlay: true,
+    showArrows: true,
+    showDots: true,
+    heading: 'Kunder og referencer',
+    subtitle: 'Brug denne flade til at vise logoer, testimonials eller visuelle highlights.',
+    headingFont: 'Poppins',
+    headingColor: '#FFFFFF',
+    subtitleFont: 'Inter',
+    subtitleColor: '#E5E7EB',
+    itemsPerRow: 4,
+    slides: [
+        {
+            id: 'banner2-slide-1',
+            enabled: true,
+            durationSeconds: 5,
+            items: [DEFAULT_BANNER2_ITEM],
+        },
+    ],
+    background: {
+        type: 'gradient',
+        color: '#0F172A',
+        gradientStart: '#0F172A',
+        gradientEnd: '#1E293B',
+        gradientAngle: 135,
+        animated: false,
+        animatedStart: '#0F172A',
+        animatedMiddle: '#1E293B',
+        animatedEnd: '#334155',
+        animatedSpeed: 'slow',
+    },
+};
+
 // Default forside settings
 const DEFAULT_FORSIDE: ForsideSettings = {
     showBanner: true,
+    banner2: DEFAULT_BANNER2,
     productsSection: {
         enabled: true,
         columns: 4,
         layoutStyle: 'cards',
         showStorformatTab: true,
         featuredProductConfig: DEFAULT_FEATURED_PRODUCT_CONFIG,
+        categoryTabs: {
+            font: 'Inter',
+            borderRadiusPx: 100,
+            textColor: '#1F2937',
+            hoverTextColor: '#1F2937',
+            activeTextColor: '#FFFFFF',
+            bgColor: '#FFFFFF',
+            hoverBgColor: '#F8FAFC',
+            activeBgColor: '#0EA5E9',
+            borderColor: '#E2E8F0',
+            activeBorderColor: '#0EA5E9',
+        },
+        card: {},
         button: {
             style: 'default',
             bgColor: '#0EA5E9',
@@ -675,6 +854,129 @@ const DEFAULT_FORSIDE: ForsideSettings = {
 };
 
 // ============================================================================
+// USP STRIP (Unique Selling Points) - Below product cards
+// ============================================================================
+
+export type USPIconType = 'truck' | 'award' | 'phone' | 'shield' | 'clock' | 'star' | 'heart' | 'check' | 'custom';
+
+export interface USPItem {
+    id: string;
+    enabled: boolean;
+    icon: USPIconType;
+    /** Custom icon URL (PNG/SVG upload) */
+    customIconUrl?: string;
+    title: string;
+    description: string;
+}
+
+export interface USPStripSettings {
+    enabled: boolean;
+    mode: 'standard' | 'animated';
+    animation: HeroTextAnimation;
+    staggerMs: number;
+    /** Solid background color (used if gradient not enabled) */
+    backgroundColor: string;
+    /** Enable gradient background */
+    useGradient: boolean;
+    /** Gradient start color */
+    gradientFrom: string;
+    /** Gradient end color */
+    gradientTo: string;
+    /** Gradient direction: to-r, to-l, to-t, to-b, to-tr, to-tl, to-br, to-bl */
+    gradientDirection: string;
+    textColor: string;
+    iconColor: string;
+    titleColor: string;
+    descriptionColor: string;
+    titleFont: string;
+    descriptionFont: string;
+    items: USPItem[];
+}
+
+const DEFAULT_USP_STRIP: USPStripSettings = {
+    enabled: true,
+    mode: "standard",
+    animation: "slide-up",
+    staggerMs: 120,
+    backgroundColor: "#0EA5E9",
+    useGradient: false,
+    gradientFrom: "#0EA5E9",
+    gradientTo: "#6366F1",
+    gradientDirection: "to-r",
+    textColor: "#FFFFFF",
+    iconColor: "#FFFFFF",
+    titleColor: "#FFFFFF",
+    descriptionColor: "#FFFFFF",
+    titleFont: "Poppins",
+    descriptionFont: "Inter",
+    items: [
+        {
+            id: "usp-1",
+            enabled: true,
+            icon: "truck",
+            title: "Hurtig levering",
+            description: "Express-muligheder til hele Danmark",
+        },
+        {
+            id: "usp-2",
+            enabled: true,
+            icon: "award",
+            title: "Kvalitet til skarpe priser",
+            description: "25+ års erfaring med professionelt tryk",
+        },
+        {
+            id: "usp-3",
+            enabled: true,
+            icon: "phone",
+            title: "Personlig rådgivning",
+            description: "Tlf: 71 99 11 10",
+        },
+    ],
+};
+
+// ============================================================================
+// SEO CONTENT (Below USP strip)
+// ============================================================================
+
+export interface SEOContentItem {
+    id: string;
+    enabled: boolean;
+    heading: string;
+    text: string;
+}
+
+export interface SEOContentSettings {
+    enabled: boolean;
+    backgroundColor: string;
+    items: SEOContentItem[];
+}
+
+const DEFAULT_SEO_CONTENT: SEOContentSettings = {
+    enabled: true,
+    backgroundColor: "", // Empty = use secondary color
+    items: [
+        {
+            id: "1",
+            enabled: true,
+            heading: "Billige tryksager online",
+            text: "Webprinter.dk gør det nemt at bestille flyers, foldere, visitkort og hæfter i høj kvalitet til lave priser. Beregn din pris direkte online og få levering i hele Danmark.",
+        },
+        {
+            id: "2",
+            enabled: true,
+            heading: "Storformat print til enhver opgave",
+            text: "Fra bannere og beachflag til skilte og tekstilprint – vi producerer storformat i topkvalitet. Alt printes med UV-bestandige farver og professionel finish.",
+        },
+        {
+            id: "3",
+            enabled: true,
+            heading: "Dansk trykkeri med hurtig levering",
+            text: "Vi har over 25 års erfaring og leverer både til erhverv og private. Kontakt os i dag og oplev service, kvalitet og konkurrencedygtige priser.",
+        },
+    ],
+};
+
+// ============================================================================
 // COMPLETE BRANDING CONFIGURATION
 // ============================================================================
 
@@ -693,6 +995,15 @@ const DEFAULT_BRANDING = {
         card: "#FFFFFF",
         dropdown: "#FFFFFF",
         hover: "#0284C7",
+        backgroundType: "solid" as "solid" | "gradient" | "image",
+        backgroundGradientType: "linear" as "linear" | "radial",
+        backgroundGradientStart: "#F8FAFC",
+        backgroundGradientEnd: "#E2E8F0",
+        backgroundGradientUseMiddle: false,
+        backgroundGradientMiddle: "#FFFFFF",
+        backgroundGradientAngle: 135,
+        backgroundImageUrl: null as string | null,
+        backgroundImageMode: "cover" as "cover" | "contain" | "repeat",
         // Typography colors
         headingText: "#1F2937",
         bodyText: "#4B5563",
@@ -704,11 +1015,67 @@ const DEFAULT_BRANDING = {
     hero: DEFAULT_HERO,
     header: DEFAULT_HEADER,
     footer: DEFAULT_FOOTER,
+    uspStrip: DEFAULT_USP_STRIP,
+    seoContent: DEFAULT_SEO_CONTENT,
+    // POD3 (Flyer Alarm) - Feature toggles, OFF by default
+    pod3: {
+        showOnHomepage: false,  // Toggle to show FA products on homepage
+    },
     forside: DEFAULT_FORSIDE,
     navigation: {
         dropdown_images: true,
     },
     productPage: {
+        heading: {
+            // Custom override text - empty = use product name
+            customText: "",
+            font: "Poppins",
+            sizePx: 36,
+            color: "",           // empty = use headingText color
+            // Optional bold subtext block below the heading
+            subtext: {
+                enabled: false,
+                text: "",
+                font: "Poppins",
+                sizePx: 18,
+                color: "",       // empty = use bodyText color
+            },
+        },
+        infoSection: {
+            // Background box
+            bgColor: "",          // empty = use card color
+            bgBorderRadius: 12,
+            borderColor: "",      // empty = use border color
+            borderWidthPx: 0,
+            paddingPx: 24,
+            // Title style
+            titleFont: "",        // empty = inherit heading font
+            titleColor: "",       // empty = headingText
+            titleSizePx: 22,
+            titleWeight: "600" as "400" | "500" | "600" | "700",
+            // Body text style
+            textFont: "",         // empty = inherit body font
+            textColor: "",        // empty = bodyText
+            textSizePx: 16,
+            lineHeight: 1.6,
+            descriptionText: "",  // empty = use product's about_description
+            // Image placement: "above" | "below" | "left" | "right" | "corners"
+            imagePosition: "above" as "above" | "below" | "left" | "right" | "corners",
+            imageUrl: "",         // main product image URL
+            imageWidthPct: 40,    // % of row when left or right
+            imageCornerSizePx: 80, // size when in corners
+            imageBorderRadiusPx: 8,
+            // Gallery settings
+            galleryEnabled: false,
+            galleryPosition: "bottom" as "top" | "bottom" | "left" | "right",
+            galleryHeightPx: 200,
+            galleryBorderRadiusPx: 8,
+            galleryImages: [] as string[],
+            galleryIntervalMs: 4500,
+            // Section header
+            headerText: "Om produktet",
+            showHeader: true,
+        },
         matrix: {
             font: "Inter",
             headerBg: "#F1F5F9",
@@ -722,7 +1089,36 @@ const DEFAULT_BRANDING = {
             selectedBg: "#0EA5E9",
             selectedText: "#FFFFFF",
             borderColor: "#E2E8F0",
+            // Box styling
+            boxBackgroundColor: "#FFFFFF",
+            boxBorderRadiusPx: 12,
+            boxBorderWidthPx: 1,
+            boxBorderColor: "#E2E8F0",
+            boxPaddingPx: 16,
+            // Text button styling (fallback defaults)
+            textButtons: {
+                backgroundColor: "#FFFFFF",
+                hoverBackgroundColor: "#F1F5F9",
+                textColor: "#1F2937",
+                hoverTextColor: "#0EA5E9",
+                selectedBackgroundColor: "#0EA5E9",
+                selectedTextColor: "#FFFFFF",
+                borderRadiusPx: 8,
+                borderWidthPx: 1,
+                borderColor: "#E2E8F0",
+                hoverBorderColor: "#0EA5E9",
+                paddingPx: 12,
+                fontSizePx: 14,
+                minHeightPx: 44,
+            },
+            // Picture button styling (extended with new fields)
             pictureButtons: {
+                // New display options
+                size: "medium" as const,
+                displayMode: "text_and_image" as const,
+                imageBorderRadiusPx: 8,
+                gapBetweenPx: 12,
+                // Existing hover effects
                 hoverEnabled: true,
                 hoverColor: "#0EA5E9",
                 hoverOpacity: 0.15,
@@ -733,6 +1129,103 @@ const DEFAULT_BRANDING = {
                 hoverZoomEnabled: true,
                 hoverZoomScale: 1.03,
                 hoverZoomDurationMs: 140,
+            },
+        },
+        pricePanel: {
+            backgroundType: "solid",
+            backgroundColor: "",
+            gradientStart: "",
+            gradientEnd: "",
+            gradientAngle: 135,
+            titleColor: "",
+            textColor: "",
+            mutedTextColor: "",
+            priceColor: "",
+            borderColor: "",
+            borderWidth: 2,
+            radiusPx: 12,
+            dividerColor: "",
+            optionBg: "",
+            optionHoverBg: "",
+            optionSelectedBg: "",
+            optionBorderColor: "",
+            optionHoverBorderColor: "",
+            optionSelectedBorderColor: "",
+            badgeBg: "",
+            badgeText: "",
+            badgeBorderColor: "",
+        },
+        orderButtons: {
+            font: "Inter",
+            animation: "none",
+            primary: {
+                bgColor: "",
+                hoverBgColor: "",
+                textColor: "",
+                hoverTextColor: "",
+                borderColor: "",
+                hoverBorderColor: "",
+            },
+            secondary: {
+                bgColor: "",
+                hoverBgColor: "",
+                textColor: "",
+                hoverTextColor: "",
+                borderColor: "",
+                hoverBorderColor: "",
+            },
+            selected: {
+                bgColor: "#16A34A",
+                hoverBgColor: "#15803D",
+                textColor: "#FFFFFF",
+                hoverTextColor: "#FFFFFF",
+                borderColor: "#16A34A",
+                hoverBorderColor: "#15803D",
+            },
+        },
+        // Option selector styling (DynamicProductOptions component)
+        optionSelectors: {
+            // Text/button pills display type
+            button: {
+                bgColor: "",              // empty = muted
+                textColor: "",            // empty = foreground
+                selectedBgColor: "",      // empty = primary
+                selectedTextColor: "",    // empty = white
+                hoverBgColor: "",         // empty = muted/darker
+                hoverTextColor: "",       // empty = primary
+                borderRadius: 8,
+                borderColor: "",          // empty = no border
+                borderWidth: 1,
+                selectedRingColor: "",    // empty = primary
+                hoverRingEnabled: false,
+                paddingPx: 12,
+                fontSizePx: 14,
+            },
+            // Image/icon grid display type
+            image: {
+                sizePx: 144,
+                borderRadius: 8,
+                bgColor: "",
+                selectedBgColor: "",
+                hoverBgColor: "",
+                selectedRingColor: "",    // empty = primary
+                hoverRingEnabled: true,
+                hoverRingColor: "",       // empty = primary
+                labelColor: "",
+                labelSizePx: 14,
+            },
+            // Dropdown select display type
+            dropdown: {
+                bgColor: "",
+                textColor: "",
+                borderColor: "",
+                borderRadius: 6,
+            },
+            // Checkbox display type
+            checkbox: {
+                accentColor: "",
+                labelColor: "",
+                labelSizePx: 14,
             },
         },
     },
@@ -772,6 +1265,8 @@ export {
     DEFAULT_FOOTER_SOCIAL,
     DEFAULT_FOOTER_LINKS,
     DEFAULT_FORSIDE,
+    DEFAULT_USP_STRIP,
+    DEFAULT_SEO_CONTENT,
 };
 
 
@@ -805,6 +1300,24 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
         };
     }
 
+    // Deep merge USP Strip
+    if (data.uspStrip) {
+        merged.uspStrip = {
+            ...DEFAULT_BRANDING.uspStrip,
+            ...data.uspStrip,
+            items: data.uspStrip.items || DEFAULT_BRANDING.uspStrip.items,
+        };
+    }
+
+    // Deep merge SEO Content
+    if (data.seoContent) {
+        merged.seoContent = {
+            ...DEFAULT_BRANDING.seoContent,
+            ...data.seoContent,
+            items: data.seoContent.items || DEFAULT_BRANDING.seoContent.items,
+        };
+    }
+
     // Deep merge Hero
     if (data.hero) {
         merged.hero = {
@@ -827,6 +1340,15 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
         merged.forside = {
             ...DEFAULT_BRANDING.forside,
             ...data.forside,
+            banner2: {
+                ...DEFAULT_BRANDING.forside.banner2,
+                ...(data.forside.banner2 || {}),
+                background: {
+                    ...DEFAULT_BRANDING.forside.banner2.background,
+                    ...(data.forside.banner2?.background || {}),
+                },
+                slides: data.forside.banner2?.slides || DEFAULT_BRANDING.forside.banner2.slides,
+            },
             contentBlocks: data.forside.contentBlocks || DEFAULT_BRANDING.forside.contentBlocks,
             productsSection: {
                 ...DEFAULT_BRANDING.forside.productsSection,
@@ -843,6 +1365,14 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
                     ...DEFAULT_BRANDING.forside.productsSection.button,
                     ...(data.forside.productsSection?.button || {}),
                 },
+                categoryTabs: {
+                    ...DEFAULT_BRANDING.forside.productsSection.categoryTabs,
+                    ...(data.forside.productsSection?.categoryTabs || {}),
+                },
+                card: {
+                    ...DEFAULT_BRANDING.forside.productsSection.card,
+                    ...(data.forside.productsSection?.card || {}),
+                },
                 background: {
                     ...DEFAULT_BRANDING.forside.productsSection.background,
                     ...(data.forside.productsSection?.background || {}),
@@ -855,12 +1385,64 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
         merged.productPage = {
             ...DEFAULT_BRANDING.productPage,
             ...data.productPage,
+            heading: {
+                ...DEFAULT_BRANDING.productPage.heading,
+                ...(data.productPage?.heading || {}),
+                subtext: {
+                    ...DEFAULT_BRANDING.productPage.heading.subtext,
+                    ...(data.productPage?.heading?.subtext || {}),
+                },
+            },
+            infoSection: {
+                ...DEFAULT_BRANDING.productPage.infoSection,
+                ...(data.productPage?.infoSection || {}),
+            },
             matrix: {
                 ...DEFAULT_BRANDING.productPage.matrix,
                 ...(data.productPage?.matrix || {}),
                 pictureButtons: {
                     ...DEFAULT_BRANDING.productPage.matrix.pictureButtons,
                     ...(data.productPage?.matrix?.pictureButtons || {}),
+                },
+            },
+            pricePanel: {
+                ...DEFAULT_BRANDING.productPage.pricePanel,
+                ...(data.productPage?.pricePanel || {}),
+            },
+            orderButtons: {
+                ...DEFAULT_BRANDING.productPage.orderButtons,
+                ...(data.productPage?.orderButtons || {}),
+                primary: {
+                    ...DEFAULT_BRANDING.productPage.orderButtons.primary,
+                    ...(data.productPage?.orderButtons?.primary || {}),
+                },
+                secondary: {
+                    ...DEFAULT_BRANDING.productPage.orderButtons.secondary,
+                    ...(data.productPage?.orderButtons?.secondary || {}),
+                },
+                selected: {
+                    ...DEFAULT_BRANDING.productPage.orderButtons.selected,
+                    ...(data.productPage?.orderButtons?.selected || {}),
+                },
+            },
+            optionSelectors: {
+                ...DEFAULT_BRANDING.productPage.optionSelectors,
+                ...(data.productPage?.optionSelectors || {}),
+                button: {
+                    ...DEFAULT_BRANDING.productPage.optionSelectors.button,
+                    ...(data.productPage?.optionSelectors?.button || {}),
+                },
+                image: {
+                    ...DEFAULT_BRANDING.productPage.optionSelectors.image,
+                    ...(data.productPage?.optionSelectors?.image || {}),
+                },
+                dropdown: {
+                    ...DEFAULT_BRANDING.productPage.optionSelectors.dropdown,
+                    ...(data.productPage?.optionSelectors?.dropdown || {}),
+                },
+                checkbox: {
+                    ...DEFAULT_BRANDING.productPage.optionSelectors.checkbox,
+                    ...(data.productPage?.optionSelectors?.checkbox || {}),
                 },
             },
         };
@@ -1051,6 +1633,16 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
             const newForside = partial.forside ? {
                 ...prev.forside,
                 ...partial.forside,
+                banner2: partial.forside.banner2
+                    ? {
+                        ...prev.forside.banner2,
+                        ...partial.forside.banner2,
+                        background: partial.forside.banner2.background
+                            ? { ...prev.forside.banner2.background, ...partial.forside.banner2.background }
+                            : prev.forside.banner2.background,
+                        slides: partial.forside.banner2.slides ?? prev.forside.banner2.slides,
+                    }
+                    : prev.forside.banner2,
                 contentBlocks: partial.forside.contentBlocks ?? prev.forside.contentBlocks,
                 productsSection: partial.forside.productsSection
                     ? { ...prev.forside.productsSection, ...partial.forside.productsSection }
@@ -1060,6 +1652,21 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
             const newProductPage = partial.productPage ? {
                 ...prev.productPage,
                 ...partial.productPage,
+                heading: partial.productPage.heading
+                    ? {
+                        ...prev.productPage.heading,
+                        ...partial.productPage.heading,
+                        subtext: partial.productPage.heading.subtext
+                            ? {
+                                ...prev.productPage.heading.subtext,
+                                ...partial.productPage.heading.subtext,
+                            }
+                            : prev.productPage.heading.subtext,
+                    }
+                    : prev.productPage.heading,
+                infoSection: partial.productPage.infoSection
+                    ? { ...prev.productPage.infoSection, ...partial.productPage.infoSection }
+                    : prev.productPage.infoSection,
                 matrix: partial.productPage.matrix
                     ? {
                         ...prev.productPage.matrix,
@@ -1072,6 +1679,54 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
                             : prev.productPage.matrix.pictureButtons,
                     }
                     : prev.productPage.matrix,
+                pricePanel: partial.productPage.pricePanel
+                    ? {
+                        ...prev.productPage.pricePanel,
+                        ...partial.productPage.pricePanel,
+                    }
+                    : prev.productPage.pricePanel,
+                orderButtons: partial.productPage.orderButtons
+                    ? {
+                        ...prev.productPage.orderButtons,
+                        ...partial.productPage.orderButtons,
+                        primary: partial.productPage.orderButtons.primary
+                            ? {
+                                ...prev.productPage.orderButtons.primary,
+                                ...partial.productPage.orderButtons.primary,
+                            }
+                            : prev.productPage.orderButtons.primary,
+                        secondary: partial.productPage.orderButtons.secondary
+                            ? {
+                                ...prev.productPage.orderButtons.secondary,
+                                ...partial.productPage.orderButtons.secondary,
+                            }
+                            : prev.productPage.orderButtons.secondary,
+                        selected: partial.productPage.orderButtons.selected
+                            ? {
+                                ...prev.productPage.orderButtons.selected,
+                                ...partial.productPage.orderButtons.selected,
+                            }
+                            : prev.productPage.orderButtons.selected,
+                    }
+                    : prev.productPage.orderButtons,
+                optionSelectors: (partial.productPage as any).optionSelectors
+                    ? {
+                        ...(prev.productPage as any).optionSelectors,
+                        ...(partial.productPage as any).optionSelectors,
+                        button: (partial.productPage as any).optionSelectors?.button
+                            ? { ...(prev.productPage as any).optionSelectors?.button, ...(partial.productPage as any).optionSelectors.button }
+                            : (prev.productPage as any).optionSelectors?.button,
+                        image: (partial.productPage as any).optionSelectors?.image
+                            ? { ...(prev.productPage as any).optionSelectors?.image, ...(partial.productPage as any).optionSelectors.image }
+                            : (prev.productPage as any).optionSelectors?.image,
+                        dropdown: (partial.productPage as any).optionSelectors?.dropdown
+                            ? { ...(prev.productPage as any).optionSelectors?.dropdown, ...(partial.productPage as any).optionSelectors.dropdown }
+                            : (prev.productPage as any).optionSelectors?.dropdown,
+                        checkbox: (partial.productPage as any).optionSelectors?.checkbox
+                            ? { ...(prev.productPage as any).optionSelectors?.checkbox, ...(partial.productPage as any).optionSelectors.checkbox }
+                            : (prev.productPage as any).optionSelectors?.checkbox,
+                    }
+                    : (prev.productPage as any).optionSelectors,
             } : prev.productPage;
 
             return {

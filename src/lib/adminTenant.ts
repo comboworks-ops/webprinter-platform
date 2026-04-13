@@ -1,4 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
+import { USE_API_TENANT_CONTEXT } from "@/lib/api/featureFlags";
+import { fetchTenantContext } from "@/lib/api/tenantContext";
 
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
@@ -90,10 +92,35 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
     const resolutionPromise = (async (): Promise<AdminTenantResolution> => {
         debugLog("[resolveAdminTenant] Resolving for user:", user.id);
 
-        let role: string | null = null;
-        let tenantId: string | null = null;
         const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
         const pathname = getPathnameForResolution();
+
+        if (USE_API_TENANT_CONTEXT) {
+            try {
+                const apiResult = await fetchTenantContext({
+                    mode: "admin",
+                    hostname,
+                    pathname,
+                });
+
+                if (apiResult?.success) {
+                    const result = {
+                        tenantId: apiResult.tenant?.id ?? null,
+                        role: apiResult.auth?.role ?? null,
+                        isMasterAdmin: apiResult.auth?.isMasterAdmin === true,
+                    };
+
+                    resolutionCache.set(cacheKey, { value: result, expiresAt: Date.now() + RESOLUTION_TTL_MS });
+                    debugLog("[resolveAdminTenant] Resolved via tenant-context-read:", apiResult.source, result);
+                    return result;
+                }
+            } catch (error) {
+                debugLog("[resolveAdminTenant] tenant-context-read fallback to direct resolution:", error);
+            }
+        }
+
+        let role: string | null = null;
+        let tenantId: string | null = null;
         const isAdminRoute = pathname.startsWith("/admin");
         const isCentralAdminHost =
             isLocalhost

@@ -4,6 +4,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+const DEFAULT_FROM_EMAIL = Deno.env.get("CONTACT_EMAIL_FROM") ?? "info@webprinter.dk";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,7 +12,7 @@ const corsHeaders = {
 };
 
 interface OrderEmailPayload {
-  type: "status_change" | "order_confirmation" | "problem_notification";
+  type: "status_change" | "order_confirmation" | "problem_notification" | "admin_new_order";
   order: {
     order_number: string;
     product_name: string;
@@ -31,6 +32,17 @@ interface OrderEmailPayload {
   customer: {
     email: string;
     name: string;
+  }
+  recipient?: {
+    email: string;
+    name?: string;
+  };
+  shop?: {
+    name?: string;
+    supportEmail?: string;
+    orderUrl?: string;
+    adminOrderUrl?: string;
+    homepageUrl?: string;
   };
 }
 
@@ -52,6 +64,8 @@ function getEmailSubject(payload: OrderEmailPayload): string {
       return `Ordre ${payload.order.order_number} - ${statusLabels[payload.order.status] || payload.order.status}`;
     case "problem_notification":
       return `Handling påkrævet - Ordre ${payload.order.order_number}`;
+    case "admin_new_order":
+      return `Ny ordre modtaget - ${payload.order.order_number}`;
     default:
       return `Opdatering - Ordre ${payload.order.order_number}`;
   }
@@ -59,6 +73,11 @@ function getEmailSubject(payload: OrderEmailPayload): string {
 
 function getEmailHtml(payload: OrderEmailPayload): string {
   const { order, customer, type } = payload;
+  const recipientName = payload.recipient?.name || customer.name;
+  const shopName = payload.shop?.name || "Webprinter";
+  const supportEmail = payload.shop?.supportEmail || "info@webprinter.dk";
+  const orderUrl = payload.shop?.orderUrl || "https://webprinter.dk/mine-ordrer";
+  const adminOrderUrl = payload.shop?.adminOrderUrl || `${payload.shop?.homepageUrl || "https://webprinter.dk"}/admin/ordrer`;
 
   const baseStyles = `
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -116,7 +135,24 @@ function getEmailHtml(payload: OrderEmailPayload): string {
       ${order.problem_description ? `<p><strong>Beskrivelse:</strong> ${order.problem_description}</p>` : ""}
       <p>Log ind på din konto for at se detaljer og uploade eventuelle nye filer.</p>
       <p style="margin-top: 20px;">
-        <a href="https://yoursite.dk/mine-ordrer" style="${buttonStyle}">Se din ordre</a>
+        <a href="${orderUrl}" style="${buttonStyle}">Se din ordre</a>
+      </p>
+    `;
+  } else if (type === "admin_new_order") {
+    content = `
+      <h1 style="color: #2563eb;">Ny ordre modtaget</h1>
+      <p>Hej ${recipientName || shopName},</p>
+      <p>Der er kommet en ny ordre ind i shoppen.</p>
+      <p><strong>Kunde:</strong> ${customer.name}</p>
+      <p><strong>Kunde-email:</strong> ${customer.email}</p>
+      ${order.customer_phone ? `<p><strong>Kundetelefon:</strong> ${order.customer_phone}</p>` : ""}
+      ${order.delivery_summary ? `<p><strong>Levering til:</strong> ${order.delivery_summary}</p>` : ""}
+      ${order.billing_summary ? `<p><strong>Fakturering:</strong> ${order.billing_summary}</p>` : ""}
+      ${order.delivery_type ? `<p><strong>Leveringsmetode:</strong> ${order.delivery_type}</p>` : ""}
+      ${order.blind_shipping ? `<p><strong>Blind forsendelse:</strong> Ja</p>` : ""}
+      ${order.sender_summary ? `<p><strong>Afsender på pakken:</strong> ${order.sender_summary}</p>` : ""}
+      <p style="margin-top: 20px;">
+        <a href="${adminOrderUrl}" style="${buttonStyle}">Åbn ordreoversigt</a>
       </p>
     `;
   }
@@ -132,7 +168,7 @@ function getEmailHtml(payload: OrderEmailPayload): string {
       <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
         <!-- Header -->
         <div style="background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%); padding: 30px; text-align: center;">
-          <h2 style="color: white; margin: 0;">WebPrint Danmark</h2>
+          <h2 style="color: white; margin: 0;">${shopName}</h2>
         </div>
         
         <!-- Content -->
@@ -163,17 +199,19 @@ function getEmailHtml(payload: OrderEmailPayload): string {
           </div>
           
           <p style="margin-top: 30px;">
-            <a href="https://yoursite.dk/mine-ordrer" style="${buttonStyle}">Se din ordre</a>
+            <a href="${type === "admin_new_order" ? adminOrderUrl : orderUrl}" style="${buttonStyle}">
+              ${type === "admin_new_order" ? "Åbn ordreoversigt" : "Se din ordre"}
+            </a>
           </p>
         </div>
         
         <!-- Footer -->
         <div style="background: #f8f9fa; padding: 20px; text-align: center; border-top: 1px solid #eee;">
           <p style="margin: 0; color: #666; font-size: 14px;">
-            Har du spørgsmål? Kontakt os på <a href="mailto:info@webprint.dk">info@webprint.dk</a>
+            Har du spørgsmål? Kontakt os på <a href="mailto:${supportEmail}">${supportEmail}</a>
           </p>
           <p style="margin: 10px 0 0; color: #999; font-size: 12px;">
-            © ${new Date().getFullYear()} WebPrint Danmark. Alle rettigheder forbeholdes.
+            © ${new Date().getFullYear()} ${shopName}. Alle rettigheder forbeholdes.
           </p>
         </div>
       </div>
@@ -190,6 +228,12 @@ serve(async (req) => {
 
   try {
     const payload: OrderEmailPayload = await req.json();
+    const shopName = payload.shop?.name || "Webprinter";
+    const supportEmail = payload.shop?.supportEmail || "info@webprinter.dk";
+    const recipientEmail = payload.recipient?.email || payload.customer.email;
+    const fromAddress = DEFAULT_FROM_EMAIL.includes("<")
+      ? DEFAULT_FROM_EMAIL
+      : `${shopName} <${DEFAULT_FROM_EMAIL}>`;
 
     if (!RESEND_API_KEY) {
       throw new Error("RESEND_API_KEY not configured");
@@ -202,9 +246,9 @@ serve(async (req) => {
         "Authorization": `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        // Using Resend's test domain for development - change to your verified domain for production
-        from: "WebPrint <onboarding@resend.dev>",
-        to: [payload.customer.email],
+        from: fromAddress,
+        reply_to: supportEmail,
+        to: [recipientEmail],
         subject: getEmailSubject(payload),
         html: getEmailHtml(payload),
       }),

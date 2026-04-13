@@ -135,9 +135,10 @@ export function TemplatesDownloadSection({ currentTenantId, defaultOpen = false 
     }
 
     return (
-        <div className="border border-border rounded-lg overflow-hidden mb-4">
+        <div data-branding-id="colors.card" className="border border-border rounded-lg overflow-hidden mb-4">
             <button
                 onClick={() => setIsOpen(!isOpen)}
+                data-branding-id="typography.heading"
                 className="w-full flex items-center justify-between p-4 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
             >
                 <div className="flex items-center gap-3">
@@ -153,7 +154,7 @@ export function TemplatesDownloadSection({ currentTenantId, defaultOpen = false 
             </button>
             {isOpen && (
                 <div className="p-4 bg-background space-y-4">
-                    <p className="text-muted-foreground text-sm">
+                    <p data-branding-id="typography.body" className="text-muted-foreground text-sm">
                         Download vores trykkeklare skabeloner i PDF-format. Skabelonerne indeholder korrekt
                         opsætning med beskæring, sikkerhedszoner og formatstørrelser.
                     </p>
@@ -237,6 +238,7 @@ export function TemplatesDownloadSection({ currentTenantId, defaultOpen = false 
                                                         className="gap-1"
                                                     >
                                                         <a
+                                                            data-branding-id="colors.primary"
                                                             href={template.file_url}
                                                             target="_blank"
                                                             rel="noopener noreferrer"

@@ -10,19 +10,16 @@
  * - Opacity slider (optional)
  */
 
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover";
-import { Check, Palette, Plus, X, Save } from "lucide-react";
+import { Check, X, Save, Pipette } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useBrandingPalette, BRANDING_PALETTE_LABELS } from "@/contexts/BrandingPaletteContext";
 
 // Predefined swatch colors - curated for branding (organized by hue)
 const DEFAULT_SWATCHES = [
@@ -65,8 +62,12 @@ const DEFAULT_SWATCHES = [
 // Maximum saved swatches
 const MAX_SAVED_SWATCHES = 20;
 const FALLBACK_COLOR = "#000000";
+const SHARED_SWATCHES_STORAGE_KEY = "webprinter.color-picker.shared-swatches";
+const SHARED_SWATCHES_EVENT = "webprinter:color-picker-shared-swatches";
 
 const clampRgbChannel = (value: number) => Math.max(0, Math.min(255, value));
+const clampPercentage = (value: number) => Math.max(0, Math.min(100, value));
+const clampHue = (value: number) => Math.max(0, Math.min(360, value));
 
 const normalizeColorValue = (value: unknown): string => {
     if (typeof value !== "string") {
@@ -106,6 +107,157 @@ const toHexColor = (value: string): string => {
     return `#${channels
         .map((channel) => clampRgbChannel(channel).toString(16).padStart(2, "0"))
         .join("")}`.toUpperCase();
+};
+
+const hexToRgb = (hex: string) => {
+    const normalizedHex = toHexColor(hex);
+    const r = parseInt(normalizedHex.slice(1, 3), 16);
+    const g = parseInt(normalizedHex.slice(3, 5), 16);
+    const b = parseInt(normalizedHex.slice(5, 7), 16);
+    return { r, g, b };
+};
+
+type HsvColor = {
+    h: number;
+    s: number;
+    v: number;
+};
+
+type EyeDropperResult = {
+    sRGBHex: string;
+};
+
+type EyeDropperConstructor = new () => {
+    open: () => Promise<EyeDropperResult>;
+};
+
+const rgbToHex = (r: number, g: number, b: number) =>
+    `#${[r, g, b]
+        .map((channel) => clampRgbChannel(channel).toString(16).padStart(2, "0"))
+        .join("")}`.toUpperCase();
+
+const rgbToHsv = ({ r, g, b }: { r: number; g: number; b: number }): HsvColor => {
+    const red = r / 255;
+    const green = g / 255;
+    const blue = b / 255;
+    const max = Math.max(red, green, blue);
+    const min = Math.min(red, green, blue);
+    const delta = max - min;
+
+    let hue = 0;
+    if (delta !== 0) {
+        if (max === red) {
+            hue = ((green - blue) / delta) % 6;
+        } else if (max === green) {
+            hue = (blue - red) / delta + 2;
+        } else {
+            hue = (red - green) / delta + 4;
+        }
+    }
+
+    hue = Math.round(hue * 60);
+    if (hue < 0) hue += 360;
+
+    const saturation = max === 0 ? 0 : (delta / max) * 100;
+    const value = max * 100;
+
+    return {
+        h: clampHue(hue),
+        s: clampPercentage(saturation),
+        v: clampPercentage(value),
+    };
+};
+
+const hsvToRgb = ({ h, s, v }: HsvColor) => {
+    const hue = ((h % 360) + 360) % 360;
+    const saturation = clampPercentage(s) / 100;
+    const value = clampPercentage(v) / 100;
+
+    const chroma = value * saturation;
+    const huePrime = hue / 60;
+    const x = chroma * (1 - Math.abs((huePrime % 2) - 1));
+
+    let red = 0;
+    let green = 0;
+    let blue = 0;
+
+    if (huePrime >= 0 && huePrime < 1) {
+        red = chroma;
+        green = x;
+    } else if (huePrime < 2) {
+        red = x;
+        green = chroma;
+    } else if (huePrime < 3) {
+        green = chroma;
+        blue = x;
+    } else if (huePrime < 4) {
+        green = x;
+        blue = chroma;
+    } else if (huePrime < 5) {
+        red = x;
+        blue = chroma;
+    } else {
+        red = chroma;
+        blue = x;
+    }
+
+    const match = value - chroma;
+
+    return {
+        r: Math.round((red + match) * 255),
+        g: Math.round((green + match) * 255),
+        b: Math.round((blue + match) * 255),
+    };
+};
+
+const hsvToHex = (color: HsvColor) => {
+    const { r, g, b } = hsvToRgb(color);
+    return rgbToHex(r, g, b);
+};
+
+const dedupeSwatches = (colors: string[]) => {
+    const seen = new Set<string>();
+    const normalizedColors: string[] = [];
+
+    colors.forEach((color) => {
+        const normalized = toHexColor(color);
+        if (seen.has(normalized)) {
+            return;
+        }
+
+        seen.add(normalized);
+        normalizedColors.push(normalized);
+    });
+
+    return normalizedColors.slice(0, MAX_SAVED_SWATCHES);
+};
+
+const readSharedSwatches = () => {
+    if (typeof window === "undefined") {
+        return [];
+    }
+
+    try {
+        const stored = window.localStorage.getItem(SHARED_SWATCHES_STORAGE_KEY);
+        if (!stored) {
+            return [];
+        }
+
+        const parsed = JSON.parse(stored);
+        return Array.isArray(parsed) ? dedupeSwatches(parsed.filter((value): value is string => typeof value === "string")) : [];
+    } catch {
+        return [];
+    }
+};
+
+const writeSharedSwatches = (colors: string[]) => {
+    if (typeof window === "undefined") {
+        return;
+    }
+
+    const nextColors = dedupeSwatches(colors);
+    window.localStorage.setItem(SHARED_SWATCHES_STORAGE_KEY, JSON.stringify(nextColors));
+    window.dispatchEvent(new CustomEvent<string[]>(SHARED_SWATCHES_EVENT, { detail: nextColors }));
 };
 
 interface ColorPickerWithSwatchesProps {
@@ -156,130 +308,388 @@ export function ColorPickerWithSwatches({
     inlineAlign = "center",
 }: ColorPickerWithSwatchesProps) {
     const [isOpen, setIsOpen] = useState(false);
-    const colorInputRef = useRef<HTMLInputElement>(null);
+    const isAdjustingColorRef = useRef(false);
+    const activeSaturationPointerIdRef = useRef<number | null>(null);
+    const triggerButtonRef = useRef<HTMLButtonElement | null>(null);
     const currentColor = normalizeColorValue(value);
-    const nativeColorValue = toHexColor(currentColor);
-    const hexInputValue = currentColor.startsWith("#")
-        ? currentColor.replace("#", "").toUpperCase()
-        : nativeColorValue.replace("#", "");
+    const openedColorRef = useRef(currentColor);
+    const openedOpacityRef = useRef(opacity);
+    const [sharedSavedSwatches, setSharedSavedSwatches] = useState<string[]>(() => readSharedSwatches());
+    const [draftColor, setDraftColor] = useState(currentColor);
+    const [draftOpacity, setDraftOpacity] = useState(opacity);
+    const [eyeDropperError, setEyeDropperError] = useState<string | null>(null);
+    const brandingPalette = useBrandingPalette();
+    const editableColor = isOpen ? draftColor : currentColor;
+    const normalizedCurrentColor = toHexColor(currentColor);
+    const normalizedDraftColor = toHexColor(draftColor);
+    const normalizedOpenedColor = toHexColor(openedColorRef.current);
+    const normalizedSavedSwatches = dedupeSwatches(savedSwatches);
+    const effectiveSavedSwatches = dedupeSwatches([...savedSwatches, ...sharedSavedSwatches]);
+    const hexInputValue = editableColor.startsWith("#")
+        ? editableColor.replace("#", "").toUpperCase()
+        : toHexColor(editableColor).replace("#", "");
+    const eyeDropperSupported =
+        typeof window !== "undefined"
+        && typeof (window as Window & { EyeDropper?: EyeDropperConstructor }).EyeDropper === "function";
 
-    const handleSwatchClick = (color: string) => {
-        onChange(color);
+    useEffect(() => {
+        if (!isOpen) {
+            setDraftColor(currentColor);
+            setDraftOpacity(opacity);
+            setEyeDropperError(null);
+        }
+    }, [currentColor, opacity, isOpen]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        const syncSharedSwatches = () => {
+            setSharedSavedSwatches(readSharedSwatches());
+        };
+
+        const handleSharedSwatches = (event: Event) => {
+            if (event instanceof CustomEvent && Array.isArray(event.detail)) {
+                setSharedSavedSwatches(dedupeSwatches(event.detail));
+                return;
+            }
+
+            syncSharedSwatches();
+        };
+
+        window.addEventListener(SHARED_SWATCHES_EVENT, handleSharedSwatches as EventListener);
+        window.addEventListener("storage", syncSharedSwatches);
+
+        return () => {
+            window.removeEventListener(SHARED_SWATCHES_EVENT, handleSharedSwatches as EventListener);
+            window.removeEventListener("storage", syncSharedSwatches);
+        };
+    }, []);
+
+    const syncDraftFromCommitted = () => {
+        setDraftColor(currentColor);
+        setDraftOpacity(opacity);
     };
 
-    const handleCustomColorClick = () => {
-        colorInputRef.current?.click();
+    const handleSwatchClick = (color: string) => {
+        setDraftColor(color);
     };
 
     const handleSaveCurrentColor = () => {
-        if (onSaveSwatch && !savedSwatches.includes(currentColor) && savedSwatches.length < MAX_SAVED_SWATCHES) {
-            onSaveSwatch(currentColor);
+        const nextSharedSwatches = dedupeSwatches([normalizedDraftColor, ...effectiveSavedSwatches]);
+        writeSharedSwatches(nextSharedSwatches);
+
+        if (
+            onSaveSwatch
+            && !normalizedSavedSwatches.includes(normalizedDraftColor)
+            && normalizedSavedSwatches.length < MAX_SAVED_SWATCHES
+        ) {
+            onSaveSwatch(normalizedDraftColor);
         }
     };
 
-    // Parse hex to extract RGB for display
-    const hexToRgb = (hex: string) => {
-        const normalizedHex = toHexColor(hex);
-        const r = parseInt(normalizedHex.slice(1, 3), 16);
-        const g = parseInt(normalizedHex.slice(3, 5), 16);
-        const b = parseInt(normalizedHex.slice(5, 7), 16);
-        return { r, g, b };
+    const handlePickColorFromPage = async () => {
+        const EyeDropperApi = (window as Window & { EyeDropper?: EyeDropperConstructor }).EyeDropper;
+        if (!EyeDropperApi) {
+            setEyeDropperError("Din browser understotter ikke farvevalg fra siden.");
+            return;
+        }
+
+        try {
+            setEyeDropperError(null);
+            beginColorAdjustment();
+            const result = await new EyeDropperApi().open();
+            if (result?.sRGBHex) {
+                setDraftColor(toHexColor(result.sRGBHex));
+            }
+        } catch (error) {
+            if ((error as DOMException | null)?.name !== "AbortError") {
+                setEyeDropperError("Farven kunne ikke hentes fra siden.");
+            }
+        } finally {
+            endColorAdjustment();
+        }
     };
 
-    const rgb = hexToRgb(currentColor);
-    const canSave = onSaveSwatch && !savedSwatches.includes(currentColor) && savedSwatches.length < MAX_SAVED_SWATCHES;
+    const rgb = hexToRgb(editableColor);
+    const hsv = rgbToHsv(rgb);
+    const canSave = !effectiveSavedSwatches.some((color) => color.toLowerCase() === normalizedDraftColor.toLowerCase()) && effectiveSavedSwatches.length < MAX_SAVED_SWATCHES;
+    const saturationValueHandleColor = hsv.v > 55 && hsv.s < 55 ? "#111827" : "#FFFFFF";
+    const hueSliderBackground = "linear-gradient(90deg, #FF0000 0%, #FFFF00 16.66%, #00FF00 33.33%, #00FFFF 50%, #0000FF 66.66%, #FF00FF 83.33%, #FF0000 100%)";
+    const hasPendingChanges = normalizedDraftColor !== normalizedOpenedColor || Math.abs(draftOpacity - openedOpacityRef.current) > Number.EPSILON;
+
+    useEffect(() => {
+        if (!isOpen || normalizedDraftColor === normalizedCurrentColor) {
+            return;
+        }
+
+        onChange(draftColor);
+    }, [draftColor, isOpen, normalizedCurrentColor, normalizedDraftColor, onChange]);
+
+    useEffect(() => {
+        if (!isOpen || !showOpacity || !onOpacityChange || Math.abs(draftOpacity - opacity) <= Number.EPSILON) {
+            return;
+        }
+
+        onOpacityChange(draftOpacity);
+    }, [draftOpacity, isOpen, onOpacityChange, opacity, showOpacity]);
+
+    const updateColorFromHsv = (nextHsv: HsvColor) => {
+        setDraftColor(hsvToHex(nextHsv));
+    };
+
+    const applyDraftChanges = () => {
+        if (normalizedDraftColor !== normalizedCurrentColor) {
+            onChange(draftColor);
+        }
+
+        if (showOpacity && onOpacityChange && Math.abs(draftOpacity - opacity) > Number.EPSILON) {
+            onOpacityChange(draftOpacity);
+        }
+
+        openedColorRef.current = draftColor;
+        openedOpacityRef.current = draftOpacity;
+        endColorAdjustment();
+        setIsOpen(false);
+    };
+
+    const cancelDraftChanges = () => {
+        if (normalizedCurrentColor !== normalizedOpenedColor) {
+            onChange(openedColorRef.current);
+        }
+
+        if (showOpacity && onOpacityChange && Math.abs(opacity - openedOpacityRef.current) > Number.EPSILON) {
+            onOpacityChange(openedOpacityRef.current);
+        }
+
+        endColorAdjustment();
+        setDraftColor(openedColorRef.current);
+        setDraftOpacity(openedOpacityRef.current);
+        setIsOpen(false);
+    };
+
+    const beginColorAdjustment = () => {
+        isAdjustingColorRef.current = true;
+    };
+
+    const endColorAdjustment = () => {
+        isAdjustingColorRef.current = false;
+    };
+
+    const handlePopoverOpenChange = (nextOpen: boolean) => {
+        if (!nextOpen && isAdjustingColorRef.current) {
+            return;
+        }
+
+        if (nextOpen) {
+            openedColorRef.current = currentColor;
+            openedOpacityRef.current = opacity;
+            syncDraftFromCommitted();
+            setIsOpen(true);
+            return;
+        }
+
+        cancelDraftChanges();
+    };
+
+    const preventDismissWhileAdjusting = (event: Event | { preventDefault: () => void }) => {
+        if (isAdjustingColorRef.current) {
+            event.preventDefault();
+        }
+    };
+
+    const updateSaturationValueFromPoint = (
+        clientX: number,
+        clientY: number,
+        element: HTMLDivElement,
+        hue: number,
+    ) => {
+        const rect = element.getBoundingClientRect();
+        const x = clampPercentage(((clientX - rect.left) / rect.width) * 100);
+        const y = clampPercentage(((clientY - rect.top) / rect.height) * 100);
+
+        updateColorFromHsv({
+            h: hue,
+            s: x,
+            v: 100 - y,
+        });
+    };
+
+    const handleSaturationValuePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        beginColorAdjustment();
+
+        const target = event.currentTarget;
+        const currentHue = hsv.h;
+        activeSaturationPointerIdRef.current = event.pointerId;
+        target.setPointerCapture(event.pointerId);
+
+        updateSaturationValueFromPoint(event.clientX, event.clientY, target, currentHue);
+    };
+
+    const handleSaturationValuePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+        if (activeSaturationPointerIdRef.current !== event.pointerId) {
+            return;
+        }
+
+        event.preventDefault();
+        updateSaturationValueFromPoint(event.clientX, event.clientY, event.currentTarget, hsv.h);
+    };
+
+    const finishSaturationValuePointer = (event: ReactPointerEvent<HTMLDivElement>) => {
+        if (activeSaturationPointerIdRef.current !== null && event.currentTarget.hasPointerCapture(activeSaturationPointerIdRef.current)) {
+            event.currentTarget.releasePointerCapture(activeSaturationPointerIdRef.current);
+        }
+
+        activeSaturationPointerIdRef.current = null;
+        endColorAdjustment();
+    };
+
+    // Build the style colors list from branding palette context
+    const styleColorEntries = Object.entries(BRANDING_PALETTE_LABELS)
+        .map(([key, lbl]) => ({ key, label: lbl, color: brandingPalette[key] }))
+        .filter((entry): entry is { key: string; label: string; color: string } => Boolean(entry.color));
 
     const PickerContent = () => (
         <div className="space-y-3">
-            {/* Current Color Preview & Save */}
+            {/* Current Color Preview */}
             <div className="flex items-center gap-3 pb-3 border-b">
                 <div
-                    className="h-12 w-12 rounded-lg border-2 shadow-sm flex-shrink-0"
-                    style={{ backgroundColor: currentColor }}
+                    className="h-10 w-10 rounded-lg border-2 shadow-sm flex-shrink-0"
+                    style={{ backgroundColor: editableColor }}
                 />
-                <div className="flex-1 space-y-1">
-                    <p className="text-sm font-medium font-mono">{currentColor.toUpperCase()}</p>
+                <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold font-mono leading-tight">{editableColor.toUpperCase()}</p>
                     {rgb && (
-                        <p className="text-xs text-muted-foreground">
-                            RGB: {rgb.r}, {rgb.g}, {rgb.b}
+                        <p className="text-[11px] text-muted-foreground">
+                            RGB {rgb.r}, {rgb.g}, {rgb.b}
                         </p>
                     )}
                 </div>
-                {onSaveSwatch && (
-                    <Button
-                        variant={canSave ? "default" : "ghost"}
-                        size="sm"
-                        onClick={handleSaveCurrentColor}
-                        disabled={!canSave}
-                        className="h-8 px-2"
-                        title={canSave ? "Gem denne farve" : savedSwatches.includes(currentColor) ? "Farven er allerede gemt" : "Max 20 farver"}
-                    >
-                        <Save className="h-4 w-4" />
-                    </Button>
-                )}
-            </div>
-
-            {/* Saved Swatches Section */}
-            {(savedSwatches.length > 0 || onSaveSwatch) && (
-                <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                        <Label className="text-xs font-semibold text-foreground">
-                            Dine gemte farver
-                            <span className="ml-1 text-muted-foreground font-normal">
-                                ({savedSwatches.length}/{MAX_SAVED_SWATCHES})
-                            </span>
-                        </Label>
-                    </div>
-
-                    {savedSwatches.length > 0 ? (
-                        <ScrollArea className="h-auto max-h-[72px]">
-                            <div className="flex flex-wrap gap-1.5 pr-2">
-                                {savedSwatches.map((color, index) => (
-                                    <div key={`saved-${color}-${index}`} className="group relative">
-                                        <button
-                                            onClick={() => handleSwatchClick(color)}
-                                            className={cn(
-                                                "h-7 w-7 rounded-md border-2 shadow-sm hover:scale-110 transition-transform relative",
-                                                currentColor.toLowerCase() === color.toLowerCase()
-                                                    ? "ring-2 ring-primary ring-offset-1"
-                                                    : "",
-                                                color === "#FFFFFF" && "border-gray-300"
-                                            )}
-                                            style={{ backgroundColor: color }}
-                                            title={color}
-                                        >
-                                            {currentColor.toLowerCase() === color.toLowerCase() && (
-                                                <Check className={cn(
-                                                    "h-3.5 w-3.5 absolute inset-0 m-auto",
-                                                    color === "#FFFFFF" || color.startsWith("#FEF") || color.startsWith("#F0F")
-                                                        ? "text-gray-800"
-                                                        : "text-white"
-                                                )} />
-                                            )}
-                                        </button>
-                                        {onRemoveSwatch && (
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    onRemoveSwatch(color);
-                                                }}
-                                                className="absolute -top-1 -right-1 hidden group-hover:flex bg-destructive text-white rounded-full p-0.5 h-4 w-4 items-center justify-center cursor-pointer shadow-sm z-10"
-                                                title="Fjern farve"
-                                            >
-                                                <X className="h-2.5 w-2.5" />
-                                            </button>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        </ScrollArea>
-                    ) : (
-                        <div className="text-xs text-muted-foreground italic py-2 px-3 bg-muted/30 rounded-md">
-                            Vælg en farve og klik gem-knappen for at tilføje den her
-                        </div>
+                <div className="flex items-center gap-1 shrink-0">
+                    {eyeDropperSupported && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handlePickColorFromPage}
+                            className="h-8 px-2"
+                            title="Hent farve fra siden"
+                        >
+                            <Pipette className="h-3.5 w-3.5" />
+                        </Button>
                     )}
                 </div>
+            </div>
+
+            {eyeDropperError && (
+                <p className="text-xs text-destructive">{eyeDropperError}</p>
             )}
+
+            {/* Two-column swatch bank */}
+            <div className="grid grid-cols-2 gap-3 pb-3 border-b">
+                {/* Left: Style colors from branding */}
+                <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Stilfarver
+                    </p>
+                    {styleColorEntries.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                            {styleColorEntries.map(({ key, label, color }) => (
+                                <button
+                                    key={key}
+                                    onClick={() => handleSwatchClick(color)}
+                                    title={`${label}: ${color}`}
+                                    className={cn(
+                                        "h-6 w-6 rounded-md border shadow-sm hover:scale-110 transition-transform relative",
+                                        draftColor.toLowerCase() === color.toLowerCase()
+                                            ? "ring-2 ring-primary ring-offset-1"
+                                            : "border-border/60",
+                                        color === "#FFFFFF" && "border-gray-300"
+                                    )}
+                                    style={{ backgroundColor: color }}
+                                >
+                                    {draftColor.toLowerCase() === color.toLowerCase() && (
+                                        <Check className="h-3 w-3 absolute inset-0 m-auto text-white drop-shadow" />
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-[10px] text-muted-foreground italic">Ingen stilfarver endnu</p>
+                    )}
+                </div>
+
+                {/* Right: Saved colors */}
+                <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Gemte farver
+                            <span className="ml-1 font-normal">({effectiveSavedSwatches.length}/{MAX_SAVED_SWATCHES})</span>
+                        </p>
+                        <button
+                            onClick={handleSaveCurrentColor}
+                            disabled={!canSave}
+                            title={canSave ? "Gem denne farve" : "Farven er allerede gemt"}
+                            className={cn(
+                                "flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border transition-colors",
+                                canSave
+                                    ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
+                                    : "border-border/40 bg-muted/30 text-muted-foreground cursor-not-allowed opacity-50"
+                            )}
+                        >
+                            <Save className="h-2.5 w-2.5" />
+                            <span>Gem</span>
+                        </button>
+                    </div>
+                    {effectiveSavedSwatches.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 max-h-[72px] overflow-y-auto">
+                            {effectiveSavedSwatches.map((color, index) => (
+                                <div key={`saved-${color}-${index}`} className="group relative">
+                                    <button
+                                        onClick={() => handleSwatchClick(color)}
+                                        className={cn(
+                                            "h-6 w-6 rounded-md border shadow-sm hover:scale-110 transition-transform relative",
+                                            draftColor.toLowerCase() === color.toLowerCase()
+                                                ? "ring-2 ring-primary ring-offset-1 border-primary"
+                                                : "border-border/60",
+                                            color === "#FFFFFF" && "border-gray-300"
+                                        )}
+                                        style={{ backgroundColor: color }}
+                                        title={color}
+                                    >
+                                        {draftColor.toLowerCase() === color.toLowerCase() && (
+                                            <Check className="h-3 w-3 absolute inset-0 m-auto text-white drop-shadow" />
+                                        )}
+                                    </button>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            const normalizedSavedColor = toHexColor(color);
+                                            const nextSharedSwatches = effectiveSavedSwatches.filter(
+                                                (savedColor) => savedColor.toLowerCase() !== normalizedSavedColor.toLowerCase()
+                                            );
+                                            writeSharedSwatches(nextSharedSwatches);
+                                            const matchingSavedSwatch = savedSwatches.find(
+                                                (savedColor) => toHexColor(savedColor) === normalizedSavedColor
+                                            );
+                                            onRemoveSwatch?.(matchingSavedSwatch ?? normalizedSavedColor);
+                                        }}
+                                        className="absolute -top-1 -right-1 hidden group-hover:flex bg-destructive text-white rounded-full p-0.5 h-3.5 w-3.5 items-center justify-center cursor-pointer shadow-sm z-10"
+                                        title="Fjern farve"
+                                    >
+                                        <X className="h-2 w-2" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-[10px] text-muted-foreground italic">Ingen gemte farver</p>
+                    )}
+                </div>
+            </div>
 
             {/* Default Swatches Grid - Scrollable */}
             {showFullSwatches && (
@@ -297,11 +707,10 @@ export function ColorPickerWithSwatches({
                                     key={`${color}-${index}`}
                                     onClick={() => {
                                         handleSwatchClick(color);
-                                        if (compact) setIsOpen(false);
                                     }}
                                     className={cn(
                                         "h-6 w-6 rounded border shadow-sm hover:scale-110 transition-transform relative",
-                                        currentColor.toLowerCase() === color.toLowerCase()
+                                        draftColor.toLowerCase() === color.toLowerCase()
                                             ? "ring-2 ring-primary ring-offset-1"
                                             : "",
                                         color === "#FFFFFF" && "border-gray-300"
@@ -309,7 +718,7 @@ export function ColorPickerWithSwatches({
                                     style={{ backgroundColor: color }}
                                     title={color}
                                 >
-                                    {currentColor.toLowerCase() === color.toLowerCase() && (
+                                    {draftColor.toLowerCase() === color.toLowerCase() && (
                                         <Check className={cn(
                                             "h-3 w-3 absolute inset-0 m-auto",
                                             color === "#FFFFFF" || color.startsWith("#FEF") || color.startsWith("#F0F")
@@ -324,35 +733,96 @@ export function ColorPickerWithSwatches({
                 </div>
             )}
 
-            {/* Custom picker & Hex input */}
-            <div className="flex items-center gap-2 pt-2 border-t">
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleCustomColorClick}
-                    className="flex-1 gap-2 text-xs h-9"
+            <div className="space-y-3 pt-2 border-t">
+                <Label className="text-xs font-semibold text-foreground">Finjuster farven</Label>
+                <div
+                    className="relative h-40 w-full cursor-crosshair overflow-hidden rounded-md border touch-none"
+                    style={{ backgroundColor: hsvToHex({ h: hsv.h, s: 100, v: 100 }) }}
+                    onPointerDown={handleSaturationValuePointerDown}
+                    onPointerMove={handleSaturationValuePointerMove}
+                    onPointerUp={finishSaturationValuePointer}
+                    onPointerCancel={finishSaturationValuePointer}
+                    onLostPointerCapture={finishSaturationValuePointer}
                 >
-                    <Palette className="h-4 w-4" />
-                    Vælg farve
-                </Button>
-                <input
-                    ref={colorInputRef}
-                    type="color"
-                    value={nativeColorValue}
-                    onChange={(e) => {
-                        onChange(e.target.value);
-                    }}
-                    className="sr-only"
-                />
-                <div className="relative flex-1">
+                    <div className="absolute inset-0 bg-gradient-to-r from-white to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent" />
+                    <div
+                        className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-[0_0_0_1px_rgba(15,23,42,0.35)]"
+                        style={{
+                            left: `${hsv.s}%`,
+                            top: `${100 - hsv.v}%`,
+                            borderColor: saturationValueHandleColor,
+                            backgroundColor: "transparent",
+                        }}
+                    />
+                </div>
+
+                <div className="space-y-1">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Farvetone</span>
+                        <span>{Math.round(hsv.h)}°</span>
+                    </div>
+                    <input
+                        type="range"
+                        min={0}
+                        max={360}
+                        step={1}
+                        value={Math.round(hsv.h)}
+                        onPointerDown={beginColorAdjustment}
+                        onPointerUp={endColorAdjustment}
+                        onPointerCancel={endColorAdjustment}
+                        onBlur={endColorAdjustment}
+                        onChange={(e) => {
+                            updateColorFromHsv({
+                                h: Number(e.target.value),
+                                s: hsv.s,
+                                v: hsv.v,
+                            });
+                        }}
+                        className="h-2 w-full cursor-pointer appearance-none rounded-md border border-border/80"
+                        style={{ background: hueSliderBackground }}
+                    />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                    <div className="rounded-md border border-border/70 bg-muted/20 px-2 py-1.5">
+                        Mætning: {Math.round(hsv.s)}%
+                    </div>
+                    <div className="rounded-md border border-border/70 bg-muted/20 px-2 py-1.5">
+                        Lysstyrke: {Math.round(hsv.v)}%
+                    </div>
+                </div>
+
+                <div className="relative">
                     <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">#</span>
                     <Input
                         value={hexInputValue}
-                        onChange={(e) => onChange(`#${e.target.value}`)}
+                        onChange={(e) => setDraftColor(`#${e.target.value}`)}
                         className="h-9 text-xs font-mono pl-5 uppercase"
                         placeholder="000000"
                         maxLength={6}
                     />
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-1">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={cancelDraftChanges}
+                        className="h-8 px-3 text-xs"
+                    >
+                        Annuller
+                    </Button>
+                    <Button
+                        type="button"
+                        size="sm"
+                        onClick={applyDraftChanges}
+                        disabled={!hasPendingChanges}
+                        className="h-8 px-3 text-xs"
+                    >
+                        Gem farve
+                    </Button>
                 </div>
             </div>
 
@@ -361,11 +831,11 @@ export function ColorPickerWithSwatches({
                 <div className="space-y-2 pt-2 border-t">
                     <div className="flex justify-between text-xs">
                         <span className="text-muted-foreground">Gennemsigtighed</span>
-                        <span className="font-medium">{Math.round(opacity * 100)}%</span>
+                        <span className="font-medium">{Math.round(draftOpacity * 100)}%</span>
                     </div>
                     <Slider
-                        value={[opacity * 100]}
-                        onValueChange={([v]) => onOpacityChange(v / 100)}
+                        value={[draftOpacity * 100]}
+                        onValueChange={([v]) => setDraftOpacity(v / 100)}
                         min={0}
                         max={100}
                         step={5}
@@ -376,74 +846,111 @@ export function ColorPickerWithSwatches({
         </div>
     );
 
+    // Centered modal portal — always appears in the middle of the viewport
+    const pickerModal = isOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div
+                className="fixed inset-0 z-[99999] flex items-center justify-center p-4"
+                onPointerDown={(e) => {
+                    if (e.target === e.currentTarget && !isAdjustingColorRef.current) {
+                        cancelDraftChanges();
+                    }
+                }}
+            >
+                {/* Picker panel */}
+                <div className="relative bg-background rounded-2xl shadow-2xl border border-border/60 p-4 w-[min(380px,calc(100vw-2rem))] max-h-[calc(100dvh-4rem)] overflow-y-auto z-10">
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-semibold text-foreground">
+                            {label || "Vælg farve"}
+                        </p>
+                        <button
+                            className="h-6 w-6 rounded-full bg-muted hover:bg-muted/80 flex items-center justify-center transition-colors"
+                            onClick={cancelDraftChanges}
+                            title="Luk"
+                        >
+                            <X className="h-3.5 w-3.5 text-muted-foreground" />
+                        </button>
+                    </div>
+                    <PickerContent />
+                </div>
+            </div>,
+            document.body
+        )
+        : null;
+
     if (compact) {
         return (
-            <Popover open={isOpen} onOpenChange={setIsOpen}>
-                <PopoverTrigger asChild>
-                    <button
-                        className="h-8 w-8 rounded border overflow-hidden shadow-sm hover:ring-2 ring-primary transition-all relative"
-                        style={{ backgroundColor: currentColor }}
-                        title={currentColor}
-                    />
-                </PopoverTrigger>
-                <PopoverContent className="w-[320px] p-4" align="start">
-                    {label && <Label className="text-sm font-medium mb-3 block">{label}</Label>}
-                    <PickerContent />
-                </PopoverContent>
-            </Popover>
+            <>
+                <button
+                    ref={triggerButtonRef}
+                    className="h-8 w-8 rounded border overflow-hidden shadow-sm hover:ring-2 ring-primary transition-all relative flex-shrink-0"
+                    style={{ backgroundColor: currentColor }}
+                    title={currentColor}
+                    onClick={() => {
+                        openedColorRef.current = currentColor;
+                        openedOpacityRef.current = opacity;
+                        syncDraftFromCommitted();
+                        setIsOpen(true);
+                    }}
+                />
+                {pickerModal}
+            </>
         );
     }
 
-    // Full inline mode with popover for the picker
+    // Full inline mode
     return (
-        <div className={cn(
-            "space-y-2",
-            inline && "flex gap-3 space-y-0 w-full",
-            inline && (inlineAlign === "start" ? "items-start" : "items-center"),
-        )}>
-            {label && (
-                <Label className={cn(
-                    "text-sm font-medium",
-                    inline && "text-xs text-muted-foreground whitespace-nowrap",
-                    inline && inlineLabelClassName,
-                )}>
-                    {label}
-                </Label>
-            )}
+        <>
+            <div className={cn(
+                "space-y-2",
+                inline && "flex gap-3 space-y-0 w-full",
+                inline && (inlineAlign === "start" ? "items-start" : "items-center"),
+            )}>
+                {label && (
+                    <Label className={cn(
+                        "text-sm font-medium",
+                        inline && "text-xs text-muted-foreground whitespace-nowrap",
+                        inline && inlineLabelClassName,
+                    )}>
+                        {label}
+                    </Label>
+                )}
 
-            <div className={cn("flex items-center gap-2", inline && "gap-1.5 flex-1 min-w-0")}>
-                <Popover open={isOpen} onOpenChange={setIsOpen}>
-                    <PopoverTrigger asChild>
-                        <button
-                            className={cn(
-                                "h-10 w-10 rounded-lg border-2 overflow-hidden shadow-sm hover:ring-2 ring-primary transition-all flex-shrink-0",
-                                inline && "h-9 w-9 rounded-md"
-                            )}
-                            style={{ backgroundColor: currentColor }}
-                            title="Klik for at vælge farve"
-                        />
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[320px] p-4" align="start" sideOffset={5}>
-                        <PickerContent />
-                    </PopoverContent>
-                </Popover>
+                <div className={cn("flex items-center gap-2", inline && "gap-1.5 flex-1 min-w-0")}>
+                    <button
+                        ref={triggerButtonRef}
+                        className={cn(
+                            "h-10 w-10 rounded-lg border-2 overflow-hidden shadow-sm hover:ring-2 ring-primary transition-all flex-shrink-0",
+                            inline && "h-9 w-9 rounded-md"
+                        )}
+                        style={{ backgroundColor: currentColor }}
+                        title="Klik for at vælge farve"
+                        onClick={() => {
+                            openedColorRef.current = currentColor;
+                            openedOpacityRef.current = opacity;
+                            syncDraftFromCommitted();
+                            setIsOpen(true);
+                        }}
+                    />
 
-                <Input
-                    value={currentColor.toUpperCase()}
-                    onChange={(e) => onChange(e.target.value)}
-                    className={cn("font-mono flex-1 h-10 uppercase min-w-0", inline && "h-9 text-xs px-2")}
-                    placeholder="#000000"
-                />
+                    <Input
+                        value={currentColor.toUpperCase()}
+                        onChange={(e) => onChange(e.target.value)}
+                        className={cn("font-mono flex-1 h-10 uppercase min-w-0", inline && "h-9 text-xs px-2")}
+                        placeholder="#000000"
+                    />
+                </div>
+
+                {!inline && rgb && (
+                    <p className="text-xs text-muted-foreground">
+                        RGB: {rgb.r}, {rgb.g}, {rgb.b}
+                        {showOpacity && ` / ${Math.round(opacity * 100)}%`}
+                    </p>
+                )}
             </div>
-
-            {/* RGB display (optional info) */}
-            {!inline && rgb && (
-                <p className="text-xs text-muted-foreground">
-                    RGB: {rgb.r}, {rgb.g}, {rgb.b}
-                    {showOpacity && ` / ${Math.round(opacity * 100)}%`}
-                </p>
-            )}
-        </div>
+            {pickerModal}
+        </>
     );
 }
 

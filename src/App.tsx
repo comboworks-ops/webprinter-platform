@@ -9,7 +9,9 @@ import Index from "./pages/Index";
 import SubdomainRouter from "./pages/SubdomainRouter"; // Import Router
 import About from "./pages/About";
 import ContactRouter from "./pages/ContactRouter";
+import CookiePolicyRouter from "./pages/CookiePolicyRouter";
 import Terms from "./pages/Terms";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 import ProductPrice from "./pages/ProductPrice";
 import Admin from "./pages/Admin";
 import Auth from "./pages/Auth";
@@ -25,6 +27,8 @@ import TenantSignup from "./pages/TenantSignup";
 import PreviewStorefront from "./pages/PreviewStorefront";
 import PreviewShop from "./pages/PreviewShop";
 import FileUploadConfiguration from "./pages/FileUploadConfiguration";
+import LlmsTxt from "./pages/LlmsTxt";
+import CanvaReturn from "./pages/CanvaReturn";
 import GrafiskVejledning from "./pages/GrafiskVejledning";
 import Designer from "./pages/Designer";
 import CompanyHub from "./pages/CompanyHub";
@@ -39,12 +43,8 @@ import PlatformOnlineDesigner from "./pages/platform/PlatformOnlineDesigner";
 import PlatformPrivacyPolicy from "./pages/platform/PlatformPrivacyPolicy";
 import PlatformHandelsbetingelser from "./pages/platform/PlatformHandelsbetingelser";
 
-import { PreviewInteractionManager } from "@/components/preview/PreviewInteractionManager";
-
 // Cookie consent
 import { CookieConsentProvider, CookieBanner, CookieSettingsDialog } from "@/components/consent";
-import Cookiepolitik from "./pages/platform/Cookiepolitik";
-
 // Platform SEO head injection (platform pages only)
 import { PlatformSeoHead } from "@/components/platform-seo/PlatformSeoHead";
 import { SupabaseDataSyncBridge } from "@/components/system/SupabaseDataSyncBridge";
@@ -62,7 +62,6 @@ const App = () => (
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <CookieBanner />
             <CookieSettingsDialog />
-            <PreviewInteractionManager />
             <PageTracker />
             <PlatformSeoHead />
             <Routes>
@@ -82,7 +81,8 @@ const App = () => (
               {/* Platform Legal Pages */}
               <Route path="/privacy-policy" element={<PlatformPrivacyPolicy />} />
               <Route path="/handelsbetingelser" element={<PlatformHandelsbetingelser />} />
-              <Route path="/cookiepolitik" element={<Cookiepolitik />} />
+              <Route path="/cookiepolitik" element={<CookiePolicyRouter />} />
+              <Route path="/cookies" element={<CookiePolicyRouter />} />
 
               {/* Contact - platform on marketing domain, tenant on shop domains */}
               <Route path="/kontakt" element={<ContactRouter />} />
@@ -92,11 +92,14 @@ const App = () => (
 
               <Route path="/om-os" element={<About />} />
               <Route path="/betingelser" element={<Terms />} />
+              <Route path="/vilkaar" element={<Terms />} />
+              <Route path="/privatliv" element={<PrivacyPolicy />} />
               <Route path="/produkter" element={<Shop />} />
               <Route path="/shop" element={<Shop />} />
               <Route path="/prisberegner" element={<Shop />} />
               <Route path="/produkt/:slug" element={<ProductPrice />} />
               <Route path="/checkout/konfigurer" element={<FileUploadConfiguration />} />
+              <Route path="/canva-return" element={<CanvaReturn />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/opret-shop" element={<TenantSignup />} />
               <Route path="/profil" element={<Profile />} />
@@ -109,6 +112,7 @@ const App = () => (
               <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/admin/*" element={<Admin />} />
               <Route path="/sitemap.xml" element={<Sitemap />} />
+              <Route path="/llms.txt" element={<LlmsTxt />} />
               <Route path="/preview" element={<PreviewStorefront />} />
               <Route path="/preview-shop" element={<PreviewShop />} />
               <Route path="/grafisk-vejledning" element={<GrafiskVejledning />} />

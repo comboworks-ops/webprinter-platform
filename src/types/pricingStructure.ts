@@ -7,13 +7,127 @@
 
 // ============ Section Types ============
 export type SectionType = 'formats' | 'materials' | 'finishes' | 'products';
+export type SelectionMode = 'required' | 'optional' | 'free';
 
-export type UiMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden' | 'small' | 'medium' | 'large' | 'xl' | 'xl_notext';
+export type UiMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden' | 'small' | 'medium' | 'large' | 'xl' | 'xl_notext' | 'text_only' | 'image_only' | 'text_below_image';
 
 export interface LayoutValueSetting {
     showThumbnail?: boolean;
     customImage?: string;
     displayName?: string;
+    linkedTemplateId?: string;
+}
+
+export type PictureButtonHoverEffect = 'fill' | 'outline' | 'none';
+export type PictureButtonSelectedEffect = 'fill' | 'outline' | 'ring' | 'none';
+
+// ============ Button Styling (per-product) ============
+export interface TextButtonStyling {
+    // Colors
+    backgroundColor: string;
+    hoverBackgroundColor: string;
+    textColor: string;
+    hoverTextColor: string;
+    selectedBackgroundColor: string;
+    selectedTextColor: string;
+    // Shape
+    borderRadiusPx: number;
+    borderWidthPx: number;
+    borderColor: string;
+    hoverBorderColor: string;
+    // Size
+    paddingPx: number;
+    fontSizePx: number;
+    minHeightPx: number;
+    // Font
+    fontFamily: string;
+}
+
+export interface PictureButtonStyling {
+    // Display
+    size: 'small' | 'medium' | 'large' | 'xl';
+    displayMode: 'text_and_image' | 'image_only' | 'text_only' | 'text_below_image';
+    // Appearance
+    imageBorderRadiusPx: number;
+    gapBetweenPx: number;
+    transparentBackground: boolean;
+    labelOutsideImage: boolean;
+    labelFontSizePx: number;
+    backgroundColor: string;
+    hoverBackgroundColor: string;
+    textColor: string;
+    hoverTextColor: string;
+    borderWidthPx: number;
+    borderColor: string;
+    hoverBorderColor: string;
+    selectedBorderColor: string;
+    selectedRingColor: string;
+    hoverEffect: PictureButtonHoverEffect;
+    selectedEffect: PictureButtonSelectedEffect;
+    // Hover effects with opacity
+    hoverEnabled: boolean;
+    hoverColor: string;
+    hoverOpacity: number;
+    selectedColor: string;
+    selectedOpacity: number;
+    outlineEnabled: boolean;
+    outlineOpacity: number;
+    hoverZoomEnabled: boolean;
+    hoverZoomScale: number;
+    hoverZoomDurationMs: number;
+}
+
+export const DEFAULT_TEXT_BUTTON_STYLING: TextButtonStyling = {
+    backgroundColor: '#FFFFFF',
+    hoverBackgroundColor: '#F1F5F9',
+    textColor: '#1F2937',
+    hoverTextColor: '#0EA5E9',
+    selectedBackgroundColor: '#0EA5E9',
+    selectedTextColor: '#FFFFFF',
+    borderRadiusPx: 8,
+    borderWidthPx: 1,
+    borderColor: '#E2E8F0',
+    hoverBorderColor: '#0EA5E9',
+    paddingPx: 12,
+    fontSizePx: 14,
+    minHeightPx: 44,
+    fontFamily: '',
+};
+
+export const DEFAULT_PICTURE_BUTTON_STYLING: PictureButtonStyling = {
+    size: 'medium',
+    displayMode: 'text_and_image',
+    imageBorderRadiusPx: 8,
+    gapBetweenPx: 12,
+    transparentBackground: false,
+    labelOutsideImage: false,
+    labelFontSizePx: 11,
+    backgroundColor: '#FFFFFF',
+    hoverBackgroundColor: '#F1F5F9',
+    textColor: '#1F2937',
+    hoverTextColor: '#0EA5E9',
+    borderWidthPx: 1,
+    borderColor: '#E2E8F0',
+    hoverBorderColor: '#0EA5E9',
+    selectedBorderColor: '#0EA5E9',
+    selectedRingColor: '#0EA5E9',
+    hoverEffect: 'fill',
+    selectedEffect: 'ring',
+    hoverEnabled: true,
+    hoverColor: '#0EA5E9',
+    hoverOpacity: 0.15,
+    selectedColor: '#0EA5E9',
+    selectedOpacity: 0.22,
+    outlineEnabled: true,
+    outlineOpacity: 1,
+    hoverZoomEnabled: true,
+    hoverZoomScale: 1.03,
+    hoverZoomDurationMs: 140,
+};
+
+export interface SelectorStyling {
+    textButtons?: Partial<TextButtonStyling>;
+    pictureButtons?: Partial<PictureButtonStyling>;
 }
 
 // ============ Vertical Axis Config ============
@@ -21,8 +135,10 @@ export interface VerticalAxisConfig {
     sectionId: string;
     sectionType: SectionType;
     groupId: string;
+    selection_mode?: SelectionMode;
     valueIds: string[];
     valueSettings?: Record<string, LayoutValueSetting>;
+    selectorStyling?: SelectorStyling;
     title?: string;       // User-defined Display Title
     description?: string; // User-defined Description
     labelOverride?: string; // Legacy: mapped to title
@@ -37,7 +153,9 @@ export interface LayoutColumn {
     sectionType: SectionType;
     groupId: string;
     valueIds: string[];
+    selection_mode?: SelectionMode;
     valueSettings?: Record<string, LayoutValueSetting>;
+    selectorStyling?: SelectorStyling;
     ui_mode: UiMode;
     title?: string;
     description?: string;
@@ -61,6 +179,11 @@ export interface MatrixLayoutV1 {
     vertical_axis: VerticalAxisConfig;
     layout_rows: LayoutRow[];
     quantities?: number[];
+    // Per-product button styling (overrides global branding)
+    buttonStyling?: {
+        textButtons?: TextButtonStyling;
+        pictureButtons?: PictureButtonStyling;
+    };
 }
 
 // Legacy/other modes can be added here

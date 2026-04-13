@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches";
+import { cn } from "@/lib/utils";
 import {
     type FooterSettings,
     type FooterLinkItem,
@@ -46,9 +47,10 @@ interface FooterSectionProps {
     savedSwatches?: string[];
     onSaveSwatch?: (color: string) => void;
     onRemoveSwatch?: (color: string) => void;
+    focusTargetId?: string | null;
 }
 
-export function FooterSection({ footer, onChange, savedSwatches, onSaveSwatch, onRemoveSwatch }: FooterSectionProps) {
+export function FooterSection({ footer, onChange, savedSwatches, onSaveSwatch, onRemoveSwatch, focusTargetId }: FooterSectionProps) {
     // Ensure footer has all required fields
     const safeFooter: FooterSettings = {
         ...DEFAULT_FOOTER,
@@ -95,14 +97,23 @@ export function FooterSection({ footer, onChange, savedSwatches, onSaveSwatch, o
         updateFooter({ links: safeFooter.links.filter(link => link.id !== id) });
     };
 
+    const isFooterFocusMode = Boolean(focusTargetId?.startsWith("site-design-focus-footer"));
+    const matchesFocus = (...targetIds: string[]) => Boolean(focusTargetId && targetIds.includes(focusTargetId));
+    const shouldShowCard = (...targetIds: string[]) => !isFooterFocusMode || matchesFocus(...targetIds);
+    const focusCardClass = (...targetIds: string[]) => cn(
+        "rounded-xl transition-all duration-200",
+        matchesFocus(...targetIds) && "ring-2 ring-primary/50 ring-offset-2"
+    );
+
     return (
         <div className="space-y-4">
-            {/* Footer Layout */}
+            {shouldShowCard("site-design-focus-footer-layout") && (
+            <div id="site-design-focus-footer-layout" className={focusCardClass("site-design-focus-footer-layout")}>
             <CollapsibleCard
                 title="Layout & Stil"
                 description="Vælg layout og baggrund for footeren"
                 icon={<Columns className="h-4 w-4" />}
-                defaultOpen={false}
+                defaultOpen={matchesFocus("site-design-focus-footer-layout")}
             >
                 <div className="space-y-4">
                     {/* Style selector */}
@@ -215,12 +226,16 @@ export function FooterSection({ footer, onChange, savedSwatches, onSaveSwatch, o
                     </div>
                 </div>
             </CollapsibleCard>
+            </div>
+            )}
 
-            {/* Footer Content */}
+            {shouldShowCard("site-design-focus-footer-content") && (
+            <div id="site-design-focus-footer-content" className={focusCardClass("site-design-focus-footer-content")}>
             <CollapsibleCard
                 title="Indhold"
                 description="Tekst og copyright information"
                 icon={<Globe className="h-4 w-4" />}
+                defaultOpen={matchesFocus("site-design-focus-footer-content")}
             >
                 <div className="space-y-4">
                     <div className="space-y-2">
@@ -263,12 +278,16 @@ export function FooterSection({ footer, onChange, savedSwatches, onSaveSwatch, o
                     )}
                 </div>
             </CollapsibleCard>
+            </div>
+            )}
 
-            {/* Footer Links */}
+            {shouldShowCard("site-design-focus-footer-links") && (
+            <div id="site-design-focus-footer-links" className={focusCardClass("site-design-focus-footer-links")}>
             <CollapsibleCard
                 title="Links"
                 description="Tilføj links til footer (privatlivspolitik, handelsbetingelser osv.)"
                 icon={<LinkIcon className="h-4 w-4" />}
+                defaultOpen={matchesFocus("site-design-focus-footer-links")}
             >
                 <div className="space-y-4">
                     {safeFooter.links.map((link, index) => (
@@ -327,12 +346,16 @@ export function FooterSection({ footer, onChange, savedSwatches, onSaveSwatch, o
                     </Button>
                 </div>
             </CollapsibleCard>
+            </div>
+            )}
 
-            {/* Social Media Icons */}
+            {shouldShowCard("site-design-focus-footer-social") && (
+            <div id="site-design-focus-footer-social" className={focusCardClass("site-design-focus-footer-social")}>
             <CollapsibleCard
                 title="Sociale Medier"
                 description="Aktiver sociale medie-ikoner og indtast dine profil-URLer"
                 icon={<Facebook className="h-4 w-4" />}
+                defaultOpen={matchesFocus("site-design-focus-footer-social")}
             >
                 <div className="space-y-4">
                     <div className="flex items-center justify-between mb-4">
@@ -424,6 +447,8 @@ export function FooterSection({ footer, onChange, savedSwatches, onSaveSwatch, o
                     )}
                 </div>
             </CollapsibleCard>
+            </div>
+            )}
         </div>
     );
 }

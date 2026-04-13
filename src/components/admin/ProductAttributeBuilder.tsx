@@ -39,6 +39,8 @@ import {
     type ThumbnailSizeMode
 } from "@/lib/pricing/thumbnailSizes";
 import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
+import { getThumbnailSizeFromUiMode, type SelectorStyling } from "@/lib/pricing/selectorStyling";
+import { TemplateConnectDialog } from "@/components/admin/TemplateConnectDialog";
 
 // Size mode type
 type SizeMode = 'format' | 'free_size';
@@ -48,6 +50,7 @@ interface ValueSetting {
     showThumbnail: boolean;
     customImage?: string;
     displayName?: string;
+    linkedTemplateId?: string;
 }
 
 
@@ -471,6 +474,7 @@ interface LayoutSection {
     ui_mode: DisplayMode;
     selection_mode: SelectionMode;
     valueSettings?: Record<string, ValueSetting>;
+    selectorStyling?: SelectorStyling;
     thumbnailsEnabled?: boolean;
     thumbnail_size?: ThumbnailSizeMode;
     thumbnail_custom_px?: number;
@@ -782,7 +786,7 @@ export function ProductAttributeBuilder({
     // Layout configuration
     type AttributeType = 'products' | 'formats' | 'materials' | 'finishes';
     type DisplayMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden' | 'small' | 'medium' | 'large' | 'xl' | 'xl_notext';
-    type SelectionMode = 'required' | 'optional';
+    type SelectionMode = 'required' | 'optional' | 'free';
 
     interface LayoutSection {
         id: string;
@@ -792,6 +796,7 @@ export function ProductAttributeBuilder({
         groupId: string;
         valueIds?: string[];
         valueSettings?: Record<string, ValueSetting>;
+        selectorStyling?: SelectorStyling;
         thumbnailsEnabled?: boolean;
         thumbnail_size?: ThumbnailSizeMode;
         thumbnail_custom_px?: number;
@@ -813,6 +818,7 @@ export function ProductAttributeBuilder({
         groupId: string;
         valueIds?: string[];
         valueSettings?: Record<string, ValueSetting>;
+        selectorStyling?: SelectorStyling;
         thumbnailsEnabled?: boolean;
         thumbnail_size?: ThumbnailSizeMode;
         thumbnail_custom_px?: number;
@@ -820,8 +826,14 @@ export function ProductAttributeBuilder({
         description?: string;
     }
 
+    const isOptionalSelectionMode = (mode?: SelectionMode) => mode === 'optional';
+    const isPriceNeutralSection = (section: LayoutSection) =>
+        section.selection_mode === 'free'
+        && section.sectionType !== 'formats'
+        && section.sectionType !== 'materials';
+
     const [layoutRows, setLayoutRows] = useState<LayoutRow[]>([
-        { id: 'row-1', sections: [{ id: 'section-1', groupId: '', sectionType: 'formats', ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small' }] }
+        { id: 'row-1', sections: [{ id: 'section-1', groupId: '', sectionType: 'formats', ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small', selectorStyling: {} }] }
     ]);
 
     // Unified drag and drop state
@@ -1020,6 +1032,7 @@ export function ProductAttributeBuilder({
         ui_mode: 'buttons',
         valueIds: [],
         valueSettings: {},
+        selectorStyling: {},
         thumbnailsEnabled: false,
         thumbnail_size: 'small'
     });
@@ -1027,6 +1040,7 @@ export function ProductAttributeBuilder({
     // Image Upload State
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploadingTarget, setUploadingTarget] = useState<{ sectionId: string, valueId: string } | null>(null);
+    const [templateConnectSectionId, setTemplateConnectSectionId] = useState<string | null>(null);
 
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -1215,7 +1229,7 @@ export function ProductAttributeBuilder({
                 row.sections.forEach(section => {
                     if (!section.valueIds || section.valueIds.length === 0) return;
                     const current = next[section.id];
-                    const isOptional = section.selection_mode === 'optional';
+                    const isOptional = isOptionalSelectionMode(section.selection_mode);
                     const isValid = !!current && section.valueIds.includes(current);
 
                     if (!isValid) {
@@ -1235,7 +1249,7 @@ export function ProductAttributeBuilder({
             // Keep optional finish rows mutually exclusive (at most one selected).
             const optionalFinishSectionIds = layoutRows
                 .flatMap(row => row.sections)
-                .filter(section => section.sectionType === 'finishes' && section.selection_mode === 'optional')
+                .filter(section => section.sectionType === 'finishes' && isOptionalSelectionMode(section.selection_mode))
                 .map(section => section.id);
             const selectedOptionalFinishIds = optionalFinishSectionIds.filter(sectionId => !!next[sectionId]);
             if (selectedOptionalFinishIds.length > 1) {
@@ -1266,12 +1280,12 @@ export function ProductAttributeBuilder({
             .flatMap(row => row.sections)
             .filter(section => section.sectionType === 'finishes' && section.ui_mode !== 'hidden');
         const requiredFinishIds = finishSections
-            .filter(section => section.selection_mode !== 'optional')
+            .filter(section => !isOptionalSelectionMode(section.selection_mode) && section.selection_mode !== 'free')
             .map(section => selections[section.id])
             .filter((value): value is string => !!value);
 
         const optionalFinishIds = finishSections
-            .filter(section => section.selection_mode === 'optional')
+            .filter(section => isOptionalSelectionMode(section.selection_mode))
             .map(section => selections[section.id])
             .filter((value): value is string => !!value);
 
@@ -1279,7 +1293,7 @@ export function ProductAttributeBuilder({
             row.sections.forEach(section => {
                 if (section.sectionType === 'formats' || section.sectionType === 'materials' || section.sectionType === 'finishes') return;
                 const selected = selections[section.id];
-                if (selected) ids.push(selected);
+                if (selected && !isPriceNeutralSection(section)) ids.push(selected);
             });
         });
 
@@ -1878,6 +1892,7 @@ export function ProductAttributeBuilder({
                 valueIds: verticalAxisConfig.valueIds || [],
                 ui_mode: verticalAxisConfig.ui_mode || 'buttons',
                 valueSettings: verticalAxisConfig.valueSettings || {},
+                selectorStyling: verticalAxisConfig.selectorStyling || {},
                 thumbnail_size: normalizeThumbnailSize(verticalAxisConfig.thumbnail_size),
                 thumbnail_custom_px: normalizeThumbnailCustomPx(verticalAxisConfig.thumbnail_custom_px),
                 title: verticalAxisConfig.title || '',
@@ -1903,6 +1918,7 @@ export function ProductAttributeBuilder({
                         ui_mode: sec.ui_mode || 'buttons',
                         selection_mode: sec.selection_mode || 'required',
                         valueSettings: sec.valueSettings || {},
+                        selectorStyling: sec.selectorStyling || {},
                         thumbnail_size: normalizeThumbnailSize(sec.thumbnail_size),
                         thumbnail_custom_px: normalizeThumbnailCustomPx(sec.thumbnail_custom_px),
                         title: sec.title || '',
@@ -1968,6 +1984,7 @@ export function ProductAttributeBuilder({
                 valueIds: Array.from(materialIds),
                 ui_mode: 'buttons',
                 valueSettings: {},
+                selectorStyling: {},
                 thumbnail_size: 'small',
                 title: '',
                 description: ''
@@ -1986,6 +2003,7 @@ export function ProductAttributeBuilder({
                             ui_mode: 'buttons',
                             selection_mode: 'required',
                             valueSettings: {},
+                            selectorStyling: {},
                             thumbnail_size: 'small',
                             title: '',
                             description: ''
@@ -1999,6 +2017,7 @@ export function ProductAttributeBuilder({
                                 ui_mode: 'buttons',
                                 selection_mode: 'optional',
                                 valueSettings: {},
+                                selectorStyling: {},
                                 thumbnail_size: 'small',
                                 title: '',
                                 description: ''
@@ -2211,6 +2230,7 @@ export function ProductAttributeBuilder({
                     groupId: col.groupId || '',
                     valueIds: col.valueIds || [],
                     valueSettings: col.valueSettings || {},
+                    selectorStyling: col.selectorStyling || {},
                     thumbnailsEnabled: col.thumbnailsEnabled || false,
                     thumbnail_size: normalizeThumbnailSize(col.thumbnail_size),
                     thumbnail_custom_px: normalizeThumbnailCustomPx(col.thumbnail_custom_px),
@@ -2227,6 +2247,7 @@ export function ProductAttributeBuilder({
             ui_mode: vertical.ui_mode || 'buttons',
             valueIds: vertical.valueIds || [],
             valueSettings: vertical.valueSettings || {},
+            selectorStyling: vertical.selectorStyling || {},
             thumbnailsEnabled: vertical.thumbnailsEnabled || false,
             thumbnail_size: normalizeThumbnailSize(vertical.thumbnail_size),
             thumbnail_custom_px: normalizeThumbnailCustomPx(vertical.thumbnail_custom_px),
@@ -2687,6 +2708,7 @@ export function ProductAttributeBuilder({
                 groupId: verticalGroup?.id || '',
                 label: verticalLabel,
                 valueSettings: verticalAxisConfig.valueSettings || {},
+                selectorStyling: verticalAxisConfig.selectorStyling || {},
                 thumbnail_size: normalizeThumbnailSize(verticalAxisConfig.thumbnail_size),
                 thumbnail_custom_px: normalizeThumbnailCustomPx(verticalAxisConfig.thumbnail_custom_px)
             },
@@ -2701,6 +2723,7 @@ export function ProductAttributeBuilder({
                     ui_mode: sec.ui_mode || 'buttons',
                     selection_mode: sec.selection_mode || 'required',
                     valueSettings: sec.valueSettings || {},
+                    selectorStyling: sec.selectorStyling || {},
                     thumbnail_size: normalizeThumbnailSize(sec.thumbnail_size),
                     thumbnail_custom_px: normalizeThumbnailCustomPx(sec.thumbnail_custom_px),
                     title: sec.title || '',
@@ -2778,7 +2801,7 @@ export function ProductAttributeBuilder({
         } else {
             // NORMAL MODE: Values exist, generate cartesian product
             const allSectionValues = sections.map(s => {
-                if (s.selection_mode === 'optional') {
+                if (isOptionalSelectionMode(s.selection_mode)) {
                     return [{ name: '' }, ...s.values];
                 }
                 return s.values;
@@ -2898,7 +2921,7 @@ export function ProductAttributeBuilder({
                     sectionValues = group.values.filter(v => v.enabled) || [];
                 }
 
-                if (sectionValues.length > 0) {
+                if (sectionValues.length > 0 && !isPriceNeutralSection(section)) {
                     sections.push({
                         sectionId: section.id,
                         groupId: group?.id || '',
@@ -2928,6 +2951,7 @@ export function ProductAttributeBuilder({
                 groupId: verticalGroup?.id || '',
                 label: verticalLabel,
                 valueSettings: verticalAxisConfig.valueSettings || {},
+                selectorStyling: verticalAxisConfig.selectorStyling || {},
                 thumbnail_size: normalizeThumbnailSize(verticalAxisConfig.thumbnail_size),
                 thumbnail_custom_px: normalizeThumbnailCustomPx(verticalAxisConfig.thumbnail_custom_px)
             },
@@ -2942,6 +2966,7 @@ export function ProductAttributeBuilder({
                     ui_mode: sec.ui_mode || 'buttons',
                     selection_mode: sec.selection_mode || 'required',
                     valueSettings: sec.valueSettings || {},
+                    selectorStyling: sec.selectorStyling || {},
                     thumbnail_size: normalizeThumbnailSize(sec.thumbnail_size),
                     thumbnail_custom_px: normalizeThumbnailCustomPx(sec.thumbnail_custom_px),
                     title: sec.title || '',
@@ -2965,7 +2990,7 @@ export function ProductAttributeBuilder({
         csvRows.push(humanHeaders.join(';'));
 
         const allSectionValues = sections.map(s => {
-            if (s.selection_mode === 'optional') {
+            if (isOptionalSelectionMode(s.selection_mode)) {
                 return [{ id: '', name: '' }, ...s.values];
             }
             return s.values;
@@ -3733,6 +3758,7 @@ export function ProductAttributeBuilder({
                     groupId: verticalGroup?.id || '',
                     valueIds: verticalValueIds,
                     valueSettings: csvMeta.vertical_axis.valueSettings || {},
+                    selectorStyling: csvMeta.vertical_axis.selectorStyling || {},
                     thumbnail_size: normalizeThumbnailSize(csvMeta.vertical_axis.thumbnail_size),
                     thumbnail_custom_px: normalizeThumbnailCustomPx(csvMeta.vertical_axis.thumbnail_custom_px)
                 };
@@ -3761,6 +3787,7 @@ export function ProductAttributeBuilder({
                             ui_mode: col.ui_mode || 'buttons',
                             selection_mode: col.selection_mode || 'required',
                             valueSettings: col.valueSettings || {},
+                            selectorStyling: col.selectorStyling || {},
                             thumbnail_size: normalizeThumbnailSize(col.thumbnail_size),
                             thumbnail_custom_px: normalizeThumbnailCustomPx(col.thumbnail_custom_px),
                             title: col.title || '',
@@ -4107,6 +4134,7 @@ export function ProductAttributeBuilder({
                         ui_mode: 'buttons' as const,
                         selection_mode: 'required' as const,
                         valueSettings: {},
+                        selectorStyling: {},
                         thumbnail_size: 'small' as const
                     };
                     newLayoutRows.push({
@@ -4422,6 +4450,8 @@ export function ProductAttributeBuilder({
             const section = previewVisibleSections.find(s => s.id === sectionId);
             if (!section) continue;
 
+            if (isPriceNeutralSection(section)) continue;
+
             if (section.sectionType === 'formats' && row.formatId !== valueId) return false;
             if (section.sectionType === 'materials' && row.materialId !== valueId) return false;
             if (section.sectionType !== 'formats' && section.sectionType !== 'materials' && !row.variantIds.includes(valueId)) return false;
@@ -4445,6 +4475,11 @@ export function ProductAttributeBuilder({
             );
 
             const available = new Set<string>();
+            if (isPriceNeutralSection(section)) {
+                configuredIds.forEach((id) => available.add(id));
+                availability[section.id] = available;
+                return;
+            }
             previewPositivePriceRows.forEach(row => {
                 if (!previewRowMatchesSelections(row, upstreamSelections, section.id)) return;
 
@@ -4497,7 +4532,7 @@ export function ProductAttributeBuilder({
                     return;
                 }
 
-                if (section.selection_mode === 'optional' && current) {
+                if (isOptionalSelectionMode(section.selection_mode) && current) {
                     delete next[section.id];
                     changed = true;
                 }
@@ -4962,7 +4997,7 @@ export function ProductAttributeBuilder({
     const handleResetLayoutConfig = () => {
         if (!confirm('Nulstil prisliste-layout? Ugemte ændringer går tabt.')) return;
         setLayoutRows([
-            { id: 'row-1', sections: [{ id: 'section-1', groupId: '', sectionType: 'formats', ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small' }] }
+            { id: 'row-1', sections: [{ id: 'section-1', groupId: '', sectionType: 'formats', ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small', selectorStyling: {} }] }
         ]);
         setVerticalAxisConfig({
             sectionId: 'vertical-axis',
@@ -4971,6 +5006,7 @@ export function ProductAttributeBuilder({
             ui_mode: 'buttons',
             valueIds: [],
             valueSettings: {},
+            selectorStyling: {},
             thumbnailsEnabled: false,
             thumbnail_size: 'small'
         });
@@ -5851,7 +5887,7 @@ export function ProductAttributeBuilder({
                                     </SelectContent>
                                 </Select>
                                 <div className="flex items-center gap-2">
-                                    <Label className="text-[10px] text-muted-foreground">Thumb:</Label>
+                                    <Label className="text-[10px] text-muted-foreground">Billede:</Label>
                                     <Select
                                         value={normalizeThumbnailSize(verticalAxisConfig.thumbnail_size)}
                                         onValueChange={(v: ThumbnailSizeMode) => {
@@ -6087,7 +6123,7 @@ export function ProductAttributeBuilder({
                                                         onClick={() => {
                                                             setLayoutRows(prev => prev.map(r =>
                                                                 r.id === row.id
-                                                                    ? { ...r, sections: [...r.sections, { id: `section-${Date.now()}`, groupId: '', sectionType: 'materials', valueIds: [], ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small' }] }
+                                                                    ? { ...r, sections: [...r.sections, { id: `section-${Date.now()}`, groupId: '', sectionType: 'materials', valueIds: [], ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small', selectorStyling: {} }] }
                                                                     : r
                                                             ));
                                                         }}
@@ -6236,15 +6272,34 @@ export function ProductAttributeBuilder({
                                                             <SelectContent>
                                                                 <SelectItem value="required">Påkrævet</SelectItem>
                                                                 <SelectItem value="optional">Valgfri</SelectItem>
+                                                                <SelectItem value="free">Gratis</SelectItem>
                                                             </SelectContent>
                                                         </Select>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-6 px-2 text-[10px]"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                setTemplateConnectSectionId(section.id);
+                                                            }}
+                                                        >
+                                                            Template Connect
+                                                            {Object.values(section.valueSettings || {}).some((settings) => Boolean(settings?.linkedTemplateId)) ? (
+                                                                <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px]">
+                                                                    {Object.values(section.valueSettings || {}).filter((settings) => Boolean(settings?.linkedTemplateId)).length}
+                                                                </Badge>
+                                                            ) : null}
+                                                        </Button>
                                                         <Label className="text-[10px] text-muted-foreground">Visning:</Label>
                                                         <Select
                                                             value={section.ui_mode || 'buttons'}
                                                             onValueChange={(v: DisplayMode) => {
+                                                                const nextThumbnailSize = getThumbnailSizeFromUiMode(v);
                                                                 setLayoutRows(prev => prev.map(r =>
                                                                     r.id === row.id
-                                                                        ? { ...r, sections: r.sections.map(s => s.id === section.id ? { ...s, ui_mode: v } : s) }
+                                                                        ? { ...r, sections: r.sections.map(s => s.id === section.id ? { ...s, ui_mode: v, thumbnail_size: nextThumbnailSize, thumbnail_custom_px: undefined } : s) }
                                                                         : r
                                                                 ));
                                                             }}
@@ -6262,7 +6317,7 @@ export function ProductAttributeBuilder({
                                                                 <SelectItem value="xl_notext">Billeder XL kun foto (128px)</SelectItem>
                                                             </SelectContent>
                                                         </Select>
-                                                        <Label className="text-[10px] text-muted-foreground">Thumb:</Label>
+                                                        <Label className="text-[10px] text-muted-foreground">Billede:</Label>
                                                         <Select
                                                             value={normalizeThumbnailSize(section.thumbnail_size)}
                                                             onValueChange={(v: ThumbnailSizeMode) => {
@@ -6383,6 +6438,42 @@ export function ProductAttributeBuilder({
                                                         )}
                                                     </div>
                                                     </SortableContext>
+                                                    <TemplateConnectDialog
+                                                        open={templateConnectSectionId === section.id}
+                                                        onOpenChange={(open) => setTemplateConnectSectionId(open ? section.id : null)}
+                                                        tenantId={tenantId}
+                                                        sectionTitle={section.title || KIND_LABELS[section.sectionType] || 'Sektion'}
+                                                        values={(section.valueIds || [])
+                                                            .map((valueId) => (productAttrs.groups || [])
+                                                                .flatMap((group) => group.values || [])
+                                                                .find((value) => value.id === valueId))
+                                                            .filter(Boolean)
+                                                            .map((value) => ({ id: value!.id, name: value!.name || '' }))}
+                                                        valueSettings={section.valueSettings}
+                                                        onTemplateChange={(valueId, templateId) => {
+                                                            setLayoutRows((prev) => prev.map((layoutRow) =>
+                                                                layoutRow.id === row.id
+                                                                    ? {
+                                                                        ...layoutRow,
+                                                                        sections: layoutRow.sections.map((sectionItem) =>
+                                                                            sectionItem.id === section.id
+                                                                                ? {
+                                                                                    ...sectionItem,
+                                                                                    valueSettings: {
+                                                                                        ...sectionItem.valueSettings,
+                                                                                        [valueId]: {
+                                                                                            ...(sectionItem.valueSettings?.[valueId] || { showThumbnail: false }),
+                                                                                            linkedTemplateId: templateId || undefined,
+                                                                                        },
+                                                                                    },
+                                                                                }
+                                                                                : sectionItem
+                                                                        ),
+                                                                    }
+                                                                    : layoutRow
+                                                            ));
+                                                        }}
+                                                    />
                                                 </div>
                                                 </DraggableColumn>
                                             ))}
@@ -6399,7 +6490,7 @@ export function ProductAttributeBuilder({
                                         onClick={() => {
                                             setLayoutRows(prev => [...prev, {
                                                 id: `row-${Date.now()}`,
-                                                sections: [{ id: `section-${Date.now()}`, groupId: '', sectionType: 'materials', valueIds: [], ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small' }]
+                                                sections: [{ id: `section-${Date.now()}`, groupId: '', sectionType: 'materials', valueIds: [], ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small', selectorStyling: {} }]
                                             }]);
                                         }}
                                     >
@@ -6627,7 +6718,7 @@ export function ProductAttributeBuilder({
                                                             section.thumbnail_size,
                                                             section.thumbnail_custom_px
                                                         );
-                                                        const isOptional = section.selection_mode === 'optional';
+                                                        const isOptional = isOptionalSelectionMode(section.selection_mode);
                                                         const selectedValue = isOptional
                                                             ? (selectedSectionValues[section.id] || '')
                                                             : (selectedSectionValues[section.id] || values[0]?.id || '');
@@ -6643,13 +6734,13 @@ export function ProductAttributeBuilder({
                                                                         const allFinishSections = layoutRows.flatMap(r => r.sections).filter(s => s.sectionType === 'finishes');
                                                                         if (isOptional) {
                                                                             allFinishSections.forEach(finishSection => {
-                                                                                if (finishSection.id !== section.id && finishSection.selection_mode === 'optional') {
+                                                                                if (finishSection.id !== section.id && isOptionalSelectionMode(finishSection.selection_mode)) {
                                                                                     delete next[finishSection.id];
                                                                                 }
                                                                             });
                                                                         } else {
                                                                             allFinishSections.forEach(finishSection => {
-                                                                                if (finishSection.selection_mode === 'optional') {
+                                                                                if (isOptionalSelectionMode(finishSection.selection_mode)) {
                                                                                     delete next[finishSection.id];
                                                                                 }
                                                                             });
@@ -7479,7 +7570,7 @@ export function ProductAttributeBuilder({
                                                                         : rawSectionValues;
                                                                     const uiMode = section.ui_mode || 'buttons';
 
-                                                                    const isOptional = section.selection_mode === 'optional';
+                                                                    const isOptional = isOptionalSelectionMode(section.selection_mode);
                                                                     const selectedValueId = isOptional
                                                                         ? (selectedSectionValues[section.id] || '')
                                                                         : (selectedSectionValues[section.id] || sectionValues[0]?.id);
@@ -7500,13 +7591,13 @@ export function ProductAttributeBuilder({
                                                                                     const allFinishSections = layoutRows.flatMap(r => r.sections).filter(s => s.sectionType === 'finishes');
                                                                                     if (isOptional) {
                                                                                         allFinishSections.forEach(finishSection => {
-                                                                                            if (finishSection.id !== section.id && finishSection.selection_mode === 'optional') {
+                                                                                            if (finishSection.id !== section.id && isOptionalSelectionMode(finishSection.selection_mode)) {
                                                                                                 delete next[finishSection.id];
                                                                                             }
                                                                                         });
                                                                                     } else {
                                                                                         allFinishSections.forEach(finishSection => {
-                                                                                            if (finishSection.selection_mode === 'optional') {
+                                                                                            if (isOptionalSelectionMode(finishSection.selection_mode)) {
                                                                                                 delete next[finishSection.id];
                                                                                             }
                                                                                         });

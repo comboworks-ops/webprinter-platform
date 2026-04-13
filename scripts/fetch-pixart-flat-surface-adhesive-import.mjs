@@ -2396,10 +2396,13 @@ async function runImport(args) {
   await deleteByProduct("storformat_finishes");
   await deleteByProduct("storformat_materials");
 
+  const itemVisibility = args.tenantId === DEFAULT_TENANT_ID ? "public" : "tenant";
+
   const materialRows = materialModels.map((material, idx) => ({
     id: crypto.randomUUID(),
     tenant_id: args.tenantId,
     product_id: productId,
+    visibility: itemVisibility,
     name: material.name,
     group_label: material.group_label,
     bleed_mm: 3,
@@ -3203,6 +3206,7 @@ async function importRigidsCategory({
     id: crypto.randomUUID(),
     tenant_id: args.tenantId,
     product_id: productId,
+    visibility: itemVisibility,
     name: finish.name,
     group_label: finish.group_label || "White",
     pricing_mode: "per_m2",
@@ -3251,6 +3255,7 @@ async function importRigidsCategory({
     id: crypto.randomUUID(),
     tenant_id: args.tenantId,
     product_id: productId,
+    visibility: itemVisibility,
     name: option.name,
     group_label: option.group_label || "Option",
     pricing_mode: "per_m2",

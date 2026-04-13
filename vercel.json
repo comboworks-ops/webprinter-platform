@@ -4,6 +4,26 @@
       "handle": "filesystem"
     },
     {
+      "src": "^/$",
+      "dest": "/api/tenant-shell?pathname=/"
+    },
+    {
+      "src": "^/(kontakt|om-os|vilkaar|betingelser|privatliv|shop|produkter|prisberegner)/?$",
+      "dest": "/api/tenant-shell?pathname=/$1"
+    },
+    {
+      "src": "^/produkt/([^/?]+)/?$",
+      "dest": "/api/tenant-shell?pathname=/produkt/$1"
+    },
+    {
+      "src": "^/llms\\.txt$",
+      "dest": "/api/llms"
+    },
+    {
+      "src": "^/(platform|priser|white-label|beregning|order-flow|online-designer|privacy-policy|handelsbetingelser|cookiepolitik|opret-shop)/?$",
+      "dest": "/api/tenant-shell?pathname=/$1"
+    },
+    {
       "src": "/(.*)",
       "dest": "/index.html"
     }

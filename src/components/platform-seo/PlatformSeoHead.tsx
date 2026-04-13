@@ -13,25 +13,13 @@ import { useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
+    type ComputedPlatformSeo,
     isPlatformHost,
     isExcludedPath,
     type PlatformSeoSettings,
     type PlatformSeoPage,
-    type ComputedPlatformSeo,
 } from '@/lib/platform-seo/types';
-
-// Default SEO values if no database settings exist
-const DEFAULT_SEO: Omit<ComputedPlatformSeo, 'hreflangTags' | 'jsonLd'> = {
-    title: 'Webprinter Platform',
-    description: 'Den komplette løsning til moderne trykkerier.',
-    robots: 'index,follow',
-    canonicalUrl: '',
-    ogTitle: 'Webprinter Platform',
-    ogDescription: 'Den komplette løsning til moderne trykkerier.',
-    ogImageUrl: null,
-    ogUrl: '',
-    ogSiteName: 'Webprinter.dk',
-};
+import { computePlatformSeo } from '@/lib/platform-seo/metadata';
 
 /**
  * Set or update a meta tag
@@ -93,100 +81,6 @@ function setJsonLd(id: string, data: Record<string, unknown>) {
     }
 
     element.textContent = JSON.stringify(data);
-}
-
-/**
- * Compute SEO data from settings and page override
- */
-function computeSeo(
-    settings: PlatformSeoSettings | null,
-    pageOverride: PlatformSeoPage | null,
-    pathname: string,
-    hostname: string
-): ComputedPlatformSeo {
-    const baseUrl = settings?.canonical_base_url || `https://${hostname}`;
-    const titleTemplate = settings?.default_title_template || '{pageTitle} | Webprinter Platform';
-
-    // Get page-specific title or generate from path
-    const pageTitle = pageOverride?.title || getDefaultPageTitle(pathname);
-    const title = titleTemplate.replace('{pageTitle}', pageTitle);
-
-    const description = pageOverride?.description || settings?.default_description || DEFAULT_SEO.description;
-    const robots = pageOverride?.robots || settings?.default_robots || DEFAULT_SEO.robots;
-    const canonicalUrl = pageOverride?.canonical_url || `${baseUrl}${pathname === '/' ? '' : pathname}`;
-
-    const ogTitle = pageOverride?.og_title || pageTitle;
-    const ogDescription = pageOverride?.og_description || description;
-    const ogImageUrl = pageOverride?.og_image_url || settings?.default_og_image_url || null;
-
-    // Generate hreflang tags
-    const locales = settings?.locales || [{ locale: 'da-DK', lang: 'da', isDefault: true, pathPrefix: '' }];
-    const hreflangTags = locales.map(loc => ({
-        lang: loc.locale,
-        href: `${baseUrl}${loc.pathPrefix}${pathname === '/' ? '' : pathname}`,
-    }));
-
-    // Add x-default
-    const defaultLocale = locales.find(l => l.isDefault);
-    if (defaultLocale) {
-        hreflangTags.push({
-            lang: 'x-default',
-            href: `${baseUrl}${defaultLocale.pathPrefix}${pathname === '/' ? '' : pathname}`,
-        });
-    }
-
-    // Collect JSON-LD data
-    const jsonLd: Record<string, unknown>[] = [];
-
-    if (settings?.organization_jsonld) {
-        jsonLd.push(settings.organization_jsonld);
-    }
-
-    if (settings?.website_jsonld) {
-        jsonLd.push(settings.website_jsonld);
-    }
-
-    if (pageOverride?.jsonld) {
-        jsonLd.push(pageOverride.jsonld);
-    }
-
-    return {
-        title,
-        description,
-        robots,
-        canonicalUrl,
-        ogTitle,
-        ogDescription,
-        ogImageUrl,
-        ogUrl: canonicalUrl,
-        ogSiteName: 'Webprinter.dk',
-        hreflangTags,
-        jsonLd,
-    };
-}
-
-/**
- * Get default page title from pathname
- */
-function getDefaultPageTitle(pathname: string): string {
-    const titleMap: Record<string, string> = {
-        '/': 'Forside',
-        '/platform': 'Platform',
-        '/priser': 'Priser',
-        '/white-label': 'White Label Webshop',
-        '/beregning': 'Smart Prisberegning',
-        '/order-flow': 'Ordre Workflow',
-        '/online-designer': 'Online Designer',
-        '/om-os': 'Om Os',
-        '/kontakt': 'Kontakt',
-        '/privacy-policy': 'Privatlivspolitik',
-        '/handelsbetingelser': 'Handelsbetingelser',
-        '/cookiepolitik': 'Cookiepolitik',
-        '/auth': 'Log Ind',
-        '/opret-shop': 'Start Din Webshop',
-    };
-
-    return titleMap[pathname] || 'Webprinter Platform';
 }
 
 /**
@@ -289,6 +183,7 @@ export function PlatformSeoHead() {
 
         // Canonical
         setLinkTag('canonical', seo.canonicalUrl);
+        setLinkTag('icon', seo.iconUrl);
 
         // Hreflang
         clearHreflangLinks();
@@ -305,7 +200,7 @@ export function PlatformSeoHead() {
     useEffect(() => {
         if (!shouldApply) return;
 
-        const seo = computeSeo(settings ?? null, pageOverride ?? null, pathname, hostname);
+        const seo = computePlatformSeo(settings ?? null, pageOverride ?? null, pathname, hostname);
         applySeo(seo);
     }, [shouldApply, settings, pageOverride, pathname, hostname, applySeo]);
 

@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { isPlatformHost } from '@/lib/platform-seo/types';
+import { PLATFORM_META_PATHS } from '@/lib/platform-seo/metadata';
 
 interface SEOProps {
     title?: string;
@@ -20,12 +22,19 @@ export function SEO({
     structuredData
 }: SEOProps) {
     const location = useLocation();
+    const hostname = typeof window !== "undefined" ? window.location.hostname : "";
     const [metadata, setMetadata] = useState({
         title: defaultTitle,
         description: defaultDescription,
         image: defaultImage,
         structuredData: structuredData
     });
+
+    const platformManagedRoute = isPlatformHost(hostname) && PLATFORM_META_PATHS.has(location.pathname);
+
+    if (platformManagedRoute) {
+        return null;
+    }
 
     useEffect(() => {
         // Reset to defaults when location changes, then fetch overrides

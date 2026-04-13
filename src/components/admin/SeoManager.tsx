@@ -63,6 +63,7 @@ export function SeoManager() {
     const [editForm, setEditForm] = useState<Partial<PageSeo>>({});
     const [saving, setSaving] = useState(false);
     const [tenantId, setTenantId] = useState<string | null>(null);
+    const [tenantDomain, setTenantDomain] = useState<string>('');
     const [isMaster, setIsMaster] = useState(false);
     const { isMasterAdmin: roleIsMasterAdmin } = useUserRole();
 
@@ -81,6 +82,16 @@ export function SeoManager() {
         setTenantId(currentTenantId);
         if (currentTenantId) {
             await fetchPages(currentTenantId);
+
+            // Fetch the tenant's actual domain for the Google Preview
+            const { data: tenantRow } = await supabase
+                .from('tenants' as any)
+                .select('domain')
+                .eq('id', currentTenantId)
+                .maybeSingle();
+            if ((tenantRow as any)?.domain) {
+                setTenantDomain((tenantRow as any).domain);
+            }
         }
         setLoading(false);
     };
@@ -346,7 +357,7 @@ export function SeoManager() {
 
                                                     const fileName = `seo/${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
                                                     const { data, error } = await supabase.storage
-                                                        .from('images')
+                                                        .from('product-images')
                                                         .upload(fileName, file);
 
                                                     if (error) {
@@ -356,7 +367,7 @@ export function SeoManager() {
                                                     }
 
                                                     const { data: urlData } = supabase.storage
-                                                        .from('images')
+                                                        .from('product-images')
                                                         .getPublicUrl(fileName);
 
                                                     setEditForm({ ...editForm, og_image_url: urlData.publicUrl });
@@ -404,8 +415,8 @@ export function SeoManager() {
                                         <div className="flex items-center gap-1 text-sm text-[#202124] mb-1">
                                             <div className="bg-gray-200 rounded-full w-7 h-7 flex items-center justify-center text-xs">Fav</div>
                                             <div className="flex flex-col">
-                                                <span className="text-[#202124]">Webprinter.dk</span>
-                                                <span className="text-[#5f6368] text-xs">https://webprinter.dk{editForm.slug}</span>
+                                                <span className="text-[#202124]">{tenantDomain || 'webprinter.dk'}</span>
+                                                <span className="text-[#5f6368] text-xs">https://{tenantDomain || 'webprinter.dk'}{editForm.slug}</span>
                                             </div>
                                         </div>
                                         <div className="text-[#1a0dab] text-xl font-normal hover:underline cursor-pointer truncate">
@@ -464,7 +475,7 @@ export function SeoManager() {
 }` : editForm.slug === '/' ?
                                                     `{
   "@type": "Organization",
-  "name": "Webprinter.dk"
+  "name": "${tenantDomain || 'webprinter.dk'}"
 }` :
                                                     `{
   "@type": "WebPage",

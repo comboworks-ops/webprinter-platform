@@ -11,15 +11,15 @@
 import { registerTheme, type ThemeDefinition } from '@/lib/themes';
 
 // Import theme components
-import { GlassHeader } from './components/GlassHeader';
-import { GlassFooter } from './components/GlassFooter';
-import { GlassHeroSlider } from './components/GlassHeroSlider';
 import { GlassProductGrid } from './components/GlassProductGrid';
 import { GlassShopLayout } from './components/GlassShopLayout';
 import { GlassProductsSection } from './components/GlassProductsSection';
-import { GlassBanner2 } from './components/GlassBanner2';
 import { GlassLowerInfo } from './components/GlassLowerInfo';
-import { GlassContentBlock } from './components/GlassContentBlock';
+import { ClassicHeader } from '@/themes/classic/components/ClassicHeader';
+import { ClassicFooter } from '@/themes/classic/components/ClassicFooter';
+import { ClassicHeroSlider } from '@/themes/classic/components/ClassicHeroSlider';
+import { ClassicBanner2 } from '@/themes/classic/components/ClassicBanner2';
+import { ClassicContentBlock } from '@/themes/classic/components/ClassicContentBlock';
 
 /**
  * Glassmorphism theme definition
@@ -34,15 +34,15 @@ const glassmorphismTheme: ThemeDefinition = {
         author: 'WebPrinter',
     },
     components: {
-        Header: GlassHeader,
-        Footer: GlassFooter,
-        HeroSlider: GlassHeroSlider,
+        Header: ClassicHeader,
+        Footer: ClassicFooter,
+        HeroSlider: ClassicHeroSlider,
         ProductGrid: GlassProductGrid,
         ShopLayout: GlassShopLayout,
         ProductsSection: GlassProductsSection,
-        Banner2: GlassBanner2,
+        Banner2: ClassicBanner2,
         LowerInfo: GlassLowerInfo,
-        ContentBlock: GlassContentBlock,
+        ContentBlock: ClassicContentBlock,
     },
     defaultSettings: {
         // Glassmorphism-specific defaults

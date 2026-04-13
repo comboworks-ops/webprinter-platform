@@ -73,6 +73,18 @@ function loadGoogleFonts(fonts: string[]) {
     document.head.appendChild(link);
 }
 
+function extractPreviewFonts(branding: any): string[] {
+    return [
+        branding?.fonts?.heading || 'Poppins',
+        branding?.fonts?.body || 'Inter',
+        branding?.fonts?.pricing || 'Roboto Mono',
+        branding?.forside?.productsSection?.button?.font || 'Poppins',
+        branding?.forside?.productsSection?.card?.titleFont,
+        branding?.forside?.productsSection?.card?.bodyFont,
+        branding?.forside?.productsSection?.card?.priceFont,
+    ].filter(Boolean);
+}
+
 export default function PreviewStorefront() {
     const [searchParams] = useSearchParams();
     const { isAdmin, loading: roleLoading } = useUserRole();
@@ -104,12 +116,7 @@ export default function PreviewStorefront() {
                 // Load fonts dynamically
                 const fonts = event.data.branding?.fonts;
                 if (fonts) {
-                    loadGoogleFonts([
-                        fonts.heading || 'Poppins',
-                        fonts.body || 'Inter',
-                        fonts.pricing || 'Roboto Mono',
-                        event.data.branding?.forside?.productsSection?.button?.font || 'Poppins'
-                    ]);
+                    loadGoogleFonts(extractPreviewFonts(event.data.branding));
                 }
             }
         };
@@ -213,12 +220,7 @@ export default function PreviewStorefront() {
                     setTenantName(event.data.tenantName);
                 }
                 if (event.data.branding?.fonts) {
-                    loadGoogleFonts([
-                        event.data.branding.fonts.heading || 'Poppins',
-                        event.data.branding.fonts.body || 'Inter',
-                        event.data.branding.fonts.pricing || 'Roboto Mono',
-                        event.data.branding?.forside?.productsSection?.button?.font || 'Poppins'
-                    ]);
+                    loadGoogleFonts(extractPreviewFonts(event.data.branding));
                 }
             }
         };
@@ -234,16 +236,13 @@ export default function PreviewStorefront() {
     }, [searchParams]);
 
     // Load fonts on initial branding
+    const previewFontSignature = JSON.stringify(extractPreviewFonts(branding));
+
     useEffect(() => {
         if (branding?.fonts) {
-            loadGoogleFonts([
-                branding.fonts.heading || 'Poppins',
-                branding.fonts.body || 'Inter',
-                branding.fonts.pricing || 'Roboto Mono',
-                branding?.forside?.productsSection?.button?.font || 'Poppins'
-            ]);
+            loadGoogleFonts(extractPreviewFonts(branding));
         }
-    }, [branding?.fonts?.heading, branding?.fonts?.body, branding?.fonts?.pricing, branding?.forside?.productsSection?.button?.font]);
+    }, [previewFontSignature, branding]);
 
     // Require admin access
     if (!roleLoading && !isAdmin) {
@@ -272,11 +271,13 @@ export default function PreviewStorefront() {
             {/* Storefront with applied branding */}
             <div
                 className="min-h-screen flex flex-col"
+                data-branding-id="colors.background"
                 style={{
                     "--primary": hexToHsl(primaryColor),
                     "--background": hexToHsl(backgroundColor),
                     "--card": hexToHsl(cardColor),
                     fontFamily: `'${bodyFont}', sans-serif`,
+                    backgroundColor: `hsl(${hexToHsl(backgroundColor)})`,
                     paddingTop: isEmbedded ? 0 : 40,
                 } as React.CSSProperties}
             >

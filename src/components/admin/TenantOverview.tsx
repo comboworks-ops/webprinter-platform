@@ -17,6 +17,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { z } from "zod";
 
 interface Tenant {
     id: string;
@@ -25,12 +26,24 @@ interface Tenant {
     created_at: string;
 }
 
+type TenantCreatePayload = {
+    name: string;
+    domain?: string;
+    settings: {
+        type: "tenant";
+        company: {
+            name: string;
+        };
+    };
+};
+
 export function TenantOverview() {
     const [tenants, setTenants] = useState<Tenant[]>([]);
     const [loading, setLoading] = useState(true);
     const [createOpen, setCreateOpen] = useState(false);
     const [createName, setCreateName] = useState("");
     const [createDomain, setCreateDomain] = useState("");
+    const [createEmail, setCreateEmail] = useState("");
     const [creating, setCreating] = useState(false);
 
     useEffect(() => {
@@ -40,12 +53,12 @@ export function TenantOverview() {
     async function fetchTenants() {
         try {
             const { data, error } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('*')
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
-            setTenants((data as any) || []);
+            setTenants(data || []);
         } catch (error) {
             console.error('Error fetching tenants:', error);
         } finally {
@@ -59,11 +72,25 @@ export function TenantOverview() {
             return;
         }
 
+        if (createEmail.trim()) {
+            const emailValidation = z.string().email().safeParse(createEmail.trim());
+            if (!emailValidation.success) {
+                toast.error("Indtast en gyldig emailadresse.");
+                return;
+            }
+        }
+
         setCreating(true);
         try {
-            const payload: any = {
+            const payload: TenantCreatePayload = {
                 name: createName.trim(),
-                settings: { type: "tenant" },
+                settings: {
+                    type: "tenant",
+                    company: {
+                        name: createName.trim(),
+                        ...(createEmail.trim() ? { email: createEmail.trim().toLowerCase() } : {}),
+                    },
+                },
             };
 
             if (createDomain.trim()) {
@@ -71,7 +98,7 @@ export function TenantOverview() {
             }
 
             const { error } = await supabase
-                .from("tenants" as any)
+                .from("tenants")
                 .insert(payload);
 
             if (error) throw error;
@@ -80,10 +107,12 @@ export function TenantOverview() {
             setCreateOpen(false);
             setCreateName("");
             setCreateDomain("");
+            setCreateEmail("");
             fetchTenants();
-        } catch (error: any) {
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Kunne ikke oprette shop.";
             console.error("Error creating tenant:", error);
-            toast.error(error?.message || "Kunne ikke oprette shop.");
+            toast.error(errorMessage);
         } finally {
             setCreating(false);
         }
@@ -188,6 +217,16 @@ export function TenantOverview() {
                                 value={createDomain}
                                 onChange={(event) => setCreateDomain(event.target.value)}
                                 placeholder="mitdomæne.dk"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="tenant-email">Kontakt-email (valgfri)</Label>
+                            <Input
+                                id="tenant-email"
+                                type="email"
+                                value={createEmail}
+                                onChange={(event) => setCreateEmail(event.target.value)}
+                                placeholder="support@mitdomæne.dk"
                             />
                         </div>
                         <div className="flex justify-end gap-2">

@@ -28,6 +28,8 @@ import {
     type SocialPlatformSettings,
     type FooterStyleType,
     type FooterBackgroundType,
+    type USPItem,
+    type USPStripSettings,
     DEFAULT_BRANDING,
     DEFAULT_HERO,
     DEFAULT_HEADER,
@@ -37,6 +39,7 @@ import {
     DEFAULT_FOOTER,
     DEFAULT_FOOTER_SOCIAL,
     DEFAULT_FOOTER_LINKS,
+    DEFAULT_USP_STRIP,
 } from '@/hooks/useBrandingDraft';
 
 // Re-export types for convenience
@@ -61,6 +64,8 @@ export type {
     SocialPlatformSettings,
     FooterStyleType,
     FooterBackgroundType,
+    USPItem,
+    USPStripSettings,
 };
 export {
     DEFAULT_BRANDING,
@@ -72,6 +77,7 @@ export {
     DEFAULT_FOOTER,
     DEFAULT_FOOTER_SOCIAL,
     DEFAULT_FOOTER_LINKS,
+    DEFAULT_USP_STRIP,
 };
 
 // =============================================================================
@@ -343,6 +349,15 @@ export function mergeBrandingWithDefaults(data: Partial<BrandingData>): Branding
         forside: {
             ...DEFAULT_BRANDING.forside,
             ...data.forside,
+            banner2: {
+                ...DEFAULT_BRANDING.forside.banner2,
+                ...data.forside?.banner2,
+                background: {
+                    ...DEFAULT_BRANDING.forside.banner2.background,
+                    ...data.forside?.banner2?.background,
+                },
+                slides: data.forside?.banner2?.slides || DEFAULT_BRANDING.forside.banner2.slides,
+            },
             contentBlocks: data.forside?.contentBlocks || DEFAULT_BRANDING.forside.contentBlocks,
             productsSection: {
                 ...DEFAULT_BRANDING.forside.productsSection,
@@ -361,6 +376,14 @@ export function mergeBrandingWithDefaults(data: Partial<BrandingData>): Branding
                     ...DEFAULT_BRANDING.forside.productsSection.button,
                     ...data.forside?.productsSection?.button,
                 },
+                categoryTabs: {
+                    ...DEFAULT_BRANDING.forside.productsSection.categoryTabs,
+                    ...data.forside?.productsSection?.categoryTabs,
+                },
+                card: {
+                    ...DEFAULT_BRANDING.forside.productsSection.card,
+                    ...data.forside?.productsSection?.card,
+                },
                 background: {
                     ...DEFAULT_BRANDING.forside.productsSection.background,
                     ...data.forside?.productsSection?.background,
@@ -370,12 +393,64 @@ export function mergeBrandingWithDefaults(data: Partial<BrandingData>): Branding
         productPage: {
             ...DEFAULT_BRANDING.productPage,
             ...data.productPage,
+            heading: {
+                ...DEFAULT_BRANDING.productPage.heading,
+                ...data.productPage?.heading,
+                subtext: {
+                    ...DEFAULT_BRANDING.productPage.heading.subtext,
+                    ...data.productPage?.heading?.subtext,
+                },
+            },
+            infoSection: {
+                ...DEFAULT_BRANDING.productPage.infoSection,
+                ...data.productPage?.infoSection,
+            },
             matrix: {
                 ...DEFAULT_BRANDING.productPage.matrix,
                 ...data.productPage?.matrix,
                 pictureButtons: {
                     ...DEFAULT_BRANDING.productPage.matrix.pictureButtons,
                     ...data.productPage?.matrix?.pictureButtons,
+                },
+            },
+            pricePanel: {
+                ...DEFAULT_BRANDING.productPage.pricePanel,
+                ...data.productPage?.pricePanel,
+            },
+            orderButtons: {
+                ...DEFAULT_BRANDING.productPage.orderButtons,
+                ...data.productPage?.orderButtons,
+                primary: {
+                    ...DEFAULT_BRANDING.productPage.orderButtons.primary,
+                    ...data.productPage?.orderButtons?.primary,
+                },
+                secondary: {
+                    ...DEFAULT_BRANDING.productPage.orderButtons.secondary,
+                    ...data.productPage?.orderButtons?.secondary,
+                },
+                selected: {
+                    ...DEFAULT_BRANDING.productPage.orderButtons.selected,
+                    ...data.productPage?.orderButtons?.selected,
+                },
+            },
+            optionSelectors: {
+                ...(DEFAULT_BRANDING.productPage as any).optionSelectors,
+                ...(data.productPage as any)?.optionSelectors,
+                button: {
+                    ...(DEFAULT_BRANDING.productPage as any).optionSelectors?.button,
+                    ...(data.productPage as any)?.optionSelectors?.button,
+                },
+                image: {
+                    ...(DEFAULT_BRANDING.productPage as any).optionSelectors?.image,
+                    ...(data.productPage as any)?.optionSelectors?.image,
+                },
+                dropdown: {
+                    ...(DEFAULT_BRANDING.productPage as any).optionSelectors?.dropdown,
+                    ...(data.productPage as any)?.optionSelectors?.dropdown,
+                },
+                checkbox: {
+                    ...(DEFAULT_BRANDING.productPage as any).optionSelectors?.checkbox,
+                    ...(data.productPage as any)?.optionSelectors?.checkbox,
                 },
             },
         },

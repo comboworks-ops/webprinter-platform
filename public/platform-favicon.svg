@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="32" y1="20" x2="224" y2="236" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#11C5F5"/>
+      <stop offset="1" stop-color="#0B7FC6"/>
+    </linearGradient>
+    <linearGradient id="sheet" x1="74" y1="62" x2="182" y2="194" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EAF7FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="64" fill="#08253A"/>
+  <rect x="18" y="18" width="220" height="220" rx="52" fill="url(#bg)"/>
+  <path d="M89 64H152L186 98V177C186 185.837 178.837 193 170 193H89C80.1634 193 73 185.837 73 177V80C73 71.1634 80.1634 64 89 64Z" fill="url(#sheet)"/>
+  <path d="M152 64V92C152 100.837 159.163 108 168 108H196" fill="#8CE7FF" fill-opacity="0.6"/>
+  <path d="M152 64V92C152 100.837 159.163 108 168 108H196" stroke="#0E5F93" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M101 158L116 101L133 158L150 116L165 158" stroke="#08253A" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="96" y="171" width="68" height="10" rx="5" fill="#0E5F93" opacity="0.18"/>
+</svg>

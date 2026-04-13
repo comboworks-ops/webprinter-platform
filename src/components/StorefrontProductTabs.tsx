@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
+import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import ProductGrid from "@/components/ProductGrid";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,6 +34,18 @@ type StorefrontProductTabsProps = {
     gradientAngle?: number;
     opacity?: number;
   };
+  categoryTabsConfig?: {
+    font?: string;
+    borderRadiusPx?: number;
+    textColor?: string;
+    hoverTextColor?: string;
+    activeTextColor?: string;
+    bgColor?: string;
+    hoverBgColor?: string;
+    activeBgColor?: string;
+    borderColor?: string;
+    activeBorderColor?: string;
+  };
   showCategoryTabs?: boolean;
   variant?: "default" | "glass";
   hiddenProductIds?: string[];
@@ -41,6 +54,18 @@ type StorefrontProductTabsProps = {
 const FALLBACK_OVERVIEW_ID = "__default_overview__";
 const FALLBACK_OVERVIEW_NAME = "Produkter";
 const ALL_OVERVIEWS_ID = "__all_overviews__";
+const DEFAULT_CATEGORY_TABS_CONFIG = {
+  font: "Inter",
+  borderRadiusPx: 100,
+  textColor: "#1F2937",
+  hoverTextColor: "#1F2937",
+  activeTextColor: "#FFFFFF",
+  bgColor: "#FFFFFF",
+  hoverBgColor: "#F8FAFC",
+  activeBgColor: "#0EA5E9",
+  borderColor: "#E2E8F0",
+  activeBorderColor: "#0EA5E9",
+};
 
 type TaxonomyCategory = ProductCategoryRecord & {
   id: string;
@@ -82,6 +107,7 @@ export function StorefrontProductTabs({
   buttonConfig,
   layoutStyle = "cards",
   backgroundConfig,
+  categoryTabsConfig,
   showCategoryTabs = true,
   variant = "default",
   hiddenProductIds = [],
@@ -96,8 +122,15 @@ export function StorefrontProductTabs({
     warningMessage,
   } = useStorefrontCatalog();
   const location = useLocation();
+  const { isPreviewMode, previewPath } = usePreviewBranding();
   const [searchParams, setSearchParams] = useSearchParams();
-  const isCategoryRoute = location.pathname === "/produkter";
+  const pathname = isPreviewMode && previewPath ? previewPath : location.pathname;
+  const isCategoryRoute = pathname === "/produkter";
+  const resolvedCategoryTabsConfig = {
+    ...DEFAULT_CATEGORY_TABS_CONFIG,
+    ...(categoryTabsConfig || {}),
+  };
+  const categoryTabRadius = Math.max(0, Math.min(100, resolvedCategoryTabsConfig.borderRadiusPx ?? 100));
   const overviewParam = searchParams.get("overview");
   const categoryParam = searchParams.get("category");
   const subcategoryParam = searchParams.get("subcategory");
@@ -417,6 +450,31 @@ export function StorefrontProductTabs({
     backgroundConfig,
   };
 
+  const categoryTabStyleVars = useMemo(() => ({
+    "--category-tab-bg": resolvedCategoryTabsConfig.bgColor,
+    "--category-tab-text": resolvedCategoryTabsConfig.textColor,
+    "--category-tab-hover-bg": resolvedCategoryTabsConfig.hoverBgColor,
+    "--category-tab-hover-text": resolvedCategoryTabsConfig.hoverTextColor,
+    "--category-tab-active-bg": resolvedCategoryTabsConfig.activeBgColor,
+    "--category-tab-active-text": resolvedCategoryTabsConfig.activeTextColor,
+    "--category-tab-border": resolvedCategoryTabsConfig.borderColor,
+    "--category-tab-active-border": resolvedCategoryTabsConfig.activeBorderColor,
+    fontFamily: `'${resolvedCategoryTabsConfig.font}', sans-serif`,
+    borderRadius: `${categoryTabRadius}px`,
+  }) as CSSProperties, [categoryTabRadius, resolvedCategoryTabsConfig]);
+
+  const categoryTabGroupStyle = useMemo(() => ({
+    borderRadius: `${categoryTabRadius}px`,
+  }) as CSSProperties, [categoryTabRadius]);
+
+  const categoryTabBaseClassName = cn(
+    "border px-4 py-2 text-sm transition-colors duration-200",
+    "bg-[var(--category-tab-bg)] text-[var(--category-tab-text)] border-[var(--category-tab-border)]",
+    "hover:bg-[var(--category-tab-hover-bg)] hover:text-[var(--category-tab-hover-text)]",
+  );
+
+  const categoryTabActiveClassName = "bg-[var(--category-tab-active-bg)] text-[var(--category-tab-active-text)] border-[var(--category-tab-active-border)] hover:bg-[var(--category-tab-active-bg)] hover:text-[var(--category-tab-active-text)]";
+
   const productsForBranch = useMemo(() => {
     if (!hierarchyEnabled) return visibleProducts;
 
@@ -484,16 +542,17 @@ export function StorefrontProductTabs({
   const renderOverviewTabs = (overviewOptions: ProductOverviewRecord[], value: string, onChange: (value: string) => void) => {
     const useCompactGrid = overviewOptions.length === 2 && variant === "default";
     return (
-      <Tabs value={value} onValueChange={onChange} className="w-full">
+      <Tabs value={value} onValueChange={onChange} className="w-full" data-branding-id="forside.products.categories">
         {variant === "glass" ? (
           <div
-            className="w-full max-w-4xl mx-auto mb-10 p-1.5 rounded-2xl"
+            className="w-full max-w-4xl mx-auto mb-10 p-1.5"
             style={{
               background: "rgba(255, 255, 255, 0.7)",
               backdropFilter: "blur(12px)",
               WebkitBackdropFilter: "blur(12px)",
               boxShadow: "0 8px 32px rgba(0, 0, 0, 0.08)",
               border: "1px solid rgba(255, 255, 255, 0.5)",
+              ...categoryTabGroupStyle,
             }}
           >
             <TabsList className="flex w-full flex-wrap justify-center gap-2 bg-transparent h-auto p-0">
@@ -501,7 +560,13 @@ export function StorefrontProductTabs({
                 <TabsTrigger
                   key={overview.id}
                   value={overview.id}
-                  className="rounded-xl py-3 px-6 font-medium transition-all data-[state=active]:shadow-lg data-[state=active]:!bg-white data-[state=inactive]:!bg-transparent data-[state=active]:!text-gray-900 !text-gray-600"
+                  data-branding-id="forside.products.categories.button"
+                  style={categoryTabStyleVars}
+                  className={cn(
+                    categoryTabBaseClassName,
+                    "py-3 px-6 font-medium transition-all data-[state=active]:shadow-lg",
+                    "data-[state=active]:bg-[var(--category-tab-active-bg)] data-[state=active]:text-[var(--category-tab-active-text)] data-[state=active]:border-[var(--category-tab-active-border)]",
+                  )}
                 >
                   {overview.name}
                 </TabsTrigger>
@@ -510,18 +575,26 @@ export function StorefrontProductTabs({
           </div>
         ) : (
           <TabsList
+            data-branding-id="forside.products.categories"
+            style={useCompactGrid ? categoryTabGroupStyle : undefined}
             className={cn(
-              "mb-8 mx-auto h-auto",
+              "mb-8 mx-auto h-auto flex w-full flex-wrap justify-center gap-2 bg-transparent p-0",
               useCompactGrid
-                ? "grid w-full max-w-md grid-cols-2"
-                : "flex w-full max-w-4xl flex-wrap justify-center gap-2 bg-transparent p-0",
+                ? "max-w-md"
+                : "max-w-4xl",
             )}
           >
             {overviewOptions.map((overview) => (
               <TabsTrigger
                 key={overview.id}
                 value={overview.id}
-                className={cn(!useCompactGrid && "rounded-full border px-4 py-2")}
+                data-branding-id="forside.products.categories.button"
+                style={categoryTabStyleVars}
+                className={cn(
+                  categoryTabBaseClassName,
+                  useCompactGrid && "min-w-[180px] flex-1",
+                  "data-[state=active]:bg-[var(--category-tab-active-bg)] data-[state=active]:text-[var(--category-tab-active-text)] data-[state=active]:border-[var(--category-tab-active-border)]",
+                )}
               >
                 {overview.name}
               </TabsTrigger>
@@ -578,18 +651,18 @@ export function StorefrontProductTabs({
       })}
 
       {showRootCategoryNav && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" data-branding-id="forside.products.categories">
           <button
             type="button"
             onClick={() => {
               setSelectedRootCategoryId("");
               setSelectedSubcategoryId("");
             }}
+            data-branding-id="forside.products.categories.button"
+            style={categoryTabStyleVars}
             className={cn(
-              "rounded-full border px-4 py-2 text-sm transition-colors",
-              !selectedRootCategory
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-background hover:bg-muted border-border",
+              categoryTabBaseClassName,
+              !selectedRootCategory && categoryTabActiveClassName,
             )}
           >
             Alle produkter
@@ -602,11 +675,11 @@ export function StorefrontProductTabs({
                 setSelectedRootCategoryId(category.id);
                 setSelectedSubcategoryId("");
               }}
+              data-branding-id="forside.products.categories.button"
+              style={categoryTabStyleVars}
               className={cn(
-                "rounded-full border px-4 py-2 text-sm transition-colors",
-                selectedRootCategory?.id === category.id
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-background hover:bg-muted border-border",
+                categoryTabBaseClassName,
+                selectedRootCategory?.id === category.id && categoryTabActiveClassName,
               )}
             >
               {category.name}
@@ -621,16 +694,18 @@ export function StorefrontProductTabs({
 
       {showChildCategoryNav && (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2" data-branding-id="forside.products.categories">
             <button
-              type="button"
-              onClick={() => setSelectedSubcategoryId("")}
-              className={cn(
-                "rounded-full border px-3 py-1.5 text-xs transition-colors",
-                !selectedSubcategoryId
-                  ? "bg-secondary text-secondary-foreground border-secondary"
-                  : "bg-background hover:bg-muted border-border",
-              )}
+                type="button"
+                onClick={() => setSelectedSubcategoryId("")}
+                data-branding-id="forside.products.categories.button"
+                style={categoryTabStyleVars}
+                className={cn(
+                  "border px-3 py-1.5 text-xs transition-colors",
+                  "bg-[var(--category-tab-bg)] text-[var(--category-tab-text)] border-[var(--category-tab-border)]",
+                  "hover:bg-[var(--category-tab-hover-bg)] hover:text-[var(--category-tab-hover-text)]",
+                  !selectedSubcategoryId && "bg-[var(--category-tab-active-bg)] text-[var(--category-tab-active-text)] border-[var(--category-tab-active-border)] hover:bg-[var(--category-tab-active-bg)] hover:text-[var(--category-tab-active-text)]",
+                )}
             >
               {childNavMode === "submenu" ? "Vælg underkategori" : "Alle i kategorien"}
             </button>
@@ -639,11 +714,13 @@ export function StorefrontProductTabs({
                 key={category.id}
                 type="button"
                 onClick={() => setSelectedSubcategoryId(category.id)}
+                data-branding-id="forside.products.categories.button"
+                style={categoryTabStyleVars}
                 className={cn(
-                  "rounded-full border px-3 py-1.5 text-xs transition-colors",
-                  selectedSubcategoryId === category.id
-                    ? "bg-secondary text-secondary-foreground border-secondary"
-                    : "bg-background hover:bg-muted border-border",
+                  "border px-3 py-1.5 text-xs transition-colors",
+                  "bg-[var(--category-tab-bg)] text-[var(--category-tab-text)] border-[var(--category-tab-border)]",
+                  "hover:bg-[var(--category-tab-hover-bg)] hover:text-[var(--category-tab-hover-text)]",
+                  selectedSubcategoryId === category.id && "bg-[var(--category-tab-active-bg)] text-[var(--category-tab-active-text)] border-[var(--category-tab-active-border)] hover:bg-[var(--category-tab-active-bg)] hover:text-[var(--category-tab-active-text)]",
                 )}
               >
                 {category.name}

@@ -1,12 +1,15 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { deliveryFee } from "@/utils/productPricing";
-import { Download, CheckCircle2 } from "lucide-react";
+import { Download, CheckCircle2, ExternalLink, Sparkles } from "lucide-react";
 import jsPDF from "jspdf";
 import { cn } from "@/lib/utils";
+import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
+import { DEFAULT_BRANDING, mergeBrandingWithDefaults, type BrandingData } from "@/lib/branding";
+import { stageSiteCheckoutTransfer, writeSiteCheckoutSession, type SiteCheckoutState } from "@/lib/checkout/siteCheckoutSession";
 
 type ProductPricePanelProps = {
   productId: string;
@@ -22,6 +25,8 @@ type ProductPricePanelProps = {
   productName?: string;
   productSlug: string;
   selectedFormat?: string;
+  linkedTemplateId?: string | null;
+  branding?: Partial<BrandingData> | null;
   orderDeliveryConfig?: any;
   designWidthMm?: number;
   designHeightMm?: number;
@@ -46,6 +51,12 @@ type ProductPricePanelProps = {
       logo_url: string;
     }>;
   };
+  canvaOffer?: {
+    enabled: boolean;
+    launchUrl: string | null;
+    buttonLabel?: string | null;
+    helperText?: string | null;
+  } | null;
 };
 
 export type DeliveryMethod = {
@@ -105,6 +116,30 @@ const DEFAULT_DELIVERY_METHODS: DeliveryMethod[] = [
   }
 ];
 
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const hexToRgba = (color: string, alpha: number): string => {
+  const normalized = String(color || "").trim();
+  const a = clamp(Number.isFinite(alpha) ? alpha : 1, 0, 1);
+
+  const shortMatch = normalized.match(/^#([0-9a-f]{3})$/i);
+  if (shortMatch) {
+    const [r, g, b] = shortMatch[1].split("").map((c) => parseInt(c + c, 16));
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+  }
+
+  const longMatch = normalized.match(/^#([0-9a-f]{6})$/i);
+  if (longMatch) {
+    const hex = longMatch[1];
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+  }
+
+  return normalized || `rgba(0, 0, 0, ${a})`;
+};
+
 export function ProductPricePanel({
   productId,
   quantity,
@@ -119,6 +154,8 @@ export function ProductPricePanel({
   productName,
   productSlug,
   selectedFormat,
+  linkedTemplateId,
+  branding,
   orderDeliveryConfig,
   designWidthMm,
   designHeightMm,
@@ -128,12 +165,136 @@ export function ProductPricePanel({
   externalDeliveryMethods,
   externalDeliveryLoading,
   externalDeliveryError,
-  externalDeliveryConfig
+  externalDeliveryConfig,
+  canvaOffer
 }: ProductPricePanelProps) {
   const navigate = useNavigate();
+  const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
   const [shippingSelected, setShippingSelected] = useState<string>("standard");
   const [designReady, setDesignReady] = useState(false);
   const [now, setNow] = useState<Date>(() => new Date());
+  const activeBranding = useMemo(() => {
+    if (isPreviewMode && previewBranding) {
+      return mergeBrandingWithDefaults(previewBranding);
+    }
+    return mergeBrandingWithDefaults(branding || {});
+  }, [branding, isPreviewMode, previewBranding]);
+
+  const orderButtonDefaults = useMemo(() => {
+    const primaryColor = activeBranding.colors.primary || "#0EA5E9";
+    const hoverColor = primaryColor;
+    const borderColor = activeBranding.colors.secondary || "#E2E8F0";
+
+    return {
+      primary: {
+        bgColor: primaryColor,
+        hoverBgColor: hoverColor,
+        textColor: "#FFFFFF",
+        hoverTextColor: "#FFFFFF",
+        borderColor: primaryColor,
+        hoverBorderColor: hoverColor,
+      },
+      secondary: {
+        bgColor: activeBranding.colors.card || "#FFFFFF",
+        hoverBgColor: activeBranding.colors.secondary || "#F1F5F9",
+        textColor: activeBranding.colors.bodyText || "#4B5563",
+        hoverTextColor: activeBranding.colors.headingText || "#1F2937",
+        borderColor,
+        hoverBorderColor: hoverColor,
+      },
+      selected: {
+        bgColor: "#16A34A",
+        hoverBgColor: "#15803D",
+        textColor: "#FFFFFF",
+        hoverTextColor: "#FFFFFF",
+        borderColor: "#16A34A",
+        hoverBorderColor: "#15803D",
+      },
+    };
+  }, [activeBranding]);
+
+  const orderButtonStyles = useMemo(() => {
+    const configured = activeBranding.productPage?.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
+    const resolveButton = (button: typeof configured.primary, fallback: typeof orderButtonDefaults.primary) => ({
+      bgColor: button?.bgColor || fallback.bgColor,
+      hoverBgColor: button?.hoverBgColor || fallback.hoverBgColor,
+      textColor: button?.textColor || fallback.textColor,
+      hoverTextColor: button?.hoverTextColor || fallback.hoverTextColor,
+      borderColor: button?.borderColor || fallback.borderColor,
+      hoverBorderColor: button?.hoverBorderColor || fallback.hoverBorderColor,
+    });
+
+    return {
+      primary: resolveButton(configured.primary, orderButtonDefaults.primary),
+      secondary: resolveButton(configured.secondary, orderButtonDefaults.secondary),
+      selected: resolveButton(configured.selected, orderButtonDefaults.selected),
+    };
+  }, [activeBranding.productPage?.orderButtons, orderButtonDefaults]);
+
+  const pricePanelStyles = useMemo(() => {
+    const primaryColor = activeBranding.colors.primary || "#0EA5E9";
+    const headingColor = activeBranding.colors.headingText || "#1F2937";
+    const bodyColor = activeBranding.colors.bodyText || "#475569";
+    const cardColor = activeBranding.colors.card || "#FFFFFF";
+    const secondaryColor = activeBranding.colors.secondary || "#E2E8F0";
+    const configured = activeBranding.productPage?.pricePanel || DEFAULT_BRANDING.productPage.pricePanel;
+
+    const resolved = {
+      backgroundType: configured.backgroundType || "solid",
+      backgroundColor: configured.backgroundColor || hexToRgba(primaryColor, 0.05),
+      gradientStart: configured.gradientStart || hexToRgba(primaryColor, 0.1),
+      gradientEnd: configured.gradientEnd || cardColor,
+      gradientAngle: clamp(Number(configured.gradientAngle) || 135, 0, 360),
+      titleColor: configured.titleColor || headingColor,
+      textColor: configured.textColor || headingColor,
+      mutedTextColor: configured.mutedTextColor || bodyColor,
+      priceColor: configured.priceColor || primaryColor,
+      borderColor: configured.borderColor || hexToRgba(primaryColor, 0.18),
+      borderWidth: clamp(Number(configured.borderWidth) || 2, 0, 8),
+      radiusPx: clamp(Number(configured.radiusPx) || 12, 0, 40),
+      dividerColor: configured.dividerColor || hexToRgba(primaryColor, 0.12),
+      optionBg: configured.optionBg || cardColor,
+      optionHoverBg: configured.optionHoverBg || hexToRgba(primaryColor, 0.04),
+      optionSelectedBg: configured.optionSelectedBg || hexToRgba(primaryColor, 0.08),
+      optionBorderColor: configured.optionBorderColor || secondaryColor,
+      optionHoverBorderColor: configured.optionHoverBorderColor || hexToRgba(primaryColor, 0.3),
+      optionSelectedBorderColor: configured.optionSelectedBorderColor || primaryColor,
+      badgeBg: configured.badgeBg || hexToRgba(primaryColor, 0.1),
+      badgeText: configured.badgeText || primaryColor,
+      badgeBorderColor: configured.badgeBorderColor || primaryColor,
+    };
+
+    const background = resolved.backgroundType === "gradient"
+      ? `linear-gradient(${resolved.gradientAngle}deg, ${resolved.gradientStart}, ${resolved.gradientEnd})`
+      : resolved.backgroundColor;
+
+    const containerStyle = {
+      background,
+      borderColor: resolved.borderColor,
+      borderWidth: `${resolved.borderWidth}px`,
+      borderRadius: `${resolved.radiusPx}px`,
+      color: resolved.textColor,
+      ["--price-panel-title" as any]: resolved.titleColor,
+      ["--price-panel-text" as any]: resolved.textColor,
+      ["--price-panel-muted" as any]: resolved.mutedTextColor,
+      ["--price-panel-price" as any]: resolved.priceColor,
+      ["--price-panel-divider" as any]: resolved.dividerColor,
+      ["--price-panel-option-bg" as any]: resolved.optionBg,
+      ["--price-panel-option-hover-bg" as any]: resolved.optionHoverBg,
+      ["--price-panel-option-selected-bg" as any]: resolved.optionSelectedBg,
+      ["--price-panel-option-border" as any]: resolved.optionBorderColor,
+      ["--price-panel-option-hover-border" as any]: resolved.optionHoverBorderColor,
+      ["--price-panel-option-selected-border" as any]: resolved.optionSelectedBorderColor,
+      ["--price-panel-badge-bg" as any]: resolved.badgeBg,
+      ["--price-panel-badge-text" as any]: resolved.badgeText,
+      ["--price-panel-badge-border" as any]: resolved.badgeBorderColor,
+    } as CSSProperties;
+
+    return {
+      config: resolved,
+      containerStyle,
+    };
+  }, [activeBranding]);
 
   const normalizedProductPrice = Number.isFinite(Number(productPrice)) ? Math.round(Number(productPrice)) : 0;
   const normalizedExtraPrice = Number.isFinite(Number(extraPrice)) ? Math.round(Number(extraPrice)) : 0;
@@ -391,6 +552,30 @@ export function ProductPricePanel({
   const hasStableSelection = quantity > 0 || !!selectedVariant || !!summary;
   const canDownloadOffer = baseTotal > 0;
   const canOrder = baseTotal > 0 && !orderValidationError;
+  const primaryButtonCssVars = {
+    ["--order-primary-bg" as any]: orderButtonStyles.primary.bgColor,
+    ["--order-primary-hover-bg" as any]: orderButtonStyles.primary.hoverBgColor,
+    ["--order-primary-text" as any]: orderButtonStyles.primary.textColor,
+    ["--order-primary-hover-text" as any]: orderButtonStyles.primary.hoverTextColor,
+    ["--order-primary-border" as any]: orderButtonStyles.primary.borderColor,
+    ["--order-primary-hover-border" as any]: orderButtonStyles.primary.hoverBorderColor,
+  } as any;
+  const secondaryButtonCssVars = {
+    ["--order-secondary-bg" as any]: orderButtonStyles.secondary.bgColor,
+    ["--order-secondary-hover-bg" as any]: orderButtonStyles.secondary.hoverBgColor,
+    ["--order-secondary-text" as any]: orderButtonStyles.secondary.textColor,
+    ["--order-secondary-hover-text" as any]: orderButtonStyles.secondary.hoverTextColor,
+    ["--order-secondary-border" as any]: orderButtonStyles.secondary.borderColor,
+    ["--order-secondary-hover-border" as any]: orderButtonStyles.secondary.hoverBorderColor,
+  } as any;
+  const selectedButtonCssVars = {
+    ["--order-selected-bg" as any]: orderButtonStyles.selected.bgColor,
+    ["--order-selected-hover-bg" as any]: orderButtonStyles.selected.hoverBgColor,
+    ["--order-selected-text" as any]: orderButtonStyles.selected.textColor,
+    ["--order-selected-hover-text" as any]: orderButtonStyles.selected.hoverTextColor,
+    ["--order-selected-border" as any]: orderButtonStyles.selected.borderColor,
+    ["--order-selected-hover-border" as any]: orderButtonStyles.selected.hoverBorderColor,
+  } as any;
 
   const generatePDF = () => {
     const doc = new jsPDF();
@@ -553,42 +738,141 @@ export function ProductPricePanel({
     doc.save(`tilbud-${productName || 'webprinter'}-${new Date().getTime()}.pdf`);
   };
 
+  const buildCheckoutState = (): SiteCheckoutState => ({
+      productId,
+      quantity,
+      productPrice,
+      extraPrice,
+      totalPrice,
+      summary,
+      optionSelections,
+      selectedVariant,
+      productName,
+      productSlug,
+      selectedFormat,
+      linkedTemplateId: linkedTemplateId ?? null,
+      designWidthMm: designWidthMm ?? null,
+      designHeightMm: designHeightMm ?? null,
+      designBleedMm: designBleedMm ?? null,
+      designSafeAreaMm: designSafeAreaMm ?? null,
+      shippingSelected: activeDeliveryMethod?.id || null,
+      shippingCost: activeShippingCost,
+      createdAt: new Date().toISOString(),
+  });
+
   const handleOrderClick = () => {
     if (orderValidationError) return;
     const tenantQuery = typeof window !== 'undefined' ? window.location.search : '';
+    const checkoutState = buildCheckoutState();
+    writeSiteCheckoutSession(checkoutState);
     navigate(`/checkout/konfigurer${tenantQuery}`, {
-      state: {
-        productId,
-        quantity,
-        productPrice,
-        extraPrice,
-        totalPrice,
-        summary,
-        optionSelections,
-        selectedVariant,
-        productName,
-        productSlug,
-        selectedFormat,
-        designWidthMm: designWidthMm ?? null,
-        designHeightMm: designHeightMm ?? null,
-        designBleedMm: designBleedMm ?? null,
-        designSafeAreaMm: designSafeAreaMm ?? null,
-        shippingSelected: activeDeliveryMethod?.id || null,
-        shippingCost: activeShippingCost
-      }
+      state: checkoutState,
     });
   };
 
+  const persistCheckoutState = (options?: { crossTab?: boolean }) => {
+    const checkoutState = buildCheckoutState();
+    writeSiteCheckoutSession(checkoutState);
+    if (options?.crossTab) {
+      stageSiteCheckoutTransfer(checkoutState);
+    }
+    return checkoutState;
+  };
+
   return (
-    <div className="sticky top-24 bg-primary/5 border-2 border-primary/20 rounded-lg p-6 space-y-4">
+    <div
+      data-branding-id="productPage.pricePanel.box"
+      className="sticky top-24 space-y-4 overflow-hidden border p-6"
+      style={pricePanelStyles.containerStyle}
+    >
+      <style>{`
+        .price-panel-title {
+          color: var(--price-panel-title) !important;
+        }
+        .price-panel-text {
+          color: var(--price-panel-text) !important;
+        }
+        .price-panel-muted {
+          color: var(--price-panel-muted) !important;
+        }
+        .price-panel-price {
+          color: var(--price-panel-price) !important;
+        }
+        .price-panel-divider {
+          border-color: var(--price-panel-divider) !important;
+        }
+        .price-panel-download-button {
+          background-color: var(--price-panel-option-bg) !important;
+          color: var(--price-panel-title) !important;
+          border-color: var(--price-panel-option-border) !important;
+        }
+        .price-panel-download-button:hover:not(:disabled) {
+          background-color: var(--price-panel-option-hover-bg) !important;
+          color: var(--price-panel-title) !important;
+          border-color: var(--price-panel-option-hover-border) !important;
+        }
+        .price-panel-option {
+          background-color: var(--price-panel-option-bg) !important;
+          border-color: var(--price-panel-option-border) !important;
+        }
+        .price-panel-option:hover {
+          background-color: var(--price-panel-option-hover-bg) !important;
+          border-color: var(--price-panel-option-hover-border) !important;
+        }
+        .price-panel-option--selected,
+        .price-panel-option--selected:hover {
+          background-color: var(--price-panel-option-selected-bg) !important;
+          border-color: var(--price-panel-option-selected-border) !important;
+        }
+        .price-panel-badge {
+          background-color: var(--price-panel-badge-bg) !important;
+          color: var(--price-panel-badge-text) !important;
+          border-color: var(--price-panel-badge-border) !important;
+        }
+        .order-primary-button {
+          background-color: var(--order-primary-bg) !important;
+          color: var(--order-primary-text) !important;
+          border-color: var(--order-primary-border) !important;
+        }
+        .order-primary-button:hover:not(:disabled) {
+          background-color: var(--order-primary-hover-bg) !important;
+          color: var(--order-primary-hover-text) !important;
+          border-color: var(--order-primary-hover-border) !important;
+        }
+        .order-secondary-button {
+          background-color: var(--order-secondary-bg) !important;
+          color: var(--order-secondary-text) !important;
+          border-color: var(--order-secondary-border) !important;
+        }
+        .order-secondary-button:hover:not(:disabled) {
+          background-color: var(--order-secondary-hover-bg) !important;
+          color: var(--order-secondary-hover-text) !important;
+          border-color: var(--order-secondary-hover-border) !important;
+        }
+        .order-selected-button {
+          background-color: var(--order-selected-bg) !important;
+          color: var(--order-selected-text) !important;
+          border-color: var(--order-selected-border) !important;
+        }
+        .order-selected-button:hover:not(:disabled) {
+          background-color: var(--order-selected-hover-bg) !important;
+          color: var(--order-selected-hover-text) !important;
+          border-color: var(--order-selected-hover-border) !important;
+        }
+      `}</style>
       <div className="flex items-center justify-between">
-        <h3 className="text-2xl font-heading font-bold">Prisberegning</h3>
+        <h3
+          data-branding-id="productPage.pricePanel.titleColor"
+          className="price-panel-title text-2xl font-heading font-bold"
+        >
+          Prisberegning
+        </h3>
         {hasStableSelection && (
           <Button
             variant="outline"
             size="sm"
             onClick={generatePDF}
-            className="gap-2"
+            className="price-panel-download-button gap-2"
             disabled={!canDownloadOffer}
           >
             <Download className="h-4 w-4" />
@@ -599,18 +883,18 @@ export function ProductPricePanel({
 
       {/* Summary Section */}
       {(summary || (optionSelections && Object.keys(optionSelections).length > 0)) && (
-        <div className="pb-4 mb-4 border-b border-primary/10">
-          <p className="text-sm font-medium text-foreground mb-2">Valgt konfiguration:</p>
+        <div className="price-panel-divider mb-4 border-b pb-4">
+          <p data-branding-id="productPage.pricePanel.text" className="price-panel-text mb-2 text-sm font-medium">Valgt konfiguration:</p>
           {summary && (
-            <p className="text-sm text-muted-foreground">{summary}</p>
+            <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-sm">{summary}</p>
           )}
           {baseTotal > 0 && (
-            <p className="text-sm text-muted-foreground mt-1">
+            <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted mt-1 text-sm">
               Levering: {deliveryLabel}
             </p>
           )}
           {optionSelections && Object.keys(optionSelections).length > 0 && (
-            <div className="text-sm text-muted-foreground space-y-0.5 mt-1">
+            <div data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted mt-1 space-y-0.5 text-sm">
               {Object.values(optionSelections).map((option, idx) => (
                 <p key={idx}>+ {option.name}</p>
               ))}
@@ -623,26 +907,32 @@ export function ProductPricePanel({
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-sm text-muted-foreground">Pris ex. moms</p>
-            <p className="text-4xl font-heading font-bold text-primary tabular-nums min-w-[170px]">
+            <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-sm">Pris ex. moms</p>
+            <p
+              data-branding-id="productPage.pricePanel.price"
+              className="price-panel-price min-w-[170px] text-4xl font-heading font-bold tabular-nums"
+            >
               {baseTotal > 0 ? `${baseTotal} kr` : "-"}
             </p>
           </div>
           {hasStableSelection && (
             <div className="flex flex-col items-stretch gap-2">
               <Button
+                data-branding-id={designReady ? "productPage.orderButtons.selected" : "productPage.orderButtons.secondary"}
                 variant="outline"
                 size="lg"
                 className={cn(
                   "gap-2 py-5 border-2",
                   designReady
-                    ? "bg-green-600 text-white border-green-600 hover:bg-green-700 hover:border-green-700"
-                    : "border-dashed border-2"
+                    ? "order-selected-button"
+                    : "order-secondary-button border-dashed border-2"
                 )}
+                style={designReady ? selectedButtonCssVars : secondaryButtonCssVars}
                 onClick={() => {
                   const params = new URLSearchParams();
                   params.set('productId', productId);
                   if (selectedFormat) params.set('format', selectedFormat);
+                  if (linkedTemplateId) params.set('templateId', linkedTemplateId);
                   if (selectedVariant) params.set('variant', selectedVariant);
                   if (typeof designWidthMm === "number" && designWidthMm > 0 && typeof designHeightMm === "number" && designHeightMm > 0) {
                     params.set('widthMm', String(designWidthMm));
@@ -669,9 +959,34 @@ export function ProductPricePanel({
                 )}
                 {designReady ? "Design klar" : "Design online"}
               </Button>
+              {canvaOffer?.enabled && canvaOffer.launchUrl ? (
+                <>
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    className="gap-2 border-dashed py-5"
+                    style={secondaryButtonCssVars}
+                    onClick={() => {
+                      persistCheckoutState({ crossTab: true });
+                      window.open(canvaOffer.launchUrl as string, "_blank", "noopener,noreferrer");
+                    }}
+                  >
+                    <Sparkles className="h-5 w-5" />
+                    {canvaOffer.buttonLabel || "Design i Canva"}
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                  {canvaOffer.helperText ? (
+                    <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted max-w-[260px] text-xs">
+                      {canvaOffer.helperText}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
               <Button
+                data-branding-id="productPage.orderButtons.primary"
                 size="lg"
-                className="px-6 py-6 text-lg font-semibold"
+                className="order-primary-button px-6 py-6 text-lg font-semibold"
+                style={primaryButtonCssVars}
                 onClick={handleOrderClick}
                 disabled={!canOrder}
               >
@@ -690,15 +1005,15 @@ export function ProductPricePanel({
       {/* Delivery options - Always Visible */}
       {hasStableSelection && (
         <div className="space-y-3 pt-4">
-          <Label className="text-base font-semibold">Levering</Label>
+          <Label data-branding-id="productPage.pricePanel.text" className="price-panel-title text-base font-semibold">Levering</Label>
           {externalMode && externalDeliveryLoading && (
-            <p className="text-xs text-muted-foreground">Henter leveringsmuligheder...</p>
+            <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-xs">Henter leveringsmuligheder...</p>
           )}
           {externalMode && externalDeliveryError && (
             <p className="text-xs text-destructive">{externalDeliveryError}</p>
           )}
           {activeDeliveryMethods.length === 0 && (
-            <p className="text-xs text-muted-foreground">Ingen leveringsmuligheder endnu.</p>
+            <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-xs">Ingen leveringsmuligheder endnu.</p>
           )}
           <RadioGroup value={shippingSelected} onValueChange={setShippingSelected} className="space-y-2">
             {activeDeliveryMethods.map((method) => {
@@ -751,12 +1066,22 @@ export function ProductPricePanel({
               return (
                 <div
                   key={method.id}
+                  data-branding-id="productPage.pricePanel.optionCard"
                   className={cn(
-                    "flex items-start space-x-2 p-3 border rounded-md transition-colors",
-                    isSelected ? "bg-primary/5 border-primary" : "bg-background"
+                    "price-panel-option flex items-start space-x-2 rounded-md border p-3 transition-colors",
+                    isSelected && "price-panel-option--selected"
                   )}
                 >
-                  <RadioGroupItem value={method.id} id={`delivery-${method.id}`} />
+                  <RadioGroupItem
+                    value={method.id}
+                    id={`delivery-${method.id}`}
+                    style={{
+                      color: pricePanelStyles.config.priceColor,
+                      borderColor: isSelected
+                        ? pricePanelStyles.config.optionSelectedBorderColor
+                        : pricePanelStyles.config.optionBorderColor,
+                    }}
+                  />
                   <Label htmlFor={`delivery-${method.id}`} className="cursor-pointer flex-1">
                     <div className="flex justify-between items-start gap-2">
                       <div>
@@ -771,19 +1096,19 @@ export function ProductPricePanel({
                               />
                             </span>
                           )}
-                          <span className="text-sm font-medium">
+                          <span data-branding-id="productPage.pricePanel.text" className="price-panel-text text-sm font-medium">
                             {nameLabel}
                           </span>
                           {descriptionShort && (
-                            <span className="text-[11px] text-muted-foreground">
+                            <span data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-[11px]">
                               {descriptionShort}
                             </span>
                           )}
                         </div>
                         {(effectiveCountdown || cutoffTimeLabel) && (
-                          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                          <div data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted mt-1 flex items-center gap-2 text-xs">
                             {effectiveCountdown && (
-                              <span className="inline-flex items-center justify-center rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                              <span data-branding-id="productPage.pricePanel.badge" className="price-panel-badge inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-[11px] font-semibold">
                                 {effectiveCountdown}
                               </span>
                             )}
@@ -791,13 +1116,13 @@ export function ProductPricePanel({
                           </div>
                         )}
                         {showDeadline && submissionLabel && (
-                          <div className="mt-1 text-xs text-muted-foreground">Bestil senest: {submissionLabel}</div>
+                          <div data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted mt-1 text-xs">Bestil senest: {submissionLabel}</div>
                         )}
                         {deliveryDateLabel && (
-                          <div className="mt-1 text-xs text-muted-foreground">{deliveryDateLabel}</div>
+                          <div data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted mt-1 text-xs">{deliveryDateLabel}</div>
                         )}
                       </div>
-                      <span className="font-semibold text-primary text-sm tabular-nums min-w-[88px] text-right">{cost} kr</span>
+                      <span data-branding-id="productPage.pricePanel.price" className="price-panel-price min-w-[88px] text-right text-sm font-semibold tabular-nums">{cost} kr</span>
                     </div>
                   </Label>
                 </div>
@@ -805,15 +1130,20 @@ export function ProductPricePanel({
             })}
           </RadioGroup>
 
-          <div className="flex justify-between items-end pt-4 border-t border-primary/20">
-            <span className="text-sm text-muted-foreground">Samlet pris ex. moms:</span>
-            <span className="text-4xl font-heading font-bold text-primary tabular-nums min-w-[170px] text-right">{totalPrice} kr</span>
+          <div className="price-panel-divider flex items-end justify-between border-t pt-4">
+            <span data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-sm">Samlet pris ex. moms:</span>
+            <span
+              data-branding-id="productPage.pricePanel.price"
+              className="price-panel-price min-w-[170px] text-right text-4xl font-heading font-bold tabular-nums"
+            >
+              {totalPrice} kr
+            </span>
           </div>
         </div>
       )}
 
       {baseTotal === 0 && (
-        <p className="text-sm text-muted-foreground text-center py-4">
+        <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted py-4 text-center text-sm">
           Vælg en pris i matrixen for at se beregning
         </p>
       )}

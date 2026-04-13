@@ -118,8 +118,8 @@ const handler = async (req: Request): Promise<Response> => {
         'Authorization': `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: "Webprinter <support@webprinter.dk>",
-        to: ["support@webprinter.dk"],
+        from: "Webprinter <info@webprinter.dk>",
+        to: ["info@webprinter.dk"],
         subject: `Ny tilbudsforespørgsel - ${escapeHtml(productName)}`,
         html: `
           <h2>Ny tilbudsforespørgsel</h2>
@@ -158,7 +158,7 @@ const handler = async (req: Request): Promise<Response> => {
         'Authorization': `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: "Webprinter <support@webprinter.dk>",
+        from: "Webprinter <info@webprinter.dk>",
         to: [email],
         subject: "Dit tilbud fra Webprinter.dk",
         html: `
@@ -180,7 +180,7 @@ const handler = async (req: Request): Promise<Response> => {
           <h3>Kontakt os</h3>
           <p>
             <strong>Telefon:</strong> 71 99 11 10<br>
-            <strong>E-mail:</strong> support@webprinter.dk
+            <strong>E-mail:</strong> info@webprinter.dk
           </p>
           
           <p>Med venlig hilsen,<br>

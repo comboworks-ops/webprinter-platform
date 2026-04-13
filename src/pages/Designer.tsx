@@ -99,6 +99,7 @@ interface CheckoutImportPlacement {
     left: number;
     top: number;
     scaleMultiplier: number;
+    markAsCheckoutImport?: boolean;
 }
 
 const STANDARD_FORMATS: Record<string, { width: number; height: number; bleed?: number }> = {
@@ -137,6 +138,8 @@ export function Designer() {
     const productId = searchParams.get("productId");
     const templateId = searchParams.get("templateId");
     const designId = searchParams.get("designId");
+    const queryTenantIdRaw = searchParams.get("tenantId") || searchParams.get("tenant_id");
+    const queryTenantId = queryTenantIdRaw && UUID_REGEX.test(queryTenantIdRaw) ? queryTenantIdRaw : null;
     const format = searchParams.get("format");
     const variant = searchParams.get("variant");
     const orderMode = searchParams.get("order") === "1" || searchParams.get("mode") === "order";
@@ -171,6 +174,8 @@ export function Designer() {
     const [zoomLevel, setZoomLevel] = useState(1);
     const [pendingCutContour, setPendingCutContour] = useState<string | null>(null);
     const [pendingTemplatePdf, setPendingTemplatePdf] = useState<string | null>(null);
+    const [pendingTemplateEditorJson, setPendingTemplateEditorJson] = useState<any | null>(null);
+    const [linkedTemplateFetchComplete, setLinkedTemplateFetchComplete] = useState(() => !templateId);
     const [checkoutUploadImported, setCheckoutUploadImported] = useState(false);
     const [returningToOrder, setReturningToOrder] = useState(false);
     // Keep URL-first initialization to avoid A4 flash before async spec loads.
@@ -186,7 +191,7 @@ export function Designer() {
             template_id: null as string | null,
             product_id: null as string | null,
             preview_thumbnail_url: null as string | null,
-            tenant_id: null as string | null,
+            tenant_id: queryTenantId,
             format: null as string | null,
         };
 
@@ -569,6 +574,7 @@ export function Designer() {
                 }
 
                 if (templateId) {
+                    setLinkedTemplateFetchComplete(false);
                     const { data: template, error } = await supabase
                         .from('designer_templates' as any)
                         .select('*')
@@ -599,9 +605,16 @@ export function Designer() {
                             setPendingTemplatePdf((template as any).template_pdf_url);
                         }
 
+                        if ((template as any).editor_json) {
+                            setPendingTemplateEditorJson((template as any).editor_json);
+                        }
+
+                        setLinkedTemplateFetchComplete(true);
                         setLoading(false);
                         return;
                     }
+
+                    setLinkedTemplateFetchComplete(true);
                 }
 
                 setLoading(false);
@@ -609,12 +622,82 @@ export function Designer() {
             } catch (err) {
                 console.error("Error loading spec:", err);
                 toast.error("Kunne ikke indlæse design-specifikationer");
+                if (templateId) {
+                    setLinkedTemplateFetchComplete(true);
+                }
                 setLoading(false);
             }
         };
 
         loadSpec();
     }, [variantId, productId, templateId, designId, format, savedDesignId, customWidthMm, customHeightMm, customBleedMm, customSafeMm]);
+
+    useEffect(() => {
+        const hasBaseSpecContext = Boolean(
+            productId
+            || variantId
+            || format
+            || (customWidthMm !== null && customHeightMm !== null)
+        );
+
+        if (!templateId || !hasBaseSpecContext) return;
+
+        let active = true;
+        setLinkedTemplateFetchComplete(false);
+
+        const applyLinkedTemplate = async () => {
+            try {
+                const { data: template, error } = await supabase
+                    .from('designer_templates' as any)
+                    .select('*')
+                    .eq('id', templateId)
+                    .single();
+
+                if (!active || error || !template) {
+                    if (active) setLinkedTemplateFetchComplete(true);
+                    return;
+                }
+
+                setDocumentSpec((prev) => ({
+                    ...prev,
+                    template_id: (template as any).id,
+                    bleed_mm: typeof customBleedMm === "number"
+                        ? customBleedMm
+                        : (template as any).bleed_mm || prev.bleed_mm || 3,
+                    safe_area_mm: typeof customSafeMm === "number"
+                        ? customSafeMm
+                        : (template as any).safe_area_mm || prev.safe_area_mm || 3,
+                    color_profile: prev.color_profile || (template as any).color_profile || "FOGRA39",
+                }));
+
+                setPendingCutContour((template as any).cut_contour_path || null);
+                setPendingTemplatePdf((template as any).template_pdf_url || null);
+                setPendingTemplateEditorJson((template as any).editor_json || null);
+                if (!(template as any).template_pdf_url && !(template as any).editor_json) {
+                    setLinkedTemplateFetchComplete(true);
+                }
+            } catch (error) {
+                console.error("[Designer] Failed to apply linked template", error);
+                if (active) setLinkedTemplateFetchComplete(true);
+            }
+        };
+
+        applyLinkedTemplate();
+
+        return () => {
+            active = false;
+        };
+    }, [templateId, productId, variantId, format, customWidthMm, customHeightMm, customBleedMm, customSafeMm]);
+
+    useEffect(() => {
+        if (!templateId) {
+            setLinkedTemplateFetchComplete(true);
+            return;
+        }
+        if (!pendingTemplatePdf && !pendingTemplateEditorJson) {
+            setLinkedTemplateFetchComplete(true);
+        }
+    }, [templateId, pendingTemplatePdf, pendingTemplateEditorJson]);
 
     // Apply pending cut contour once canvas is ready
     useEffect(() => {
@@ -676,6 +759,19 @@ export function Designer() {
         const timer = setTimeout(loadTemplatePdf, 500);
         return () => clearTimeout(timer);
     }, [pendingTemplatePdf, fabricCanvas, documentSpec.width_mm, documentSpec.height_mm, documentSpec.bleed_mm]);
+
+    useEffect(() => {
+        if (!pendingTemplateEditorJson || !fabricCanvas || !editorRef.current) return;
+
+        const timer = setTimeout(() => {
+            editorRef.current?.loadJSON(pendingTemplateEditorJson);
+            setPendingTemplateEditorJson(null);
+            setHasChanges(false);
+            toast.info("Startdesign indlæst fra templatebiblioteket");
+        }, 250);
+
+        return () => clearTimeout(timer);
+    }, [pendingTemplateEditorJson, fabricCanvas]);
 
     // Beforeunload handler for tab close/refresh with unsaved changes
     useEffect(() => {
@@ -1104,6 +1200,9 @@ export function Designer() {
                     pdfHeightMm: data.heightMm,
                 };
             }
+            if (placement?.markAsCheckoutImport) {
+                (img as any).__isCheckoutImported = true;
+            }
 
             canvas.add(img);
             canvas.setActiveObject(img);
@@ -1201,6 +1300,7 @@ export function Designer() {
         if (!orderMode || checkoutUploadImported) return;
         const upload = checkoutSession?.siteUpload;
         if (!upload?.fileUrl || !editorRef.current?.getCanvas()) return;
+        if (templateId && (!linkedTemplateFetchComplete || pendingTemplatePdf || pendingTemplateEditorJson || loading)) return;
         if (productId && checkoutSession?.productId && checkoutSession.productId !== productId) return;
         const expectedWidth = Number(checkoutSession?.designWidthMm || 0);
         const expectedHeight = Number(checkoutSession?.designHeightMm || 0);
@@ -1219,9 +1319,11 @@ export function Designer() {
 
         const canvas = editorRef.current.getCanvas();
         const existingUserObjects = canvas?.getObjects().filter((obj: any) =>
-            !obj.__isDocumentBackground && !obj.__isGuide
+            !obj.__isDocumentBackground
+            && !obj.__isGuide
+            && !obj.__isPdfTemplate
         ) || [];
-        if (existingUserObjects.length > 0) {
+        if (designId && existingUserObjects.length > 0) {
             setCheckoutUploadImported(true);
             return;
         }
@@ -1298,7 +1400,10 @@ export function Designer() {
                         renderedHeight: offscreenCanvas.height,
                         originalPdfBytes,
                         originalFileName: fileName,
-                    }, placement);
+                    }, {
+                        ...placement,
+                        markAsCheckoutImport: true,
+                    });
                 } else {
                     const file = new File([blob], fileName, { type: mimeType || "application/octet-stream" });
                     const detectedDpi = await getImageDpi(file);
@@ -1312,6 +1417,10 @@ export function Designer() {
 
                     if (cancelled) return;
                     await editorRef.current?.addImage(dataUrl, sourceDpi, placement);
+                    const activeObject = editorRef.current?.getCanvas()?.getActiveObject();
+                    if (activeObject) {
+                        (activeObject as any).__isCheckoutImported = true;
+                    }
                 }
 
                 if (!cancelled) {
@@ -1330,7 +1439,7 @@ export function Designer() {
         return () => {
             cancelled = true;
         };
-    }, [orderMode, checkoutUploadImported, checkoutSession, productId, handlePDFImport, displayDpi, documentSpec.width_mm, documentSpec.height_mm, documentSpec.bleed_mm]);
+    }, [orderMode, checkoutUploadImported, checkoutSession, productId, handlePDFImport, displayDpi, documentSpec.width_mm, documentSpec.height_mm, documentSpec.bleed_mm, templateId, linkedTemplateFetchComplete, pendingTemplatePdf, pendingTemplateEditorJson, loading, designId]);
 
     useEffect(() => {
         const canvas = editorRef.current?.getCanvas();
@@ -1703,6 +1812,12 @@ export function Designer() {
     const executeReplaceDesign = async (item: any) => {
         // Handle template (format) items - navigate to designer with template
         if (item.kind === 'template' && item.id) {
+            if (item.source_kind === 'canva' && item.external_launch_url) {
+                window.open(item.external_launch_url, '_blank', 'noopener,noreferrer');
+                toast.info("Canva-template åbnet i nyt vindue");
+                setIsLibraryOpen(false);
+                return;
+            }
             navigate(`/designer?templateId=${item.id}`, { replace: true });
             setIsLibraryOpen(false);
             return;
@@ -2211,10 +2326,10 @@ export function Designer() {
                             variant="outline"
                             size="sm"
                             onClick={() => setIsLibraryOpen(true)}
-                            title="Åbn Design Bibliotek"
+                            title="Åbn Templates"
                         >
                             <LayoutGrid className="h-4 w-4 mr-2" />
-                            Bibliotek
+                            Templates
                         </Button>
                     )}
 

@@ -74,11 +74,14 @@ function getActiveSiteId(settings: Record<string, unknown> | null | undefined): 
 }
 
 function pickRequestInput(req: Request, url: URL, body: RequestInput): Required<RequestInput> {
+  // Prefer explicit caller input. Supabase Edge invocations can otherwise
+  // report the runtime host (for example edge-runtime.supabase.com) instead
+  // of the storefront/admin hostname we are trying to resolve.
   const headerHost = normalizeHostname(
-    req.headers.get("x-forwarded-host")
-    || req.headers.get("host")
+    body.hostname
     || url.searchParams.get("hostname")
-    || body.hostname,
+    || req.headers.get("x-forwarded-host")
+    || req.headers.get("host"),
   );
 
   return {

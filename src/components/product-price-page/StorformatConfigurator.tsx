@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PriceMatrix } from "@/components/product-price-page/PriceMatrix";
 import {
@@ -24,6 +23,14 @@ import {
 import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
+import {
+  getOptionImageUrl,
+  resolvePictureButtonsConfig,
+  resolvePictureButtonStateStyles,
+  resolveTextButtonsConfig,
+  type SelectorStyling
+} from "@/lib/pricing/selectorStyling";
+import { resolveStorformatLinkedTemplateId } from "@/lib/designer/linkedTemplates";
 
 export type StorformatSelection = {
   totalPrice: number;
@@ -43,6 +50,7 @@ export type StorformatSelection = {
   } | null;
   exceedsMax: boolean;
   allowSplit: boolean;
+  linkedTemplateId?: string | null;
 };
 
 type StorformatConfiguratorProps = {
@@ -52,12 +60,13 @@ type StorformatConfiguratorProps = {
 
 type LayoutSectionType = "materials" | "finishes" | "products";
 type LayoutDisplayMode = "buttons" | "dropdown" | "checkboxes" | "small" | "medium" | "large" | "xl" | "xl_notext";
-type SelectionMode = "required" | "optional";
+type SelectionMode = "required" | "optional" | "free";
 
 type ValueSettings = {
   showThumbnail?: boolean;
   customImage?: string;
   displayName?: string;
+  linkedTemplateId?: string;
 };
 
 type LayoutSection = {
@@ -71,7 +80,14 @@ type LayoutSection = {
   description?: string;
   valueIds?: string[];
   valueSettings?: Record<string, ValueSettings>;
+  selectorStyling?: SelectorStyling;
 };
+
+const isOptionalSelectionMode = (mode?: SelectionMode) => mode === "optional";
+const isPriceNeutralSection = (section: LayoutSection, verticalAxisType?: LayoutSectionType | null) =>
+  section.selection_mode === "free"
+  && section.sectionType !== "materials"
+  && section.sectionType !== verticalAxisType;
 
 type LayoutRow = {
   id: string;
@@ -89,6 +105,7 @@ type VerticalAxisConfig = {
   description?: string;
   valueIds?: string[];
   valueSettings?: Record<string, ValueSettings>;
+  selectorStyling?: SelectorStyling;
 };
 
 const defaultConfig: StorformatConfig = {
@@ -98,28 +115,6 @@ const defaultConfig: StorformatConfig = {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-
-const hexToRgba = (color: string, alpha: number): string => {
-  const normalized = String(color || "").trim();
-  const a = clamp(Number.isFinite(alpha) ? alpha : 1, 0, 1);
-
-  const shortMatch = normalized.match(/^#([0-9a-f]{3})$/i);
-  if (shortMatch) {
-    const [r, g, b] = shortMatch[1].split("").map((c) => parseInt(c + c, 16));
-    return `rgba(${r}, ${g}, ${b}, ${a})`;
-  }
-
-  const longMatch = normalized.match(/^#([0-9a-f]{6})$/i);
-  if (longMatch) {
-    const hex = longMatch[1];
-    const r = parseInt(hex.slice(0, 2), 16);
-    const g = parseInt(hex.slice(2, 4), 16);
-    const b = parseInt(hex.slice(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, ${a})`;
-  }
-
-  return normalized || `rgba(0, 0, 0, ${a})`;
-};
 
 export function StorformatConfigurator({
   productId,
@@ -148,9 +143,30 @@ export function StorformatConfigurator({
   const [productIdSelection, setProductIdSelection] = useState<string>(noneFinishValue);
   const [hoveredPictureKey, setHoveredPictureKey] = useState<string | null>(null);
 
+  // Use global branding for Storformat (per-product styling only applies to matrix_layout_v1)
   const pictureButtonsConfig = useMemo(() => {
     const cfg = activeBranding?.productPage?.matrix?.pictureButtons || {};
     return {
+      // Display options (new)
+      size: cfg.size || 'medium',
+      displayMode: cfg.displayMode || 'text_and_image',
+      imageBorderRadiusPx: cfg.imageBorderRadiusPx ?? 8,
+      gapBetweenPx: cfg.gapBetweenPx ?? 12,
+      transparentBackground: cfg.transparentBackground === true,
+      labelOutsideImage: cfg.labelOutsideImage === true,
+      labelFontSizePx: cfg.labelFontSizePx ?? 11,
+      backgroundColor: cfg.backgroundColor || "#FFFFFF",
+      hoverBackgroundColor: cfg.hoverBackgroundColor || "#F1F5F9",
+      textColor: cfg.textColor || "#1F2937",
+      hoverTextColor: cfg.hoverTextColor || "#0EA5E9",
+      borderWidthPx: cfg.borderWidthPx ?? 1,
+      borderColor: cfg.borderColor || "#E2E8F0",
+      hoverBorderColor: cfg.hoverBorderColor || cfg.hoverColor || activeBranding?.colors?.hover || activeBranding?.colors?.primary || "#0EA5E9",
+      selectedBorderColor: cfg.selectedBorderColor || cfg.selectedColor || activeBranding?.colors?.primary || "#0EA5E9",
+      selectedRingColor: cfg.selectedRingColor || cfg.selectedColor || activeBranding?.colors?.primary || "#0EA5E9",
+      hoverEffect: cfg.hoverEffect || 'fill',
+      selectedEffect: cfg.selectedEffect || 'ring',
+      // Hover effects (existing)
       hoverEnabled: cfg.hoverEnabled !== false,
       hoverColor: cfg.hoverColor || activeBranding?.colors?.hover || activeBranding?.colors?.primary || "#0EA5E9",
       hoverOpacity: clamp(Number(cfg.hoverOpacity ?? 0.15), 0, 1),
@@ -164,6 +180,25 @@ export function StorformatConfigurator({
     };
   }, [activeBranding?.productPage?.matrix?.pictureButtons, activeBranding?.colors?.hover, activeBranding?.colors?.primary]);
 
+  // Text button styling from global branding
+  const textButtonsConfig = useMemo(() => {
+    const cfg = activeBranding?.productPage?.matrix?.textButtons || {};
+    return {
+      backgroundColor: cfg.backgroundColor || "#FFFFFF",
+      hoverBackgroundColor: cfg.hoverBackgroundColor || "#F1F5F9",
+      textColor: cfg.textColor || "#1F2937",
+      hoverTextColor: cfg.hoverTextColor || "#0EA5E9",
+      selectedBackgroundColor: cfg.selectedBackgroundColor || "#0EA5E9",
+      selectedTextColor: cfg.selectedTextColor || "#FFFFFF",
+      borderRadiusPx: cfg.borderRadiusPx ?? 8,
+      borderWidthPx: cfg.borderWidthPx ?? 1,
+      borderColor: cfg.borderColor || "#E2E8F0",
+      hoverBorderColor: cfg.hoverBorderColor || "#0EA5E9",
+      paddingPx: cfg.paddingPx ?? 12,
+      fontSizePx: cfg.fontSizePx ?? 14,
+      minHeightPx: cfg.minHeightPx ?? 44,
+    };
+  }, [activeBranding?.productPage?.matrix?.textButtons]);
   useEffect(() => {
     const fetchStorformat = async () => {
       setLoading(true);
@@ -317,7 +352,8 @@ export function StorformatConfigurator({
                       title: section?.title,
                       description: section?.description,
                       valueIds: normalizeValueIds(section?.valueIds, available),
-                      valueSettings: section?.valueSettings || {}
+                      valueSettings: section?.valueSettings || {},
+                      selectorStyling: section?.selectorStyling || {}
                     } satisfies LayoutSection;
                   })
                   .filter(Boolean) as LayoutSection[]
@@ -335,7 +371,8 @@ export function StorformatConfigurator({
               selection_mode: "required",
               thumbnail_size: "small",
               valueIds: [...idsByType.products],
-              valueSettings: {}
+              valueSettings: {},
+              selectorStyling: {}
             });
           }
           if (idsByType.finishes.length) {
@@ -346,7 +383,8 @@ export function StorformatConfigurator({
               selection_mode: "optional",
               thumbnail_size: "small",
               valueIds: [...idsByType.finishes],
-              valueSettings: {}
+              valueSettings: {},
+              selectorStyling: {}
             });
           }
           if (defaultSections.length) {
@@ -366,8 +404,9 @@ export function StorformatConfigurator({
         title: cfgVertical?.title,
         description: cfgVertical?.description,
         valueIds: normalizeValueIds(cfgVertical?.valueIds, idsByType[verticalType]),
-          valueSettings: cfgVertical?.valueSettings || {}
-        };
+        valueSettings: cfgVertical?.valueSettings || {},
+        selectorStyling: cfgVertical?.selectorStyling || {}
+      };
 
         const nextConfig = cfg
           ? {
@@ -415,7 +454,7 @@ export function StorformatConfigurator({
     fetchStorformat();
   }, [productId]);
 
-  const hasLayout = layoutRows.length > 0 || !!verticalAxis;
+  const hasConfiguredLayout = layoutRows.length > 0 || !!verticalAxis;
   const verticalAxisId = verticalAxis?.id || "vertical-axis";
 
   const selectionModeById = useMemo<Record<string, SelectionMode>>(() => {
@@ -502,7 +541,7 @@ export function StorformatConfigurator({
   }, [getValuesForType, orderValuesByIds, verticalAxis]);
 
   useEffect(() => {
-    if (!hasLayout) return;
+    if (!hasConfiguredLayout) return;
 
     setSelectedSectionValues((prev) => {
       let changed = false;
@@ -525,8 +564,9 @@ export function StorformatConfigurator({
       layoutRows.forEach((row) => {
         row.sections.forEach((section) => {
           if (verticalAxis && section.sectionType === verticalAxis.sectionType) return;
+          if (isPriceNeutralSection(section, verticalAxis?.sectionType)) return;
           const values = getSectionValues(section);
-          const isOptional = selectionModeById[section.id] === "optional";
+          const isOptional = isOptionalSelectionMode(selectionModeById[section.id]);
           if (values.length === 0) {
             if (next[section.id]) {
               delete next[section.id];
@@ -567,7 +607,19 @@ export function StorformatConfigurator({
 
       return changed ? next : prev;
     });
-  }, [hasLayout, layoutRows, verticalAxis, verticalAxisId, getSectionValues, getVerticalAxisValues, selectionModeById]);
+  }, [hasConfiguredLayout, layoutRows, verticalAxis, verticalAxisId, getSectionValues, getVerticalAxisValues, selectionModeById]);
+
+  const hasUsableLayout = useMemo(() => {
+    if (!hasConfiguredLayout || materials.length === 0) return false;
+    const hasAxisValues = Boolean(verticalAxis && getVerticalAxisValues().length > 0);
+    const hasRenderableSections = layoutRows.some((row) =>
+      row.sections.some((section) => {
+        if (verticalAxis && section.sectionType === verticalAxis.sectionType) return false;
+        return getSectionValues(section).length > 0;
+      })
+    );
+    return hasAxisValues || hasRenderableSections;
+  }, [getSectionValues, getVerticalAxisValues, hasConfiguredLayout, layoutRows, materials.length, verticalAxis]);
 
   const resolveSelectionsForType = useCallback(
     (
@@ -577,7 +629,7 @@ export function StorformatConfigurator({
         overrideSectionSelection?: Record<string, string | null | undefined>;
       }
     ) => {
-      if (!hasLayout) return [] as string[];
+      if (!hasUsableLayout) return [] as string[];
 
       const overrideSelection = options?.overrideSectionSelection || {};
       if (verticalAxis?.sectionType === type) {
@@ -593,6 +645,7 @@ export function StorformatConfigurator({
       for (const row of layoutRows) {
         for (const section of row.sections) {
           if (section.sectionType !== type) continue;
+          if (isPriceNeutralSection(section, verticalAxis?.sectionType)) continue;
           const values = getSectionValues(section);
           if (!values.length) continue;
 
@@ -602,7 +655,7 @@ export function StorformatConfigurator({
             continue;
           }
 
-          if (selectionModeById[section.id] !== "optional") {
+          if (!isOptionalSelectionMode(selectionModeById[section.id])) {
             const fallback = values[0]?.id;
             if (fallback) {
               resolved.push(fallback);
@@ -615,7 +668,7 @@ export function StorformatConfigurator({
     },
     [
       getSectionValues,
-      hasLayout,
+      hasUsableLayout,
       layoutRows,
       selectedSectionValues,
       selectionModeById,
@@ -636,7 +689,7 @@ export function StorformatConfigurator({
   );
 
   const selection = useMemo<StorformatSelection | null>(() => {
-    const selectedMaterialIds = hasLayout ? resolveSelectionsForType("materials") : materialId ? [materialId] : [];
+    const selectedMaterialIds = hasUsableLayout ? resolveSelectionsForType("materials") : materialId ? [materialId] : [];
     const selectedMaterialId = selectedMaterialIds[0] || null;
     const material = materials.find((m) => m.id === selectedMaterialId);
     if (!material) return null;
@@ -644,12 +697,12 @@ export function StorformatConfigurator({
 
     const widthMm = widthCm * 10;
     const heightMm = heightCm * 10;
-    const selectedFinishIds = hasLayout
+    const selectedFinishIds = hasUsableLayout
       ? resolveSelectionsForType("finishes")
       : finishId === noneFinishValue
         ? []
         : [finishId];
-    const selectedProductIds = hasLayout
+    const selectedProductIds = hasUsableLayout
       ? resolveSelectionsForType("products")
       : productIdSelection === noneFinishValue
         ? []
@@ -693,9 +746,16 @@ export function StorformatConfigurator({
         : null,
       splitInfo: result.splitInfo,
       exceedsMax,
-      allowSplit: material.allow_split ?? true
+      allowSplit: material.allow_split ?? true,
+      linkedTemplateId: resolveStorformatLinkedTemplateId(
+        {
+          verticalAxis,
+          layoutRows,
+        },
+        selectedSectionValues,
+      ),
     };
-  }, [materials, finishes, products, materialId, finishId, productIdSelection, widthCm, heightCm, quantity, config, hasLayout, resolveSelectionsForType, getConfiguredValueDisplayName]);
+  }, [materials, finishes, products, materialId, finishId, productIdSelection, widthCm, heightCm, quantity, config, hasUsableLayout, resolveSelectionsForType, getConfiguredValueDisplayName, verticalAxis, layoutRows, selectedSectionValues]);
 
   useEffect(() => {
     onSelectionChange(selection);
@@ -720,10 +780,24 @@ export function StorformatConfigurator({
 
   const renderValueSelector = useCallback((section: LayoutSection, values: Array<StorformatMaterial | StorformatFinish | StorformatProduct>) => {
     const displayMode = section.ui_mode || "buttons";
-    const isOptional = selectionModeById[section.id] === "optional";
+    const isOptional = isOptionalSelectionMode(selectionModeById[section.id]);
     const selectedValue = selectedSectionValues[section.id] || "";
     const valueSettings = valueSettingsById[section.id] || {};
     const thumbnailPx = resolveThumbnailSizePx(section.thumbnail_size, section.thumbnail_custom_px);
+    const selectorStyling = section.selectorStyling || {};
+    const sectionTextButtonsConfig = resolveTextButtonsConfig({
+      productConfig: textButtonsConfig,
+      selectorConfig: selectorStyling.textButtons,
+    });
+    const sectionPictureButtonsConfig = resolvePictureButtonsConfig({
+      productConfig: pictureButtonsConfig,
+      selectorConfig: selectorStyling.pictureButtons,
+      uiMode: displayMode,
+      thumbnailSize: section.thumbnail_size,
+      thumbnailCustomPx: section.thumbnail_custom_px,
+      fallbackHoverColor: activeBranding?.colors?.hover || activeBranding?.colors?.primary || "#0EA5E9",
+      fallbackSelectedColor: activeBranding?.colors?.primary || "#0EA5E9",
+    });
     const isOptionalEnabled = !isOptional || Boolean(selectedSectionValues[section.id]);
 
     const handleSelect = (valueId: string | null) => {
@@ -758,7 +832,7 @@ export function StorformatConfigurator({
             {isOptional && <SelectItem value="__none__">Ingen</SelectItem>}
             {values.map((value) => {
               const settings = valueSettings[value.id || ""];
-              const thumbnailUrl = settings?.customImage || value.thumbnail_url;
+              const thumbnailUrl = getOptionImageUrl(settings, value.thumbnail_url);
               const displayName = getDisplayName(value.name, settings);
               return (
                 <SelectItem key={value.id} value={value.id || ""}>
@@ -802,10 +876,10 @@ export function StorformatConfigurator({
                 }}
               >
                 <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
-                {valueSettings[value.id || ""]?.showThumbnail && (valueSettings[value.id || ""]?.customImage || value.thumbnail_url) && (
+                {valueSettings[value.id || ""]?.showThumbnail && getOptionImageUrl(valueSettings[value.id || ""], value.thumbnail_url) && (
                   <img
                     src={getHiResThumbnailUrl(
-                      valueSettings[value.id || ""]?.customImage || value.thumbnail_url,
+                      getOptionImageUrl(valueSettings[value.id || ""], value.thumbnail_url)!,
                       thumbnailPx,
                       thumbnailPx
                     )}
@@ -823,40 +897,35 @@ export function StorformatConfigurator({
     }
 
     if (["small", "medium", "large", "xl", "xl_notext"].includes(displayMode)) {
-      const pictureMode = displayMode === "xl_notext" ? "xl" : displayMode;
-      const pictureSize = pictureMode === "small"
-        ? { width: 40, height: 40 }
-        : pictureMode === "medium"
-          ? { width: 64, height: 64 }
-          : pictureMode === "large"
-            ? { width: 96, height: 96 }
-            : { width: 128, height: 128 };
-      const showPictureLabel = pictureMode !== "small" && displayMode !== "xl_notext";
-
       return (
-        <div className={cn("flex flex-wrap gap-2", !isOptionalEnabled && "opacity-60 pointer-events-none")}>
+        <div 
+          className={cn("flex flex-wrap", !isOptionalEnabled && "opacity-60 pointer-events-none")}
+          style={{ gap: `${sectionPictureButtonsConfig.gapBetweenPx}px` }}
+        >
           {values.map((value) => {
             const pictureKey = `${section.id}:${value.id || ""}`;
             const isHovered = hoveredPictureKey === pictureKey;
             const isSelected = selectedValue === value.id;
-            const thumbnailUrl = valueSettings[value.id || ""]?.customImage || value.thumbnail_url;
+            const thumbnailUrl = getOptionImageUrl(valueSettings[value.id || ""], value.thumbnail_url);
             const displayName = getDisplayName(value.name, valueSettings[value.id || ""]);
-            const hoverActive = pictureButtonsConfig.hoverEnabled && isHovered && !isSelected;
-            const overlayBg = isSelected
-              ? hexToRgba(pictureButtonsConfig.selectedColor, pictureButtonsConfig.selectedOpacity)
-              : hoverActive
-                ? hexToRgba(pictureButtonsConfig.hoverColor, pictureButtonsConfig.hoverOpacity)
-                : "transparent";
-            const borderColor = !pictureButtonsConfig.outlineEnabled
-              ? "transparent"
-              : isSelected
-                ? hexToRgba(pictureButtonsConfig.selectedColor, pictureButtonsConfig.outlineOpacity)
-                : hoverActive
-                  ? hexToRgba(pictureButtonsConfig.hoverColor, pictureButtonsConfig.outlineOpacity)
-                  : "transparent";
-            const scale = pictureButtonsConfig.hoverZoomEnabled && isHovered
-              ? pictureButtonsConfig.hoverZoomScale
-              : 1;
+            const pictureStateStyles = resolvePictureButtonStateStyles(sectionPictureButtonsConfig, {
+              isHovered,
+              isSelected,
+            });
+            const overlayColor = pictureStateStyles.backgroundColor !== sectionPictureButtonsConfig.backgroundColor
+              ? pictureStateStyles.backgroundColor
+              : undefined;
+            const useDetachedLabel = (
+              sectionPictureButtonsConfig.displayMode === "text_below_image"
+              || sectionPictureButtonsConfig.labelOutsideImage
+            )
+              && sectionPictureButtonsConfig.showImage
+              && sectionPictureButtonsConfig.showLabel;
+            const buttonWidth = sectionPictureButtonsConfig.showImage ? sectionPictureButtonsConfig.sizePx : 'auto';
+            const buttonHeight = !useDetachedLabel && sectionPictureButtonsConfig.showImage
+              ? sectionPictureButtonsConfig.sizePx + (sectionPictureButtonsConfig.showLabel ? 24 : 0)
+              : 'auto';
+              
             return (
               <button
                 key={value.id}
@@ -871,59 +940,152 @@ export function StorformatConfigurator({
                 onMouseEnter={() => setHoveredPictureKey(pictureKey)}
                 onMouseLeave={() => setHoveredPictureKey((prev) => (prev === pictureKey ? null : prev))}
                 className={cn(
-                  "relative rounded-lg border-2 transition-all flex flex-col items-center overflow-hidden",
+                  "transition-all",
+                  useDetachedLabel
+                    ? "flex flex-col items-center gap-1 bg-transparent p-0"
+                    : "relative flex overflow-hidden border-2 flex-col items-center",
                   isSelected ? "shadow-none" : "",
                   !isOptionalEnabled && "cursor-not-allowed"
                 )}
                 style={{
-                  width: pictureSize.width,
-                  minHeight: pictureSize.height + (showPictureLabel ? 22 : 0),
-                  backgroundColor: overlayBg,
-                  borderColor,
-                  transform: `scale(${scale})`,
-                  transitionDuration: `${pictureButtonsConfig.hoverZoomDurationMs}ms`,
+                  width: buttonWidth,
+                  minHeight: buttonHeight,
+                  backgroundColor: useDetachedLabel ? "transparent" : sectionPictureButtonsConfig.backgroundColor,
+                  borderColor: useDetachedLabel ? "transparent" : pictureStateStyles.borderColor,
+                  borderRadius: useDetachedLabel ? undefined : `${sectionPictureButtonsConfig.imageBorderRadiusPx}px`,
+                  borderWidth: useDetachedLabel ? 0 : `${sectionPictureButtonsConfig.borderWidthPx}px`,
+                  borderStyle: useDetachedLabel ? 'none' : 'solid',
+                  boxShadow: useDetachedLabel ? undefined : pictureStateStyles.boxShadow,
+                  transform: pictureStateStyles.transform,
+                  transitionDuration: pictureStateStyles.transitionDuration,
                 }}
               >
-                {thumbnailUrl ? (
-                  <img
-                    src={getHiResThumbnailUrl(thumbnailUrl, pictureSize.width, pictureSize.height)}
-                    alt={displayName}
-                    className="w-full object-cover rounded-t-md"
-                    style={{ height: pictureSize.height }}
-                  />
+                {useDetachedLabel ? (
+                  <>
+                    <span
+                      className="relative flex overflow-hidden border-2"
+                      style={{
+                        width: buttonWidth,
+                        minHeight: sectionPictureButtonsConfig.sizePx,
+                        backgroundColor: sectionPictureButtonsConfig.backgroundColor,
+                        borderColor: pictureStateStyles.borderColor,
+                        borderRadius: `${sectionPictureButtonsConfig.imageBorderRadiusPx}px`,
+                        borderWidth: `${sectionPictureButtonsConfig.borderWidthPx}px`,
+                        borderStyle: 'solid',
+                        boxShadow: pictureStateStyles.boxShadow,
+                      }}
+                    >
+                      {overlayColor && (
+                        <span
+                          className="pointer-events-none absolute inset-0 z-10"
+                          style={{ backgroundColor: overlayColor }}
+                        />
+                      )}
+                      {thumbnailUrl ? (
+                        <img
+                          src={getHiResThumbnailUrl(thumbnailUrl, sectionPictureButtonsConfig.sizePx, sectionPictureButtonsConfig.sizePx)}
+                          alt={displayName}
+                          className="relative z-0 w-full object-cover"
+                          style={{ height: sectionPictureButtonsConfig.sizePx }}
+                        />
+                      ) : (
+                        <div
+                          className="relative z-0 flex w-full items-center justify-center text-xs font-semibold"
+                          style={{
+                            height: sectionPictureButtonsConfig.sizePx,
+                            color: sectionPictureButtonsConfig.textColor,
+                            backgroundColor: sectionPictureButtonsConfig.backgroundColor,
+                          }}
+                        >
+                          {(displayName || "?").slice(0, 3).toUpperCase()}
+                        </div>
+                      )}
+                    </span>
+                    <span
+                      className="w-full px-1 text-center leading-tight"
+                      style={{
+                        color: sectionPictureButtonsConfig.textColor,
+                        fontSize: `${sectionPictureButtonsConfig.labelFontSizePx}px`,
+                      }}
+                    >
+                      {displayName}
+                    </span>
+                  </>
                 ) : (
-                  <div
-                    className={cn(
-                      "w-full flex items-center justify-center bg-muted text-xs font-semibold text-muted-foreground rounded-t-md",
-                    isSelected && "bg-primary/10 text-primary"
-                  )}
-                  style={{ height: pictureSize.height }}
-                >
-                  {(displayName || "?").slice(0, 3).toUpperCase()}
-                </div>
-              )}
-              {showPictureLabel && (
-                <span className="text-[10px] leading-tight text-center truncate w-full px-1 py-0.5">
-                  {displayName}
-                </span>
-              )}
-            </button>
+                  <>
+                    {overlayColor && (
+                      <span
+                        className="pointer-events-none absolute inset-0 z-10"
+                        style={{ backgroundColor: overlayColor }}
+                      />
+                    )}
+                    {sectionPictureButtonsConfig.showImage && (thumbnailUrl ? (
+                      <img
+                        src={getHiResThumbnailUrl(thumbnailUrl, sectionPictureButtonsConfig.sizePx, sectionPictureButtonsConfig.sizePx)}
+                        alt={displayName}
+                        className="relative z-0 w-full object-cover"
+                        style={{ 
+                          height: sectionPictureButtonsConfig.sizePx,
+                          borderRadius: sectionPictureButtonsConfig.isTextBelow ? `${sectionPictureButtonsConfig.imageBorderRadiusPx}px ${sectionPictureButtonsConfig.imageBorderRadiusPx}px 0 0` : undefined
+                        }}
+                      />
+                    ) : (
+                      <div
+                        className="relative z-0 w-full flex items-center justify-center text-xs font-semibold"
+                        style={{ 
+                          height: sectionPictureButtonsConfig.sizePx,
+                          color: sectionPictureButtonsConfig.textColor,
+                          backgroundColor: sectionPictureButtonsConfig.backgroundColor,
+                          borderRadius: sectionPictureButtonsConfig.isTextBelow ? `${sectionPictureButtonsConfig.imageBorderRadiusPx}px ${sectionPictureButtonsConfig.imageBorderRadiusPx}px 0 0` : undefined
+                        }}
+                      >
+                        {(displayName || "?").slice(0, 3).toUpperCase()}
+                      </div>
+                    ))}
+                    {sectionPictureButtonsConfig.showLabel && (
+                      <span
+                        className="relative z-20 w-full truncate px-1 py-1 text-center leading-tight"
+                        style={{
+                          color: sectionPictureButtonsConfig.textColor,
+                          fontSize: `${sectionPictureButtonsConfig.labelFontSizePx}px`,
+                        }}
+                      >
+                        {displayName}
+                      </span>
+                    )}
+                  </>
+                )}
+              </button>
             );
           })}
         </div>
       );
     }
 
+    // Apply per-product text button styling
     return (
-      <div className={cn("flex flex-wrap gap-1.5", !isOptionalEnabled && "opacity-60 pointer-events-none")}>
+      <div 
+        className={cn("flex flex-wrap", !isOptionalEnabled && "opacity-60 pointer-events-none")}
+        style={{ gap: `${sectionTextButtonsConfig.paddingPx / 2}px` }}
+      >
         {values.map((value) => {
           const isSelected = selectedValue === value.id;
           const displayName = getDisplayName(value.name, valueSettings[value.id || ""]);
+          
+          // Determine colors based on state
+          const bgColor = isSelected 
+            ? sectionTextButtonsConfig.selectedBackgroundColor 
+            : sectionTextButtonsConfig.backgroundColor;
+          const textColor = isSelected 
+            ? sectionTextButtonsConfig.selectedTextColor 
+            : sectionTextButtonsConfig.textColor;
+          const borderColor = isSelected 
+            ? sectionTextButtonsConfig.selectedBackgroundColor 
+            : sectionTextButtonsConfig.borderColor;
+          
           return (
-            <Button
+            <button
               key={value.id}
-              size="sm"
-              variant={isSelected ? "default" : "outline"}
               onClick={() => {
                 if (isOptional && isSelected) {
                   handleSelect(null);
@@ -931,28 +1093,58 @@ export function StorformatConfigurator({
                 }
                 handleSelect(value.id || null);
               }}
-              className={cn("h-9 px-3 text-sm gap-2", isSelected && "bg-primary hover:bg-primary/90")}
               disabled={!isOptionalEnabled}
+              className={cn(
+                "transition-all duration-200 flex items-center gap-2",
+                !isOptionalEnabled && "opacity-45 cursor-not-allowed"
+              )}
+              style={{
+                backgroundColor: bgColor,
+                color: textColor,
+                borderRadius: `${sectionTextButtonsConfig.borderRadiusPx}px`,
+                borderWidth: `${sectionTextButtonsConfig.borderWidthPx}px`,
+                borderStyle: 'solid',
+                borderColor: borderColor,
+                padding: `${sectionTextButtonsConfig.paddingPx}px ${sectionTextButtonsConfig.paddingPx * 1.33}px`,
+                fontSize: `${sectionTextButtonsConfig.fontSizePx}px`,
+                minHeight: `${sectionTextButtonsConfig.minHeightPx}px`,
+              }}
+              onMouseEnter={(e) => {
+                if (isSelected) return;
+                e.currentTarget.style.backgroundColor = sectionTextButtonsConfig.hoverBackgroundColor;
+                e.currentTarget.style.color = sectionTextButtonsConfig.hoverTextColor;
+                e.currentTarget.style.borderColor = sectionTextButtonsConfig.hoverBorderColor;
+              }}
+              onMouseLeave={(e) => {
+                if (isSelected) return;
+                e.currentTarget.style.backgroundColor = sectionTextButtonsConfig.backgroundColor;
+                e.currentTarget.style.color = sectionTextButtonsConfig.textColor;
+                e.currentTarget.style.borderColor = sectionTextButtonsConfig.borderColor;
+              }}
             >
-              {valueSettings[value.id || ""]?.showThumbnail && (valueSettings[value.id || ""]?.customImage || value.thumbnail_url) && (
+              {valueSettings[value.id || ""]?.showThumbnail && getOptionImageUrl(valueSettings[value.id || ""], value.thumbnail_url) && (
                 <img
                   src={getHiResThumbnailUrl(
-                    valueSettings[value.id || ""]?.customImage || value.thumbnail_url,
+                    getOptionImageUrl(valueSettings[value.id || ""], value.thumbnail_url)!,
                     thumbnailPx,
                     thumbnailPx
                   )}
                   alt={displayName}
-                  className="rounded object-cover shrink-0"
-                  style={{ width: thumbnailPx, height: thumbnailPx }}
+                  className="object-cover shrink-0"
+                  style={{ 
+                    width: thumbnailPx, 
+                    height: thumbnailPx,
+                    borderRadius: `${sectionTextButtonsConfig.borderRadiusPx / 2}px`
+                  }}
                 />
               )}
               {displayName}
-            </Button>
+            </button>
           );
         })}
       </div>
     );
-  }, [hoveredPictureKey, pictureButtonsConfig, selectionModeById, selectedSectionValues, valueSettingsById]);
+  }, [activeBranding?.colors?.hover, activeBranding?.colors?.primary, hoveredPictureKey, pictureButtonsConfig, textButtonsConfig, selectionModeById, selectedSectionValues, valueSettingsById]);
 
   const verticalAxisValues = useMemo(() => getVerticalAxisValues(), [getVerticalAxisValues]);
 
@@ -1082,8 +1274,8 @@ export function StorformatConfigurator({
         </div>
       </div>
 
-      <div className={cn("grid grid-cols-1 gap-4 items-end", hasLayout ? "md:grid-cols-1" : "md:grid-cols-4")}>
-        {!hasLayout && (
+      <div className={cn("grid grid-cols-1 gap-4 items-end", hasUsableLayout ? "md:grid-cols-1" : "md:grid-cols-4")}>
+        {!hasUsableLayout && (
           <>
             <div className="space-y-2">
               <Label>Antal</Label>
@@ -1145,7 +1337,7 @@ export function StorformatConfigurator({
         )}
       </div>
 
-      {hasLayout && (
+      {hasUsableLayout && (
         <div className="space-y-4">
           {layoutRows.map((row) => {
             const filteredSections = row.sections.filter((section) => {
@@ -1170,7 +1362,7 @@ export function StorformatConfigurator({
                   {filteredSections.map((section, sectionIndex) => {
                     const values = getSectionValues(section);
                     if (values.length === 0) return null;
-                    const isOptional = selectionModeById[section.id] === "optional";
+                    const isOptional = isOptionalSelectionMode(selectionModeById[section.id]);
                     const isOptionalEnabled = !isOptional || Boolean(selectedSectionValues[section.id]);
                     const sectionLabel = getSectionLabel(section.sectionType, section.title);
 

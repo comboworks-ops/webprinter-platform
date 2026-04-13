@@ -338,6 +338,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
       <Button
         size="lg"
         variant={btn.variant === 'secondary' ? 'outline' : 'default'}
+        data-branding-id="forside.hero.button"
         style={buttonStyle}
         className={btn.variant === 'secondary' && !btn.bgColor ? 'hover:bg-white/20' : ''}
         onMouseEnter={handleMouseEnter}
@@ -400,7 +401,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
   return (
     <section
       ref={containerRef}
-      data-branding-id="forside.hero"
+      data-branding-id="forside.hero.media"
       className="relative h-[500px] md:h-[600px] overflow-hidden"
       style={{
         backgroundColor: hero.overlay_color || '#000',
@@ -413,6 +414,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
           className={`absolute inset-0 ${getTransitionClass(index)}`}
         >
           <div
+            data-branding-id="forside.hero.overlay"
             className="absolute inset-0 z-10"
             style={{
               backgroundColor: hero.overlay_color || '#000',
@@ -420,6 +422,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
             }}
           />
           <div
+            data-branding-id="forside.hero.media"
             className="absolute inset-0"
             style={hero.parallax ? getParallaxStyle() : {}}
           >
@@ -441,6 +444,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
               <div className="max-w-2xl ml-4 md:ml-8 lg:ml-12 mt-16 md:mt-20">
                 {/* Title with fade-up animation */}
                 <h1
+                  data-branding-id="forside.hero.title"
                   className={`text-4xl md:text-5xl lg:text-6xl font-extrabold mb-4 transition-all duration-700 ${index === currentSlide
                     ? 'opacity-100 translate-y-0'
                     : 'opacity-0 translate-y-8'
@@ -455,6 +459,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                 </h1>
                 {/* Subtitle with fade-up animation (delayed) */}
                 <p
+                  data-branding-id="forside.hero.subtitle"
                   className={`text-xl md:text-2xl mb-8 transition-all duration-700 ${index === currentSlide
                     ? 'opacity-100 translate-y-0'
                     : 'opacity-0 translate-y-8'
@@ -495,10 +500,12 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
           className={`absolute inset-0 ${getTransitionClass(index)}`}
         >
           <div
+            data-branding-id="forside.hero.overlay"
             className="absolute inset-0 z-10"
             style={getSlideOverlayStyles(index)}
           />
           <div
+            data-branding-id="forside.hero.media"
             className="absolute inset-0"
             style={hero.parallax ? getParallaxStyle() : {}}
           >
@@ -523,6 +530,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                   {/* Title with animation */}
                   {image.headline && (
                     <h1
+                      data-branding-id="forside.hero.title"
                       className={`text-4xl md:text-5xl lg:text-6xl font-extrabold mb-4 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
                         }`}
                       style={{
@@ -537,6 +545,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                   {/* Subtitle with animation (delayed) */}
                   {image.subline && (
                     <p
+                      data-branding-id="forside.hero.subtitle"
                       className={`text-xl md:text-2xl mb-8 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
                         }`}
                       style={{
@@ -620,6 +629,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
             <div className="max-w-2xl ml-4 md:ml-8 lg:ml-12 mt-16 md:mt-20">
               {overlayTitle && (
                 <h1
+                  data-branding-id="forside.hero.title"
                   className="text-4xl md:text-5xl lg:text-6xl font-extrabold mb-4"
                   style={{ color: globalTitleColor, fontFamily: `'${globalTitleFontId}', sans-serif` }}
                 >
@@ -628,6 +638,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
               )}
               {overlaySubtitle && (
                 <p
+                  data-branding-id="forside.hero.subtitle"
                   className="text-xl md:text-2xl mb-8"
                   style={{ color: globalSubtitleColor, fontFamily: `'${globalSubtitleFontId}', sans-serif` }}
                 >

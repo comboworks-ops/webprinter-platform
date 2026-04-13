@@ -1000,6 +1000,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                         <ProductPricePanel
                             productPrice={resolvedPanelPrice}
                             extraPrice={optionExtraPrice}
+                            branding={shopSettings.data?.branding}
                             orderValidationError={orderValidationError}
                             onShippingChange={handleShippingChange}
                             optionSelections={combinedOptionSelections}
@@ -1036,12 +1037,17 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                             onCellClick={handleMatrixCellClick}
                             onSelectionChange={handleMatrixSelectionChange}
                         />
+                        <DynamicProductOptions
+                            productId={dbProductId}
+                            onSelectionChange={handleOptionSelectionChange}
+                        />
                         {sizeDistributionBlock}
                     </div>
                     <div className="lg:col-span-1 lg:self-end">
                         <ProductPricePanel
                             productPrice={resolvedPanelPrice}
                             extraPrice={optionExtraPrice}
+                            branding={shopSettings.data?.branding}
                             orderValidationError={orderValidationError}
                             onShippingChange={handleShippingChange}
                             optionSelections={combinedOptionSelections}
@@ -1146,6 +1152,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                             <ProductPricePanel
                                 productPrice={resolvedPanelPrice}
                                 extraPrice={optionExtraPrice}
+                                branding={shopSettings.data?.branding}
                                 orderValidationError={orderValidationError}
                                 onShippingChange={handleShippingChange}
                                 optionSelections={combinedOptionSelections}
@@ -1201,11 +1208,11 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
             />
             <div className="flex flex-col md:flex-row gap-6 mb-8">
                 <div className="flex-1">
-                    <h1 className="text-3xl md:text-4xl font-heading font-bold mb-2">{product.name}</h1>
-                    <p className="text-muted-foreground">{product.description}</p>
+                    <h1 data-branding-id="typography.heading" className="text-3xl md:text-4xl font-heading font-bold mb-2">{product.name}</h1>
+                    <p data-branding-id="typography.body" className="text-muted-foreground">{product.description}</p>
                 </div>
                 {product && (
-                    <div className="w-full md:w-48 h-48 flex-shrink-0">
+                    <div data-branding-id="icons.product-images" className="w-full md:w-48 h-48 flex-shrink-0">
                         <img
                             src={dbProduct?.image_url || getProductImage(product.slug)}
                             alt={product.name}

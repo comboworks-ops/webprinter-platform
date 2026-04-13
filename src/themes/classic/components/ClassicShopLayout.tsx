@@ -6,10 +6,20 @@
  */
 
 import type { ShopLayoutProps } from '@/lib/themes/types';
+import { getPageBackgroundStyle } from '@/lib/branding/background';
 
-export function ClassicShopLayout({ children, cssVariables }: ShopLayoutProps) {
+export function ClassicShopLayout({ children, cssVariables, branding }: ShopLayoutProps) {
+    const pageBackgroundStyle = getPageBackgroundStyle(branding);
+
     return (
-        <div className="min-h-screen flex flex-col" style={cssVariables}>
+        <div
+            className="min-h-screen flex flex-col"
+            data-branding-id="colors.background"
+            style={{
+                ...cssVariables,
+                ...pageBackgroundStyle,
+            }}
+        >
             {children}
         </div>
     );

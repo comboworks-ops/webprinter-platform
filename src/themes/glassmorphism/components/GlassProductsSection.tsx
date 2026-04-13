@@ -11,8 +11,6 @@ import { StorefrontProductTabs } from '@/components/StorefrontProductTabs';
 
 export function GlassProductsSection({
     branding,
-    tenantName,
-    isPreviewMode,
     showProducts,
     showStorformatTab,
     productColumns,
@@ -26,6 +24,11 @@ export function GlassProductsSection({
     if (!showProducts) return null;
 
     const hasFeaturedProduct = featuredProductConfig?.enabled && featuredProductConfig?.productId;
+    const hiddenFeaturedProductIds = hasFeaturedProduct && featuredProductConfig?.showInProductList === false
+        ? [featuredProductConfig.productId as string]
+        : [];
+    const featuredAboveCategories = (featuredProductConfig?.position || 'above') === 'above';
+    const categoryTabsConfig = branding?.forside?.productsSection?.categoryTabs;
 
     // For glassmorphism, prefer glass card style
     const glassConfig = featuredProductConfig ? {
@@ -37,10 +40,10 @@ export function GlassProductsSection({
         <section
             className="py-20 relative"
             id="produkter"
+            data-branding-id="forside.products"
             style={{
-                // Adjust padding when featured product overlaps
-                paddingTop: hasFeaturedProduct && featuredProductConfig?.overlapPx
-                    ? `${80 + (featuredProductConfig.overlapPx || 0)}px`
+                paddingTop: hasFeaturedProduct && featuredAboveCategories
+                    ? "80px"
                     : undefined,
             }}
         >
@@ -55,16 +58,8 @@ export function GlassProductsSection({
             />
 
             <div className="container mx-auto px-4 relative z-10">
-                {/* Featured Product (positioned to overlap hero) */}
-                {hasFeaturedProduct && glassConfig && (
-                    <div
-                        className="mb-12"
-                        style={{
-                            marginTop: `-${featuredProductConfig.overlapPx || 60}px`,
-                            position: 'relative',
-                            zIndex: 10,
-                        }}
-                    >
+                {hasFeaturedProduct && glassConfig && featuredAboveCategories && (
+                    <div className="mb-12 relative z-10">
                         <FeaturedProductConfigurator
                             config={glassConfig}
                             branding={branding}
@@ -75,11 +70,22 @@ export function GlassProductsSection({
                 <StorefrontProductTabs
                     columns={productColumns as 3 | 4 | 5}
                     buttonConfig={productButtonConfig}
+                    categoryTabsConfig={categoryTabsConfig}
                     backgroundConfig={productBackgroundConfig}
                     layoutStyle={productLayoutStyle}
                     showCategoryTabs={showStorformatTab}
+                    hiddenProductIds={hiddenFeaturedProductIds}
                     variant="glass"
                 />
+
+                {hasFeaturedProduct && glassConfig && !featuredAboveCategories && (
+                    <div className="mt-12">
+                        <FeaturedProductConfigurator
+                            config={glassConfig}
+                            branding={branding}
+                        />
+                    </div>
+                )}
             </div>
         </section>
     );

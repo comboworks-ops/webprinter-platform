@@ -1,8 +1,9 @@
 
 import { useState, useEffect } from "react";
-import { Package, Plus, FolderOpen, Globe, Search, ChevronDown, ChevronRight, Users, MessageCircle, ShoppingCart, Building2, Palette, CreditCard, Settings, LayoutGrid, UploadCloud, FileText, Calculator, Cpu, Paintbrush, Printer, Zap, PanelLeft } from "lucide-react";
+import { Package, Plus, FolderOpen, Globe, Search, ChevronDown, ChevronRight, Users, MessageCircle, ShoppingCart, Building2, Palette, CreditCard, Settings, LayoutGrid, UploadCloud, FileText, Calculator, Cpu, Paintbrush, Printer, Zap, PanelLeft, Sparkles } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useIconStudioAccess } from "@/hooks/useIconStudioAccess";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveAdminTenant } from "@/lib/adminTenant";
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,7 @@ export function AdminSidebar() {
   const location = useLocation();
   const currentPath = location.pathname;
   const { isMasterAdmin: roleIsMasterAdmin, isAdmin } = useUserRole();
+  const iconStudioAccess = useIconStudioAccess();
   const [products, setProducts] = useState<DbProduct[]>([]);
   const [productsOpen, setProductsOpen] = useState(false);
   const [marketingOpen, setMarketingOpen] = useState(false);
@@ -246,6 +248,7 @@ export function AdminSidebar() {
 
   const isActive = (path: string) => currentPath === path;
   const collapsed = state === "collapsed";
+  const showIconStudio = iconStudioAccess.hasAccess;
 
   // Scoped CSS for admin sidebar - modern professional design
   const scopedStyles = `
@@ -410,7 +413,7 @@ export function AdminSidebar() {
 
                   {/* Print Designer */}
                   <SidebarMenuItem>
-                    <AdminNavLink to="/admin/designer-templates">
+                    <AdminNavLink to="/admin/print-designer">
                       <Paintbrush className="h-4 w-4" />
                       {!collapsed && <span>Print Designer</span>}
                     </AdminNavLink>
@@ -423,6 +426,22 @@ export function AdminSidebar() {
                       {!collapsed && <span>Site Design</span>}
                     </AdminNavLink>
                   </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/site-design-v2">
+                      <Palette className="h-4 w-4" />
+                      {!collapsed && <span>Site Design V2</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+
+                  {showIconStudio && (
+                    <SidebarMenuItem>
+                      <AdminNavLink to="/admin/icon-studio">
+                        <Sparkles className="h-4 w-4" />
+                        {!collapsed && <span>Icon Studio</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                  )}
 
                   {/* Sites */}
                   <SidebarMenuItem>
@@ -497,6 +516,12 @@ export function AdminSidebar() {
                     <AdminNavLink to="/admin/seo">
                       <Search className="h-4 w-4" />
                       {!collapsed && <span>SEO Manager</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/ai-seo">
+                      <Sparkles className="h-4 w-4" />
+                      {!collapsed && <span>AI SEO</span>}
                     </AdminNavLink>
                   </SidebarMenuItem>
                 </SidebarMenu>
@@ -677,6 +702,12 @@ export function AdminSidebar() {
                       </AdminNavLink>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
+                      <AdminNavLink to="/admin/pod3">
+                        <Printer className="h-4 w-4 text-orange-500" />
+                        {!collapsed && <span>Flyer Alarm (POD3)</span>}
+                      </AdminNavLink>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
                       <AdminNavLink to="/admin/pod2-ordrer">
                         <ShoppingCart className="h-4 w-4" />
                         {!collapsed && <span>POD v2 Ordrer</span>}
@@ -718,6 +749,12 @@ export function AdminSidebar() {
                     <AdminNavLink to="/admin/pod2-betaling">
                       <CreditCard className="h-4 w-4" />
                       {!collapsed && <span>POD v2 Betaling</span>}
+                    </AdminNavLink>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <AdminNavLink to="/admin/pod3">
+                      <Printer className="h-4 w-4 text-orange-500" />
+                      {!collapsed && <span>Flyer Alarm (POD3)</span>}
                     </AdminNavLink>
                   </SidebarMenuItem>
                 </SidebarMenu>

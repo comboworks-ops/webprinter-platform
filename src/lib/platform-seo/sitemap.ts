@@ -62,7 +62,7 @@ export function generateDefaultPlatformSitemap(baseUrl: string = 'https://webpri
  * Generate robots.txt content
  */
 export function generateRobotsTxt(canonicalUrl: string = 'https://webprinter.dk'): string {
-    return `# Webprinter Platform Robots.txt
+    return `# Webprinter.dk Robots.txt
 User-agent: *
 Allow: /
 

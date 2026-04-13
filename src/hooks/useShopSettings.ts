@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { USE_API_TENANT_CONTEXT } from "@/lib/api/featureFlags";
+import { fetchTenantContext } from "@/lib/api/tenantContext";
 
 // Define the root domain for subdomain parsing
 const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
@@ -337,6 +339,36 @@ export function useShopSettings() {
                 // If forcing a domain OR on /local-tenant, treat as a production tenant lookup
                 const effectiveHostname = forceDomain || hostname;
                 const isEffectiveLocalhost = !forceDomain && !isLocalTenantRoute && (effectiveHostname === 'localhost' || effectiveHostname === '127.0.0.1');
+
+                if (USE_API_TENANT_CONTEXT && !isEffectiveLocalhost && !marketingDomains.includes(effectiveHostname)) {
+                    try {
+                        const tenantContext = await fetchTenantContext({
+                            mode: "storefront",
+                            hostname: effectiveHostname,
+                            pathname,
+                            force_domain: forceDomain || undefined,
+                        });
+
+                        const resolvedTenantId = tenantContext.success ? tenantContext.tenant?.id : null;
+                        if (resolvedTenantId) {
+                            const { data: tenantByContext, error: tenantByContextError } = await supabase
+                                .from('tenants' as any)
+                                .select('*')
+                                .eq('id', resolvedTenantId)
+                                .maybeSingle();
+                            throwIfTransportError(tenantByContextError, 'tenantByContext');
+
+                            if (tenantByContext) {
+                                if (shouldHonorLocalStorefrontPin) {
+                                    writeLocalStorefrontTenantPin(tenantByContext);
+                                }
+                                return normalizeSettings(tenantByContext);
+                            }
+                        }
+                    } catch (tenantContextError) {
+                        console.warn("[useShopSettings] tenant-context-read fallback to direct tenant lookup", tenantContextError);
+                    }
+                }
 
                 // 1. Production: Try to find tenant by Domain or Subdomain
                 if (!isEffectiveLocalhost && !marketingDomains.includes(effectiveHostname)) {

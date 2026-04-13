@@ -218,6 +218,14 @@ export function OrderManager() {
 
                 // Send email notification (non-blocking)
                 import('@/lib/emailService').then(({ sendStatusChangeEmail, sendProblemNotification }) => {
+                    const shopEmailContext = {
+                        name: companyProfile.name || 'Webprinter',
+                        supportEmail: companyProfile.email || 'info@webprinter.dk',
+                        orderUrl: `${window.location.origin}/mine-ordrer`,
+                        adminOrderUrl: `${window.location.origin}/admin/ordrer`,
+                        homepageUrl: window.location.origin,
+                    };
+
                     if (editHasProblem && !selectedOrder.has_problem) {
                         // New problem - send problem notification
                         sendProblemNotification({
@@ -228,6 +236,7 @@ export function OrderManager() {
                             problem_description: editProblemDescription,
                             customer_email: selectedOrder.customer_email,
                             customer_name: selectedOrder.customer_name || 'Kunde',
+                            shop: shopEmailContext,
                         });
                     } else {
                         // Regular status change
@@ -241,6 +250,7 @@ export function OrderManager() {
                             estimated_delivery: editEstimatedDelivery || undefined,
                             customer_email: selectedOrder.customer_email,
                             customer_name: selectedOrder.customer_name || 'Kunde',
+                            shop: shopEmailContext,
                         });
                     }
                 }).catch(console.error);

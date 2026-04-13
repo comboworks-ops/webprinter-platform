@@ -81,7 +81,7 @@ const QuoteModal = ({ open, onOpenChange, productName, productSpecs, estimatedPr
 
       toast({
         title: "Tak for din forespørgsel!",
-        description: "Vi har sendt dig en mail med dit tilbud og de valgte specifikationer. Kontakt os på 71 99 11 10 eller support@webprinter.dk ved spørgsmål.",
+        description: "Vi har sendt dig en mail med dit tilbud og de valgte specifikationer. Kontakt os på 71 99 11 10 eller info@webprinter.dk ved spørgsmål.",
       });
 
       // Reset and close
@@ -89,7 +89,7 @@ const QuoteModal = ({ open, onOpenChange, productName, productSpecs, estimatedPr
       setEmail("");
       setWantsCall(false);
       onOpenChange(false);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to send emails:", error);
       toast({
         title: "Der opstod en fejl",

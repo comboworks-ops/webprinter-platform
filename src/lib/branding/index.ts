@@ -76,3 +76,6 @@ export { createMasterAdapter, loadMasterTemplate } from './master-adapter';
 
 // Hook
 export { useBrandingEditor, type UseBrandingEditorReturn } from './use-branding-editor';
+
+// Storefront theming helpers
+export { buildBrandingCssVariables } from './themeVariables';

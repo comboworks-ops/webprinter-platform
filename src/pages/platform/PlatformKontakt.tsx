@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import PlatformHeader from "@/components/platform/PlatformHeader";
 import PlatformFooter from "@/components/platform/PlatformFooter";
 import { SEO } from "@/components/SEO";
+import { sendContactMessage } from "@/lib/contact/sendContactMessage";
 
 const PlatformKontakt = () => {
     const { toast } = useToast();
@@ -29,16 +30,36 @@ const PlatformKontakt = () => {
         e.preventDefault();
         setIsSubmitting(true);
 
-        // Simulate form submission
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        try {
+            await sendContactMessage({
+                mode: "platform",
+                senderName: formData.name,
+                senderEmail: formData.email,
+                company: formData.company,
+                subject: "Platform henvendelse",
+                message: formData.message,
+            });
 
-        toast({
-            title: "Besked modtaget",
-            description: "Vi vender tilbage hurtigst muligt.",
-        });
+            toast({
+                title: "Besked modtaget",
+                description: "Din besked er sendt. Vi vender tilbage hurtigst muligt.",
+            });
 
-        setFormData({ name: "", email: "", company: "", message: "" });
-        setIsSubmitting(false);
+            setFormData({ name: "", email: "", company: "", message: "" });
+        } catch (error) {
+            const errorMessage =
+                error instanceof Error
+                    ? error.message
+                    : "Vi kunne ikke sende din besked. Prøv igen senere.";
+            console.error("Platform contact submission failed:", error);
+            toast({
+                title: "Der opstod en fejl",
+                description: errorMessage,
+                variant: "destructive",
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (

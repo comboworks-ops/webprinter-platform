@@ -42,7 +42,7 @@ const PLATFORM_LINKS = {
     ],
     juridisk: [
         { label: "Privatlivspolitik", href: "/privacy-policy" },
-        { label: "Handelsbetingelser", href: "/handelsbetingelser" },
+        { label: "Platformvilkår", href: "/handelsbetingelser" },
         { label: "Cookiepolitik", href: "/cookiepolitik" },
     ],
 };

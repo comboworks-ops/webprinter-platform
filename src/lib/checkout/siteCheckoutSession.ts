@@ -1,4 +1,5 @@
 const SITE_CHECKOUT_SESSION_KEY = "wp_site_checkout_session";
+const SITE_CHECKOUT_TRANSFER_KEY = "wp_site_checkout_transfer";
 
 export interface SiteCheckoutUpload {
   name?: string | null;
@@ -54,6 +55,7 @@ export interface SiteCheckoutState {
   productId?: string | null;
   productSlug?: string | null;
   productName?: string | null;
+  selectedVariant?: string | null;
   quantity?: number | null;
   productPrice?: number | null;
   extraPrice?: number | null;
@@ -61,6 +63,7 @@ export interface SiteCheckoutState {
   shippingCost?: number | null;
   summary?: string | null;
   selectedFormat?: string | null;
+  linkedTemplateId?: string | null;
   designWidthMm?: number | null;
   designHeightMm?: number | null;
   designBleedMm?: number | null;
@@ -78,18 +81,21 @@ function isBrowser(): boolean {
   return typeof window !== "undefined" && typeof sessionStorage !== "undefined";
 }
 
-export function readSiteCheckoutSession(): SiteCheckoutState | null {
-  if (!isBrowser()) return null;
+function parseCheckoutState(raw: string | null): SiteCheckoutState | null {
+  if (!raw) return null;
 
   try {
-    const raw = sessionStorage.getItem(SITE_CHECKOUT_SESSION_KEY);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as SiteCheckoutState;
     if (!parsed || typeof parsed !== "object") return null;
     return parsed;
   } catch {
     return null;
   }
+}
+
+export function readSiteCheckoutSession(): SiteCheckoutState | null {
+  if (!isBrowser()) return null;
+  return parseCheckoutState(sessionStorage.getItem(SITE_CHECKOUT_SESSION_KEY));
 }
 
 export function writeSiteCheckoutSession(input: SiteCheckoutState): boolean {
@@ -106,4 +112,34 @@ export function writeSiteCheckoutSession(input: SiteCheckoutState): boolean {
 export function clearSiteCheckoutSession(): void {
   if (!isBrowser()) return;
   sessionStorage.removeItem(SITE_CHECKOUT_SESSION_KEY);
+}
+
+export function stageSiteCheckoutTransfer(input: SiteCheckoutState): boolean {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return false;
+
+  try {
+    localStorage.setItem(SITE_CHECKOUT_TRANSFER_KEY, JSON.stringify(input || {}));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readSiteCheckoutTransfer(): SiteCheckoutState | null {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return null;
+  return parseCheckoutState(localStorage.getItem(SITE_CHECKOUT_TRANSFER_KEY));
+}
+
+export function consumeSiteCheckoutTransfer(): SiteCheckoutState | null {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return null;
+
+  const parsed = parseCheckoutState(localStorage.getItem(SITE_CHECKOUT_TRANSFER_KEY));
+
+  try {
+    localStorage.removeItem(SITE_CHECKOUT_TRANSFER_KEY);
+  } catch {
+    // Best effort only.
+  }
+
+  return parsed;
 }

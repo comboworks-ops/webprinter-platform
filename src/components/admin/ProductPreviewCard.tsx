@@ -1,7 +1,5 @@
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Info } from "lucide-react";
-import { getGoogleFontsUrl } from "./FontSelector";
 import { ProductBadge, type ProductBadgeConfig } from "@/components/ProductBadge";
 
 interface ProductPreviewCardProps {
@@ -22,6 +20,11 @@ interface ProductPreviewCardProps {
     actionLabel?: string;
 }
 
+function normalizeCardCopy(value?: string | null): string {
+    if (typeof value !== "string") return "";
+    return value.replace(/\s+/g, " ").trim();
+}
+
 export function ProductPreviewCard({
     name,
     priceFrom,
@@ -39,31 +42,46 @@ export function ProductPreviewCard({
     showSavingsBadge,
     actionLabel = "Priser",
 }: ProductPreviewCardProps) {
-    const fontUrl = priceFont && priceFont !== 'inherit' ? getGoogleFontsUrl([priceFont]) : '';
     const normalizedImageScalePct = Math.max(60, Math.min(140, Number(imageScalePct) || 100));
+    const normalizedName = normalizeCardCopy(name);
+    const normalizedDescription = normalizeCardCopy(description);
+    const normalizedPriceFrom = normalizeCardCopy(priceFrom);
+    const normalizedPromoPrice = Number(promoPrice);
+    const normalizedOriginalPrice = Number(originalPrice);
+    const hasPromo =
+        Number.isFinite(normalizedPromoPrice)
+        && Number.isFinite(normalizedOriginalPrice)
+        && normalizedOriginalPrice > normalizedPromoPrice;
+    const savingsPercent = hasPromo
+        ? Math.round((1 - normalizedPromoPrice / normalizedOriginalPrice) * 100)
+        : 0;
+    const displayPriceLabel = normalizedPriceFrom ? `Fra ${normalizedPriceFrom} kr` : "Se priser";
+    void priceColor;
+    void priceBgColor;
+    void priceBgEnabled;
+    void priceFont;
 
     return (
         <>
-            {fontUrl && <link rel="stylesheet" href={fontUrl} />}
             <div className="w-full max-w-[300px] mx-auto opacity-100 transition-opacity">
                 <div className="mb-2 text-xs font-medium text-muted-foreground text-center uppercase tracking-wider">
                     Preview (Forside)
                 </div>
 
                 {/* Mimic ProductGrid.tsx card styles */}
-                <Card className="hover:shadow-lg transition-shadow cursor-default overflow-visible border-2 border-dashed border-primary/20 bg-white relative">
+                <Card className="hover:shadow-lg transition-shadow cursor-default w-full mx-auto relative overflow-visible border-2 border-dashed border-primary/20 bg-white flex flex-col h-full max-w-[280px]">
                     {/* Special Badge */}
                     {specialBadge?.enabled && (
                         <ProductBadge config={specialBadge} />
                     )}
-                    <CardHeader className="p-4">
-                        <div className="block w-full h-48 rounded-lg flex items-center justify-center mb-1 overflow-hidden bg-white relative group">
+                    <CardHeader className="p-4 pb-2">
+                        <div className="block w-full h-36 rounded-lg flex items-center justify-center mb-1 overflow-hidden bg-white relative group p-2">
                             {imageUrl ? (
                                 <>
                                     <img
                                         src={imageUrl}
                                         alt={name}
-                                        className={`w-full h-full object-contain p-2 transition-opacity duration-300 ${hoverImageUrl ? 'group-hover:opacity-0' : ''}`}
+                                        className={`w-full h-full object-contain transition-opacity duration-300 ${hoverImageUrl ? 'group-hover:opacity-0' : ''}`}
                                         style={{
                                             filter: 'var(--product-filter)',
                                             width: `${normalizedImageScalePct}%`,
@@ -74,7 +92,7 @@ export function ProductPreviewCard({
                                         <img
                                             src={hoverImageUrl}
                                             alt={`${name} hover`}
-                                            className="absolute inset-0 m-auto w-full h-full object-contain p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                                            className="absolute inset-0 m-auto w-full h-full object-contain opacity-0 group-hover:opacity-100 transition-opacity duration-300"
                                             style={{
                                                 filter: 'var(--product-filter)',
                                                 width: `${normalizedImageScalePct}%`,
@@ -89,62 +107,51 @@ export function ProductPreviewCard({
                                 </div>
                             )}
                         </div>
-                        <div className="flex items-center gap-2">
-                            <CardTitle className="text-lg truncate">{name || "Produktnavn"}</CardTitle>
+                        <div className="flex items-start gap-1.5">
+                            <CardTitle className="line-clamp-2 text-base font-semibold leading-tight sm:text-lg">
+                                {normalizedName || "Produktnavn"}
+                            </CardTitle>
                         </div>
                     </CardHeader>
-                    <CardContent className="px-4 pb-3">
-                        <div className="space-y-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                                {(() => {
-                                    const hasPromo = promoPrice && originalPrice && parseFloat(originalPrice) > parseFloat(promoPrice);
-                                    const savingsPercent = hasPromo ? Math.round((1 - parseFloat(promoPrice) / parseFloat(originalPrice)) * 100) : 0;
-
-                                    return hasPromo ? (
-                                        <>
-                                            {/* Original price with strikethrough */}
-                                            <span className="text-base text-muted-foreground line-through">
-                                                {originalPrice} kr
-                                            </span>
-                                            {/* Promo price */}
-                                            <p
-                                                className={`text-2xl font-extrabold ${priceBgEnabled ? 'px-2 py-1 rounded-md' : ''}`}
-                                                style={{
-                                                    color: priceColor,
-                                                    backgroundColor: priceBgEnabled ? priceBgColor : 'transparent',
-                                                    fontFamily: priceFont !== 'inherit' ? priceFont : undefined
-                                                }}
-                                            >
-                                                {promoPrice} kr
-                                            </p>
-                                            {/* Savings badge */}
-                                            {showSavingsBadge && (
-                                                <span className="text-xs font-bold text-white bg-green-500 px-2 py-1 rounded-full animate-pulse">
-                                                    SPAR {savingsPercent}%
-                                                </span>
-                                            )}
-                                        </>
-                                    ) : (
+                    <CardContent className="px-4 pb-4 pt-0">
+                        <div className="space-y-1.5">
+                            <div className="flex items-start gap-1.5 flex-wrap">
+                                {hasPromo ? (
+                                    <>
+                                        <span className="text-sm text-muted-foreground line-through">
+                                            {normalizedOriginalPrice} kr
+                                        </span>
                                         <p
-                                            className={`text-2xl font-extrabold ${priceBgEnabled ? 'px-2 py-1 rounded-md' : ''}`}
+                                            className="text-2xl font-extrabold leading-none"
                                             style={{
-                                                color: priceColor,
-                                                backgroundColor: priceBgEnabled ? priceBgColor : 'transparent',
-                                                fontFamily: priceFont !== 'inherit' ? priceFont : undefined
+                                                color: "#0EA5E9",
+                                                fontFamily: "'Roboto Mono', sans-serif",
                                             }}
                                         >
-                                            {priceFrom ? `Fra ${priceFrom},-` : "Se priser"}
+                                            {normalizedPromoPrice} kr
                                         </p>
-                                    );
-                                })()}
+                                        {showSavingsBadge && (
+                                            <span className="text-xs font-bold text-white bg-green-500 px-2 py-1 rounded-full animate-pulse">
+                                                SPAR {savingsPercent}%
+                                            </span>
+                                        )}
+                                    </>
+                                ) : (
+                                    <p
+                                        className="text-2xl font-extrabold leading-none"
+                                        style={{
+                                            color: "#0EA5E9",
+                                            fontFamily: "'Roboto Mono', sans-serif",
+                                        }}
+                                    >
+                                        {displayPriceLabel}
+                                    </p>
+                                )}
                             </div>
                         </div>
-
-
-                        {/* Show description in preview even if not in main grid, to let user see "hover" content or list text */}
-                        {description && (
-                            <p className="text-xs text-muted-foreground mt-2 line-clamp-2 leading-relaxed">
-                                {description}
+                        {normalizedDescription && (
+                            <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
+                                {normalizedDescription}
                             </p>
                         )}
                     </CardContent>

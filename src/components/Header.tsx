@@ -107,9 +107,11 @@ type HeaderDesktopMenuSection = {
 type DesktopProductsDropdownProps = {
   itemId: string;
   itemLabel: string;
+  itemImageUrl?: string | null;
   isSelected: boolean;
   onSelect: () => void;
   headerSettings: any;
+  dropdownTextPosition?: 'side' | 'below';
   usesRichDropdownMenu: boolean;
   desktopProductSections: HeaderDesktopMenuSection[];
   groupedProductSections: HeaderProductMenuSection[];
@@ -119,6 +121,8 @@ type DesktopProductsDropdownProps = {
   productColor: string;
   productFont: string;
   selectedIconPackId: string;
+  dropdownImageSizePx: number;
+  dropdownCompactImageSizePx: number;
 };
 
 type DesktopHeaderActionsProps = {
@@ -202,7 +206,7 @@ const DesktopHeaderActions = memo(({
 
   return (
     <>
-      <div className="hidden md:flex items-center relative search-container">
+      <div data-branding-id="header.actions" className="hidden md:flex items-center relative search-container">
         <div
           className={`flex items-center overflow-hidden transition-all duration-300 ease-in-out ${searchOpen
             ? "w-64 opacity-100 mr-2"
@@ -280,6 +284,7 @@ const DesktopHeaderActions = memo(({
           variant="ghost"
           size="icon"
           onClick={handleSearchToggle}
+          data-branding-id="header.actions"
           className="header-action-link"
         >
           {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
@@ -288,7 +293,7 @@ const DesktopHeaderActions = memo(({
 
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="hidden md:flex header-action-link">
+          <Button variant="ghost" size="icon" data-branding-id="header.actions" className="hidden md:flex header-action-link">
             {language === "da" ? (
               <svg className="h-5 w-5 rounded-sm" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <rect width="20" height="14" fill="#C8102E" />
@@ -337,6 +342,7 @@ const DesktopHeaderActions = memo(({
       {ctaEnabled && (
         <Button
           asChild
+          data-branding-id="header.cta"
           className="hidden md:flex header-cta-button"
           style={{ color: ctaTextColor || "#FFFFFF" }}
         >
@@ -355,6 +361,7 @@ const DesktopHeaderActions = memo(({
               <Button
                 variant="ghost"
                 size="sm"
+                data-branding-id="header.actions"
                 className="flex min-w-[220px] items-center justify-end gap-2 header-action-link [backface-visibility:hidden] [transform:translateZ(0)]"
                 style={{ willChange: "transform", WebkitFontSmoothing: "antialiased" }}
               >
@@ -419,9 +426,11 @@ const DesktopHeaderActions = memo(({
 const DesktopProductsDropdown = ({
   itemId,
   itemLabel,
+  itemImageUrl,
   isSelected,
   onSelect,
   headerSettings,
+  dropdownTextPosition = 'below',
   usesRichDropdownMenu,
   desktopProductSections,
   groupedProductSections,
@@ -431,9 +440,17 @@ const DesktopProductsDropdown = ({
   productColor,
   productFont,
   selectedIconPackId,
+  dropdownImageSizePx,
+  dropdownCompactImageSizePx,
 }: DesktopProductsDropdownProps) => {
   const [activeDesktopDropdownGroupKey, setActiveDesktopDropdownGroupKey] = useState<string | null>(null);
   const [activeDesktopDropdownChildKey, setActiveDesktopDropdownChildKey] = useState<string | null>(null);
+
+  // Determine display mode for this nav item
+  const displayMode = itemImageUrl ? (headerSettings.navItems?.find((i: any) => i.id === itemId)?.displayMode || 'image_and_text') : 'text_only';
+  const imageSize = headerSettings.navItems?.find((i: any) => i.id === itemId)?.imageSizePx || 40;
+  const showImage = itemImageUrl && (displayMode === 'image_only' || displayMode === 'image_and_text');
+  const showText = displayMode !== 'image_only';
 
   return (
     <DropdownMenu
@@ -447,19 +464,36 @@ const DesktopProductsDropdown = ({
     >
       <DropdownMenuTrigger asChild>
         <button
-          className="header-nav-link text-sm font-medium inline-flex items-center gap-1"
+          data-branding-id="header.menu.item"
+          className={`header-nav-link text-sm font-medium inline-flex items-center gap-1 ${displayMode === 'image_only' ? 'flex-col' : ''}`}
           style={{
+            fontSize: `${Math.min(22, Math.max(12, Number(headerSettings.menuFontSizePx ?? 14)))}px`,
             color: isSelected
               ? (headerSettings.activeTextColor || '#0284C7')
               : (headerSettings.textColor || '#1F2937')
           }}
           onClick={onSelect}
         >
-          {itemLabel}
-          <ChevronDown className="h-4 w-4" />
+          {showImage && (
+            <img 
+              data-branding-id="header.menu.item.image"
+              src={itemImageUrl} 
+              alt={showText ? '' : itemLabel}
+              className="object-contain"
+              style={{ 
+                width: `${imageSize}px`, 
+                height: displayMode === 'image_only' ? 'auto' : `${imageSize}px`,
+                maxHeight: displayMode === 'image_only' ? `${imageSize}px` : undefined,
+                borderRadius: '2px' 
+              }}
+            />
+          )}
+          {showText && <span data-branding-id="header.menu.text">{itemLabel}</span>}
+          {showText && <ChevronDown className="h-4 w-4" />}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
+        data-branding-id="header.dropdown.panel"
         align="start"
         sideOffset={10}
         className={`backdrop-blur-md z-[1205] ${headerSettings.dropdownShowBorder !== false ? 'border shadow-2xl' : 'border-0 shadow-none'} ${usesRichDropdownMenu
@@ -470,17 +504,74 @@ const DesktopProductsDropdown = ({
           } animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-200`}
         style={getDropdownStyles()}
       >
+        {/* Custom Dropdown Image */}
+        {headerSettings.dropdownCustomImageUrl && (
+          <div className="mb-4 rounded-lg overflow-hidden border border-black/10">
+            <img 
+              src={headerSettings.dropdownCustomImageUrl}
+              alt=""
+              className="w-full h-auto max-h-[200px] object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          </div>
+        )}
         {usesRichDropdownMenu ? (
           <div className="space-y-5">
-            {desktopProductSections.map((section) => (
+            {desktopProductSections.map((section) => {
+              const categoryImages = headerSettings.dropdownCategoryImages || {};
+              const categoryDisplayMode = headerSettings.dropdownCategoryDisplayMode || 'text';
+              const sectionKey = section.key.toLowerCase();
+              const categoryImageUrl = categoryImages[sectionKey] || categoryImages[sectionKey.replace(/[^a-z]/g, '')];
+              const showCategoryText = categoryDisplayMode !== 'image';
+              const showCategoryImage = categoryImageUrl && (categoryDisplayMode === 'image' || categoryDisplayMode === 'both');
+              
+              return (
               <div key={section.key} className="space-y-3">
                 <div className="px-1">
-                  <h3
-                    className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                    style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.75 }}
-                  >
-                    {section.label}
-                  </h3>
+                  {showCategoryImage ? (
+                    <div 
+                      data-branding-id="header.dropdown.category"
+                      className={showCategoryText ? 'flex items-center gap-2' : ''}
+                    >
+                      <img 
+                        src={categoryImageUrl}
+                        alt={section.label}
+                        className="object-contain"
+                        style={{
+                          height: `${Math.min(60, Math.max(20, Number(headerSettings.dropdownCategoryFontSizePx ?? 13) * 2))}px`,
+                          width: 'auto',
+                        }}
+                      />
+                      {showCategoryText && (
+                        <h3
+                          className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                          style={{
+                            color: categoryColor,
+                            fontFamily: `'${categoryFont}', sans-serif`,
+                            fontSize: `${Math.min(24, Math.max(10, Number(headerSettings.dropdownCategoryFontSizePx ?? 13)))}px`,
+                            opacity: 0.75,
+                          }}
+                        >
+                          {section.label}
+                        </h3>
+                      )}
+                    </div>
+                  ) : (
+                    <h3
+                      data-branding-id="header.dropdown.category"
+                      className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                      style={{
+                        color: categoryColor,
+                        fontFamily: `'${categoryFont}', sans-serif`,
+                        fontSize: `${Math.min(24, Math.max(10, Number(headerSettings.dropdownCategoryFontSizePx ?? 13)))}px`,
+                        opacity: 0.75,
+                      }}
+                    >
+                      {section.label}
+                    </h3>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-start gap-x-8 gap-y-5">
                   {section.groups.map((group) => {
@@ -513,8 +604,13 @@ const DesktopProductsDropdown = ({
                         >
                           <Link
                             to={group.href}
+                            data-branding-id="header.dropdown.product"
                             className="inline-flex items-center text-sm font-semibold transition-colors hover:text-primary"
-                            style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
+                            style={{
+                              color: productColor,
+                              fontFamily: `'${productFont}', sans-serif`,
+                              fontSize: `${Math.min(22, Math.max(11, Number(headerSettings.dropdownProductFontSizePx ?? 14)))}px`,
+                            }}
                           >
                             {group.label}
                           </Link>
@@ -537,8 +633,13 @@ const DesktopProductsDropdown = ({
                                 <button
                                   key={child.key}
                                   type="button"
+                                  data-branding-id="header.dropdown.product"
                                   className="dropdown-product-link h-auto cursor-pointer rounded-md px-0 py-1 text-left text-xs font-medium transition-colors hover:text-primary focus:text-primary"
-                                  style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
+                                  style={{
+                                    color: productColor,
+                                    fontFamily: `'${productFont}', sans-serif`,
+                                    fontSize: `${Math.min(22, Math.max(11, Number(headerSettings.dropdownProductFontSizePx ?? 14)))}px`,
+                                  }}
                                   onMouseEnter={() => {
                                     setActiveDesktopDropdownGroupKey(group.key);
                                     setActiveDesktopDropdownChildKey(child.key);
@@ -583,25 +684,72 @@ const DesktopProductsDropdown = ({
                                       <Link
                                         key={product.key}
                                         to={product.href}
-                                        className="dropdown-product-link flex items-center gap-3 rounded-md px-1 py-1.5 transition-all duration-200 hover:translate-x-0.5"
+                                        data-branding-id="header.dropdown.product"
+                                        className={`dropdown-product-link grid gap-3 rounded-md px-1 py-1.5 transition-all duration-200 hover:translate-x-0.5 ${
+                                          dropdownTextPosition === 'side' 
+                                            ? 'grid-cols-[auto_1fr] items-start' 
+                                            : 'grid-rows-[auto_auto] items-center text-center'
+                                        }`}
                                       >
-                                        {product.imageUrl ? (
-                                          <img
-                                            src={getProductImage(product.productSlug, product.imageUrl)}
-                                            alt={product.label}
-                                            className="h-10 w-10 shrink-0 object-contain"
-                                            style={{ filter: "var(--product-filter)" }}
-                                          />
-                                        ) : (
-                                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-black/5">
-                                            <ProductCategoryIcon slug={product.productSlug} category={product.category} packId={selectedIconPackId} className="h-4 w-4" />
-                                          </div>
-                                        )}
-                                        <div className="min-w-0">
-                                          <p className="truncate text-sm font-medium" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>
+                                        {/* Image Container - Fixed size, isolated from text flow */}
+                                        <div 
+                                          className="flex items-center justify-center mx-auto"
+                                          style={{
+                                            width: `${dropdownCompactImageSizePx}px`,
+                                            height: `${dropdownCompactImageSizePx}px`,
+                                          }}
+                                        >
+                                          {product.imageUrl ? (
+                                            <img
+                                              data-branding-id="header.dropdown.image"
+                                              src={getProductImage(product.productSlug, product.imageUrl)}
+                                              alt={product.label}
+                                              className="object-contain max-w-full max-h-full"
+                                              style={{
+                                                filter: "var(--product-filter)",
+                                                borderRadius: `${Math.min(32, Math.max(0, Number(headerSettings.dropdownImageRadiusPx ?? 10)))}px`,
+                                              }}
+                                            />
+                                          ) : (
+                                            <div
+                                              data-branding-id="header.dropdown.image"
+                                              className="flex items-center justify-center rounded-md bg-black/5 w-full h-full"
+                                              style={{
+                                                borderRadius: `${Math.min(32, Math.max(0, Number(headerSettings.dropdownImageRadiusPx ?? 10)))}px`,
+                                              }}
+                                            >
+                                              <ProductCategoryIcon
+                                                slug={product.productSlug}
+                                                category={product.category}
+                                                packId={selectedIconPackId}
+                                                className="h-4 w-4"
+                                              />
+                                            </div>
+                                          )}
+                                        </div>
+                                        {/* Text Container - Expands to fit content */}
+                                        <div className={`${dropdownTextPosition === 'side' ? 'min-w-0 pt-0.5 text-left' : 'text-center'}`}>
+                                          <p
+                                            data-branding-id="header.dropdown.product"
+                                            className="text-sm font-medium leading-tight break-words"
+                                            style={{
+                                              color: productColor,
+                                              fontFamily: `'${productFont}', sans-serif`,
+                                              fontSize: `${Math.min(22, Math.max(11, Number(headerSettings.dropdownProductFontSizePx ?? 14)))}px`,
+                                            }}
+                                          >
                                             {product.label}
                                           </p>
-                                          <p className="truncate text-[11px] text-muted-foreground">{product.category}</p>
+                                          <p
+                                            data-branding-id="header.dropdown.meta"
+                                            className="mt-0.5 break-words"
+                                            style={{
+                                              color: headerSettings.dropdownMetaColor || "#6B7280",
+                                              fontSize: `${Math.min(18, Math.max(10, Number(headerSettings.dropdownMetaFontSizePx ?? 11)))}px`,
+                                            }}
+                                          >
+                                            {product.category}
+                                          </p>
                                         </div>
                                       </Link>
                                     ))}
@@ -635,25 +783,72 @@ const DesktopProductsDropdown = ({
                                 <Link
                                   key={product.key}
                                   to={product.href}
-                                  className="dropdown-product-link flex items-center gap-3 rounded-md px-1 py-1.5 transition-all duration-200 hover:translate-x-0.5"
+                                  data-branding-id="header.dropdown.product"
+                                  className={`dropdown-product-link grid gap-3 rounded-md px-1 py-1.5 transition-all duration-200 hover:translate-x-0.5 ${
+                                    dropdownTextPosition === 'side' 
+                                      ? 'grid-cols-[auto_1fr] items-start' 
+                                      : 'grid-rows-[auto_auto] items-center text-center'
+                                  }`}
                                 >
-                                  {product.imageUrl ? (
-                                    <img
-                                      src={getProductImage(product.productSlug, product.imageUrl)}
-                                      alt={product.label}
-                                      className="h-10 w-10 shrink-0 object-contain"
-                                      style={{ filter: 'var(--product-filter)' }}
-                                    />
-                                  ) : (
-                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-black/5">
-                                      <ProductCategoryIcon slug={product.productSlug} category={product.category} packId={selectedIconPackId} className="h-4 w-4" />
-                                    </div>
-                                  )}
-                                  <div className="min-w-0">
-                                    <p className="truncate text-sm font-medium" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>
+                                  {/* Image Container - Fixed size, isolated from text flow */}
+                                  <div 
+                                    className="flex items-center justify-center mx-auto"
+                                    style={{
+                                      width: `${dropdownCompactImageSizePx}px`,
+                                      height: `${dropdownCompactImageSizePx}px`,
+                                    }}
+                                  >
+                                    {product.imageUrl ? (
+                                      <img
+                                        data-branding-id="header.dropdown.image"
+                                        src={getProductImage(product.productSlug, product.imageUrl)}
+                                        alt={product.label}
+                                        className="object-contain max-w-full max-h-full"
+                                        style={{
+                                          filter: 'var(--product-filter)',
+                                          borderRadius: `${Math.min(32, Math.max(0, Number(headerSettings.dropdownImageRadiusPx ?? 10)))}px`,
+                                        }}
+                                      />
+                                    ) : (
+                                      <div
+                                        data-branding-id="header.dropdown.image"
+                                        className="flex items-center justify-center rounded-md bg-black/5 w-full h-full"
+                                        style={{
+                                          borderRadius: `${Math.min(32, Math.max(0, Number(headerSettings.dropdownImageRadiusPx ?? 10)))}px`,
+                                        }}
+                                      >
+                                        <ProductCategoryIcon
+                                          slug={product.productSlug}
+                                          category={product.category}
+                                          packId={selectedIconPackId}
+                                          className="h-4 w-4"
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                  {/* Text Container - Expands to fit content */}
+                                  <div className={`${dropdownTextPosition === 'side' ? 'min-w-0 pt-0.5 text-left' : 'text-center'}`}>
+                                    <p
+                                      data-branding-id="header.dropdown.product"
+                                      className="text-sm font-medium leading-tight break-words"
+                                      style={{
+                                        color: productColor,
+                                        fontFamily: `'${productFont}', sans-serif`,
+                                        fontSize: `${Math.min(22, Math.max(11, Number(headerSettings.dropdownProductFontSizePx ?? 14)))}px`,
+                                      }}
+                                    >
                                       {product.label}
                                     </p>
-                                    <p className="truncate text-[11px] text-muted-foreground">{product.category}</p>
+                                    <p
+                                      data-branding-id="header.dropdown.meta"
+                                      className="mt-0.5 break-words"
+                                      style={{
+                                        color: headerSettings.dropdownMetaColor || "#6B7280",
+                                        fontSize: `${Math.min(18, Math.max(10, Number(headerSettings.dropdownMetaFontSizePx ?? 11)))}px`,
+                                      }}
+                                    >
+                                      {product.category}
+                                    </p>
                                   </div>
                                 </Link>
                               ))}
@@ -665,13 +860,76 @@ const DesktopProductsDropdown = ({
                   })}
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
-        ) : groupedProductSections.map((section) => (
+        ) : (
+          <>
+            {/* Custom Dropdown Image for Tile View */}
+            {headerSettings.dropdownCustomImageUrl && (
+              <div className="mb-4 rounded-lg overflow-hidden border border-black/10">
+                <img 
+                  src={headerSettings.dropdownCustomImageUrl}
+                  alt=""
+                  className="w-full h-auto max-h-[200px] object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
+            {groupedProductSections.map((section) => {
+              const categoryImages = headerSettings.dropdownCategoryImages || {};
+              const categoryDisplayMode = headerSettings.dropdownCategoryDisplayMode || 'text';
+              const sectionKey = section.key.toLowerCase();
+              const categoryImageUrl = categoryImages[sectionKey] || categoryImages[sectionKey.replace(/[^a-z]/g, '')];
+              const showCategoryText = categoryDisplayMode !== 'image';
+              const showCategoryImage = categoryImageUrl && (categoryDisplayMode === 'image' || categoryDisplayMode === 'both');
+              
+              return (
           <div key={section.key} className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}>
-            <h3 className="text-sm font-semibold mb-2 px-2" style={{ color: categoryColor, fontFamily: `'${categoryFont}', sans-serif`, opacity: 0.7 }}>
-              {section.label}
-            </h3>
+            {showCategoryImage ? (
+              <div 
+                data-branding-id="header.dropdown.category"
+                className={`mb-2 px-2 ${showCategoryText ? 'flex items-center gap-2' : ''}`}
+              >
+                <img 
+                  src={categoryImageUrl}
+                  alt={section.label}
+                  className="object-contain"
+                  style={{
+                    height: `${Math.min(60, Math.max(24, Number(headerSettings.dropdownCategoryFontSizePx ?? 14) * 2))}px`,
+                    width: 'auto',
+                  }}
+                />
+                {showCategoryText && (
+                  <h3
+                    className="text-sm font-semibold"
+                    style={{
+                      color: categoryColor,
+                      fontFamily: `'${categoryFont}', sans-serif`,
+                      fontSize: `${Math.min(24, Math.max(10, Number(headerSettings.dropdownCategoryFontSizePx ?? 13)))}px`,
+                      opacity: 0.7,
+                    }}
+                  >
+                    {section.label}
+                  </h3>
+                )}
+              </div>
+            ) : (
+              <h3
+                data-branding-id="header.dropdown.category"
+                className="text-sm font-semibold mb-2 px-2"
+                style={{
+                  color: categoryColor,
+                  fontFamily: `'${categoryFont}', sans-serif`,
+                  fontSize: `${Math.min(24, Math.max(10, Number(headerSettings.dropdownCategoryFontSizePx ?? 13)))}px`,
+                  opacity: 0.7,
+                }}
+              >
+                {section.label}
+              </h3>
+            )}
             {(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? (
               <div
                 className="grid gap-2"
@@ -682,15 +940,44 @@ const DesktopProductsDropdown = ({
               >
                 {section.items.map((item) => (
                   <DropdownMenuItem key={item.key} asChild>
-                    <Link to={item.href} className="dropdown-product-link cursor-pointer flex flex-col items-center gap-2 p-3 transition-all hover:scale-105 rounded-md">
+                    <Link to={item.href} data-branding-id="header.dropdown.product" className="dropdown-product-link cursor-pointer grid grid-rows-[auto_1fr] gap-2 p-3 transition-all hover:scale-105 rounded-md">
+                      {/* Image row - fixed height, isolated */}
                       {item.imageUrl && (
-                        <img src={getProductImage(item.productSlug, item.imageUrl)} alt={item.label} className="w-14 h-14 object-contain" style={{ filter: 'var(--product-filter)' }} />
+                        <div 
+                          className="flex items-center justify-center mx-auto"
+                          style={{
+                            width: `${dropdownImageSizePx}px`,
+                            height: `${dropdownImageSizePx}px`,
+                          }}
+                        >
+                          <img
+                            data-branding-id="header.dropdown.image"
+                            src={getProductImage(item.productSlug, item.imageUrl)}
+                            alt={item.label}
+                            className="object-contain max-w-full max-h-full"
+                            style={{
+                              filter: 'var(--product-filter)',
+                              borderRadius: `${Math.min(32, Math.max(0, Number(headerSettings.dropdownImageRadiusPx ?? 10)))}px`,
+                            }}
+                          />
+                        </div>
                       )}
+                      {/* Text row - completely separate, expands to fit content */}
                       {headerSettings.dropdownMode === 'IMAGE_AND_TEXT' && (
-                        <span className="inline-flex items-center gap-1.5 text-xs text-center" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>
-                          <ProductCategoryIcon slug={item.productSlug} category={item.category} packId={selectedIconPackId} className="h-4 w-4" />
-                          <span className={item.depth > 0 ? "opacity-80" : ""}>{item.depth > 0 ? `- ${item.label}` : item.label}</span>
-                        </span>
+                        <div className="text-center">
+                          <span
+                            data-branding-id="header.dropdown.product"
+                            className="inline-flex items-center justify-center gap-1.5 text-xs break-words"
+                            style={{
+                              color: productColor,
+                              fontFamily: `'${productFont}', sans-serif`,
+                              fontSize: `${Math.min(22, Math.max(11, Number(headerSettings.dropdownProductFontSizePx ?? 14)))}px`,
+                            }}
+                          >
+                            <ProductCategoryIcon slug={item.productSlug} category={item.category} packId={selectedIconPackId} className="h-4 w-4 flex-shrink-0" />
+                            <span className={item.depth > 0 ? "opacity-80" : ""}>{item.depth > 0 ? `- ${item.label}` : item.label}</span>
+                          </span>
+                        </div>
                       )}
                     </Link>
                   </DropdownMenuItem>
@@ -702,8 +989,13 @@ const DesktopProductsDropdown = ({
                   <DropdownMenuItem key={item.key} asChild>
                     <Link
                       to={item.href}
+                      data-branding-id="header.dropdown.product"
                       className="dropdown-product-link cursor-pointer px-2 py-1.5 text-sm transition-colors rounded inline-flex items-center gap-2"
-                      style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}
+                      style={{
+                        color: productColor,
+                        fontFamily: `'${productFont}', sans-serif`,
+                        fontSize: `${Math.min(22, Math.max(11, Number(headerSettings.dropdownProductFontSizePx ?? 14)))}px`,
+                      }}
                     >
                       <ProductCategoryIcon slug={item.productSlug} category={item.category} packId={selectedIconPackId} />
                       <span className={item.depth > 0 ? "pl-3 opacity-80" : ""}>{item.label}</span>
@@ -713,7 +1005,10 @@ const DesktopProductsDropdown = ({
               </div>
             )}
           </div>
-        ))}
+        );
+        })}
+      </>
+      )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -776,7 +1071,7 @@ const Header = () => {
 
   // Use centralized settings hook
   const settings = useShopSettings();
-  const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
+  const { branding: previewBranding, isPreviewMode, previewPath } = usePreviewBranding();
   const tenantName = settings.data?.tenant_name || "Webprinter.dk";
   const tenantId = settings.data?.id || '00000000-0000-0000-0000-000000000000'; // Default to Master
 
@@ -784,6 +1079,7 @@ const Header = () => {
   const activeBranding = (isPreviewMode && previewBranding)
     ? previewBranding
     : settings.data?.branding;
+  const effectivePathname = isPreviewMode && previewPath ? previewPath : location.pathname;
   const selectedIconPackId = activeBranding?.selectedIconPackId || "classic";
 
   // Get header branding settings - prioritize preview branding if in preview mode
@@ -809,6 +1105,8 @@ const Header = () => {
     actionHoverBgColor: 'rgba(0,0,0,0.05)',
     autoContrastText: true,
     dropdownMode: 'IMAGE_AND_TEXT' as const,
+    dropdownImageSizePx: 56,
+    dropdownCompactImageSizePx: 40,
     transparentOverHero: true, // Default to true for standard template
     // Logo defaults
     logoType: 'text' as const,
@@ -898,7 +1196,7 @@ const Header = () => {
   // Consider all shop frontpage variants as "homepage" (they all have hero banners)
   // Treat preview routes like the storefront so sticky/transparent behavior matches what customers see
   const homePaths = ['/', '/shop', '/produkter', '/local-tenant', '/prisberegner', '/preview-shop'];
-  const isHome = homePaths.includes(location.pathname);
+  const isHome = homePaths.includes(effectivePathname);
   // Check if we should be transparent over hero (only at top of homepage)
   // Auto-enable overlay if transparentOverHero is set OR if background is not fully opaque
   // At top of page = transparent overlay, after scroll = solid background
@@ -990,14 +1288,19 @@ const Header = () => {
     return {
       backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity})`,
       '--dropdown-hover-bg': headerSettings.dropdownHoverColor || '#F3F4F6',
+      borderRadius: `${Math.min(40, Math.max(0, Number(headerSettings.dropdownBorderRadiusPx ?? 18)))}px`,
     } as React.CSSProperties;
-  }, [headerSettings.dropdownBgColor, headerSettings.dropdownBgOpacity, headerSettings.dropdownHoverColor]);
+  }, [headerSettings.dropdownBgColor, headerSettings.dropdownBgOpacity, headerSettings.dropdownBorderRadiusPx, headerSettings.dropdownHoverColor]);
 
   // Dropdown styling variables for direct use in child elements
   const categoryFont = headerSettings.dropdownCategoryFontId || 'Inter';
   const categoryColor = headerSettings.dropdownCategoryColor || '#6B7280';
   const productFont = headerSettings.dropdownProductFontId || 'Inter';
   const productColor = headerSettings.dropdownProductColor || '#1F2937';
+  const menuFontSizePx = Math.min(22, Math.max(12, Number(headerSettings.menuFontSizePx ?? 14)));
+  const dropdownImageSizePx = Math.min(120, Math.max(32, Number(headerSettings.dropdownImageSizePx ?? 56)));
+  const dropdownCompactImageSizePx = Math.min(96, Math.max(24, Number(headerSettings.dropdownCompactImageSizePx ?? 40)));
+  const dropdownTextPosition = headerSettings.dropdownTextPosition || 'below';
 
   // Build position class - Ensure it reacts to sticky changes
   // When isHome is true, we use manual styles (fixed/absolute). 
@@ -1429,21 +1732,24 @@ const Header = () => {
     }
   }, [t, toast]);
 
-  const isActive = (path: string) => location.pathname === path;
+  const isActive = (path: string) => effectivePathname === path;
 
   const handleNavClick = useCallback((href: string, id: string) => (e: React.MouseEvent) => {
     // Force navigation to work even if the current page is in a bad render loop
     e.preventDefault();
     setSelectedMenuId(id);
     const resolvedHref = appendStorefrontTenantContext(href);
-    const currentRelativeUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    if (currentRelativeUrl === resolvedHref || location.pathname === href) return;
+    const currentRelativePath = isPreviewMode && previewPath ? previewPath : location.pathname;
+    const currentRelativeUrl = isPreviewMode && previewPath
+      ? previewPath
+      : `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (currentRelativeUrl === resolvedHref || currentRelativePath === href) return;
     try {
       navigate(resolvedHref);
     } catch {
       window.location.assign(resolvedHref);
     }
-  }, [location.pathname, navigate]);
+  }, [isPreviewMode, location.pathname, navigate, previewPath]);
 
   // Build position class - let inline styles control position for hero pages
   // const positionClass = isHome ? '' : (headerSettings.scroll.sticky ? 'sticky top-0' : 'relative');
@@ -1452,7 +1758,7 @@ const Header = () => {
   return (
     <header
       ref={headerRef}
-      data-branding-id="header"
+      data-branding-id="header.background"
       className={`${positionClass} z-[1000] transition-all duration-300 ease-in-out`}
       style={{
         ...getHeaderStyles(),
@@ -1587,7 +1893,7 @@ const Header = () => {
               ? 'ml-auto mr-8'
               : 'ml-8'
             }`}
-            data-branding-id="header.menu"
+            data-branding-id="header.menu.layout"
           >
             {headerSettings.navItems
               .filter(item => item.isVisible)
@@ -1601,6 +1907,7 @@ const Header = () => {
                       key={item.id}
                       itemId={item.id}
                       itemLabel={item.label}
+                      itemImageUrl={item.imageUrl}
                       isSelected={selectedMenuId === item.id}
                       onSelect={() => setSelectedMenuId(item.id)}
                       headerSettings={headerSettings}
@@ -1613,23 +1920,47 @@ const Header = () => {
                       productColor={productColor}
                       productFont={productFont}
                       selectedIconPackId={selectedIconPackId}
+                      dropdownImageSizePx={dropdownImageSizePx}
+                      dropdownCompactImageSizePx={dropdownCompactImageSizePx}
+                      dropdownTextPosition={dropdownTextPosition}
                     />
                   );
                 }
 
+                const displayMode = item.displayMode || (item.imageUrl ? 'image_and_text' : 'text_only');
+                const imageSize = item.imageSizePx || 40;
+                const showImage = item.imageUrl && (displayMode === 'image_only' || displayMode === 'image_and_text');
+                const showText = displayMode !== 'image_only';
+                
                 return (
                   <Link
                     key={item.id}
                     to={appendStorefrontTenantContext(item.href)}
-                    className="header-nav-link text-sm font-medium"
+                    data-branding-id="header.menu.item"
+                    className={`header-nav-link text-sm font-medium inline-flex items-center gap-2 ${displayMode === 'image_only' ? 'flex-col' : ''}`}
                     style={{
+                      fontSize: `${menuFontSizePx}px`,
                       color: selectedMenuId === item.id
                         ? (headerSettings.activeTextColor || '#0284C7')
                         : (headerSettings.textColor || '#1F2937')
                     }}
                     onClick={handleNavClick(item.href, item.id)}
                   >
-                    {item.label}
+                    {showImage && (
+                      <img 
+                        data-branding-id="header.menu.item.image"
+                        src={item.imageUrl} 
+                        alt={showText ? '' : item.label}
+                        className="object-contain"
+                        style={{ 
+                          width: `${imageSize}px`, 
+                          height: displayMode === 'image_only' ? 'auto' : `${imageSize}px`,
+                          maxHeight: displayMode === 'image_only' ? `${imageSize}px` : undefined,
+                          borderRadius: '2px' 
+                        }}
+                      />
+                    )}
+                    {showText && <span data-branding-id="header.menu.text">{item.label}</span>}
                   </Link>
                 );
               })}
@@ -1659,6 +1990,7 @@ const Header = () => {
             <Button
               variant="ghost"
               size="icon"
+              data-branding-id="header.actions"
               className="lg:hidden header-action-link"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
@@ -1669,37 +2001,40 @@ const Header = () => {
 
         {/* Mobile Navigation */}
         {mobileMenuOpen && (
-          <nav className="lg:hidden py-4 border-t border-border bg-background">
+          <nav data-branding-id="header.menu.layout" className="lg:hidden py-4 border-t border-border bg-background">
             {navItems.map((item) => (
               <Link
                 key={item.path}
                 to={appendStorefrontTenantContext(item.path)}
+                data-branding-id="header.menu.item"
                 onClick={() => setMobileMenuOpen(false)}
                 className={`block py-3 text-base font-medium transition-colors hover:text-primary ${isActive(item.path) ? "text-primary" : "text-foreground"
                   }`}
               >
-                {item.label}
+                <span data-branding-id="header.menu.text">{item.label}</span>
               </Link>
             ))}
 
             {/* Mobile Products Section */}
             <div className="py-3">
-              <p className="text-sm font-semibold text-muted-foreground mb-2">{t("products")}</p>
+              <p data-branding-id="header.dropdown.category" className="text-sm font-semibold text-muted-foreground mb-2">{t("products")}</p>
               {groupedProductSections.map((section) => (
                 <div key={section.key} className="mb-3">
-                  <p className="px-4 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
+                  <p data-branding-id="header.dropdown.category" className="px-4 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
                     {section.label}
                   </p>
                   {section.items.map((item) => (
                     <Link
                       key={item.key}
                       to={item.href}
+                      data-branding-id="header.dropdown.product"
                       onClick={() => setMobileMenuOpen(false)}
                       className="flex items-center gap-2 py-2 text-base transition-colors hover:text-primary"
                       style={{ paddingLeft: item.depth > 0 ? "2.25rem" : "1rem" }}
                     >
                       {item.imageUrl ? (
                         <img
+                          data-branding-id="header.dropdown.image"
                           src={getProductImage(item.productSlug, item.imageUrl)}
                           alt={item.label}
                           className="w-5 h-5 object-contain"
@@ -1712,7 +2047,7 @@ const Header = () => {
                           packId={selectedIconPackId}
                         />
                       )}
-                      {item.label}
+                      <span data-branding-id="header.dropdown.product">{item.label}</span>
                     </Link>
                   ))}
                 </div>
@@ -1720,7 +2055,7 @@ const Header = () => {
             </div>
 
             {/* Language Switcher Mobile */}
-            <div className="py-3 border-t border-border">
+            <div data-branding-id="header.actions" className="py-3 border-t border-border">
               <p className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
                 <svg className="h-4 w-4 rounded-sm" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <rect width="20" height="14" fill="#C8102E" />
@@ -1731,6 +2066,7 @@ const Header = () => {
               </p>
               <Button
                 variant={language === "da" ? "secondary" : "ghost"}
+                data-branding-id="header.actions"
                 className="w-full justify-start mb-2 gap-2"
                 onClick={() => setLanguage("da")}
               >
@@ -1743,6 +2079,7 @@ const Header = () => {
               </Button>
               <Button
                 variant={language === "en" ? "secondary" : "ghost"}
+                data-branding-id="header.actions"
                 className="w-full justify-start gap-2"
                 onClick={() => setLanguage("en")}
               >
@@ -1761,6 +2098,7 @@ const Header = () => {
             {headerSettings.cta?.enabled && (
               <Button
                 asChild
+                data-branding-id="header.cta"
                 className="w-full mt-4 header-cta-button"
                 style={{
                   color: headerSettings.cta.textColor || '#FFFFFF',
@@ -1778,7 +2116,7 @@ const Header = () => {
 
             {/* Auth Buttons - Mobile */}
             {user ? (
-              <div className="mt-4 pt-4 border-t border-border space-y-2">
+              <div data-branding-id="header.actions" className="mt-4 pt-4 border-t border-border space-y-2">
                 <p className="text-sm text-muted-foreground mb-3 flex items-center gap-2">
                   <User className="h-4 w-4" />
                   {user.email}
@@ -1786,6 +2124,7 @@ const Header = () => {
                 <Button
                   asChild
                   variant="outline"
+                  data-branding-id="header.actions"
                   className="w-full"
                 >
                     <Link to={appendStorefrontTenantContext("/min-konto")} onClick={() => setMobileMenuOpen(false)}>
@@ -1796,6 +2135,7 @@ const Header = () => {
                 <Button
                   asChild
                   variant="outline"
+                  data-branding-id="header.actions"
                   className="w-full"
                 >
                     <Link to={appendStorefrontTenantContext("/min-konto/ordrer")} onClick={() => setMobileMenuOpen(false)}>
@@ -1806,6 +2146,7 @@ const Header = () => {
                 <Button
                   asChild
                   variant="outline"
+                  data-branding-id="header.actions"
                   className="w-full"
                 >
                     <Link to={appendStorefrontTenantContext("/min-konto/adresser")} onClick={() => setMobileMenuOpen(false)}>
@@ -1817,6 +2158,7 @@ const Header = () => {
                   <Button
                     asChild
                     variant="outline"
+                    data-branding-id="header.actions"
                     className="w-full"
                   >
                     <Link to="/admin" onClick={() => setMobileMenuOpen(false)}>
@@ -1827,6 +2169,7 @@ const Header = () => {
                 )}
                 <Button
                   variant="outline"
+                  data-branding-id="header.actions"
                   className="w-full"
                   onClick={() => {
                     handleLogout();
@@ -1840,6 +2183,7 @@ const Header = () => {
             ) : (
               <Button
                 asChild
+                data-branding-id="header.actions"
                 className="mt-4 w-full header-cta-button shadow-none"
                 style={{
                   color: headerSettings.cta.textColor || '#FFFFFF',

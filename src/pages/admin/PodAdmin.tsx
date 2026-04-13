@@ -56,6 +56,23 @@ export function PodAdmin() {
                 </Button>
             </div>
 
+            <Card>
+                <CardHeader>
+                    <CardTitle>Flyer Alarm (POD3)</CardTitle>
+                    <CardDescription>
+                        FlyerAlarm er parkeret som et separat POD-spor. Det er ikke koblet til storefront eller Site Design V2.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-muted-foreground">
+                        Brug den dedikerede workbench til videre arbejde, uden at forstyrre de aktive shop-flows.
+                    </p>
+                    <Button asChild variant="outline">
+                        <a href="/admin/pod3">Åbn Flyer Alarm</a>
+                    </Button>
+                </CardContent>
+            </Card>
+
             <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList className="grid w-full grid-cols-5">
                     <TabsTrigger value="explorer">API Explorer</TabsTrigger>

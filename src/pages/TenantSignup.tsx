@@ -1,14 +1,20 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Loader2, Store, Mail, Lock, CheckCircle } from 'lucide-react';
+import { Loader2, Store, Mail, Lock, CheckCircle, AlertTriangle } from 'lucide-react';
 import { z } from 'zod';
 import PlatformHeader from '@/components/platform/PlatformHeader';
 import PlatformFooter from '@/components/platform/PlatformFooter';
+import {
+    buildPlatformLegalAcceptanceRows,
+    PLATFORM_PRIVACY_ROUTE,
+    PLATFORM_TERMS_ROUTE,
+} from '@/lib/legal/platformLegal';
 
 const signupSchema = z.object({
     shopName: z.string().min(2, 'Shopnavn skal være mindst 2 tegn').max(100),
@@ -23,6 +29,9 @@ export default function TenantSignup() {
     const [shopName, setShopName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [acceptPlatformTerms, setAcceptPlatformTerms] = useState(false);
+    const [signupNeedsAttention, setSignupNeedsAttention] = useState(false);
+    const [signupAttentionMessage, setSignupAttentionMessage] = useState('');
 
     // No auto-redirect - anyone can view this page
     // Logged-in users will see the form but signup will fail if email exists
@@ -36,7 +45,14 @@ export default function TenantSignup() {
             return;
         }
 
+        if (!acceptPlatformTerms) {
+            toast.error('Du skal acceptere platformvilkår og privatlivspolitik for at fortsætte.');
+            return;
+        }
+
         setLoading(true);
+        setSignupNeedsAttention(false);
+        setSignupAttentionMessage('');
 
         try {
             // 1. Create user in Supabase Auth (with timeout)
@@ -53,11 +69,11 @@ export default function TenantSignup() {
             });
 
             // Add 15 second timeout
-            const timeoutPromise = new Promise((_, reject) =>
+            const timeoutPromise = new Promise<never>((_, reject) =>
                 setTimeout(() => reject(new Error('Timeout: Email sending might be failing. Check SMTP settings.')), 15000)
             );
 
-            const { data: authData, error: authError } = await Promise.race([signupPromise, timeoutPromise]) as any;
+            const { data: authData, error: authError } = await Promise.race([signupPromise, timeoutPromise]);
 
             if (authError) {
                 if (authError.message.includes('already registered')) {
@@ -74,26 +90,71 @@ export default function TenantSignup() {
             }
 
             // 2. Create tenant for this shop owner
-            const { error: tenantError } = await supabase
-                .from('tenants' as any)
+            const { data: tenantData, error: tenantError } = await supabase
+                .from('tenants')
                 .insert({
                     name: shopName.trim(),
                     owner_id: authData.user.id,
-                    settings: { type: 'tenant' },
-                });
+                    settings: {
+                        type: 'tenant',
+                        company: {
+                            name: shopName.trim(),
+                            email: email.trim().toLowerCase(),
+                        },
+                    },
+                })
+                .select('id')
+                .single();
 
-            if (tenantError) {
+            if (tenantError || !tenantData?.id) {
                 console.error('Tenant creation error:', tenantError);
-                // Don't block signup, tenant can be created later
+                setSignupNeedsAttention(true);
+                setSignupAttentionMessage('Din konto er oprettet, men vi kunne ikke færdiggøre shopopsætningen. Kontakt os, så vi kan færdiggøre onboarding.');
+                setStep('success');
+                toast.error('Konto oprettet, men shopopsætning mangler. Kontakt os.');
+                return;
             }
 
-            // 3. Add 'admin' role to this user for their shop
-            await supabase
-                .from('user_roles' as any)
+            const tenantId = tenantData.id;
+
+            // 3. Add tenant-scoped admin role to this user
+            const { error: roleError } = await supabase
+                .from('user_roles')
                 .insert({
                     user_id: authData.user.id,
                     role: 'admin',
+                    tenant_id: tenantId,
                 });
+
+            if (roleError) {
+                console.error('Role creation error:', roleError);
+                setSignupNeedsAttention(true);
+                setSignupAttentionMessage('Din konto og shop er oprettet, men vi kunne ikke færdiggøre adgangsopsætningen. Kontakt os, så vi kan aktivere din tenant korrekt.');
+                setStep('success');
+                toast.error('Konto oprettet, men adgangsopsætning mangler. Kontakt os.');
+                return;
+            }
+
+            // 4. Store legal acceptance evidence for the tenant signup
+            const { error: acceptanceError } = await supabase
+                .from('tenant_legal_acceptances')
+                .insert(
+                    buildPlatformLegalAcceptanceRows({
+                        tenantId,
+                        userId: authData.user.id,
+                        email: email.trim(),
+                        userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : null,
+                    })
+                );
+
+            if (acceptanceError) {
+                console.error('Legal acceptance logging error:', acceptanceError);
+                setSignupNeedsAttention(true);
+                setSignupAttentionMessage('Din konto og shop er oprettet, men vi kunne ikke registrere aftaleaccepten korrekt. Kontakt os, så vi kan færdiggøre onboarding.');
+                setStep('success');
+                toast.error('Konto oprettet, men aftaleaccept mangler. Kontakt os.');
+                return;
+            }
 
             setStep('success');
             toast.success('Shop oprettet! Check din email for at bekræfte.');
@@ -113,13 +174,28 @@ export default function TenantSignup() {
                 <div className="flex-1 flex items-center justify-center bg-gradient-to-b from-background to-muted/20 px-4 py-12">
                     <Card className="w-full max-w-md text-center">
                         <CardHeader>
-                            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
-                                <CheckCircle className="h-8 w-8 text-green-600" />
+                            <div className={`mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full ${signupNeedsAttention ? 'bg-amber-100' : 'bg-green-100'}`}>
+                                {signupNeedsAttention ? (
+                                    <AlertTriangle className="h-8 w-8 text-amber-600" />
+                                ) : (
+                                    <CheckCircle className="h-8 w-8 text-green-600" />
+                                )}
                             </div>
-                            <CardTitle>Shop Oprettet!</CardTitle>
+                            <CardTitle>{signupNeedsAttention ? 'Konto oprettet, men gennemgå onboarding' : 'Shop Oprettet!'}</CardTitle>
                             <CardDescription>
-                                Vi har sendt en bekræftelsesmail til <strong>{email}</strong>.
-                                Klik på linket i mailen for at aktivere din konto og starte din webshop.
+                                {signupNeedsAttention ? (
+                                    <>
+                                        {signupAttentionMessage}
+                                        <br />
+                                        <br />
+                                        Vi har sendt en bekræftelsesmail til <strong>{email}</strong>.
+                                    </>
+                                ) : (
+                                    <>
+                                        Vi har sendt en bekræftelsesmail til <strong>{email}</strong>.
+                                        Klik på linket i mailen for at aktivere din konto. Derefter kan du logge ind og vælge abonnement i admin.
+                                    </>
+                                )}
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -145,7 +221,7 @@ export default function TenantSignup() {
                             Start Din Webshop
                         </CardTitle>
                         <CardDescription>
-                            Opret din egen trykkeri-webshop på få minutter. Inkluderer alle produkter og priser automatisk.
+                            Opret din egen trykkeri-webshop. Når din konto er bekræftet, kan du logge ind og vælge abonnement for at starte prøveperioden.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -204,6 +280,29 @@ export default function TenantSignup() {
                                     <li>✓ Admin panel til ordrehåndtering</li>
                                     <li>✓ Automatiske opdateringer fra os</li>
                                 </ul>
+                            </div>
+
+                            <div className="rounded-lg border border-border/70 p-4 space-y-3">
+                                <div className="flex items-start gap-3">
+                                    <Checkbox
+                                        id="acceptPlatformTerms"
+                                        checked={acceptPlatformTerms}
+                                        onCheckedChange={(checked) => setAcceptPlatformTerms(Boolean(checked))}
+                                        disabled={loading}
+                                        className="mt-1"
+                                    />
+                                    <label htmlFor="acceptPlatformTerms" className="text-sm text-muted-foreground leading-relaxed">
+                                        Jeg accepterer{" "}
+                                        <Link to={PLATFORM_TERMS_ROUTE} className="text-primary hover:underline">
+                                            platformvilkår
+                                        </Link>{" "}
+                                        og{" "}
+                                        <Link to={PLATFORM_PRIVACY_ROUTE} className="text-primary hover:underline">
+                                            privatlivspolitik
+                                        </Link>
+                                        , og at min accept registreres som en del af onboarding.
+                                    </label>
+                                </div>
                             </div>
 
                             <Button type="submit" className="w-full" disabled={loading}>

@@ -58,10 +58,15 @@ function CheckoutForm({
         setIsProcessing(true);
 
         try {
+            const returnUrl = new URL(window.location.href);
+            returnUrl.searchParams.delete("payment_intent");
+            returnUrl.searchParams.delete("payment_intent_client_secret");
+            returnUrl.searchParams.delete("redirect_status");
+
             const { error, paymentIntent } = await stripe.confirmPayment({
                 elements,
                 confirmParams: {
-                    return_url: window.location.origin + "/ordre-bekraeftelse",
+                    return_url: returnUrl.toString(),
                 },
                 redirect: "if_required",
             });

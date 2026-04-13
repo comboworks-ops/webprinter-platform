@@ -14,6 +14,7 @@ import { FontSelector } from "./FontSelector";
 import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches";
 import {
     type BrandingData,
+    type Banner2Mode,
     type Banner2Settings,
     type Banner2Slide,
     type Banner2Item,
@@ -40,7 +41,7 @@ const ANIMATION_OPTIONS = [
 ] as const;
 
 const MAX_SLIDES = 5;
-const MAX_ITEMS_PER_SLIDE = 4;
+const MAX_ITEMS_PER_SLIDE = 20;
 
 export function Banner2Section({
     draft,
@@ -207,31 +208,115 @@ export function Banner2Section({
 
                     {banner2.enabled && (
                         <>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div id="site-design-focus-showcase-layout" className="space-y-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div className="space-y-2">
+                                        <Label>Mode</Label>
+                                        <Select
+                                            value={banner2.mode}
+                                            onValueChange={(v: Banner2Mode) => updateBanner2({ mode: v })}
+                                        >
+                                            <SelectTrigger className="h-8 text-xs">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="cards" className="text-xs">Kort / testimonials</SelectItem>
+                                                <SelectItem value="logo-showcase" className="text-xs">Logo showcase</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Auto slide</Label>
+                                        <Switch
+                                            checked={banner2.autoPlay}
+                                            onCheckedChange={(v) => updateBanner2({ autoPlay: v })}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Vis pile</Label>
+                                        <Switch
+                                            checked={banner2.showArrows}
+                                            onCheckedChange={(v) => updateBanner2({ showArrows: v })}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Vis prikker</Label>
+                                        <Switch
+                                            checked={banner2.showDots}
+                                            onCheckedChange={(v) => updateBanner2({ showDots: v })}
+                                        />
+                                    </div>
+                                </div>
+
                                 <div className="space-y-2">
-                                    <Label>Auto slide</Label>
-                                    <Switch
-                                        checked={banner2.autoPlay}
-                                        onCheckedChange={(v) => updateBanner2({ autoPlay: v })}
+                                    <Label>Kolonner pr. slide</Label>
+                                    <Select
+                                        value={String(banner2.itemsPerRow || 4)}
+                                        onValueChange={(value) => updateBanner2({ itemsPerRow: Number(value) })}
+                                    >
+                                        <SelectTrigger className="h-8 text-xs">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {[1, 2, 3, 4, 5, 6].map((count) => (
+                                                <SelectItem key={count} value={String(count)} className="text-xs">
+                                                    {count} kolonner
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-3">
+                                <div id="site-design-focus-showcase-heading" className="space-y-2">
+                                    <Label>Overskrift</Label>
+                                    <Input
+                                        value={banner2.heading}
+                                        onChange={(e) => updateBanner2({ heading: e.target.value })}
+                                    />
+                                    <FontSelector
+                                        label="Overskrift font"
+                                        inline
+                                        value={banner2.headingFont || "Poppins"}
+                                        onChange={(value) => updateBanner2({ headingFont: value })}
+                                    />
+                                    <ColorPickerWithSwatches
+                                        label="Overskrift farve"
+                                        inline
+                                        value={banner2.headingColor || "#FFFFFF"}
+                                        onChange={(color) => updateBanner2({ headingColor: color })}
+                                        savedSwatches={savedSwatches}
+                                        onSaveSwatch={onSaveSwatch}
+                                        onRemoveSwatch={onRemoveSwatch}
                                     />
                                 </div>
-                                <div className="space-y-2">
-                                    <Label>Vis pile</Label>
-                                    <Switch
-                                        checked={banner2.showArrows}
-                                        onCheckedChange={(v) => updateBanner2({ showArrows: v })}
+                                <div id="site-design-focus-showcase-subtitle" className="space-y-2">
+                                    <Label>Intro tekst</Label>
+                                    <Textarea
+                                        rows={2}
+                                        value={banner2.subtitle}
+                                        onChange={(e) => updateBanner2({ subtitle: e.target.value })}
                                     />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Vis prikker</Label>
-                                    <Switch
-                                        checked={banner2.showDots}
-                                        onCheckedChange={(v) => updateBanner2({ showDots: v })}
+                                    <FontSelector
+                                        label="Intro font"
+                                        inline
+                                        value={banner2.subtitleFont || "Inter"}
+                                        onChange={(value) => updateBanner2({ subtitleFont: value })}
+                                    />
+                                    <ColorPickerWithSwatches
+                                        label="Intro farve"
+                                        inline
+                                        value={banner2.subtitleColor || "#E5E7EB"}
+                                        onChange={(color) => updateBanner2({ subtitleColor: color })}
+                                        savedSwatches={savedSwatches}
+                                        onSaveSwatch={onSaveSwatch}
+                                        onRemoveSwatch={onRemoveSwatch}
                                     />
                                 </div>
                             </div>
 
-                            <div className="space-y-2">
+                            <div id="site-design-focus-showcase-background" className="space-y-2">
                                 <Label>Baggrund</Label>
                                 <Select
                                     value={banner2.background.type}
@@ -429,7 +514,7 @@ export function Banner2Section({
 
                                 <div className="space-y-3">
                                     {slide.items.map((item, itemIndex) => (
-                                        <Card key={item.id} className="border border-dashed">
+                                        <Card key={item.id} id={`site-design-focus-showcase-item-${item.id}`} className="border border-dashed">
                                             <CardHeader className="py-2">
                                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                                     <CardTitle className="text-xs font-medium">
@@ -453,7 +538,7 @@ export function Banner2Section({
                                                 </div>
                                             </CardHeader>
                                             <CardContent className={cn("space-y-3 min-w-0", !item.enabled && "opacity-60")}>
-                                                <div className="space-y-2">
+                                                <div id={`site-design-focus-showcase-item-${item.id}-image`} className="space-y-2">
                                                     <Label>Ikon / billede</Label>
                                                     <div className="flex flex-wrap items-center gap-3">
                                                         <Select
@@ -529,16 +614,16 @@ export function Banner2Section({
                                                 </div>
 
                                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                                    <div className="space-y-2">
-                                                        <Label>Titel</Label>
+                                                    <div id={`site-design-focus-showcase-item-${item.id}-title`} className="space-y-2">
+                                                        <Label>{banner2.mode === "logo-showcase" ? "Tekst under billede" : "Titel"}</Label>
                                                         <Input
                                                             value={item.title}
                                                             onChange={(e) => updateItem(slide.id, item.id, { title: e.target.value })}
                                                             disabled={!slide.enabled || !item.enabled}
                                                         />
                                                     </div>
-                                                    <div className="space-y-2">
-                                                        <Label>Beskrivelse</Label>
+                                                    <div id={`site-design-focus-showcase-item-${item.id}-description`} className="space-y-2">
+                                                        <Label>{banner2.mode === "logo-showcase" ? "Ekstra tekst" : "Beskrivelse"}</Label>
                                                         <Textarea
                                                             value={item.description}
                                                             onChange={(e) => updateItem(slide.id, item.id, { description: e.target.value })}

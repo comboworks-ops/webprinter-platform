@@ -84,6 +84,11 @@ dist-ssr
 node_modules_to_delete/
 .agent/SESSION_LOG_*.md
 .agent/SAFETY_AUDIT_*.md
+.playwright-cli/
+dist-check/
+dist-check*/
+.TODO_DROPDOWN_IMAGE
+.agent/SITE_DESIGN_V2_SCRATCHPAD.tmp
 
 # Generated supplier exports
 pricing_raw/*
@@ -98,3 +103,4 @@ webprinter_home.png
 homepage.png
 classic-race-tilbud.html
 Salgsmapper_A4_4plus4_pricinghub_import_ready.csv
+.env*.local

@@ -36,7 +36,7 @@ export const PRICING_TIERS: PricingTier[] = [
             "Email support",
             "SSL certifikat inkluderet",
         ],
-        cta: "Start gratis prøveperiode",
+        cta: "Start onboarding",
     },
     {
         id: "professional",
@@ -54,7 +54,7 @@ export const PRICING_TIERS: PricingTier[] = [
             "CompanyHub (B2B portal)",
         ],
         highlighted: true,
-        cta: "Start gratis prøveperiode",
+        cta: "Start onboarding",
     },
     {
         id: "enterprise",

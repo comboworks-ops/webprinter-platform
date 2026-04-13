@@ -426,6 +426,12 @@ export default function SitesAdmin() {
               </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
+              <Link to="/admin/site-design-v2">
+                <Palette className="h-4 w-4 mr-2" />
+                Gaa til Site Design V2
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
               <Link to="/admin/tilvalgsbibliotek">
                 <Layers3 className="h-4 w-4 mr-2" />
                 Aabn tilvalgsbibliotek

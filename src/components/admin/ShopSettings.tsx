@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Mail, Bell, Shield, Globe, Loader2, Save } from "lucide-react";
+import { Mail, Bell, Shield, Globe, Loader2, Save, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -32,12 +32,15 @@ export function ShopSettings() {
     const [language, setLanguage] = useState("da");
     const [currency, setCurrency] = useState("DKK");
     const [timezone, setTimezone] = useState("Europe/Copenhagen");
+    const [canvaEnabled, setCanvaEnabled] = useState(false);
+    const [canvaButtonLabel, setCanvaButtonLabel] = useState("Design i Canva");
+    const [canvaHelperText, setCanvaHelperText] = useState("Åbn en Canva-template i et nyt vindue og vend tilbage med din færdige fil.");
 
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        if (tenant?.settings) {
-            const s = tenant.settings as any;
+        if (tenant) {
+            const s = tenant as any;
 
             // Company
             if (s.company) {
@@ -62,6 +65,15 @@ export function ShopSettings() {
                 setCurrency(s.regional.currency || "DKK");
                 setTimezone(s.regional.timezone || "Europe/Copenhagen");
             }
+
+            if (s.canva) {
+                setCanvaEnabled(s.canva.enabled === true);
+                setCanvaButtonLabel(s.canva.button_label || "Design i Canva");
+                setCanvaHelperText(
+                    s.canva.helper_text
+                    || "Åbn en Canva-template i et nyt vindue og vend tilbage med din færdige fil.",
+                );
+            }
         }
     }, [tenant]);
 
@@ -70,7 +82,15 @@ export function ShopSettings() {
 
         setSaving(true);
         try {
-            const current = (tenant.settings as any) || {};
+            const { data: tenantRow, error: tenantRowError } = await supabase
+                .from('tenants' as any)
+                .select('settings')
+                .eq('id', tenant.id)
+                .maybeSingle();
+
+            if (tenantRowError) throw tenantRowError;
+
+            const current = ((tenantRow as any)?.settings as any) || {};
 
             const newSettings = {
                 ...current,
@@ -91,6 +111,11 @@ export function ShopSettings() {
                     language,
                     currency,
                     timezone
+                },
+                canva: {
+                    enabled: canvaEnabled,
+                    button_label: canvaButtonLabel.trim() || "Design i Canva",
+                    helper_text: canvaHelperText.trim() || null,
                 }
             };
 
@@ -200,6 +225,50 @@ export function ShopSettings() {
                 </CardContent>
             </Card>
 
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Sparkles className="h-5 w-5" />
+                        Canva
+                    </CardTitle>
+                    <CardDescription>
+                        Pro-niveau integration: vis en Canva-knap på produkter med en kurateret Canva-template.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="font-medium">Tilbyd Canva til kunder</p>
+                            <p className="text-sm text-muted-foreground">
+                                Aktiver Canva-knappen på produkter, der har en specifik Canva-template URL.
+                            </p>
+                        </div>
+                        <Switch checked={canvaEnabled} onCheckedChange={setCanvaEnabled} />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="canvaButtonLabel">Knaptekst</Label>
+                        <Input
+                            id="canvaButtonLabel"
+                            value={canvaButtonLabel}
+                            onChange={(e) => setCanvaButtonLabel(e.target.value)}
+                            placeholder="Design i Canva"
+                        />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="canvaHelperText">Hjælpetekst</Label>
+                        <Textarea
+                            id="canvaHelperText"
+                            value={canvaHelperText}
+                            onChange={(e) => setCanvaHelperText(e.target.value)}
+                            rows={3}
+                            placeholder="Fortæl kunden hvordan Canva-flowet fungerer."
+                        />
+                    </div>
+                </CardContent>
+            </Card>
+
             {/* Regional Settings */}
             <Card>
                 <CardHeader>
@@ -279,7 +348,6 @@ export function ShopSettings() {
                     </div>
                 </CardContent>
             </Card>
-
             {/* Save Button */}
             <div className="flex justify-end pt-4 pb-8">
                 <Button onClick={handleSave} size="lg" disabled={saving}>

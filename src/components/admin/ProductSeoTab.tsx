@@ -175,13 +175,13 @@ export function ProductSeoTab({ productSlug, productName, tenantId }: ProductSeo
                                             if (!file) return;
                                             const fileName = `seo/${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
                                             const toastId = toast.loading("Uploader...");
-                                            const { error } = await supabase.storage.from('images').upload(fileName, file);
+                                            const { error } = await supabase.storage.from('product-images').upload(fileName, file);
                                             if (error) {
                                                 toast.dismiss(toastId);
                                                 toast.error("Upload fejlede");
                                                 return;
                                             }
-                                            const { data } = supabase.storage.from('images').getPublicUrl(fileName);
+                                            const { data } = supabase.storage.from('product-images').getPublicUrl(fileName);
                                             setOgImageUrl(data.publicUrl);
                                             toast.dismiss(toastId);
                                             toast.success("Billede uploadet");

@@ -3,15 +3,9 @@ import { useSearchParams, Navigate, useLocation, useNavigate } from "react-route
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useUserRole } from "@/hooks/useUserRole";
-import { Loader2, Home, ArrowLeft } from "lucide-react";
+import { Loader2, Home, ArrowLeft, Truck, Award, Phone, Shield, Clock, Star, Heart, Check } from "lucide-react";
 import { PreviewBrandingProvider, usePreviewBranding } from "@/contexts/PreviewBrandingContext";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
-import HeroSlider from "@/components/HeroSlider";
 import html2canvas from "html2canvas";
-import { FeaturedProductConfigurator } from "@/components/FeaturedProductConfigurator";
-import { StorefrontProductTabs } from "@/components/StorefrontProductTabs";
-import { Truck, Award, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { mergeBrandingWithDefaults, type BrandingData } from "@/hooks/useBrandingDraft";
 import { resolveAdminTenant, MASTER_TENANT_ID } from "@/lib/adminTenant";
@@ -20,7 +14,13 @@ import { ContactContent } from "@/components/content/ContactContent";
 import { AboutContent } from "@/components/content/AboutContent";
 import { ProductPriceContent } from "@/components/content/ProductPriceContent";
 import { TermsContent } from "@/components/content/TermsContent";
+import { CookiePolicyContent } from "@/components/content/CookiePolicyContent";
+import { PrivacyPolicyContent } from "@/components/content/PrivacyPolicyContent";
 import { SitePackagePreview } from "@/components/sites/SitePackagePreview";
+import { StorefrontHomeContent } from "@/components/storefront/StorefrontHomeContent";
+import { StorefrontSeo } from "@/components/storefront/StorefrontSeo";
+import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
+import { getSiteDesignTargetLabel } from "@/lib/siteDesignTargets";
 
 // List of ALLOWED customer-visible routes in preview mode
 // This prevents navigation to admin/backend routes
@@ -32,6 +32,7 @@ const ALLOWED_PREVIEW_ROUTES = [
     '/om-os',
     '/betingelser',
     '/cookies',
+    '/cookiepolitik',
     '/privatliv',
     '/vilkaar',
 ];
@@ -46,30 +47,121 @@ const BLOCKED_ROUTE_PREFIXES = [
     '/preview-storefront',
 ];
 
-// Helper to convert hex to HSL for CSS variables
-function hexToHsl(hex: string): string {
-    if (!hex || !hex.startsWith("#")) return "0 0% 0%";
+const USP_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+    truck: Truck,
+    award: Award,
+    phone: Phone,
+    shield: Shield,
+    clock: Clock,
+    star: Star,
+    heart: Heart,
+    check: Check,
+};
 
-    let c = hex.substring(1).split("");
-    if (c.length === 3) c = [c[0], c[0], c[1], c[1], c[2], c[2]];
-    const r = parseInt(c.slice(0, 2).join(""), 16) / 255;
-    const g = parseInt(c.slice(2, 4).join(""), 16) / 255;
-    const b = parseInt(c.slice(4, 6).join(""), 16) / 255;
+const FEATURED_SIDE_PANEL_BOX_ID = "forside.products.featured.side-panel.box";
 
-    const max = Math.max(r, g, b), min = Math.min(r, g, b);
-    let h = 0, s = 0, l = (max + min) / 2;
-
-    if (max !== min) {
-        const d = max - min;
-        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-        switch (max) {
-            case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-            case g: h = (b - r) / d + 2; break;
-            case b: h = (r - g) / d + 4; break;
-        }
-        h /= 6;
+function getUSPAnimationName(animation?: string) {
+    switch (animation) {
+        case "fade":
+            return "usp-fade-in";
+        case "slide-down":
+            return "usp-slide-down";
+        case "scale":
+            return "usp-scale-in";
+        case "blur":
+            return "usp-blur-in";
+        case "none":
+            return "";
+        case "slide-up":
+        default:
+            return "usp-slide-up";
     }
-    return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+}
+
+function getUSPItemStyle(
+    settings: { mode?: string; animation?: string; staggerMs?: number } | undefined,
+    index: number
+): React.CSSProperties | undefined {
+    if (!settings || settings.mode !== "animated") return undefined;
+
+    const animationName = getUSPAnimationName(settings.animation);
+    if (!animationName) return undefined;
+
+    return {
+        animation: `${animationName} 680ms ease both`,
+        animationDelay: `${index * (settings.staggerMs || 120)}ms`,
+    };
+}
+
+function getUSPGridStyle(
+    settings: { mode?: string } | undefined,
+    itemCount: number
+): React.CSSProperties | undefined {
+    if (!settings || settings.mode !== "animated") return undefined;
+
+    const minWidth = itemCount >= 16 ? 72 : itemCount >= 10 ? 88 : 116;
+    return {
+        gridTemplateColumns: `repeat(auto-fit, minmax(${minWidth}px, 1fr))`,
+    };
+}
+
+function getUSPGridClassName(settings?: { mode?: string }) {
+    if (settings?.mode === "animated") {
+        return "grid gap-4 md:gap-5 items-start text-center";
+    }
+
+    return "grid grid-cols-1 md:grid-cols-3 gap-8 text-center";
+}
+
+function getUSPItemClassName(settings?: { mode?: string }) {
+    if (settings?.mode === "animated") {
+        return "flex flex-col items-center justify-start text-center transition-transform duration-300 hover:-translate-y-0.5";
+    }
+
+    return "flex flex-col items-center";
+}
+
+function resolveSiteDesignPreviewElement(target: HTMLElement | null): HTMLElement | null {
+    const directSiteDesignTarget = target?.closest?.('[data-site-design-target]') as HTMLElement | null;
+    if (directSiteDesignTarget) {
+        return directSiteDesignTarget;
+    }
+
+    const brandingElement = target?.closest?.('[data-branding-id], [data-click-to-edit]') as HTMLElement | null;
+    if (!brandingElement) return null;
+
+    const rawId = brandingElement.getAttribute('data-branding-id') || brandingElement.getAttribute('data-click-to-edit') || '';
+    if (rawId.startsWith('forside.products.featured.side-panel.') && rawId !== FEATURED_SIDE_PANEL_BOX_ID) {
+        return (
+            brandingElement.closest(`[data-branding-id="${FEATURED_SIDE_PANEL_BOX_ID}"], [data-click-to-edit="${FEATURED_SIDE_PANEL_BOX_ID}"]`) as HTMLElement | null
+        ) || brandingElement;
+    }
+
+    return brandingElement;
+}
+
+function buildUSPGroundCSS(settings?: {
+    mode?: string;
+    animation?: string;
+    staggerMs?: number;
+    useGradient?: boolean;
+    gradientFrom?: string;
+    gradientTo?: string;
+    gradientDirection?: string;
+    backgroundColor?: string;
+}): React.CSSProperties {
+    if (!settings) {
+        return { backgroundColor: '#0EA5E9' };
+    }
+    if (settings.useGradient && settings.gradientFrom && settings.gradientTo) {
+        const direction = settings.gradientDirection || 'to-r';
+        return {
+            background: `linear-gradient(${direction.replace('to-', 'to ').replace('-', ' ')}, ${settings.gradientFrom}, ${settings.gradientTo})`,
+        };
+    }
+    return {
+        backgroundColor: settings.backgroundColor || '#0EA5E9',
+    };
 }
 
 /**
@@ -105,66 +197,15 @@ function PreviewNavigationGuard({ children }: { children: React.ReactNode }) {
 }
 /**
  * The actual shop content with branding applied.
- * This renders the REAL storefront layout with tenant products and branding.
- * IMPORTANT: This must mirror Shop.tsx exactly, with preview branding applied.
- * Now supports virtual navigation via currentPage prop.
+ * Uses the same themed storefront frame as live routes while still supporting
+ * virtual page switching inside the preview iframe.
  */
 function PreviewShopContent({ currentPage }: { currentPage: string }) {
     const { branding, tenantName } = usePreviewBranding();
-    const productsSection = branding?.forside?.productsSection;
-    const showProducts = productsSection?.enabled ?? true;
-    const productColumns = productsSection?.columns ?? 4;
-    const productButtonConfig = productsSection?.button;
-    const productBackgroundConfig = productsSection?.background;
-    const productLayoutStyle = productsSection?.layoutStyle;
-    const showStorformatTab = productsSection?.showStorformatTab ?? true;
-    const featuredProductConfig = productsSection?.featuredProductConfig;
-    const hasFeaturedProduct = featuredProductConfig?.enabled && featuredProductConfig?.productId;
-    const hiddenFeaturedProductIds = hasFeaturedProduct && featuredProductConfig?.showInProductList === false
-        ? [featuredProductConfig.productId as string]
-        : [];
-    const featuredAboveCategories = (featuredProductConfig?.position || 'above') === 'above';
-
-    // Generate CSS variables from branding
-    const primaryColor = branding?.colors?.primary || "#0EA5E9";
-    const secondaryColor = branding?.colors?.secondary || "#F1F5F9";
-    const backgroundColor = branding?.colors?.background || "#F8FAFC";
-    const cardColor = branding?.colors?.card || "#FFFFFF";
-    const headingFont = branding?.fonts?.heading || "Poppins";
-    const bodyFont = branding?.fonts?.body || "Inter";
-    const pricingFont = branding?.fonts?.pricing || "Roboto Mono";
-
-    // Typography colors
-    const headingTextColor = branding?.colors?.headingText || "#1F2937";
-    const bodyTextColor = branding?.colors?.bodyText || "#4B5563";
-    const pricingTextColor = branding?.colors?.pricingText || "#0EA5E9";
-    const linkTextColor = branding?.colors?.linkText || "#0EA5E9";
-
-    // Header settings for conditional layout
-    const headerSettings = (branding?.header || {}) as { transparentOverHero?: boolean; height?: string };
-    const transparentOverHero = headerSettings.transparentOverHero ?? true;
-    const headerHeight = headerSettings.height === 'sm' ? 56 : headerSettings.height === 'lg' ? 96 : 72;
-    // Main content margin: negative when transparent (overlay), zero when not (stacked)
-    const mainMargin = transparentOverHero ? -headerHeight : 0;
-
-    const cssVariables = {
-        "--primary": hexToHsl(primaryColor),
-        "--secondary": hexToHsl(secondaryColor),
-        "--background": hexToHsl(backgroundColor),
-        "--card": hexToHsl(cardColor),
-        "--font-heading": `'${headingFont}', sans-serif`,
-        "--font-body": `'${bodyFont}', sans-serif`,
-        "--font-pricing": `'${pricingFont}', monospace`,
-        // Typography colors as CSS custom properties
-        "--heading-text": headingTextColor,
-        "--body-text": bodyTextColor,
-        "--pricing-text": pricingTextColor,
-        "--link-text": linkTextColor,
-        // Also set foreground based on heading text for compatibility
-        "--foreground": hexToHsl(headingTextColor),
-        "--muted-foreground": hexToHsl(bodyTextColor),
-        fontFamily: `'${bodyFont}', sans-serif`,
-    } as React.CSSProperties;
+    const resolvedBranding = mergeBrandingWithDefaults(branding || {});
+    const resolvedTenantName = String(
+        resolvedBranding.shop_name || tenantName || "Din Shop",
+    ).trim() || "Din Shop";
 
     // Render page content based on virtual navigation
     const renderPageContent = () => {
@@ -172,77 +213,45 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         if (currentPage.startsWith('/produkt/')) {
             const slug = currentPage.split('/').pop();
             return (
-                <div className="pt-20">
+                <main className="flex-1 py-8">
                     <ProductPriceContent slug={slug} />
-                </div>
-            );
-        }
-
-        // Products pages
-        if (currentPage === '/produkter' || currentPage === '/shop' || currentPage === '/prisberegner') {
-            return (
-                <section className="py-16 pt-24" id="produkter">
-                    <div className="container mx-auto px-4">
-                        <h1 className="text-3xl font-heading font-bold mb-8 text-center">Produkter</h1>
-                        {showStorformatTab ? (
-                            <StorefrontProductTabs
-                                columns={productColumns}
-                                buttonConfig={productButtonConfig}
-                                backgroundConfig={productBackgroundConfig}
-                                layoutStyle={productLayoutStyle}
-                                showCategoryTabs
-                            />
-                        ) : (
-                            <StorefrontProductTabs
-                                columns={productColumns}
-                                buttonConfig={productButtonConfig}
-                                backgroundConfig={productBackgroundConfig}
-                                layoutStyle={productLayoutStyle}
-                                showCategoryTabs={false}
-                            />
-                        )}
-                    </div>
-                </section>
+                </main>
             );
         }
 
         // Contact page
         if (currentPage === '/kontakt') {
             return (
-                <section className="pt-24 pb-16">
+                <main className="flex-1 py-16">
                     <ContactContent />
-                </section>
+                </main>
             );
         }
 
         // About page
         if (currentPage === '/om-os') {
             return (
-                <div className="pt-20">
+                <main className="flex-1">
                     <AboutContent />
-                </div>
+                </main>
             );
         }
 
         // Grafisk Vejledning
         if (currentPage === '/grafisk-vejledning') {
             return (
-                <section className="pt-24 pb-16">
+                <main className="flex-1 py-12">
                     <GrafiskVejledningContent />
-                </section>
+                </main>
             );
         }
-
-        // ... existing imports ...
-
-        // ... (in renderPageContent)
 
         // Terms / Conditions pages
         if (currentPage === '/vilkaar' || currentPage === '/betingelser') {
             return (
-                <section className="pt-24 pb-16">
+                <main className="flex-1 py-16 pt-24">
                     <TermsContent />
-                </section>
+                </main>
             );
         }
 
@@ -250,204 +259,40 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         // Privacy Policy
         if (currentPage === '/privatliv') {
             return (
-                <section className="py-16 pt-24">
-                    <div className="container mx-auto px-4 max-w-3xl">
-                        <h1 className="text-3xl font-heading font-bold mb-8 text-center">Privatlivspolitik</h1>
-                        <div className="prose prose-lg mx-auto">
-                            <p className="text-muted-foreground leading-relaxed">
-                                Vi passer godt på dine data. Læs mere om hvordan vi indsamler og behandler personoplysninger.
-                            </p>
-                        </div>
-                    </div>
-                </section>
+                <main className="flex-1 py-16 pt-24">
+                    <PrivacyPolicyContent />
+                </main>
             );
         }
 
         // Cookie Policy
-        if (currentPage === '/cookies') {
+        if (currentPage === '/cookies' || currentPage === '/cookiepolitik') {
             return (
-                <section className="py-16 pt-24">
-                    <div className="container mx-auto px-4 max-w-3xl">
-                        <h1 className="text-3xl font-heading font-bold mb-8 text-center">Cookiepolitik</h1>
-                        <div className="prose prose-lg mx-auto">
-                            <p className="text-muted-foreground leading-relaxed">
-                                Information om brug af cookies på vores website.
-                            </p>
-                        </div>
-                    </div>
-                </section>
+                <main className="flex-1 py-16 pt-24">
+                    <CookiePolicyContent />
+                </main>
             );
         }
 
         // Default: Frontpage (Home)
         return (
-            <main className="flex-1" style={{ marginTop: mainMargin }}>
-                {/* Real Hero Slider - shows tenant hero images (now appears under the transparent header) */}
-                <HeroSlider />
-
-                {/* Products Section - MATCHES Shop.tsx */}
-                {showProducts && (
-                <section
-                    className="py-16"
-                    id="produkter"
-                    style={{
-                        paddingTop: hasFeaturedProduct && featuredAboveCategories
-                            ? "64px"
-                            : undefined,
-                    }}
-                >
-                        <div className="container mx-auto px-4">
-                            {hasFeaturedProduct && featuredProductConfig && featuredAboveCategories && (
-                                <div className="mb-8 relative z-10">
-                                    <FeaturedProductConfigurator
-                                        config={featuredProductConfig}
-                                        branding={branding}
-                                    />
-                                </div>
-                            )}
-                            {showStorformatTab ? (
-                                <StorefrontProductTabs
-                                    columns={productColumns}
-                                    buttonConfig={productButtonConfig}
-                                    backgroundConfig={productBackgroundConfig}
-                                    layoutStyle={productLayoutStyle}
-                                    showCategoryTabs
-                                    hiddenProductIds={hiddenFeaturedProductIds}
-                                />
-                            ) : (
-                                <StorefrontProductTabs
-                                    columns={productColumns}
-                                    buttonConfig={productButtonConfig}
-                                    backgroundConfig={productBackgroundConfig}
-                                    layoutStyle={productLayoutStyle}
-                                    showCategoryTabs={false}
-                                    hiddenProductIds={hiddenFeaturedProductIds}
-                                />
-                            )}
-                            {hasFeaturedProduct && featuredProductConfig && !featuredAboveCategories && (
-                                <div className="mt-8">
-                                    <FeaturedProductConfigurator
-                                        config={featuredProductConfig}
-                                        branding={branding}
-                                    />
-                                </div>
-                            )}
-                        </div>
-                    </section>
-                )}
-
-                {/* Content Block Section - Dynamic from branding */}
-                {branding?.forside?.contentBlocks?.filter(block => block.enabled).map((block) => (
-                    <section key={block.id} className="bg-secondary py-8">
-                        <div className={`container mx-auto px-4 ${block.textAlign === 'center' ? 'text-center' : block.textAlign === 'right' ? 'text-right' : 'text-left'}`}>
-                            <div className={`flex flex-col ${block.imageUrl ? (block.imagePosition === 'right' ? 'md:flex-row' : 'md:flex-row-reverse') : ''} gap-8 items-center`}>
-                                {/* Text Content */}
-                                <div className={`flex-1 ${block.imageUrl ? '' : 'w-full'}`}>
-                                    {block.heading && (
-                                        <h2
-                                            className="text-2xl md:text-3xl font-semibold"
-                                            style={{
-                                                fontFamily: `'${block.headingFont || 'Poppins'}', sans-serif`,
-                                                color: block.headingColor || '#1F2937'
-                                            }}
-                                        >
-                                            {block.heading}
-                                        </h2>
-                                    )}
-                                    {block.text && (
-                                        <p
-                                            className="mt-4"
-                                            style={{
-                                                fontFamily: `'${block.textFont || 'Inter'}', sans-serif`,
-                                                color: block.textColor || '#4B5563'
-                                            }}
-                                        >
-                                            {block.text}
-                                        </p>
-                                    )}
-                                </div>
-                                {/* Optional Image */}
-                                {block.imageUrl && (
-                                    <div className="flex-1">
-                                        <img
-                                            src={block.imageUrl}
-                                            alt={block.heading || 'Content image'}
-                                            className="rounded-lg max-h-64 object-cover mx-auto"
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </section>
-                ))}
-
-                {/* USP Strip - MATCHES Shop.tsx */}
-                <section className="bg-primary text-primary-foreground py-12">
-                    <div className="container mx-auto px-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
-                            <div className="flex flex-col items-center">
-                                <Truck className="h-12 w-12 mb-4" />
-                                <h3 className="text-lg font-heading font-semibold mb-2 text-white">Hurtig levering</h3>
-                                <p className="text-sm opacity-90 text-white">Express-muligheder til hele Danmark</p>
-                            </div>
-                            <div className="flex flex-col items-center">
-                                <Award className="h-12 w-12 mb-4" />
-                                <h3 className="text-lg font-heading font-semibold mb-2 text-white">Kvalitet til skarpe priser</h3>
-                                <p className="text-sm opacity-90 text-white">25+ års erfaring med professionelt tryk</p>
-                            </div>
-                            <div className="flex flex-col items-center">
-                                <Phone className="h-12 w-12 mb-4" />
-                                <h3 className="text-lg font-heading font-semibold mb-2 text-white">Personlig rådgivning</h3>
-                                <p className="text-sm opacity-90 text-white">Tlf: 71 99 11 10</p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                {/* SEO Content - MATCHES Shop.tsx */}
-                <section className="py-16 bg-secondary/30">
-                    <div className="container mx-auto px-4">
-                        <div className="max-w-4xl mx-auto space-y-8">
-                            <div>
-                                <h2 className="text-xl font-heading font-semibold mb-3">Billige tryksager online</h2>
-                                <p className="text-muted-foreground leading-relaxed">
-                                    Webprinter.dk gør det nemt at bestille flyers, foldere, visitkort og hæfter i høj kvalitet til lave priser.
-                                    Beregn din pris direkte online og få levering i hele Danmark.
-                                </p>
-                            </div>
-
-                            <div>
-                                <h2 className="text-xl font-heading font-semibold mb-3">Storformat print til enhver opgave</h2>
-                                <p className="text-muted-foreground leading-relaxed">
-                                    Fra bannere og beachflag til skilte og tekstilprint – vi producerer storformat i topkvalitet.
-                                    Alt printes med UV-bestandige farver og professionel finish.
-                                </p>
-                            </div>
-
-                            <div>
-                                <h2 className="text-xl font-heading font-semibold mb-3">Dansk trykkeri med hurtig levering</h2>
-                                <p className="text-muted-foreground leading-relaxed">
-                                    Vi har over 25 års erfaring og leverer både til erhverv og private.
-                                    Kontakt os i dag og oplev service, kvalitet og konkurrencedygtige priser.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-            </main>
+            <StorefrontHomeContent
+                branding={resolvedBranding}
+                tenantName={resolvedTenantName}
+                isPreviewMode
+            />
         );
     };
 
     return (
-        <div className="min-h-screen flex flex-col" style={cssVariables}>
-            {/* Real Header Component - shows real products navigation */}
-            <Header />
-
-            {/* Render page content based on currentPage */}
+        <StorefrontThemeFrame
+            branding={resolvedBranding}
+            tenantName={resolvedTenantName}
+            isPreviewMode
+            topSlot={<StorefrontSeo />}
+        >
             {renderPageContent()}
-
-            <Footer />
-        </div>
+        </StorefrontThemeFrame>
     );
 }
 
@@ -570,6 +415,7 @@ export default function PreviewShop() {
     }, [tenantIdParam, roleLoading, isAdmin, searchParams, isSitePreview]);
 
     const [editMode, setEditMode] = useState(false);
+    const [hoveredTargetId, setHoveredTargetId] = useState<string | null>(null);
 
     const resolveFirstProductSlug = useCallback(async () => {
         const tenantId = tenantIdParam;
@@ -603,10 +449,13 @@ export default function PreviewShop() {
     useEffect(() => {
         const handleMessage = async (event: MessageEvent) => {
             if (event.data?.type === 'SET_EDIT_MODE') {
-                setEditMode(event.data.enabled);
-                if (event.data.enabled) {
-                    toast.info("Redigering aktiveret - klik på elementer for at rette");
-                }
+                setEditMode((prev) => {
+                    const next = Boolean(event.data.enabled);
+                    if (!prev && next) {
+                        toast.info("Klik på et element i preview for at åbne den rigtige sektion");
+                    }
+                    return next;
+                });
             }
 
             if (event.data?.type === 'NAVIGATE_TO') {
@@ -677,14 +526,20 @@ export default function PreviewShop() {
             // Priority 1: Visual Editing
             if (editMode) {
                 const target = e.target as HTMLElement;
-                const brandingElement = target.closest('[data-branding-id]');
+                const brandingElement = resolveSiteDesignPreviewElement(target);
 
                 if (brandingElement) {
                     e.preventDefault();
                     e.stopPropagation();
-                    const sectionId = brandingElement.getAttribute('data-branding-id');
+                    const sectionId = brandingElement.getAttribute('data-site-design-target')
+                        || brandingElement.getAttribute('data-branding-id')
+                        || brandingElement.getAttribute('data-click-to-edit');
 
                     // Send message to parent editor
+                    window.parent.postMessage({
+                        type: 'EDIT_SECTION',
+                        sectionId
+                    }, '*');
                     window.parent.postMessage({
                         type: 'ELEMENT_CLICKED',
                         sectionId
@@ -736,6 +591,55 @@ export default function PreviewShop() {
         };
     }, [editMode]);
 
+    useEffect(() => {
+        if (!editMode) {
+            setHoveredTargetId(null);
+            return;
+        }
+
+        let lastHoveredElement: HTMLElement | null = null;
+
+        const clearHoveredElement = () => {
+            if (lastHoveredElement) {
+                lastHoveredElement.removeAttribute('data-branding-hovered');
+                lastHoveredElement = null;
+            }
+            setHoveredTargetId(null);
+        };
+
+        const handlePointerMove = (event: MouseEvent) => {
+            const target = event.target as HTMLElement | null;
+            const brandingElement = resolveSiteDesignPreviewElement(target);
+
+            if (brandingElement === lastHoveredElement) return;
+
+            if (lastHoveredElement) {
+                lastHoveredElement.removeAttribute('data-branding-hovered');
+            }
+
+            if (brandingElement) {
+                brandingElement.setAttribute('data-branding-hovered', 'true');
+                setHoveredTargetId(
+                    brandingElement.getAttribute('data-site-design-target')
+                    || brandingElement.getAttribute('data-branding-id')
+                );
+            } else {
+                setHoveredTargetId(null);
+            }
+
+            lastHoveredElement = brandingElement;
+        };
+
+        document.addEventListener('mousemove', handlePointerMove, true);
+        window.addEventListener('blur', clearHoveredElement);
+
+        return () => {
+            document.removeEventListener('mousemove', handlePointerMove, true);
+            window.removeEventListener('blur', clearHoveredElement);
+            clearHoveredElement();
+        };
+    }, [editMode]);
+
     // Require admin access
     if (!roleLoading && !isAdmin && !isPreviewContext) {
         return <Navigate to="/auth" replace />;
@@ -754,11 +658,36 @@ export default function PreviewShop() {
     }
 
     return (
-        <PreviewBrandingProvider
-            initialBranding={initialBranding}
-            initialTenantName={tenantName}
-        >
-            <PreviewShopContent currentPage={currentPage} />
-        </PreviewBrandingProvider>
+        <div data-site-design-edit-mode={editMode ? "true" : "false"} className="relative min-h-screen">
+            <style>{`
+                [data-site-design-edit-mode="true"] [data-branding-id],
+                [data-site-design-edit-mode="true"] [data-site-design-target] {
+                    cursor: pointer;
+                    transition: outline-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+                }
+                [data-site-design-edit-mode="true"] [data-branding-id][data-branding-hovered="true"],
+                [data-site-design-edit-mode="true"] [data-site-design-target][data-branding-hovered="true"] {
+                    outline: 2px solid rgba(14, 165, 233, 0.95);
+                    outline-offset: 4px;
+                    box-shadow: 0 0 0 6px rgba(14, 165, 233, 0.12);
+                }
+            `}</style>
+
+            <PreviewBrandingProvider
+                initialBranding={initialBranding}
+                initialTenantName={tenantName}
+                previewPath={currentPage}
+            >
+                <PreviewShopContent currentPage={currentPage} />
+            </PreviewBrandingProvider>
+
+            {editMode && (
+                <div className="pointer-events-none fixed bottom-4 left-4 z-[2000] rounded-full bg-slate-950/90 px-4 py-2 text-sm text-white shadow-xl backdrop-blur">
+                    {hoveredTargetId
+                        ? `Klik for at redigere: ${getSiteDesignTargetLabel(hoveredTargetId)}`
+                        : "Klik på et markerbart element for at redigere det"}
+                </div>
+            )}
+        </div>
     );
 }

@@ -39,6 +39,7 @@ const Accordion = ({
         <div className="border border-border rounded-lg overflow-hidden mb-4">
             <button
                 onClick={() => setIsOpen(!isOpen)}
+                data-branding-id="typography.heading"
                 className="w-full flex items-center justify-between p-4 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
             >
                 <div className="flex items-center gap-3">
@@ -52,7 +53,7 @@ const Accordion = ({
                 )}
             </button>
             {isOpen && (
-                <div className="p-4 bg-background">
+                <div data-branding-id="typography.body" className="p-4 bg-background">
                     {children}
                 </div>
             )}
@@ -95,12 +96,12 @@ const Callout = ({
     const Icon = style.icon;
 
     return (
-        <div className={`${style.bg} ${style.border} border rounded-lg p-4 my-4`}>
+        <div data-branding-id="colors.card" className={`${style.bg} ${style.border} border rounded-lg p-4 my-4`}>
             <div className="flex items-start gap-3">
                 <Icon className={`h-5 w-5 ${style.iconColor} shrink-0 mt-0.5`} />
                 <div>
-                    <p className="font-semibold mb-1">{title}</p>
-                    <div className="text-sm text-muted-foreground">{children}</div>
+                    <p data-branding-id="typography.heading" className="font-semibold mb-1">{title}</p>
+                    <div data-branding-id="typography.body" className="text-sm text-muted-foreground">{children}</div>
                 </div>
             </div>
         </div>
@@ -112,6 +113,7 @@ const TocItem = ({ href, children }: { href: string; children: React.ReactNode }
     <li>
         <a
             href={href}
+            data-branding-id="colors.linkText"
             className="text-primary hover:underline text-sm"
             onClick={(e) => {
                 // Determine if we're in preview mode where default anchor behavior might be intercepted
@@ -136,8 +138,8 @@ export const GrafiskVejledningContent = () => {
         <div className="container mx-auto px-4 max-w-4xl">
             {/* Page Header */}
             <div className="text-center mb-12">
-                <h1 className="text-4xl md:text-5xl font-bold mb-4">Grafisk Vejledning</h1>
-                <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+                <h1 data-branding-id="typography.heading" className="text-4xl md:text-5xl font-bold mb-4">Grafisk Vejledning</h1>
+                <p data-branding-id="typography.body" className="text-xl text-muted-foreground max-w-2xl mx-auto">
                     Alt du skal vide for at levere korrekte trykfiler – fra offsettryk til storformat,
                     spotlak, folie og konturskæring.
                 </p>
@@ -145,14 +147,14 @@ export const GrafiskVejledningContent = () => {
 
             {/* Quick Checklist */}
             <section id="tjekliste" className="mb-4">
-                <Card className="border-2 border-primary/20 bg-primary/5">
+                <Card data-branding-id="colors.card" className="border-2 border-primary/20 bg-primary/5">
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
+                        <CardTitle data-branding-id="typography.heading" className="flex items-center gap-2">
                             <CheckCircle2 className="h-6 w-6 text-primary" />
                             Hurtig Tjekliste – Før du sender
                         </CardTitle>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent data-branding-id="typography.body">
                         <ul className="grid md:grid-cols-2 gap-3">
                             {[
                                 "PDF-format (helst PDF/X-4)",
@@ -175,8 +177,8 @@ export const GrafiskVejledningContent = () => {
             </section>
 
             {/* Table of Contents */}
-            <nav className="mb-4 p-6 bg-muted/30 rounded-lg">
-                <h2 className="text-lg font-semibold mb-4">Indholdsfortegnelse</h2>
+            <nav data-branding-id="colors.card" className="mb-4 p-6 bg-muted/30 rounded-lg">
+                <h2 data-branding-id="typography.heading" className="text-lg font-semibold mb-4">Indholdsfortegnelse</h2>
                 <ol className="grid md:grid-cols-2 gap-2 list-decimal list-inside">
                     <TocItem href="#offsettryk">Offsettryk (flyers, foldere, plakater)</TocItem>
                     <TocItem href="#cmyk-rgb">CMYK vs RGB + farveforventninger</TocItem>
@@ -679,14 +681,14 @@ export const GrafiskVejledningContent = () => {
                         </div>
 
                         {/* Support Callout */}
-                        <Card className="border border-primary/20 bg-primary/5">
+                        <Card data-branding-id="colors.card" className="border border-primary/20 bg-primary/5">
                             <CardContent className="pt-6">
                                 <div className="flex items-center gap-3">
                                     <Phone className="h-5 w-5 text-primary shrink-0" />
                                     <div>
-                                        <p className="font-semibold">Er du i tvivl om DTG eller DTF?</p>
-                                        <p className="text-sm text-muted-foreground">
-                                            Kontakt support: <a href={`tel:${contactPhone.replace(/\s/g, '')}`} className="text-primary hover:underline">{contactPhone}</a> eller <a href={`mailto:${contactEmail}`} className="text-primary hover:underline">{contactEmail}</a>
+                                        <p data-branding-id="typography.heading" className="font-semibold">Er du i tvivl om DTG eller DTF?</p>
+                                        <p data-branding-id="typography.body" className="text-sm text-muted-foreground">
+                                            Kontakt support: <a data-branding-id="colors.linkText" href={`tel:${contactPhone.replace(/\s/g, '')}`} className="text-primary hover:underline">{contactPhone}</a> eller <a data-branding-id="colors.linkText" href={`mailto:${contactEmail}`} className="text-primary hover:underline">{contactEmail}</a>
                                         </p>
                                     </div>
                                 </div>
@@ -767,45 +769,45 @@ export const GrafiskVejledningContent = () => {
 
             {/* Section 13: Support Contact */}
             <section id="kontakt" className="mb-4 scroll-mt-24">
-                <Card className="border-2 border-primary/20">
+                <Card data-branding-id="colors.card" className="border-2 border-primary/20">
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
+                        <CardTitle data-branding-id="typography.heading" className="flex items-center gap-2">
                             <Phone className="h-6 w-6 text-primary" />
                             Support & Kontakt
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <p className="text-muted-foreground mb-6">
+                        <p data-branding-id="typography.body" className="text-muted-foreground mb-6">
                             Har du spørgsmål til filopsætning eller er du i tvivl om noget?
                             Vi hjælper gerne!
                         </p>
 
                         <div className="grid md:grid-cols-3 gap-4">
-                            <div className="flex items-center gap-3 p-4 bg-muted/30 rounded-lg">
+                            <div data-branding-id="colors.card" className="flex items-center gap-3 p-4 bg-muted/30 rounded-lg">
                                 <Phone className="h-5 w-5 text-primary shrink-0" />
                                 <div>
-                                    <p className="text-sm text-muted-foreground">Telefon</p>
-                                    <a href={`tel:${contactPhone.replace(/\s/g, '')}`} className="font-semibold hover:text-primary">
+                                    <p data-branding-id="typography.body" className="text-sm text-muted-foreground">Telefon</p>
+                                    <a data-branding-id="colors.linkText" href={`tel:${contactPhone.replace(/\s/g, '')}`} className="font-semibold hover:text-primary">
                                         {contactPhone}
                                     </a>
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-3 p-4 bg-muted/30 rounded-lg">
+                            <div data-branding-id="colors.card" className="flex items-center gap-3 p-4 bg-muted/30 rounded-lg">
                                 <Mail className="h-5 w-5 text-primary shrink-0" />
                                 <div>
-                                    <p className="text-sm text-muted-foreground">E-mail</p>
-                                    <a href={`mailto:${contactEmail}`} className="font-semibold hover:text-primary">
+                                    <p data-branding-id="typography.body" className="text-sm text-muted-foreground">E-mail</p>
+                                    <a data-branding-id="colors.linkText" href={`mailto:${contactEmail}`} className="font-semibold hover:text-primary">
                                         {contactEmail}
                                     </a>
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-3 p-4 bg-muted/30 rounded-lg">
+                            <div data-branding-id="colors.card" className="flex items-center gap-3 p-4 bg-muted/30 rounded-lg">
                                 <Clock className="h-5 w-5 text-primary shrink-0" />
                                 <div>
-                                    <p className="text-sm text-muted-foreground">Åbningstider</p>
-                                    <p className="font-semibold">Man-Fre: 08:00-16:00</p>
+                                    <p data-branding-id="typography.body" className="text-sm text-muted-foreground">Åbningstider</p>
+                                    <p data-branding-id="typography.heading" className="font-semibold">Man-Fre: 08:00-16:00</p>
                                 </div>
                             </div>
                         </div>

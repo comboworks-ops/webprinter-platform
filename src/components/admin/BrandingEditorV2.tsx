@@ -9,7 +9,7 @@ import {
     Loader2, Save, RotateCcw, Send, Trash2, List,
     X, ChevronRight, Layout, Type, Palette, Sparkles, Image as ImageIcon,
     ExternalLink, Monitor, Smartphone, Tablet, FolderUp, LayoutTemplate, ShoppingCart,
-    Pencil, Eye, EyeOff, Check, History, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, type LucideIcon
+    Pencil, Eye, EyeOff, Check, History, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FileText, CheckSquare, DollarSign, type LucideIcon
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -39,7 +39,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
 import { da } from "date-fns/locale";
 
-import { BrandingPreviewFrame } from "@/components/admin/BrandingPreviewFrame";
+import { SiteDesignPreviewFrame } from "@/components/admin/SiteDesignPreviewFrame";
 import { FontSelector } from "@/components/admin/FontSelector";
 import { IconPackSelector } from "@/components/admin/IconPackSelector";
 import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches";
@@ -48,13 +48,16 @@ import { ProductAssetsSection } from "@/components/admin/ProductAssetsSection";
 import { HeaderSection } from "@/components/admin/HeaderSection";
 import { FooterSection } from "@/components/admin/FooterSection";
 import { BannerEditor } from "@/components/admin/BannerEditor";
+import { Banner2Section } from "@/components/admin/Banner2Section";
 import { LogoSection } from "@/components/admin/LogoSection";
 import { FaviconEditor } from "@/components/admin/FaviconEditor";
 import { ContentBlocksSection } from "@/components/admin/ContentBlocksSection";
+import { PageBackgroundControls } from "@/components/admin/PageBackgroundControls";
 import { PendingPurchasesDialog, PendingPurchasesBadge } from "@/components/admin/PendingPurchasesDialog";
 import { ThemeSelector } from "@/components/admin/ThemeSelector";
 import { supabase } from "@/integrations/supabase/client";
 import { usePaidItems } from "@/hooks/usePaidItems";
+import { BrandingPaletteProvider } from "@/contexts/BrandingPaletteContext";
 
 import {
     DEFAULT_BRANDING,
@@ -95,6 +98,25 @@ interface BrandingColorFieldConfig {
     description: string;
 }
 
+type MatrixColorKey = Exclude<keyof typeof DEFAULT_BRANDING.productPage.matrix, "font" | "pictureButtons">;
+
+interface MatrixColorFieldConfig {
+    key: MatrixColorKey;
+    label: string;
+    description: string;
+}
+
+type PricePanelColorKey = Exclude<
+    keyof typeof DEFAULT_BRANDING.productPage.pricePanel,
+    "backgroundType" | "gradientAngle" | "borderWidth" | "radiusPx"
+>;
+
+interface PricePanelColorFieldConfig {
+    key: PricePanelColorKey;
+    label: string;
+    description: string;
+}
+
 interface BrandingColorGroupConfig {
     title: string;
     description: string;
@@ -106,6 +128,30 @@ type PreviewPageLink = {
     label: string;
     path: string;
     action?: "first-product";
+};
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const hexToRgba = (color: string, alpha: number): string => {
+    const normalized = String(color || "").trim();
+    const a = clamp(Number.isFinite(alpha) ? alpha : 1, 0, 1);
+
+    const shortMatch = normalized.match(/^#([0-9a-f]{3})$/i);
+    if (shortMatch) {
+        const [r, g, b] = shortMatch[1].split("").map((c) => parseInt(c + c, 16));
+        return `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+
+    const longMatch = normalized.match(/^#([0-9a-f]{6})$/i);
+    if (longMatch) {
+        const hex = longMatch[1];
+        const r = parseInt(hex.slice(0, 2), 16);
+        const g = parseInt(hex.slice(2, 4), 16);
+        const b = parseInt(hex.slice(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+
+    return normalized || `rgba(0, 0, 0, ${a})`;
 };
 
 const PREVIEW_PAGE_LINKS: PreviewPageLink[] = [
@@ -122,10 +168,16 @@ const SECTION_LABELS: Record<string, string> = {
     logo: "Logo & Favicon",
     header: "Header & Menu",
     typography: "Typografi",
+    "page-background": "Sidebaggrund",
     colors: "Farver",
     banner: "Banner (Hero)",
+    showcase: "Banner 2 / Showcase",
     products: "Forside produkter",
-    "product-page-matrix": "Produktside matrix & knapper",
+    "product-page-matrix": "Prismatrix",
+    "product-price-panel": "Prisboks (prisberegner)",
+    "product-order-buttons": "Bestil-knapper",
+    "product-info-section": "Produktbeskrivelse (Om produktet)",
+    "product-option-selectors": "Tilvalgsknapper & -visning",
     content: "Indholdsblokke",
     footer: "Footer",
     icons: "Produktbilleder (Ikoner)",
@@ -163,7 +215,7 @@ const SECTION_GROUPS: SectionGroupConfig[] = [
     {
         id: "product",
         title: "Produktside",
-        description: "Disse værktøjer gælder kun for produktsidens matrix og valgknapper.",
+        description: "Disse værktøjer gælder kun for produktsiden.",
     },
 ];
 
@@ -193,6 +245,15 @@ const SECTION_BUTTON_CONFIGS: SectionButtonConfig[] = [
         icon: Type,
         buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-amber-100 text-amber-900 hover:bg-amber-50/50 hover:border-amber-200 group",
         iconWrapperClassName: "h-8 w-8 rounded-lg bg-amber-100/50 flex items-center justify-center text-amber-600 group-hover:bg-amber-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "page-background",
+        label: "Sidebaggrund",
+        group: "global",
+        icon: Palette,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-rose-100 text-rose-900 hover:bg-rose-50/50 hover:border-rose-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-rose-100/50 flex items-center justify-center text-rose-600 group-hover:bg-rose-100 transition-colors",
         iconClassName: "h-4 w-4",
     },
     {
@@ -232,6 +293,15 @@ const SECTION_BUTTON_CONFIGS: SectionButtonConfig[] = [
         iconClassName: "h-4 w-4",
     },
     {
+        id: "showcase",
+        label: "Banner 2 / Showcase",
+        group: "home",
+        icon: Sparkles,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-fuchsia-100 text-fuchsia-900 hover:bg-fuchsia-50/50 hover:border-fuchsia-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-fuchsia-100/50 flex items-center justify-center text-fuchsia-600 group-hover:bg-fuchsia-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
         id: "products",
         label: "Forside produkter",
         group: "home",
@@ -260,11 +330,47 @@ const SECTION_BUTTON_CONFIGS: SectionButtonConfig[] = [
     },
     {
         id: "product-page-matrix",
-        label: "Produktside matrix & knapper",
+        label: "Prismatrix",
         group: "product",
         icon: Layout,
         buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-cyan-100 text-cyan-900 hover:bg-cyan-50/50 hover:border-cyan-200 group",
         iconWrapperClassName: "h-8 w-8 rounded-lg bg-cyan-100/50 flex items-center justify-center text-cyan-600 group-hover:bg-cyan-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "product-price-panel",
+        label: "Prisboks (prisberegner)",
+        group: "product",
+        icon: DollarSign,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-emerald-100 text-emerald-900 hover:bg-emerald-50/50 hover:border-emerald-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-emerald-100/50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "product-order-buttons",
+        label: "Bestil-knapper",
+        group: "product",
+        icon: ShoppingCart,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-orange-100 text-orange-900 hover:bg-orange-50/50 hover:border-orange-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-orange-100/50 flex items-center justify-center text-orange-600 group-hover:bg-orange-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "product-info-section",
+        label: "Produktbeskrivelse (Om produktet)",
+        group: "product",
+        icon: FileText,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-teal-100 text-teal-900 hover:bg-teal-50/50 hover:border-teal-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-teal-100/50 flex items-center justify-center text-teal-600 group-hover:bg-teal-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "product-option-selectors",
+        label: "Tilvalgsknapper & -visning",
+        group: "product",
+        icon: CheckSquare,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-violet-100 text-violet-900 hover:bg-violet-50/50 hover:border-violet-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-violet-100/50 flex items-center justify-center text-violet-600 group-hover:bg-violet-100 transition-colors",
         iconClassName: "h-4 w-4",
     },
 ];
@@ -274,11 +380,6 @@ const BRANDING_COLOR_GROUPS: BrandingColorGroupConfig[] = [
         title: "Side og flader",
         description: "Disse farver styrer de store flader og bokse, som brugeren ser først på forsiden.",
         fields: [
-            {
-                key: "background",
-                label: "Sidebaggrund",
-                description: "Den overordnede baggrund bag hele shoppen og de åbne områder mellem sektioner.",
-            },
             {
                 key: "secondary",
                 label: "Sektioner / bløde flader",
@@ -351,6 +452,8 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
     const editor = useBrandingEditor({ adapter, capabilities });
     const isDraftLive = brandingEquals(editor.draft, editor.published);
     const [activeSection, setActiveSection] = useState<string | null>(null);
+    const [previewEditMode, setPreviewEditMode] = useState(false);
+    const [clearSelectionSignal, setClearSelectionSignal] = useState(0);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [currentPreviewPage, setCurrentPreviewPage] = useState<string>("/");
     const [previewNavigationRequest, setPreviewNavigationRequest] = useState<{
@@ -406,8 +509,10 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
     const [loadingFeaturedProducts, setLoadingFeaturedProducts] = useState(false);
     const [featuredQuantityOptions, setFeaturedQuantityOptions] = useState<number[]>([]);
     const [loadingFeaturedQuantities, setLoadingFeaturedQuantities] = useState(false);
+    const [uploadingPageBackgroundImage, setUploadingPageBackgroundImage] = useState(false);
     const [uploadingFeaturedSideImage, setUploadingFeaturedSideImage] = useState(false);
     const [uploadingFeaturedGalleryImage, setUploadingFeaturedGalleryImage] = useState(false);
+    const [uploadingFeaturedMainImage, setUploadingFeaturedMainImage] = useState(false);
 
     // Ref for screenshot capture promise resolution
     const screenshotResolverRef = useRef<{ resolve: (url: string | null) => void; reject: (err: any) => void } | null>(null);
@@ -420,22 +525,42 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                 console.log("Branding Editor received click:", sectionId);
 
                 // Map branding IDs to internal sections
-                if (sectionId === 'header.logo') {
+                const sId = sectionId || '';
+                if (sId === 'header.logo') {
                     setActiveSection('logo');
-                } else if (sectionId === 'header' || sectionId === 'header.menu') {
+                } else if (sId === 'header' || sId === 'header.menu') {
                     setActiveSection('header');
-                } else if (sectionId === 'forside.hero') {
+                } else if (sId === 'forside.hero') {
                     setActiveSection('banner');
-                } else if (sectionId === 'footer') {
+                } else if (sId === 'footer') {
                     setActiveSection('footer');
-                } else if (sectionId === 'content' || sectionId.startsWith('block-')) {
+                } else if (sId === 'content' || sId.startsWith('block-') || sId.startsWith('content:')) {
                     setActiveSection('content');
-                    if (sectionId.startsWith('block-')) {
-                        setFocusedBlockId(sectionId);
+                    if (sId.startsWith('block-') || sId.startsWith('content:')) {
+                        setFocusedBlockId(sId);
                     }
+                } else if (sId.startsWith('forside.products') || sId === 'icons.product-images') {
+                    setActiveSection('products');
+                } else if (sId === 'usp-strip' || sId.startsWith('usp-strip.')) {
+                    setActiveSection('content');
+                } else if (sId === 'forside.products.categories' || sId.startsWith('forside.products.categories')) {
+                    setActiveSection('products');
+                } else if (sId === 'productPage.infoSection') {
+                    setActiveSection('product-info-section');
+                } else if (sId === 'productPage.optionSelectors' || sId.startsWith('productPage.optionSelectors.')) {
+                    setActiveSection('product-option-selectors');
+                } else if (sId === 'productPage.matrix' || sId === 'productPage.heading') {
+                    setActiveSection('product-page-matrix');
+                } else if (sId === 'productPage.pricePanel' || sId.startsWith('productPage.pricePanel.')) {
+                    setActiveSection('product-price-panel');
+                } else if (sId === 'productPage.orderButtons.primary' || sId === 'productPage.orderButtons.secondary') {
+                    setActiveSection('product-order-buttons');
+                } else if (sId === 'colors.background') {
+                    setActiveSection('page-background');
+                } else if (sId.startsWith('colors.')) {
+                    setActiveSection('colors');
                 } else {
-                    // Fallback or generic handling
-                    setActiveSection(sectionId);
+                    setActiveSection(sId);
                 }
 
                 setSidebarOpen(true);
@@ -461,6 +586,44 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
     }, []);
+
+    const saveColorSwatch = useCallback((color: string) => {
+        const swatches = editor.draft.savedSwatches || [];
+        if (!swatches.includes(color) && swatches.length < 20) {
+            editor.updateDraft({ savedSwatches: [...swatches, color] });
+        }
+    }, [editor]);
+
+    const removeColorSwatch = useCallback((color: string) => {
+        editor.updateDraft({
+            savedSwatches: (editor.draft.savedSwatches || []).filter((candidate) => candidate !== color),
+        });
+    }, [editor]);
+
+    const updatePageBackgroundColors = useCallback((patch: Partial<typeof DEFAULT_BRANDING.colors>) => {
+        editor.updateDraft({
+            colors: {
+                ...editor.draft.colors,
+                ...patch,
+            },
+        });
+    }, [editor]);
+
+    const handlePageBackgroundImageUpload = useCallback(async (file: File) => {
+        try {
+            setUploadingPageBackgroundImage(true);
+            const url = await editor.uploadAsset(file, "hero-image");
+            updatePageBackgroundColors({
+                backgroundImageUrl: url,
+                backgroundType: "image",
+            });
+        } catch (error) {
+            console.error("Error uploading page background image:", error);
+            toast.error("Kunne ikke uploade baggrundsbilledet");
+        } finally {
+            setUploadingPageBackgroundImage(false);
+        }
+    }, [editor, updatePageBackgroundColors]);
 
     useEffect(() => {
         let cancelled = false;
@@ -633,6 +796,35 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
         }
     }, [editor.entityId]);
 
+    const uploadFeaturedMainImage = useCallback(async (file: File): Promise<string | null> => {
+        try {
+            setUploadingFeaturedMainImage(true);
+            const fileExt = file.name.split('.').pop() || 'png';
+            const fileName = `featured-main-image-${Date.now()}.${fileExt}`;
+            const filePath = `branding/${editor.entityId || 'master'}/${fileName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('product-images')
+                .upload(filePath, file, { upsert: true });
+
+            if (uploadError) {
+                console.error('Featured main image upload error:', uploadError);
+                return null;
+            }
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('product-images')
+                .getPublicUrl(filePath);
+
+            return publicUrl;
+        } catch (error) {
+            console.error('Error uploading featured main image:', error);
+            return null;
+        } finally {
+            setUploadingFeaturedMainImage(false);
+        }
+    }, [editor.entityId]);
+
     const uploadFeaturedGalleryImage = useCallback(async (file: File): Promise<string | null> => {
         try {
             setUploadingFeaturedGalleryImage(true);
@@ -709,7 +901,10 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
         if (capabilities.sections.header) sections.add("header");
         if (capabilities.sections.footer) sections.add("footer");
         if (capabilities.sections.typography) sections.add("typography");
-        if (capabilities.sections.colors) sections.add("colors");
+        if (capabilities.sections.colors) {
+            sections.add("page-background");
+            sections.add("colors");
+        }
 
         if (isHomePreviewPage) {
             sections.add("banner");
@@ -720,6 +915,10 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
 
         if (isProductPreviewPage) {
             sections.add("product-page-matrix");
+            sections.add("product-price-panel");
+            sections.add("product-order-buttons");
+            sections.add("product-info-section");
+            sections.add("product-option-selectors");
         }
 
         return sections;
@@ -816,6 +1015,101 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
         );
     }
 
+    const getSectionSummary = (sectionId: string): { text?: string; colors?: string[] } | null => {
+        const draft = editor.draft;
+        switch (sectionId) {
+            case 'theme': {
+                const themeId = (draft as any).themeId || 'classic';
+                const themeNames: Record<string, string> = {
+                    classic: 'Classic', glassmorphism: 'Glass', minimal: 'Minimal', bold: 'Bold', flat: 'Flat',
+                };
+                return { text: themeNames[themeId] || themeId };
+            }
+            case 'logo': {
+                const hasImage = Boolean(draft.header?.logoImageUrl || (draft as any).logo_url);
+                return { text: hasImage ? 'Logo uploadet' : 'Tekst-logo' };
+            }
+            case 'header': {
+                const bgColor = draft.header?.bgColor;
+                const style = draft.header?.style || 'solid';
+                const styleLabel = style === 'solid' ? 'Solid' : style === 'glass' ? 'Glas' : style === 'transparent' ? 'Transparent' : style;
+                return bgColor ? { text: styleLabel, colors: [bgColor] } : { text: styleLabel };
+            }
+            case 'typography': {
+                const heading = (draft as any).fonts?.heading || 'Poppins';
+                const body = (draft as any).fonts?.body || 'Inter';
+                return { text: `${heading} / ${body}` };
+            }
+            case 'page-background': {
+                const c = draft.colors || {};
+                const type = c.backgroundType || 'solid';
+                const text = type === 'gradient' ? 'Gradient' : type === 'image' ? 'Billede' : 'Farve';
+                return { text, colors: [c.background, c.backgroundGradientStart, c.backgroundGradientEnd].filter(Boolean) as string[] };
+            }
+            case 'colors': {
+                const c = draft.colors || {};
+                return { colors: [c.primary, c.card, c.secondary].filter(Boolean) as string[] };
+            }
+            case 'banner': {
+                const hero = (draft as any).hero || {};
+                const type = hero.backgroundType || 'color';
+                if (type === 'video') return { text: 'Video baggrund' };
+                if (type === 'image' || hero.backgroundImage) return { text: 'Billede baggrund' };
+                const bgColor = hero.backgroundColor;
+                return bgColor ? { text: 'Farve', colors: [bgColor] } : { text: 'Farve baggrund' };
+            }
+            case 'showcase': {
+                const enabled = draft.forside?.banner2?.enabled !== false;
+                return { text: enabled ? 'Aktiv' : 'Slået fra' };
+            }
+            case 'products': {
+                const cols = draft.forside?.productsSection?.columns || 4;
+                const ls = draft.forside?.productsSection?.layoutStyle || 'cards';
+                const lsLabels: Record<string, string> = { cards: 'Kort', flat: 'Flat', grouped: 'Grupper', slim: 'Slim' };
+                return { text: `${lsLabels[ls] || ls} · ${cols} kol.` };
+            }
+            case 'content': {
+                const n = (draft.forside?.contentBlocks || []).length;
+                return { text: `${n} blok${n === 1 ? '' : 'ke'}` };
+            }
+            case 'footer': {
+                return null;
+            }
+            case 'icons': {
+                const packId = (draft as any).selectedIconPackId || 'classic';
+                return { text: packId === 'classic' ? 'Standard' : packId };
+            }
+            case 'product-page-matrix': {
+                const font = (draft as any).productPage?.matrix?.font || 'Inter';
+                const accent = (draft as any).productPage?.matrix?.selectedBg || draft.colors?.primary || '#0EA5E9';
+                return { text: font, colors: [accent] };
+            }
+            case 'product-price-panel': {
+                const pp = (draft as any).productPage?.pricePanel;
+                const bg = pp?.backgroundColor || pp?.gradientStart || draft.colors?.primary || undefined;
+                return { colors: bg ? [bg] : [] };
+            }
+            case 'product-order-buttons': {
+                const ob = (draft as any).productPage?.orderButtons?.primary;
+                const c = ob?.bgColor || draft.colors?.primary || undefined;
+                return { colors: c ? [c] : [] };
+            }
+            case 'product-info-section': {
+                const infoSec = (draft as any).productPage?.infoSection;
+                const bg = infoSec?.bgColor || undefined;
+                const titleColor = infoSec?.titleColor || draft.colors?.headingText || undefined;
+                return { colors: [bg, titleColor].filter(Boolean) as string[] };
+            }
+            case 'product-option-selectors': {
+                const sel = (draft as any).productPage?.optionSelectors?.button;
+                const c1 = sel?.selectedBgColor || draft.colors?.primary || undefined;
+                const c2 = sel?.bgColor || undefined;
+                return { colors: [c1, c2].filter(Boolean) as string[] };
+            }
+            default: return null;
+        }
+    };
+
     const renderSidebarContent = () => {
         if (!activeSection) {
             return (
@@ -844,6 +1138,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                     <div className="grid gap-2">
                                         {groupButtons.map((config) => {
                                             const Icon = config.icon;
+                                            const summary = getSectionSummary(config.id);
                                             return (
                                                 <button
                                                     key={config.id}
@@ -853,7 +1148,30 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                     <div className={config.iconWrapperClassName}>
                                                         <Icon className={config.iconClassName} />
                                                     </div>
-                                                    <span className="font-semibold">{config.label}</span>
+                                                    <div className="flex-1 min-w-0 text-left">
+                                                        <div className="font-semibold leading-tight">{config.label}</div>
+                                                        {summary && (
+                                                            <div className="flex items-center gap-1 mt-0.5">
+                                                                {summary.colors && summary.colors.length > 0 && (
+                                                                    <div className="flex items-center gap-0.5 shrink-0">
+                                                                        {summary.colors.slice(0, 4).map((c, i) => (
+                                                                            <span
+                                                                                key={i}
+                                                                                className="inline-block w-3 h-3 rounded-full border border-black/10 shadow-sm"
+                                                                                style={{ backgroundColor: c }}
+                                                                            />
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                                {summary.text && (
+                                                                    <span className="text-[10px] text-muted-foreground truncate">
+                                                                        {summary.text}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <ChevronRight className="h-3.5 w-3.5 opacity-30 shrink-0" />
                                                 </button>
                                             );
                                         })}
@@ -1006,6 +1324,32 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                 });
                             }}
                             focusedBlockId={focusedBlockId}
+                        />
+                    </div>
+                );
+            case 'showcase':
+                return (
+                    <div className="space-y-3 px-3 pb-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Banner 2 / Showcase</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
+                        </div>
+                        <Banner2Section
+                            draft={editor.draft}
+                            updateDraft={editor.updateDraft}
+                            tenantId={editor.entityId}
+                            savedSwatches={editor.draft.savedSwatches}
+                            onSaveSwatch={(color) => {
+                                const swatches = editor.draft.savedSwatches || [];
+                                if (!swatches.includes(color) && swatches.length < 20) {
+                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                }
+                            }}
+                            onRemoveSwatch={(color) => {
+                                editor.updateDraft({
+                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                });
+                            }}
                         />
                     </div>
                 );
@@ -1710,6 +2054,52 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                 />
                                             </div>
                                         </div>
+                                        {/* Custom main image override */}
+                                        <div className="space-y-3 rounded-lg border border-dashed p-3">
+                                            <div>
+                                                <Label>Tilpasset produktbillede</Label>
+                                                <p className="text-xs text-muted-foreground">
+                                                    Erstat produktets standard billede med dit eget. Bruges når galleri er slået fra.
+                                                </p>
+                                            </div>
+                                            {featuredProductConfig.customImageUrl && (
+                                                <div className="relative w-32 rounded-md overflow-hidden border bg-muted">
+                                                    <img
+                                                        src={featuredProductConfig.customImageUrl}
+                                                        alt="Tilpasset billede"
+                                                        className="w-full h-24 object-contain"
+                                                    />
+                                                    <Button
+                                                        type="button"
+                                                        variant="destructive"
+                                                        size="sm"
+                                                        className="absolute top-1 right-1 h-6 w-6 p-0"
+                                                        onClick={() => updateFeaturedProductConfig({ customImageUrl: null })}
+                                                    >
+                                                        ×
+                                                    </Button>
+                                                </div>
+                                            )}
+                                            <Input
+                                                type="file"
+                                                accept="image/*"
+                                                disabled={!productsSection.enabled || uploadingFeaturedMainImage}
+                                                onChange={async (event) => {
+                                                    const input = event.currentTarget;
+                                                    const file = input.files?.[0];
+                                                    if (!file) return;
+                                                    const publicUrl = await uploadFeaturedMainImage(file);
+                                                    if (publicUrl) {
+                                                        updateFeaturedProductConfig({ customImageUrl: publicUrl });
+                                                    }
+                                                    input.value = "";
+                                                }}
+                                            />
+                                            {uploadingFeaturedMainImage && (
+                                                <p className="text-xs text-muted-foreground">Uploader...</p>
+                                            )}
+                                        </div>
+
                                         <div className="space-y-3 rounded-lg border border-dashed p-3">
                                             <div className="flex items-center justify-between">
                                                 <div>
@@ -1738,13 +2128,14 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                             accept="image/*"
                                                             disabled={!productsSection.enabled || uploadingFeaturedGalleryImage || featuredGalleryImages.length >= 8}
                                                             onChange={async (event) => {
-                                                                const file = event.target.files?.[0];
+                                                                const input = event.currentTarget;
+                                                                const file = input.files?.[0];
                                                                 if (!file) return;
                                                                 const publicUrl = await uploadFeaturedGalleryImage(file);
                                                                 if (publicUrl) {
                                                                     appendFeaturedGalleryImage(publicUrl);
                                                                 }
-                                                                event.currentTarget.value = "";
+                                                                input.value = "";
                                                             }}
                                                         />
                                                         <p className="text-xs text-muted-foreground">
@@ -2246,13 +2637,14 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                                                     accept="image/*"
                                                                                     disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false) || uploadingFeaturedSideImage}
                                                                                     onChange={async (event) => {
-                                                                                        const file = event.target.files?.[0];
+                                                                                        const input = event.currentTarget;
+                                                                                        const file = input.files?.[0];
                                                                                         if (!file) return;
                                                                                         const publicUrl = await uploadFeaturedSidePanelImage(file);
                                                                                         if (publicUrl) {
                                                                                             updateFeaturedSidePanelItem(item.id, { imageUrl: publicUrl });
                                                                                         }
-                                                                                        event.currentTarget.value = "";
+                                                                                        input.value = "";
                                                                                     }}
                                                                                 />
                                                                                 {item.imageUrl && (
@@ -2335,13 +2727,14 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                                 accept="image/*"
                                                                 disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false) || uploadingFeaturedSideImage || featuredSideImages.length >= 5}
                                                                 onChange={async (event) => {
-                                                                    const file = event.target.files?.[0];
+                                                                    const input = event.currentTarget;
+                                                                    const file = input.files?.[0];
                                                                     if (!file) return;
                                                                     const publicUrl = await uploadFeaturedSidePanelImage(file);
                                                                     if (publicUrl) {
                                                                         appendFeaturedSidePanelImage(publicUrl);
                                                                     }
-                                                                    event.currentTarget.value = "";
+                                                                    input.value = "";
                                                                 }}
                                                             />
                                                             <p className="text-xs text-muted-foreground">
@@ -2705,6 +3098,29 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                         </div>
                     </div>
                 );
+            case 'page-background':
+                return (
+                    <div id="site-design-focus-page-background" className="space-y-3 px-3 pb-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Sidebaggrund</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
+                        </div>
+                        <div className="space-y-4 pt-2">
+                            <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                                Denne sektion styrer kun den overordnede sidebaggrund bag shoppen, inkl. farve, gradient og baggrundsbillede.
+                            </div>
+                            <PageBackgroundControls
+                                colors={editor.draft.colors}
+                                savedSwatches={editor.draft.savedSwatches}
+                                onColorsChange={updatePageBackgroundColors}
+                                onSaveSwatch={saveColorSwatch}
+                                onRemoveSwatch={removeColorSwatch}
+                                onUploadImage={handlePageBackgroundImageUpload}
+                                uploadingImage={uploadingPageBackgroundImage}
+                            />
+                        </div>
+                    </div>
+                );
             case 'colors':
                 return (
                     <div className="space-y-3 px-3 pb-6">
@@ -2713,6 +3129,10 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
                         </div>
                         <div className="space-y-4 pt-2">
+                            <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                                Disse farver styrer de delte tema-farver på både live forside og live produktsider.
+                                Hero-knapper, header-CTA/dropdowns og forside-produktknapper redigeres stadig i deres egne sektioner.
+                            </div>
                             {BRANDING_COLOR_GROUPS.map((group) => (
                                 <div key={group.title} className="space-y-3 rounded-lg border p-3">
                                     <div className="space-y-1">
@@ -2751,17 +3171,8 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                                 compact={true}
                                                                 showFullSwatches={false}
                                                                 savedSwatches={editor.draft.savedSwatches}
-                                                                onSaveSwatch={(color) => {
-                                                                    const swatches = editor.draft.savedSwatches || [];
-                                                                    if (!swatches.includes(color) && swatches.length < 20) {
-                                                                        editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                    }
-                                                                }}
-                                                                onRemoveSwatch={(color) => {
-                                                                    editor.updateDraft({
-                                                                        savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                    });
-                                                                }}
+                                                                onSaveSwatch={saveColorSwatch}
+                                                                onRemoveSwatch={removeColorSwatch}
                                                             />
                                                             <span className="text-[11px] font-mono uppercase text-muted-foreground">
                                                                 {String(value)}
@@ -2778,41 +3189,273 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                     </div>
                 );
             case 'product-page-matrix': {
-                const matrixFields: BrandingColorFieldConfig[] = [
+                const matrixFields: MatrixColorFieldConfig[] = [
                     {
-                        key: "primary",
-                        label: "Primær (aktive felter og knapper)",
-                        description: "Bruges til valgte matrixfelter, primære knapper og aktive states på produktsiden.",
+                        key: "headerBg",
+                        label: "Kolonneheader baggrund",
+                        description: "Baggrund for top-rækken i prismatrixen.",
                     },
                     {
-                        key: "hover",
-                        label: "Hover accent",
-                        description: "Hover-farve til matrix- og knapinteraktioner på produktsiden.",
+                        key: "headerText",
+                        label: "Kolonneheader tekst",
+                        description: "Tekstfarve i top-rækken i prismatrixen.",
                     },
                     {
-                        key: "card",
-                        label: "Matrix/kort baggrund",
-                        description: "Baggrund for matrix- og panel-flader på produktsiden.",
+                        key: "rowHeaderBg",
+                        label: "Venstre kolonne baggrund",
+                        description: "Baggrund for venstre kolonne med materialer i prismatrixen.",
                     },
                     {
-                        key: "secondary",
-                        label: "Sekundær flade",
-                        description: "Supplerende baggrund for hjælpefelter og sekundære elementer.",
+                        key: "rowHeaderText",
+                        label: "Venstre kolonne tekst",
+                        description: "Tekstfarve for materialer i venstre kolonne i prismatrixen.",
                     },
                     {
-                        key: "pricingText",
-                        label: "Pris tekst",
-                        description: "Farven på prisvisning og fremhævede prisværdier.",
+                        key: "cellBg",
+                        label: "Prisfelt baggrund",
+                        description: "Standard baggrund for selve prisfelterne i matrixen.",
                     },
                     {
-                        key: "bodyText",
-                        label: "Beskrivelsestekst",
-                        description: "Farven på labels og hjælpetekster i konfigurationen.",
+                        key: "cellText",
+                        label: "Prisfelt tekst",
+                        description: "Standard tekstfarve for selve prisfelterne i matrixen.",
+                    },
+                    {
+                        key: "cellHoverBg",
+                        label: "Hover baggrund",
+                        description: "Baggrund når man holder musen over et prisfelt i matrixen.",
+                    },
+                    {
+                        key: "cellHoverText",
+                        label: "Hover tekst",
+                        description: "Tekstfarve ved hover på et prisfelt i matrixen.",
+                    },
+                    {
+                        key: "selectedBg",
+                        label: "Valgt baggrund",
+                        description: "Baggrund for det valgte prisfelt i matrixen.",
+                    },
+                    {
+                        key: "selectedText",
+                        label: "Valgt tekst",
+                        description: "Tekstfarve for det valgte prisfelt i matrixen.",
+                    },
+                    {
+                        key: "borderColor",
+                        label: "Border og separator",
+                        description: "Bruges til borders, skillelinjer og matrixens ydre ramme.",
+                    },
+                ];
+                const pricePanelColorFields: PricePanelColorFieldConfig[] = [
+                    {
+                        key: "titleColor",
+                        label: "Titel",
+                        description: "Overskriften “Prisberegning”.",
+                    },
+                    {
+                        key: "textColor",
+                        label: "Brødtekst",
+                        description: "Standardtekst i prisberegneren.",
+                    },
+                    {
+                        key: "mutedTextColor",
+                        label: "Hjælpetekst",
+                        description: "Små labels, beskrivelser og sekundær tekst.",
+                    },
+                    {
+                        key: "priceColor",
+                        label: "Prisfarve",
+                        description: "Store priser, leveringspriser og total.",
+                    },
+                    {
+                        key: "borderColor",
+                        label: "Ydre border",
+                        description: "Rammen rundt om hele prisberegneren.",
+                    },
+                    {
+                        key: "dividerColor",
+                        label: "Separatorer",
+                        description: "Skillelinjer mellem sektioner i prisberegneren.",
+                    },
+                    {
+                        key: "optionBg",
+                        label: "Leveringskort baggrund",
+                        description: "Standard baggrund for leveringsvalgene.",
+                    },
+                    {
+                        key: "optionHoverBg",
+                        label: "Leveringskort hover",
+                        description: "Baggrund når man holder over et leveringsvalg.",
+                    },
+                    {
+                        key: "optionSelectedBg",
+                        label: "Valgt leveringskort",
+                        description: "Baggrund for det valgte leveringsvalg.",
+                    },
+                    {
+                        key: "optionBorderColor",
+                        label: "Leveringskort border",
+                        description: "Standard border for leveringsvalgene.",
+                    },
+                    {
+                        key: "optionHoverBorderColor",
+                        label: "Hover border",
+                        description: "Border når man holder over et leveringsvalg.",
+                    },
+                    {
+                        key: "optionSelectedBorderColor",
+                        label: "Valgt border",
+                        description: "Border for det valgte leveringsvalg og badge-kant.",
+                    },
+                    {
+                        key: "badgeBg",
+                        label: "Deadline-badge baggrund",
+                        description: "Baggrund for de små deadline-badges.",
+                    },
+                    {
+                        key: "badgeText",
+                        label: "Deadline-badge tekst",
+                        description: "Tekstfarve i de små deadline-badges.",
+                    },
+                    {
+                        key: "badgeBorderColor",
+                        label: "Deadline-badge border",
+                        description: "Kanten rundt om de små deadline-badges.",
                     },
                 ];
                 const pictureButtons = editor.draft.productPage?.matrix?.pictureButtons
                     || DEFAULT_BRANDING.productPage.matrix.pictureButtons;
+                const productPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
+                const matrixConfig = {
+                    ...DEFAULT_BRANDING.productPage.matrix,
+                    ...(productPage.matrix || {}),
+                    pictureButtons: {
+                        ...DEFAULT_BRANDING.productPage.matrix.pictureButtons,
+                        ...(productPage.matrix?.pictureButtons || {}),
+                    },
+                };
+                const panelPrimary = editor.draft.colors.primary || "#0EA5E9";
+                const pricePanelDefaults = {
+                    backgroundColor: hexToRgba(panelPrimary, 0.05),
+                    gradientStart: hexToRgba(panelPrimary, 0.1),
+                    gradientEnd: editor.draft.colors.card || "#FFFFFF",
+                    titleColor: editor.draft.colors.headingText || "#1F2937",
+                    textColor: editor.draft.colors.headingText || "#1F2937",
+                    mutedTextColor: editor.draft.colors.bodyText || "#475569",
+                    priceColor: panelPrimary,
+                    borderColor: hexToRgba(panelPrimary, 0.18),
+                    dividerColor: hexToRgba(panelPrimary, 0.12),
+                    optionBg: editor.draft.colors.card || "#FFFFFF",
+                    optionHoverBg: hexToRgba(panelPrimary, 0.04),
+                    optionSelectedBg: hexToRgba(panelPrimary, 0.08),
+                    optionBorderColor: editor.draft.colors.secondary || "#E2E8F0",
+                    optionHoverBorderColor: hexToRgba(panelPrimary, 0.3),
+                    optionSelectedBorderColor: panelPrimary,
+                    badgeBg: hexToRgba(panelPrimary, 0.1),
+                    badgeText: panelPrimary,
+                    badgeBorderColor: panelPrimary,
+                };
+                const pricePanel = productPage.pricePanel || DEFAULT_BRANDING.productPage.pricePanel;
+                const pricePanelConfig = {
+                    ...DEFAULT_BRANDING.productPage.pricePanel,
+                    ...(productPage.pricePanel || {}),
+                    backgroundColor: pricePanel.backgroundColor || pricePanelDefaults.backgroundColor,
+                    gradientStart: pricePanel.gradientStart || pricePanelDefaults.gradientStart,
+                    gradientEnd: pricePanel.gradientEnd || pricePanelDefaults.gradientEnd,
+                    titleColor: pricePanel.titleColor || pricePanelDefaults.titleColor,
+                    textColor: pricePanel.textColor || pricePanelDefaults.textColor,
+                    mutedTextColor: pricePanel.mutedTextColor || pricePanelDefaults.mutedTextColor,
+                    priceColor: pricePanel.priceColor || pricePanelDefaults.priceColor,
+                    borderColor: pricePanel.borderColor || pricePanelDefaults.borderColor,
+                    dividerColor: pricePanel.dividerColor || pricePanelDefaults.dividerColor,
+                    optionBg: pricePanel.optionBg || pricePanelDefaults.optionBg,
+                    optionHoverBg: pricePanel.optionHoverBg || pricePanelDefaults.optionHoverBg,
+                    optionSelectedBg: pricePanel.optionSelectedBg || pricePanelDefaults.optionSelectedBg,
+                    optionBorderColor: pricePanel.optionBorderColor || pricePanelDefaults.optionBorderColor,
+                    optionHoverBorderColor: pricePanel.optionHoverBorderColor || pricePanelDefaults.optionHoverBorderColor,
+                    optionSelectedBorderColor: pricePanel.optionSelectedBorderColor || pricePanelDefaults.optionSelectedBorderColor,
+                    badgeBg: pricePanel.badgeBg || pricePanelDefaults.badgeBg,
+                    badgeText: pricePanel.badgeText || pricePanelDefaults.badgeText,
+                    badgeBorderColor: pricePanel.badgeBorderColor || pricePanelDefaults.badgeBorderColor,
+                    borderWidth: clamp(Number(pricePanel.borderWidth) || 2, 0, 8),
+                    radiusPx: clamp(Number(pricePanel.radiusPx) || 12, 0, 40),
+                    gradientAngle: clamp(Number(pricePanel.gradientAngle) || 135, 0, 360),
+                };
+                const orderButtons = productPage.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
+                const orderButtonFallbacks = {
+                    primary: {
+                        bgColor: editor.draft.colors.primary,
+                        hoverBgColor: editor.draft.colors.primary,
+                        textColor: "#FFFFFF",
+                        hoverTextColor: "#FFFFFF",
+                        borderColor: editor.draft.colors.primary,
+                        hoverBorderColor: editor.draft.colors.primary,
+                    },
+                    secondary: {
+                        bgColor: editor.draft.colors.card,
+                        hoverBgColor: editor.draft.colors.secondary,
+                        textColor: editor.draft.colors.bodyText,
+                        hoverTextColor: editor.draft.colors.headingText,
+                        borderColor: editor.draft.colors.secondary || "#E2E8F0",
+                        hoverBorderColor: editor.draft.colors.primary,
+                    },
+                    selected: {
+                        bgColor: "#16A34A",
+                        hoverBgColor: "#15803D",
+                        textColor: "#FFFFFF",
+                        hoverTextColor: "#FFFFFF",
+                        borderColor: "#16A34A",
+                        hoverBorderColor: "#15803D",
+                    },
+                };
+                const resolveOrderButton = (
+                    button: typeof orderButtons.primary,
+                    fallback: typeof orderButtonFallbacks.primary,
+                ) => ({
+                    bgColor: button?.bgColor || fallback.bgColor,
+                    hoverBgColor: button?.hoverBgColor || fallback.hoverBgColor,
+                    textColor: button?.textColor || fallback.textColor,
+                    hoverTextColor: button?.hoverTextColor || fallback.hoverTextColor,
+                    borderColor: button?.borderColor || fallback.borderColor,
+                    hoverBorderColor: button?.hoverBorderColor || fallback.hoverBorderColor,
+                });
+                const primaryOrderButton = resolveOrderButton(orderButtons.primary, orderButtonFallbacks.primary);
+                const secondaryOrderButton = resolveOrderButton(orderButtons.secondary, orderButtonFallbacks.secondary);
+                const selectedOrderButton = resolveOrderButton(orderButtons.selected, orderButtonFallbacks.selected);
 
+                const updateMatrix = (updates: Partial<typeof matrixConfig>) => {
+                    const currentProductPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
+                    const currentMatrix = {
+                        ...DEFAULT_BRANDING.productPage.matrix,
+                        ...(currentProductPage.matrix || {}),
+                        pictureButtons: {
+                            ...DEFAULT_BRANDING.productPage.matrix.pictureButtons,
+                            ...(currentProductPage.matrix?.pictureButtons || {}),
+                        },
+                    };
+                    editor.updateDraft({
+                        productPage: {
+                            ...currentProductPage,
+                            matrix: {
+                                ...currentMatrix,
+                                ...updates,
+                            },
+                        },
+                    });
+                };
+                const updatePricePanel = (updates: Partial<typeof DEFAULT_BRANDING.productPage.pricePanel>) => {
+                    const currentProductPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
+                    const currentPricePanel = currentProductPage.pricePanel || DEFAULT_BRANDING.productPage.pricePanel;
+                    editor.updateDraft({
+                        productPage: {
+                            ...currentProductPage,
+                            pricePanel: {
+                                ...currentPricePanel,
+                                ...updates,
+                            },
+                        },
+                    });
+                };
                 const updatePictureButtons = (updates: Partial<typeof pictureButtons>) => {
                     const currentProductPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
                     const currentMatrix = currentProductPage.matrix || DEFAULT_BRANDING.productPage.matrix;
@@ -2830,23 +3473,210 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                         },
                     });
                 };
+                const updateOrderButton = (
+                    buttonKey: "primary" | "secondary" | "selected",
+                    updates: Partial<typeof orderButtons.primary>,
+                ) => {
+                    const currentProductPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
+                    const currentOrderButtons = currentProductPage.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
+                    editor.updateDraft({
+                        productPage: {
+                            ...currentProductPage,
+                            orderButtons: {
+                                ...currentOrderButtons,
+                                [buttonKey]: {
+                                    ...currentOrderButtons[buttonKey],
+                                    ...updates,
+                                },
+                            },
+                        },
+                    });
+                };
+
+                const headingConfig = {
+                    ...DEFAULT_BRANDING.productPage.heading,
+                    ...(productPage.heading || {}),
+                    subtext: {
+                        ...DEFAULT_BRANDING.productPage.heading.subtext,
+                        ...(productPage.heading?.subtext || {}),
+                    },
+                };
+                const updateHeading = (updates: Partial<typeof headingConfig>) => {
+                    const currentProductPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
+                    editor.updateDraft({
+                        productPage: {
+                            ...currentProductPage,
+                            heading: {
+                                ...headingConfig,
+                                ...updates,
+                            },
+                        },
+                    });
+                };
+                const updateHeadingSubtext = (updates: Partial<typeof headingConfig.subtext>) => {
+                    updateHeading({
+                        subtext: {
+                            ...headingConfig.subtext,
+                            ...updates,
+                        },
+                    });
+                };
 
                 return (
                     <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-medium">Produktside matrix & knapper</h3>
+                            <h3 className="text-sm font-medium">Produktside prismatrix, prisberegner & knapper</h3>
                             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
                         </div>
+
+                        {/* Heading & subtext card */}
                         <Card>
                             <CardHeader className="space-y-1">
-                                <CardTitle className="text-sm">Farver for produktsiden</CardTitle>
+                                <CardTitle className="text-sm">Overskrift & fremhævet tekst</CardTitle>
                                 <CardDescription className="text-xs text-muted-foreground">
-                                    Disse felter bruges direkte af matrix, prispanel og produktknapper.
+                                    Sæt skrifttype og størrelse på produktsidens overskrift. Lad tekstfeltet stå tomt for at vise produktnavnet automatisk.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                {/* Heading text override */}
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs">Overskrift tekst <span className="font-normal text-muted-foreground">(tomt = produktnavn)</span></Label>
+                                    <Input
+                                        value={headingConfig.customText || ""}
+                                        placeholder="Produktnavn (automatisk)"
+                                        onChange={(e) => updateHeading({ customText: e.target.value })}
+                                        className="h-8 text-sm"
+                                    />
+                                </div>
+
+                                {/* Heading font + size in one row */}
+                                <div className="grid grid-cols-[1fr_80px] gap-2 items-end">
+                                    <FontSelector
+                                        label="Skrifttype"
+                                        value={headingConfig.font || "Poppins"}
+                                        onChange={(font) => updateHeading({ font })}
+                                    />
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs">Størrelse (px)</Label>
+                                        <Input
+                                            type="number"
+                                            min={16}
+                                            max={80}
+                                            value={headingConfig.sizePx || 36}
+                                            onChange={(e) => updateHeading({ sizePx: Number(e.target.value) })}
+                                            className="h-8 text-sm"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Heading color */}
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-xs font-medium">Overskrift farve</p>
+                                        <p className="text-[10px] text-muted-foreground">Tom = global overskriftsfarve</p>
+                                    </div>
+                                    <ColorPickerWithSwatches
+                                        value={headingConfig.color || editor.draft.colors?.headingText || "#1F2937"}
+                                        onChange={(color) => updateHeading({ color })}
+                                        compact={true}
+                                        showFullSwatches={false}
+                                        savedSwatches={editor.draft.savedSwatches}
+                                        onSaveSwatch={(color) => {
+                                            const swatches = editor.draft.savedSwatches || [];
+                                            if (!swatches.includes(color) && swatches.length < 20) {
+                                                editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                            }
+                                        }}
+                                        onRemoveSwatch={(color) => {
+                                            editor.updateDraft({ savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color) });
+                                        }}
+                                    />
+                                </div>
+
+                                <Separator />
+
+                                {/* Subtext toggle */}
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-xs font-medium">Fed undertekst</p>
+                                        <p className="text-[10px] text-muted-foreground">Ekstra linje med fed tekst under overskriften</p>
+                                    </div>
+                                    <Switch
+                                        checked={headingConfig.subtext.enabled}
+                                        onCheckedChange={(enabled) => updateHeadingSubtext({ enabled })}
+                                    />
+                                </div>
+
+                                {headingConfig.subtext.enabled && (
+                                    <div className="space-y-3 pl-0 border-l-2 border-primary/20 pl-3">
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs">Undertekst indhold</Label>
+                                            <Textarea
+                                                value={headingConfig.subtext.text || ""}
+                                                placeholder="Skriv din fremhævede tekst her..."
+                                                onChange={(e) => updateHeadingSubtext({ text: e.target.value })}
+                                                className="text-sm min-h-[60px] resize-none"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-[1fr_80px] gap-2 items-end">
+                                            <FontSelector
+                                                label="Skrifttype"
+                                                value={headingConfig.subtext.font || "Poppins"}
+                                                onChange={(font) => updateHeadingSubtext({ font })}
+                                            />
+                                            <div className="space-y-1.5">
+                                                <Label className="text-xs">Størrelse (px)</Label>
+                                                <Input
+                                                    type="number"
+                                                    min={12}
+                                                    max={48}
+                                                    value={headingConfig.subtext.sizePx || 18}
+                                                    onChange={(e) => updateHeadingSubtext({ sizePx: Number(e.target.value) })}
+                                                    className="h-8 text-sm"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-4">
+                                            <div>
+                                                <p className="text-xs font-medium">Farve</p>
+                                                <p className="text-[10px] text-muted-foreground">Tom = global brødtekstfarve</p>
+                                            </div>
+                                            <ColorPickerWithSwatches
+                                                value={headingConfig.subtext.color || editor.draft.colors?.bodyText || "#4B5563"}
+                                                onChange={(color) => updateHeadingSubtext({ color })}
+                                                compact={true}
+                                                showFullSwatches={false}
+                                                savedSwatches={editor.draft.savedSwatches}
+                                                onSaveSwatch={(color) => {
+                                                    const swatches = editor.draft.savedSwatches || [];
+                                                    if (!swatches.includes(color) && swatches.length < 20) {
+                                                        editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                    }
+                                                }}
+                                                onRemoveSwatch={(color) => {
+                                                    editor.updateDraft({ savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color) });
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        <Card>
+                            <CardHeader className="space-y-1">
+                                <CardTitle className="text-sm">Farver for prismatrixen</CardTitle>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    Gælder kun selve prismatrixen med materialer, antal og priser. Påvirker ikke dropdowns, valgfelter, prispanel eller tekstsektioner.
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-3">
+                                <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                                    Brug denne sektion til den lille pristabel med materialer, antal og priser.
+                                    Alt andet på produktsiden styres separat.
+                                </div>
                                 {matrixFields.map((field, index) => {
-                                    const value = editor.draft.colors[field.key];
+                                    const value = matrixConfig[field.key];
                                     return (
                                         <div
                                             key={field.key}
@@ -2860,9 +3690,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                                 <div className="flex flex-col items-end gap-1 pt-0.5">
                                                     <ColorPickerWithSwatches
                                                         value={value}
-                                                        onChange={(color) => editor.updateDraft({
-                                                            colors: { ...editor.draft.colors, [field.key]: color }
-                                                        })}
+                                                        onChange={(color) => updateMatrix({ [field.key]: color })}
                                                         compact={true}
                                                         showFullSwatches={false}
                                                         savedSwatches={editor.draft.savedSwatches}
@@ -2890,9 +3718,174 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                         </Card>
                         <Card>
                             <CardHeader className="space-y-1">
+                                <CardTitle className="text-sm">Prisberegner</CardTitle>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    Gælder kun boksen med “Prisberegning”, levering og samlet pris. Påvirker ikke prismatrixen eller CTA-knapperne.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                                    Brug denne sektion til højrepanelet med priser, levering, badges og total.
+                                </div>
+                                <div className="grid gap-3 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label>Baggrundstype</Label>
+                                        <Select
+                                            value={pricePanelConfig.backgroundType}
+                                            onValueChange={(value) => updatePricePanel({ backgroundType: value as typeof pricePanelConfig.backgroundType })}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="solid">Farve</SelectItem>
+                                                <SelectItem value="gradient">Gradient</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <Label>Runding</Label>
+                                            <span className="text-xs text-muted-foreground">{pricePanelConfig.radiusPx}px</span>
+                                        </div>
+                                        <Slider
+                                            min={0}
+                                            max={40}
+                                            step={1}
+                                            value={[pricePanelConfig.radiusPx]}
+                                            onValueChange={([value]) => updatePricePanel({ radiusPx: value })}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <Label>Border-bredde</Label>
+                                        <span className="text-xs text-muted-foreground">{pricePanelConfig.borderWidth}px</span>
+                                    </div>
+                                    <Slider
+                                        min={0}
+                                        max={8}
+                                        step={1}
+                                        value={[pricePanelConfig.borderWidth]}
+                                        onValueChange={([value]) => updatePricePanel({ borderWidth: value })}
+                                    />
+                                </div>
+                                {pricePanelConfig.backgroundType === "solid" ? (
+                                    <ColorPickerWithSwatches
+                                        label="Baggrundsfarve"
+                                        value={pricePanelConfig.backgroundColor}
+                                        onChange={(color) => updatePricePanel({ backgroundColor: color })}
+                                        savedSwatches={editor.draft.savedSwatches}
+                                        onSaveSwatch={(color) => {
+                                            const swatches = editor.draft.savedSwatches || [];
+                                            if (!swatches.includes(color) && swatches.length < 20) {
+                                                editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                            }
+                                        }}
+                                        onRemoveSwatch={(color) => {
+                                            editor.updateDraft({
+                                                savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                            });
+                                        }}
+                                    />
+                                ) : (
+                                    <div className="space-y-3">
+                                        <div className="grid gap-3 md:grid-cols-2">
+                                            <ColorPickerWithSwatches
+                                                label="Gradient start"
+                                                value={pricePanelConfig.gradientStart}
+                                                onChange={(color) => updatePricePanel({ gradientStart: color })}
+                                                savedSwatches={editor.draft.savedSwatches}
+                                                onSaveSwatch={(color) => {
+                                                    const swatches = editor.draft.savedSwatches || [];
+                                                    if (!swatches.includes(color) && swatches.length < 20) {
+                                                        editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                    }
+                                                }}
+                                                onRemoveSwatch={(color) => {
+                                                    editor.updateDraft({
+                                                        savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                    });
+                                                }}
+                                            />
+                                            <ColorPickerWithSwatches
+                                                label="Gradient slut"
+                                                value={pricePanelConfig.gradientEnd}
+                                                onChange={(color) => updatePricePanel({ gradientEnd: color })}
+                                                savedSwatches={editor.draft.savedSwatches}
+                                                onSaveSwatch={(color) => {
+                                                    const swatches = editor.draft.savedSwatches || [];
+                                                    if (!swatches.includes(color) && swatches.length < 20) {
+                                                        editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                    }
+                                                }}
+                                                onRemoveSwatch={(color) => {
+                                                    editor.updateDraft({
+                                                        savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                    });
+                                                }}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <Label>Gradient vinkel</Label>
+                                                <span className="text-xs text-muted-foreground">{pricePanelConfig.gradientAngle}°</span>
+                                            </div>
+                                            <Slider
+                                                min={0}
+                                                max={360}
+                                                step={5}
+                                                value={[pricePanelConfig.gradientAngle]}
+                                                onValueChange={([value]) => updatePricePanel({ gradientAngle: value })}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="space-y-3 border-t border-border/60 pt-4">
+                                    {pricePanelColorFields.map((field, index) => {
+                                        const value = pricePanelConfig[field.key];
+                                        return (
+                                            <div key={field.key} className={index === 0 ? "space-y-1.5" : "space-y-1.5 border-t border-border/40 pt-3"}>
+                                                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4">
+                                                    <div className="space-y-1 pr-2">
+                                                        <p className="text-sm font-medium leading-5">{field.label}</p>
+                                                        <p className="text-xs leading-5 text-muted-foreground">{field.description}</p>
+                                                    </div>
+                                                    <div className="flex flex-col items-end gap-1 pt-0.5">
+                                                        <ColorPickerWithSwatches
+                                                            value={value}
+                                                            onChange={(color) => updatePricePanel({ [field.key]: color })}
+                                                            compact={true}
+                                                            showFullSwatches={false}
+                                                            savedSwatches={editor.draft.savedSwatches}
+                                                            onSaveSwatch={(color) => {
+                                                                const swatches = editor.draft.savedSwatches || [];
+                                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                                }
+                                                            }}
+                                                            onRemoveSwatch={(color) => {
+                                                                editor.updateDraft({
+                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                                });
+                                                            }}
+                                                        />
+                                                        <span className="text-[11px] font-mono uppercase text-muted-foreground">
+                                                            {String(value)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="space-y-1">
                                 <CardTitle className="text-sm">Billedknapper (matrix)</CardTitle>
                                 <CardDescription className="text-xs text-muted-foreground">
-                                    Særskilt styling til billedvalg (small/medium/large/xl), uafhængigt af almindelige knapper.
+                                    Disse knapper er separate og påvirkes ikke af farverne for prismatrixen ovenfor.
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
@@ -3029,6 +4022,280 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                 </div>
                             </CardContent>
                         </Card>
+                        <Card>
+                            <CardHeader className="space-y-1">
+                                <CardTitle className="text-sm">Bestillingsknapper</CardTitle>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    Styrer knapperne “Design online” og “Bestil nu!” på produktsiden.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="space-y-3 rounded-lg border p-3">
+                                    <div className="space-y-1">
+                                        <h4 className="text-sm font-medium">“Bestil nu!”</h4>
+                                        <p className="text-xs text-muted-foreground">Primær CTA-knap.</p>
+                                    </div>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <ColorPickerWithSwatches
+                                            label="Baggrund"
+                                            value={primaryOrderButton.bgColor}
+                                            onChange={(color) => updateOrderButton("primary", { bgColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Hover baggrund"
+                                            value={primaryOrderButton.hoverBgColor}
+                                            onChange={(color) => updateOrderButton("primary", { hoverBgColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Tekst"
+                                            value={primaryOrderButton.textColor}
+                                            onChange={(color) => updateOrderButton("primary", { textColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Hover tekst"
+                                            value={primaryOrderButton.hoverTextColor}
+                                            onChange={(color) => updateOrderButton("primary", { hoverTextColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-3 rounded-lg border p-3">
+                                    <div className="space-y-1">
+                                        <h4 className="text-sm font-medium">“Design online”</h4>
+                                        <p className="text-xs text-muted-foreground">Sekundær knap med kant/outline.</p>
+                                    </div>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <ColorPickerWithSwatches
+                                            label="Baggrund"
+                                            value={secondaryOrderButton.bgColor}
+                                            onChange={(color) => updateOrderButton("secondary", { bgColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Hover baggrund"
+                                            value={secondaryOrderButton.hoverBgColor}
+                                            onChange={(color) => updateOrderButton("secondary", { hoverBgColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Tekst"
+                                            value={secondaryOrderButton.textColor}
+                                            onChange={(color) => updateOrderButton("secondary", { textColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Hover tekst"
+                                            value={secondaryOrderButton.hoverTextColor}
+                                            onChange={(color) => updateOrderButton("secondary", { hoverTextColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Kant"
+                                            value={secondaryOrderButton.borderColor}
+                                            onChange={(color) => updateOrderButton("secondary", { borderColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Hover kant"
+                                            value={secondaryOrderButton.hoverBorderColor}
+                                            onChange={(color) => updateOrderButton("secondary", { hoverBorderColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-3 rounded-lg border p-3">
+                                    <div className="space-y-1">
+                                        <h4 className="text-sm font-medium">“Klar til design”</h4>
+                                        <p className="text-xs text-muted-foreground">Vises når der allerede er valgt et design.</p>
+                                    </div>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <ColorPickerWithSwatches
+                                            label="Baggrund"
+                                            value={selectedOrderButton.bgColor}
+                                            onChange={(color) => updateOrderButton("selected", { bgColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Hover baggrund"
+                                            value={selectedOrderButton.hoverBgColor}
+                                            onChange={(color) => updateOrderButton("selected", { hoverBgColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Tekst"
+                                            value={selectedOrderButton.textColor}
+                                            onChange={(color) => updateOrderButton("selected", { textColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Hover tekst"
+                                            value={selectedOrderButton.hoverTextColor}
+                                            onChange={(color) => updateOrderButton("selected", { hoverTextColor: color })}
+                                            savedSwatches={editor.draft.savedSwatches}
+                                            onSaveSwatch={(color) => {
+                                                const swatches = editor.draft.savedSwatches || [];
+                                                if (!swatches.includes(color) && swatches.length < 20) {
+                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                                }
+                                            }}
+                                            onRemoveSwatch={(color) => {
+                                                editor.updateDraft({
+                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                                });
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
                     </div>
                 );
             }
@@ -3048,12 +4315,516 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                         />
                     </div>
                 );
+            case 'product-price-panel': {
+                const panelPrimary2 = editor.draft.colors.primary || "#0EA5E9";
+                const productPage2 = editor.draft.productPage || DEFAULT_BRANDING.productPage;
+                const pricePanel2 = productPage2.pricePanel || DEFAULT_BRANDING.productPage.pricePanel;
+                const sw2 = editor.draft.savedSwatches || [];
+                const onSave2 = (c: string) => { if (!sw2.includes(c) && sw2.length < 20) editor.updateDraft({ savedSwatches: [...sw2, c] }); };
+                const onRemove2 = (c: string) => editor.updateDraft({ savedSwatches: sw2.filter(x => x !== c) });
+                const updatePricePanel = (patch: Partial<typeof DEFAULT_BRANDING.productPage.pricePanel>) => {
+                    editor.updateDraft({
+                        productPage: {
+                            ...editor.draft.productPage,
+                            pricePanel: { ...pricePanel2, ...patch },
+                        } as any,
+                    });
+                };
+                const bgType = pricePanel2.backgroundType || "solid";
+                return (
+                    <div className="space-y-4 px-3 pb-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Prisboks</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
+                        </div>
+
+                        {/* Background */}
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Baggrund</CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-3">
+                                <Select value={bgType} onValueChange={(v) => updatePricePanel({ backgroundType: v as any })}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="solid">Ensfarvet</SelectItem>
+                                        <SelectItem value="gradient">Gradient</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                {bgType === "solid" && (
+                                    <ColorPickerWithSwatches label="Baggrundsfarve" value={pricePanel2.backgroundColor || hexToRgba(panelPrimary2, 0.05)} onChange={(v) => updatePricePanel({ backgroundColor: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                                )}
+                                {bgType === "gradient" && (
+                                    <div className="space-y-2">
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <ColorPickerWithSwatches label="Fra" value={pricePanel2.gradientStart || hexToRgba(panelPrimary2, 0.1)} onChange={(v) => updatePricePanel({ gradientStart: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                                            <ColorPickerWithSwatches label="Til" value={pricePanel2.gradientEnd || editor.draft.colors.card || "#FFFFFF"} onChange={(v) => updatePricePanel({ gradientEnd: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-medium text-muted-foreground">Vinkel ({pricePanel2.gradientAngle ?? 135}°)</label>
+                                            <input type="range" min={0} max={360} value={pricePanel2.gradientAngle ?? 135} onChange={(e) => updatePricePanel({ gradientAngle: Number(e.target.value) })} className="w-full" />
+                                        </div>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        {/* Border & Shape */}
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Kant & form</CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-3">
+                                <ColorPickerWithSwatches label="Kantfarve" value={pricePanel2.borderColor || hexToRgba(panelPrimary2, 0.18)} onChange={(v) => updatePricePanel({ borderColor: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-muted-foreground">Kantbredde ({pricePanel2.borderWidth ?? 2}px)</label>
+                                        <input type="range" min={0} max={8} value={pricePanel2.borderWidth ?? 2} onChange={(e) => updatePricePanel({ borderWidth: Number(e.target.value) })} className="w-full" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-muted-foreground">Afrunding ({pricePanel2.radiusPx ?? 12}px)</label>
+                                        <input type="range" min={0} max={40} value={pricePanel2.radiusPx ?? 12} onChange={(e) => updatePricePanel({ radiusPx: Number(e.target.value) })} className="w-full" />
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Text colors */}
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tekstfarver</CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-2">
+                                <div className="grid grid-cols-2 gap-2">
+                                    <ColorPickerWithSwatches label="Titel" value={pricePanel2.titleColor || ""} onChange={(v) => updatePricePanel({ titleColor: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                                    <ColorPickerWithSwatches label="Tekst" value={pricePanel2.textColor || ""} onChange={(v) => updatePricePanel({ textColor: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                                    <ColorPickerWithSwatches label="Hjælpetekst" value={pricePanel2.mutedTextColor || ""} onChange={(v) => updatePricePanel({ mutedTextColor: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                                    <ColorPickerWithSwatches label="Pris" value={pricePanel2.priceColor || ""} onChange={(v) => updatePricePanel({ priceColor: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Delivery cards */}
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Leveringskort</CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-2">
+                                <div className="grid grid-cols-2 gap-2">
+                                    <ColorPickerWithSwatches label="Baggrund" value={pricePanel2.optionBg || ""} onChange={(v) => updatePricePanel({ optionBg: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                                    <ColorPickerWithSwatches label="Valgt" value={pricePanel2.optionSelectedBg || ""} onChange={(v) => updatePricePanel({ optionSelectedBg: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                                    <ColorPickerWithSwatches label="Kant" value={pricePanel2.optionBorderColor || ""} onChange={(v) => updatePricePanel({ optionBorderColor: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                                    <ColorPickerWithSwatches label="Valgt kant" value={pricePanel2.optionSelectedBorderColor || ""} onChange={(v) => updatePricePanel({ optionSelectedBorderColor: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                                </div>
+                                <ColorPickerWithSwatches label="Separator" value={pricePanel2.dividerColor || ""} onChange={(v) => updatePricePanel({ dividerColor: v })} savedSwatches={sw2} onSaveSwatch={onSave2} onRemoveSwatch={onRemove2} />
+                            </CardContent>
+                        </Card>
+
+                        <p className="text-[11px] text-muted-foreground px-1">Avancerede indstillinger (badge, hover m.m.) finder du under <button className="underline" onClick={() => setActiveSection('product-page-matrix')}>Prismatrix</button>.</p>
+                    </div>
+                );
+            }
+            case 'product-order-buttons': {
+                const productPage3 = editor.draft.productPage || DEFAULT_BRANDING.productPage;
+                const orderButtons3 = productPage3.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
+                const sw3 = editor.draft.savedSwatches || [];
+                const onSave3 = (c: string) => { if (!sw3.includes(c) && sw3.length < 20) editor.updateDraft({ savedSwatches: [...sw3, c] }); };
+                const onRemove3 = (c: string) => editor.updateDraft({ savedSwatches: sw3.filter(x => x !== c) });
+                const updateOB = (key: 'primary' | 'secondary' | 'selected', patch: Record<string, string>) => {
+                    editor.updateDraft({
+                        productPage: {
+                            ...editor.draft.productPage,
+                            orderButtons: {
+                                ...orderButtons3,
+                                [key]: { ...(orderButtons3[key] || {}), ...patch },
+                            },
+                        } as any,
+                    });
+                };
+                const primary3 = orderButtons3.primary || {};
+                const secondary3 = orderButtons3.secondary || {};
+                const selected3 = orderButtons3.selected || {};
+                return (
+                    <div className="space-y-4 px-3 pb-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Bestil-knapper</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
+                        </div>
+
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">"Bestil nu!" (primær)</CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-2">
+                                <div className="grid grid-cols-2 gap-2">
+                                    <ColorPickerWithSwatches label="Baggrund" value={(primary3 as any).bgColor || ""} onChange={(v) => updateOB('primary', { bgColor: v })} savedSwatches={sw3} onSaveSwatch={onSave3} onRemoveSwatch={onRemove3} />
+                                    <ColorPickerWithSwatches label="Tekst" value={(primary3 as any).textColor || ""} onChange={(v) => updateOB('primary', { textColor: v })} savedSwatches={sw3} onSaveSwatch={onSave3} onRemoveSwatch={onRemove3} />
+                                    <ColorPickerWithSwatches label="Hover baggrund" value={(primary3 as any).hoverBgColor || ""} onChange={(v) => updateOB('primary', { hoverBgColor: v })} savedSwatches={sw3} onSaveSwatch={onSave3} onRemoveSwatch={onRemove3} />
+                                    <ColorPickerWithSwatches label="Hover tekst" value={(primary3 as any).hoverTextColor || ""} onChange={(v) => updateOB('primary', { hoverTextColor: v })} savedSwatches={sw3} onSaveSwatch={onSave3} onRemoveSwatch={onRemove3} />
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">"Design online" (sekundær)</CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-2">
+                                <div className="grid grid-cols-2 gap-2">
+                                    <ColorPickerWithSwatches label="Baggrund" value={(secondary3 as any).bgColor || ""} onChange={(v) => updateOB('secondary', { bgColor: v })} savedSwatches={sw3} onSaveSwatch={onSave3} onRemoveSwatch={onRemove3} />
+                                    <ColorPickerWithSwatches label="Tekst" value={(secondary3 as any).textColor || ""} onChange={(v) => updateOB('secondary', { textColor: v })} savedSwatches={sw3} onSaveSwatch={onSave3} onRemoveSwatch={onRemove3} />
+                                    <ColorPickerWithSwatches label="Hover baggrund" value={(secondary3 as any).hoverBgColor || ""} onChange={(v) => updateOB('secondary', { hoverBgColor: v })} savedSwatches={sw3} onSaveSwatch={onSave3} onRemoveSwatch={onRemove3} />
+                                    <ColorPickerWithSwatches label="Hover tekst" value={(secondary3 as any).hoverTextColor || ""} onChange={(v) => updateOB('secondary', { hoverTextColor: v })} savedSwatches={sw3} onSaveSwatch={onSave3} onRemoveSwatch={onRemove3} />
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Valgt tilstand (grøn)</CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-2">
+                                <div className="grid grid-cols-2 gap-2">
+                                    <ColorPickerWithSwatches label="Baggrund" value={(selected3 as any).bgColor || "#16A34A"} onChange={(v) => updateOB('selected', { bgColor: v })} savedSwatches={sw3} onSaveSwatch={onSave3} onRemoveSwatch={onRemove3} />
+                                    <ColorPickerWithSwatches label="Tekst" value={(selected3 as any).textColor || "#FFFFFF"} onChange={(v) => updateOB('selected', { textColor: v })} savedSwatches={sw3} onSaveSwatch={onSave3} onRemoveSwatch={onRemove3} />
+                                    <ColorPickerWithSwatches label="Hover baggrund" value={(selected3 as any).hoverBgColor || "#15803D"} onChange={(v) => updateOB('selected', { hoverBgColor: v })} savedSwatches={sw3} onSaveSwatch={onSave3} onRemoveSwatch={onRemove3} />
+                                    <ColorPickerWithSwatches label="Hover tekst" value={(selected3 as any).hoverTextColor || "#FFFFFF"} onChange={(v) => updateOB('selected', { hoverTextColor: v })} savedSwatches={sw3} onSaveSwatch={onSave3} onRemoveSwatch={onRemove3} />
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+                );
+            }
+            case 'product-info-section': {
+                const infoSec = (editor.draft.productPage as any)?.infoSection || {};
+                const updateInfoSec = (patch: Record<string, unknown>) => {
+                    editor.updateDraft({
+                        productPage: {
+                            ...editor.draft.productPage,
+                            infoSection: {
+                                ...((editor.draft.productPage as any)?.infoSection || {}),
+                                ...patch,
+                            },
+                        } as any,
+                    });
+                };
+                const imagePos = infoSec.imagePosition || "above";
+                const isHorizontal = imagePos === "left" || imagePos === "right";
+                return (
+                    <div className="space-y-4 px-3 pb-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Produktbeskrivelse</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
+                        </div>
+
+                        {/* Background */}
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Baggrund</CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-3">
+                                <ColorPickerWithSwatches
+                                    label="Baggrundsfarve"
+                                    value={infoSec.bgColor || ""}
+                                    onChange={(v) => updateInfoSec({ bgColor: v })}
+                                    savedSwatches={editor.draft.savedSwatches}
+                                    onSaveSwatch={(color) => {
+                                        const sw = editor.draft.savedSwatches || [];
+                                        if (!sw.includes(color) && sw.length < 20) editor.updateDraft({ savedSwatches: [...sw, color] });
+                                    }}
+                                    onRemoveSwatch={(color) => {
+                                        editor.updateDraft({ savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color) });
+                                    }}
+                                />
+                                <div className="space-y-1">
+                                    <label className="text-xs font-medium text-muted-foreground">Afrunding ({infoSec.bgBorderRadius ?? 12}px)</label>
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={40}
+                                        value={infoSec.bgBorderRadius ?? 12}
+                                        onChange={(e) => updateInfoSec({ bgBorderRadius: Number(e.target.value) })}
+                                        className="w-full"
+                                    />
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Title */}
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Overskrift</CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-3">
+                                <FontSelector
+                                    label="Skrifttype"
+                                    value={infoSec.titleFont || ""}
+                                    onChange={(v) => updateInfoSec({ titleFont: v })}
+                                />
+                                <div className="grid grid-cols-2 gap-3">
+                                    <ColorPickerWithSwatches
+                                        label="Farve"
+                                        value={infoSec.titleColor || ""}
+                                        onChange={(v) => updateInfoSec({ titleColor: v })}
+                                        savedSwatches={editor.draft.savedSwatches}
+                                        onSaveSwatch={(color) => {
+                                            const sw = editor.draft.savedSwatches || [];
+                                            if (!sw.includes(color) && sw.length < 20) editor.updateDraft({ savedSwatches: [...sw, color] });
+                                        }}
+                                        onRemoveSwatch={(color) => {
+                                            editor.updateDraft({ savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color) });
+                                        }}
+                                    />
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-muted-foreground">Størrelse ({infoSec.titleSizePx ?? 22}px)</label>
+                                        <input
+                                            type="range"
+                                            min={12}
+                                            max={48}
+                                            value={infoSec.titleSizePx ?? 22}
+                                            onChange={(e) => updateInfoSec({ titleSizePx: Number(e.target.value) })}
+                                            className="w-full"
+                                        />
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Body text */}
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Brødtekst</CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-3">
+                                <FontSelector
+                                    label="Skrifttype"
+                                    value={infoSec.textFont || ""}
+                                    onChange={(v) => updateInfoSec({ textFont: v })}
+                                />
+                                <div className="grid grid-cols-2 gap-3">
+                                    <ColorPickerWithSwatches
+                                        label="Farve"
+                                        value={infoSec.textColor || ""}
+                                        onChange={(v) => updateInfoSec({ textColor: v })}
+                                        savedSwatches={editor.draft.savedSwatches}
+                                        onSaveSwatch={(color) => {
+                                            const sw = editor.draft.savedSwatches || [];
+                                            if (!sw.includes(color) && sw.length < 20) editor.updateDraft({ savedSwatches: [...sw, color] });
+                                        }}
+                                        onRemoveSwatch={(color) => {
+                                            editor.updateDraft({ savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color) });
+                                        }}
+                                    />
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-muted-foreground">Størrelse ({infoSec.textSizePx ?? 16}px)</label>
+                                        <input
+                                            type="range"
+                                            min={10}
+                                            max={32}
+                                            value={infoSec.textSizePx ?? 16}
+                                            onChange={(e) => updateInfoSec({ textSizePx: Number(e.target.value) })}
+                                            className="w-full"
+                                        />
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Image position */}
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Billede placering</CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-3">
+                                <Select
+                                    value={imagePos}
+                                    onValueChange={(v) => updateInfoSec({ imagePosition: v })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Vælg placering" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="above">Over teksten</SelectItem>
+                                        <SelectItem value="below">Under teksten</SelectItem>
+                                        <SelectItem value="left">Venstre for teksten</SelectItem>
+                                        <SelectItem value="right">Højre for teksten</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                {isHorizontal && (
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-muted-foreground">Billedbredde ({infoSec.imageWidthPct ?? 40}%)</label>
+                                        <input
+                                            type="range"
+                                            min={20}
+                                            max={70}
+                                            value={infoSec.imageWidthPct ?? 40}
+                                            onChange={(e) => updateInfoSec({ imageWidthPct: Number(e.target.value) })}
+                                            className="w-full"
+                                        />
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </div>
+                );
+            }
+            case 'product-option-selectors': {
+                const optSel = (editor.draft.productPage as any)?.optionSelectors ?? {};
+                const updateOptSel = (subKey: string, patch: Record<string, unknown>) => {
+                    editor.updateDraft({
+                        productPage: {
+                            ...editor.draft.productPage,
+                            optionSelectors: {
+                                ...((editor.draft.productPage as any)?.optionSelectors ?? {}),
+                                [subKey]: {
+                                    ...((editor.draft.productPage as any)?.optionSelectors?.[subKey] ?? {}),
+                                    ...patch,
+                                },
+                            },
+                        } as any,
+                    });
+                };
+                const btnCfg = optSel.button ?? {};
+                const imgCfg = optSel.image ?? {};
+                const ddCfg = optSel.dropdown ?? {};
+                const cbCfg = optSel.checkbox ?? {};
+                const sw = editor.draft.savedSwatches || [];
+                const onSave = (c: string) => { if (!sw.includes(c) && sw.length < 20) editor.updateDraft({ savedSwatches: [...sw, c] }); };
+                const onRemove = (c: string) => editor.updateDraft({ savedSwatches: sw.filter(x => x !== c) });
+
+                return (
+                    <div className="space-y-4 px-3 pb-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Tilvalgsknapper & -visning</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setActiveSection(null)}>Luk</Button>
+                        </div>
+
+                        {/* ── Buttons ── */}
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tekst-knapper</CardTitle>
+                                <CardDescription className="text-[11px]">Stil når display-type er "Knapper"</CardDescription>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <ColorPickerWithSwatches label="Baggrund" value={btnCfg.bgColor || ""} onChange={(v) => updateOptSel('button', { bgColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                    <ColorPickerWithSwatches label="Tekst" value={btnCfg.textColor || ""} onChange={(v) => updateOptSel('button', { textColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                    <ColorPickerWithSwatches label="Valgt baggrund" value={btnCfg.selectedBgColor || ""} onChange={(v) => updateOptSel('button', { selectedBgColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                    <ColorPickerWithSwatches label="Valgt tekst" value={btnCfg.selectedTextColor || ""} onChange={(v) => updateOptSel('button', { selectedTextColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                    <ColorPickerWithSwatches label="Hover baggrund" value={btnCfg.hoverBgColor || ""} onChange={(v) => updateOptSel('button', { hoverBgColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                    <ColorPickerWithSwatches label="Valgt ring" value={btnCfg.selectedRingColor || ""} onChange={(v) => updateOptSel('button', { selectedRingColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-muted-foreground">Afrunding ({btnCfg.borderRadius ?? 8}px)</label>
+                                        <input type="range" min={0} max={32} value={btnCfg.borderRadius ?? 8} onChange={(e) => updateOptSel('button', { borderRadius: Number(e.target.value) })} className="w-full" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-muted-foreground">Tekststørrelse ({btnCfg.fontSizePx ?? 14}px)</label>
+                                        <input type="range" min={10} max={24} value={btnCfg.fontSizePx ?? 14} onChange={(e) => updateOptSel('button', { fontSizePx: Number(e.target.value) })} className="w-full" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-muted-foreground">Kant ({btnCfg.borderWidth ?? 1}px)</label>
+                                        <input type="range" min={0} max={4} value={btnCfg.borderWidth ?? 1} onChange={(e) => updateOptSel('button', { borderWidth: Number(e.target.value) })} className="w-full" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-muted-foreground">Indre afstand ({btnCfg.paddingPx ?? 12}px)</label>
+                                        <input type="range" min={4} max={32} value={btnCfg.paddingPx ?? 12} onChange={(e) => updateOptSel('button', { paddingPx: Number(e.target.value) })} className="w-full" />
+                                    </div>
+                                </div>
+                                {btnCfg.borderWidth > 0 && (
+                                    <ColorPickerWithSwatches label="Kantfarve" value={btnCfg.borderColor || ""} onChange={(v) => updateOptSel('button', { borderColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                )}
+                                <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                                    <input type="checkbox" checked={!!btnCfg.hoverRingEnabled} onChange={(e) => updateOptSel('button', { hoverRingEnabled: e.target.checked })} />
+                                    Vis ring ved hover
+                                </label>
+                            </CardContent>
+                        </Card>
+
+                        {/* ── Images ── */}
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Billede-grid</CardTitle>
+                                <CardDescription className="text-[11px]">Stil når display-type er "Ikon-grid"</CardDescription>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <ColorPickerWithSwatches label="Baggrund" value={imgCfg.bgColor || ""} onChange={(v) => updateOptSel('image', { bgColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                    <ColorPickerWithSwatches label="Valgt baggrund" value={imgCfg.selectedBgColor || ""} onChange={(v) => updateOptSel('image', { selectedBgColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                    <ColorPickerWithSwatches label="Valgt ring" value={imgCfg.selectedRingColor || ""} onChange={(v) => updateOptSel('image', { selectedRingColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                    <ColorPickerWithSwatches label="Label farve" value={imgCfg.labelColor || ""} onChange={(v) => updateOptSel('image', { labelColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-muted-foreground">Billedstørrelse ({imgCfg.sizePx ?? 144}px)</label>
+                                        <input type="range" min={48} max={300} value={imgCfg.sizePx ?? 144} onChange={(e) => updateOptSel('image', { sizePx: Number(e.target.value) })} className="w-full" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-muted-foreground">Afrunding ({imgCfg.borderRadius ?? 8}px)</label>
+                                        <input type="range" min={0} max={32} value={imgCfg.borderRadius ?? 8} onChange={(e) => updateOptSel('image', { borderRadius: Number(e.target.value) })} className="w-full" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-muted-foreground">Label størrelse ({imgCfg.labelSizePx ?? 14}px)</label>
+                                        <input type="range" min={10} max={22} value={imgCfg.labelSizePx ?? 14} onChange={(e) => updateOptSel('image', { labelSizePx: Number(e.target.value) })} className="w-full" />
+                                    </div>
+                                </div>
+                                <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                                    <input type="checkbox" checked={imgCfg.hoverRingEnabled !== false} onChange={(e) => updateOptSel('image', { hoverRingEnabled: e.target.checked })} />
+                                    Vis ring ved hover
+                                </label>
+                                {imgCfg.hoverRingEnabled !== false && (
+                                    <ColorPickerWithSwatches label="Hover ring farve" value={imgCfg.hoverRingColor || ""} onChange={(v) => updateOptSel('image', { hoverRingColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        {/* ── Dropdown ── */}
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dropdown</CardTitle>
+                                <CardDescription className="text-[11px]">Stil når display-type er "Dropdown"</CardDescription>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <ColorPickerWithSwatches label="Baggrund" value={ddCfg.bgColor || ""} onChange={(v) => updateOptSel('dropdown', { bgColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                    <ColorPickerWithSwatches label="Tekst" value={ddCfg.textColor || ""} onChange={(v) => updateOptSel('dropdown', { textColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                    <ColorPickerWithSwatches label="Kantfarve" value={ddCfg.borderColor || ""} onChange={(v) => updateOptSel('dropdown', { borderColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-xs font-medium text-muted-foreground">Afrunding ({ddCfg.borderRadius ?? 6}px)</label>
+                                    <input type="range" min={0} max={24} value={ddCfg.borderRadius ?? 6} onChange={(e) => updateOptSel('dropdown', { borderRadius: Number(e.target.value) })} className="w-full" />
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* ── Checkboxes ── */}
+                        <Card className="border-0 bg-muted/30">
+                            <CardHeader className="py-2 px-3">
+                                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Afkrydsningsfelter</CardTitle>
+                                <CardDescription className="text-[11px]">Stil når display-type er "Afkrydsningsfelter"</CardDescription>
+                            </CardHeader>
+                            <CardContent className="px-3 pb-3 space-y-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <ColorPickerWithSwatches label="Aktiv farve" value={cbCfg.accentColor || ""} onChange={(v) => updateOptSel('checkbox', { accentColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                    <ColorPickerWithSwatches label="Label farve" value={cbCfg.labelColor || ""} onChange={(v) => updateOptSel('checkbox', { labelColor: v })} savedSwatches={sw} onSaveSwatch={onSave} onRemoveSwatch={onRemove} />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-xs font-medium text-muted-foreground">Label størrelse ({cbCfg.labelSizePx ?? 14}px)</label>
+                                    <input type="range" min={10} max={22} value={cbCfg.labelSizePx ?? 14} onChange={(e) => updateOptSel('checkbox', { labelSizePx: Number(e.target.value) })} className="w-full" />
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+                );
+            }
             default:
                 return <div>Ukendt sektion: {activeSection}</div>;
         }
     };
 
     return (
+        <BrandingPaletteProvider colors={editor.draft.colors || {}}>
         <div className="flex flex-col h-[calc(100vh-4rem)] -m-6">
             {/* Main Content Area */}
             <div className="flex-1 flex overflow-hidden relative min-h-0">
@@ -3142,6 +4913,39 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                 </div>
                             </div>
                         </div>
+                        {activeSection && (
+                            <div className="border-b bg-muted/30">
+                                <div className="flex items-center gap-1 px-2 py-1.5 overflow-x-auto scrollbar-hide">
+                                    <button
+                                        className="flex items-center gap-1 shrink-0 h-7 px-2 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                                        onClick={() => setActiveSection(null)}
+                                    >
+                                        <ArrowLeft className="h-3 w-3" />
+                                        <span>Menu</span>
+                                    </button>
+                                    <div className="w-px h-4 bg-border shrink-0" />
+                                    {SECTION_BUTTON_CONFIGS.filter(c => allowedSections.has(c.id)).map(config => {
+                                        const Icon = config.icon;
+                                        const isActive = activeSection === config.id;
+                                        return (
+                                            <button
+                                                key={config.id}
+                                                title={config.label}
+                                                onClick={() => setActiveSection(config.id)}
+                                                className={`flex items-center gap-1 shrink-0 h-7 px-2 rounded-md text-[11px] font-medium transition-colors ${
+                                                    isActive
+                                                        ? 'bg-foreground text-background'
+                                                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                                                }`}
+                                            >
+                                                <Icon className="h-3 w-3" />
+                                                <span className="hidden sm:inline">{config.label}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                         <ScrollArea className="flex-1">
                             <div className="py-2">
                                 {renderSidebarContent()}
@@ -3312,7 +5116,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
 
                         {/* Preview Frame */}
                         <div className="flex-1 w-full bg-white rounded-b-lg border border-t-0 overflow-hidden">
-                            <BrandingPreviewFrame
+                            <SiteDesignPreviewFrame
                                 branding={editor.draft}
                                 previewUrl={`/preview-shop?draft=1&tenantId=${editor.entityId}`}
                                 tenantName={editor.entityName}
@@ -3320,6 +5124,9 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                                 onResetDesign={() => setShowResetDialog(true)}
                                 navigationRequest={previewNavigationRequest}
                                 onPreviewPathChange={setCurrentPreviewPage}
+                                editMode={previewEditMode}
+                                onEditModeChange={setPreviewEditMode}
+                                clearSelectionSignal={clearSelectionSignal}
                             />
                         </div>
                     </div>
@@ -4127,5 +5934,6 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                 />
             )}
         </div>
+        </BrandingPaletteProvider>
     );
 }

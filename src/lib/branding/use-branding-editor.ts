@@ -177,6 +177,24 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
                 } : prev.footer.social,
             } : prev.footer;
 
+            const newForside = partial.forside ? {
+                ...prev.forside,
+                ...partial.forside,
+                banner2: partial.forside.banner2 ? {
+                    ...prev.forside.banner2,
+                    ...partial.forside.banner2,
+                    background: partial.forside.banner2.background
+                        ? { ...prev.forside.banner2.background, ...partial.forside.banner2.background }
+                        : prev.forside.banner2.background,
+                    slides: partial.forside.banner2.slides ?? prev.forside.banner2.slides,
+                } : prev.forside.banner2,
+                contentBlocks: partial.forside.contentBlocks ?? prev.forside.contentBlocks,
+                productsSection: partial.forside.productsSection ? {
+                    ...prev.forside.productsSection,
+                    ...partial.forside.productsSection,
+                } : prev.forside.productsSection,
+            } : prev.forside;
+
             return {
                 ...prev,
                 ...partial,
@@ -185,6 +203,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
                 hero: newHero,
                 header: newHeader,
                 footer: newFooter,
+                forside: newForside,
                 navigation: { ...prev.navigation, ...(partial.navigation || {}) },
             };
         });

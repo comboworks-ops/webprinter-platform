@@ -538,6 +538,8 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
                 <SelectContent>
                   <SelectItem value="buttons">Knapper</SelectItem>
                   <SelectItem value="icon_grid">Ikon-grid</SelectItem>
+                  <SelectItem value="dropdown">Dropdown</SelectItem>
+                  <SelectItem value="checkboxes">Afkrydsningsfelter</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -627,6 +629,8 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
                     <SelectContent>
                       <SelectItem value="buttons">Knapper</SelectItem>
                       <SelectItem value="icon_grid">Ikon-grid</SelectItem>
+                      <SelectItem value="dropdown">Dropdown</SelectItem>
+                      <SelectItem value="checkboxes">Afkrydsningsfelter</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button

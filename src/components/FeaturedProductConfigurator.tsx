@@ -301,6 +301,10 @@ export function FeaturedProductConfigurator({
     const primaryColor = branding?.colors?.primary || "#0EA5E9";
     const sidePanel = config.sidePanel;
     const sidePanelEnabled = Boolean(sidePanel?.enabled);
+    const sidePanelBoxId = "forside.products.featured.side-panel.box";
+    const sidePanelImageId = "forside.products.featured.side-panel.image";
+    const sidePanelCopyId = "forside.products.featured.side-panel.copy";
+    const sidePanelButtonId = "forside.products.featured.side-panel.button";
     const productFirst = (config.productSide || "left") === "left";
     const cardRadius = config.borderRadiusPx ?? 24;
     const boxScale = Math.min(Math.max((config.boxScalePct ?? 80) / 100, 0.6), 1.4);
@@ -339,6 +343,10 @@ export function FeaturedProductConfigurator({
     const sidePanelCardStyle = {
         borderRadius: `${sidePanelRadius}px`,
         minHeight: `${sidePanelMinHeightPx}px`,
+    };
+    const sidePanelCtaStyles = {
+        backgroundColor: sidePanel?.ctaColor || config.ctaColor || primaryColor,
+        color: sidePanel?.ctaTextColor || config.ctaTextColor || "#FFFFFF",
     };
     const featuredGalleryImages = useMemo(() => {
         return (config.galleryImages || []).filter(Boolean).slice(0, 8);
@@ -1203,8 +1211,8 @@ export function FeaturedProductConfigurator({
     const featuredTitle = (config.customTitle || "").trim() || product.name;
     const featuredDescription = (config.customDescription || "").trim() || product.description;
     const featuredImageSrc = featuredUsesGallery
-        ? (featuredGalleryImages[featuredGalleryIndex] || featuredGalleryImages[0] || getProductImage(product.slug, product.image_url))
-        : getProductImage(product.slug, product.image_url);
+        ? (featuredGalleryImages[featuredGalleryIndex] || featuredGalleryImages[0] || (config as any).customImageUrl || getProductImage(product.slug, product.image_url))
+        : ((config as any).customImageUrl || getProductImage(product.slug, product.image_url));
     const renderSidePanelNavArrows = (
         onPrev: () => void,
         onNext: () => void,
@@ -1235,6 +1243,8 @@ export function FeaturedProductConfigurator({
 
     const productBlock = (
         <div
+            data-click-to-edit="forside.products.featured.box"
+            data-branding-id="forside.products.featured.box"
             className={cn(
                 "relative overflow-hidden h-full w-full flex-1 border",
                 isShadowless
@@ -1253,6 +1263,8 @@ export function FeaturedProductConfigurator({
                     }}
             >
                 <div
+                    data-branding-id="forside.products.featured.image"
+                    data-click-to-edit="forside.products.featured.image"
                     className={cn(
                         "flex-shrink-0",
                         config.imageMode === "full"
@@ -1302,7 +1314,7 @@ export function FeaturedProductConfigurator({
                         config.imageMode === "full" ? "p-6 lg:w-[60%]" : "lg:w-3/5"
                     )}
                 >
-                    <div>
+                    <div data-branding-id="forside.products.featured.copy">
                         <h3 className="text-3xl lg:text-4xl font-bold mb-2">{featuredTitle}</h3>
                         {featuredDescription && (
                             <p className="text-muted-foreground text-sm line-clamp-2">
@@ -1485,10 +1497,12 @@ export function FeaturedProductConfigurator({
                         )}
 
                         <Button
+                            data-branding-id="forside.products.featured.button"
                             size="lg"
                             style={{
                                 backgroundColor: config.ctaColor || primaryColor,
                                 color: config.ctaTextColor || "#FFFFFF",
+                                borderRadius: `${config.ctaBorderRadiusPx ?? 8}px`,
                             }}
                             asChild
                         >
@@ -1506,6 +1520,8 @@ export function FeaturedProductConfigurator({
         hasSidePanelCarousel ? (
             activeSidePanelItem?.mode === "product" && activeSideProduct ? (
                 <div
+                    data-branding-id={sidePanelBoxId}
+                    data-click-to-edit={sidePanelBoxId}
                     className="border bg-card overflow-hidden h-full shadow-sm"
                     style={{
                         ...sidePanelCardStyle,
@@ -1518,6 +1534,8 @@ export function FeaturedProductConfigurator({
                     }}
                 >
                     <img
+                        data-branding-id={sidePanelImageId}
+                        data-click-to-edit={sidePanelImageId}
                         src={getProductImage(activeSideProduct.slug, activeSideProduct.image_url)}
                         alt={activeSideProduct.name}
                         className="w-full object-cover"
@@ -1528,6 +1546,8 @@ export function FeaturedProductConfigurator({
                         }}
                     />
                     <div
+                        data-branding-id={sidePanelCopyId}
+                        data-click-to-edit={sidePanelCopyId}
                         className="flex flex-col"
                         style={{ padding: `${sidePanelPaddingPx}px`, gap: `${sidePanelGapPx}px` }}
                     >
@@ -1580,15 +1600,14 @@ export function FeaturedProductConfigurator({
                                 </div>
                             )}
                             <Button
+                                data-branding-id={sidePanelButtonId}
+                                data-click-to-edit={sidePanelButtonId}
                                 asChild
-                                style={{
-                                    backgroundColor: config.ctaColor || primaryColor,
-                                    color: config.ctaTextColor || "#FFFFFF",
-                                }}
+                                style={sidePanelCtaStyles}
                             >
                                 <Link
                                     to={sideProductHref}
-                                    style={{ color: config.ctaTextColor || "#FFFFFF" }}
+                                    style={{ color: sidePanelCtaStyles.color }}
                                 >
                                     {sideProductButtonLabel}
                                 </Link>
@@ -1598,12 +1617,16 @@ export function FeaturedProductConfigurator({
                 </div>
             ) : (
                 <div
+                    data-branding-id={sidePanelBoxId}
+                    data-click-to-edit={sidePanelBoxId}
                     className="relative overflow-hidden min-h-[320px] h-full shadow-sm"
                     style={sidePanelCardStyle}
                 >
                     <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-950" />
                     {sideBannerPreviousImage && (
                         <img
+                            data-branding-id={sidePanelImageId}
+                            data-click-to-edit={sidePanelImageId}
                             src={sideBannerPreviousImage}
                             alt={sideBannerTitle || "Kampagnebanner"}
                             className="absolute inset-0 h-full w-full object-cover"
@@ -1621,6 +1644,8 @@ export function FeaturedProductConfigurator({
                     )}
                     {sideBannerImage && (
                         <img
+                            data-branding-id={sidePanelImageId}
+                            data-click-to-edit={sidePanelImageId}
                             src={sideBannerImage}
                             alt={sideBannerTitle || "Kampagnebanner"}
                             className="absolute inset-0 h-full w-full object-cover"
@@ -1656,6 +1681,8 @@ export function FeaturedProductConfigurator({
                         sidePanelCarouselItems.length > 1
                     )}
                     <div
+                        data-branding-id={sidePanelCopyId}
+                        data-click-to-edit={sidePanelCopyId}
                         className="relative z-10 flex h-full flex-col justify-start items-start"
                         style={{
                             gap: `${sidePanelGapPx}px`,
@@ -1687,12 +1714,11 @@ export function FeaturedProductConfigurator({
                         {sideBannerCtaLabel && getHref(sideBannerHrefValue) !== "#" && (
                             isExternalHref(getHref(sideBannerHrefValue)) ? (
                                 <Button
+                                    data-branding-id={sidePanelButtonId}
+                                    data-click-to-edit={sidePanelButtonId}
                                     asChild
                                     size="lg"
-                                    style={{
-                                        backgroundColor: config.ctaColor || primaryColor,
-                                        color: config.ctaTextColor || "#FFFFFF",
-                                    }}
+                                    style={sidePanelCtaStyles}
                                     className="w-fit"
                                 >
                                     <a href={getHref(sideBannerHrefValue)} target="_blank" rel="noreferrer">
@@ -1701,12 +1727,11 @@ export function FeaturedProductConfigurator({
                                 </Button>
                             ) : (
                                 <Button
+                                    data-branding-id={sidePanelButtonId}
+                                    data-click-to-edit={sidePanelButtonId}
                                     asChild
                                     size="lg"
-                                    style={{
-                                        backgroundColor: config.ctaColor || primaryColor,
-                                        color: config.ctaTextColor || "#FFFFFF",
-                                    }}
+                                    style={sidePanelCtaStyles}
                                     className="w-fit"
                                 >
                                     <Link to={getHref(sideBannerHrefValue)}>
@@ -1721,6 +1746,8 @@ export function FeaturedProductConfigurator({
         ) : (
             sidePanel?.mode === "product" && activeSideProduct ? (
                 <div
+                    data-branding-id={sidePanelBoxId}
+                    data-click-to-edit={sidePanelBoxId}
                     className="border bg-card overflow-hidden h-full shadow-sm"
                     style={{
                         ...sidePanelCardStyle,
@@ -1733,6 +1760,8 @@ export function FeaturedProductConfigurator({
                     }}
                 >
                     <img
+                        data-branding-id={sidePanelImageId}
+                        data-click-to-edit={sidePanelImageId}
                         src={getProductImage(activeSideProduct.slug, activeSideProduct.image_url)}
                         alt={activeSideProduct.name}
                         className="w-full object-cover"
@@ -1743,6 +1772,8 @@ export function FeaturedProductConfigurator({
                         }}
                     />
                     <div
+                        data-branding-id={sidePanelCopyId}
+                        data-click-to-edit={sidePanelCopyId}
                         className="flex flex-col"
                         style={{ padding: `${sidePanelPaddingPx}px`, gap: `${sidePanelGapPx}px` }}
                     >
@@ -1795,15 +1826,14 @@ export function FeaturedProductConfigurator({
                                 </div>
                             )}
                             <Button
+                                data-branding-id={sidePanelButtonId}
+                                data-click-to-edit={sidePanelButtonId}
                                 asChild
-                                style={{
-                                    backgroundColor: config.ctaColor || primaryColor,
-                                    color: config.ctaTextColor || "#FFFFFF",
-                                }}
+                                style={sidePanelCtaStyles}
                             >
                                 <Link
                                     to={sideProductHref}
-                                    style={{ color: config.ctaTextColor || "#FFFFFF" }}
+                                    style={{ color: sidePanelCtaStyles.color }}
                                 >
                                     {sideProductButtonLabel}
                                 </Link>
@@ -1813,12 +1843,16 @@ export function FeaturedProductConfigurator({
                 </div>
             ) : (
                 <div
+                    data-branding-id={sidePanelBoxId}
+                    data-click-to-edit={sidePanelBoxId}
                     className="relative overflow-hidden min-h-[320px] h-full shadow-sm"
                     style={sidePanelCardStyle}
                 >
                     <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-950" />
                     {activeSideBannerPreviousImage && (
                         <img
+                            data-branding-id={sidePanelImageId}
+                            data-click-to-edit={sidePanelImageId}
                             src={activeSideBannerPreviousImage}
                             alt={sidePanel.title || "Kampagnebanner"}
                             className="absolute inset-0 h-full w-full object-cover"
@@ -1836,6 +1870,8 @@ export function FeaturedProductConfigurator({
                     )}
                     {activeSideBannerImage && (
                         <img
+                            data-branding-id={sidePanelImageId}
+                            data-click-to-edit={sidePanelImageId}
                             src={activeSideBannerImage}
                             alt={sidePanel.title || "Kampagnebanner"}
                             className="absolute inset-0 h-full w-full object-cover"
@@ -1871,6 +1907,8 @@ export function FeaturedProductConfigurator({
                         sideBannerImages.length > 1
                     )}
                     <div
+                        data-branding-id={sidePanelCopyId}
+                        data-click-to-edit={sidePanelCopyId}
                         className="relative z-10 flex h-full flex-col justify-start items-start"
                         style={{
                             gap: `${sidePanelGapPx}px`,
@@ -1902,12 +1940,11 @@ export function FeaturedProductConfigurator({
                         {sidePanel?.ctaLabel && sideBannerHref !== "#" && (
                             isExternalHref(sideBannerHref) ? (
                                 <Button
+                                    data-branding-id={sidePanelButtonId}
+                                    data-click-to-edit={sidePanelButtonId}
                                     asChild
                                     size="lg"
-                                    style={{
-                                        backgroundColor: config.ctaColor || primaryColor,
-                                        color: config.ctaTextColor || "#FFFFFF",
-                                    }}
+                                    style={sidePanelCtaStyles}
                                     className="w-fit"
                                 >
                                     <a href={sideBannerHref} target="_blank" rel="noreferrer">
@@ -1916,12 +1953,11 @@ export function FeaturedProductConfigurator({
                                 </Button>
                             ) : (
                                 <Button
+                                    data-branding-id={sidePanelButtonId}
+                                    data-click-to-edit={sidePanelButtonId}
                                     asChild
                                     size="lg"
-                                    style={{
-                                        backgroundColor: config.ctaColor || primaryColor,
-                                        color: config.ctaTextColor || "#FFFFFF",
-                                    }}
+                                    style={sidePanelCtaStyles}
                                     className="w-fit"
                                 >
                                     <Link to={sideBannerHref}>
@@ -1945,7 +1981,7 @@ export function FeaturedProductConfigurator({
     ) : null;
 
     return (
-        <div className={cn(className)}>
+        <div className={cn(className)} data-branding-id="forside.products.featured">
             <div
                 className={cn(
                     "grid",

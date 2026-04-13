@@ -84,7 +84,7 @@ const Index = () => {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link to="/opret-shop">
               <Button size="lg" className="h-12 px-8 text-lg gap-2">
-                Start gratis prøveperiode <ArrowRight className="w-4 h-4" />
+                Start onboarding <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
             <Link to={masterDemoHref}>
@@ -151,12 +151,12 @@ const Index = () => {
         <div className="container px-4 mx-auto text-center">
           <h2 className="text-3xl font-bold mb-4">Klar til at starte?</h2>
           <p className="text-lg opacity-90 mb-8 max-w-xl mx-auto">
-            Prøv Webprinter Platform gratis i 14 dage. Ingen kreditkort nødvendigt.
+            Opret konto først. Når din shop er oprettet, kan du vælge plan i admin og starte den 14 dages prøveperiode i Stripe.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link to="/opret-shop">
               <Button size="lg" variant="secondary" className="gap-2">
-                Start gratis prøveperiode <ArrowRight className="w-4 h-4" />
+                Start onboarding <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
             <Link to="/kontakt">

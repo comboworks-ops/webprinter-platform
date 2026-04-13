@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
 import { PriceMatrix } from "@/components/product-price-page/PriceMatrix";
 import { MatrixLayoutV1Renderer } from "@/components/product-price-page/MatrixLayoutV1Renderer";
 import { ProductPricePanel, type DeliveryMethod } from "@/components/product-price-page/ProductPricePanel";
@@ -28,6 +26,9 @@ import {
 import { getDimensionsFromVariant } from "@/utils/formatStandards";
 import { readTransientString, writeTransientString } from "@/lib/storage/transientStorage";
 import { fetchProductDetailRead } from "@/lib/api/productDetailRead";
+import { resolveCanvaOffer } from "@/lib/canva/launch";
+import { resolveMatrixLinkedTemplateId } from "@/lib/designer/linkedTemplates";
+import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
 
 // Legacy product configurations removed on user request (2025-01-30)
 // specificPricingProducts and productConfigs were deleted to unify on the generic pricing system.
@@ -94,11 +95,19 @@ const ProductPrice = () => {
   const [searchParams] = useSearchParams();
   const shopSettings = useShopSettings();
   const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
+  const branding = shopSettings.data?.branding;
+  const tenantName = String(
+    branding?.shop_name
+    || shopSettings.data?.tenant_name
+    || shopSettings.data?.company?.name
+    || "Din Shop",
+  ).trim() || "Din Shop";
 
   const staticProduct = slug ? getProductBySlug(slug) : null;
 
   // State
   const [selectedFormat, setSelectedFormat] = useState<string>("");
+  const [matrixSelectedSectionValues, setMatrixSelectedSectionValues] = useState<Record<string, string | null>>({});
   const [selectedExtraOption, setSelectedExtraOption] = useState<string>("");
   const [matrixData, setMatrixData] = useState<MatrixData>({ rows: [], columns: [], cells: {} });
   const [selectedCell, setSelectedCell] = useState<{ row: string; column: number } | null>(null);
@@ -783,11 +792,22 @@ const ProductPrice = () => {
 
   // Stable selection handler prevents render loops that can break navigation
   const handleMatrixSelectionChange = useCallback((
-    _: Record<string, string | null>,
+    selections: Record<string, string | null>,
     formatId?: string,
     _materialId?: string,
     meta?: { variantKey?: string; verticalValueId?: string },
   ) => {
+    setMatrixSelectedSectionValues((prev) => {
+      const prevEntries = Object.entries(prev);
+      const nextEntries = Object.entries(selections || {});
+      if (
+        prevEntries.length === nextEntries.length
+        && prevEntries.every(([key, value]) => selections[key] === value)
+      ) {
+        return prev;
+      }
+      return selections;
+    });
     if (formatId) {
       setSelectedFormat(prev => (prev === formatId ? prev : formatId));
     }
@@ -956,28 +976,143 @@ const ProductPrice = () => {
     }
     return undefined;
   }, [selectedFormatId, valueMetaById, dbProduct?.technical_specs]);
+  const linkedTemplateId = useMemo(() => {
+    if (pricingStructure?.mode === "matrix_layout_v1") {
+      return resolveMatrixLinkedTemplateId(pricingStructure, matrixSelectedSectionValues);
+    }
+    return storformatSelection?.linkedTemplateId || null;
+  }, [matrixSelectedSectionValues, pricingStructure, storformatSelection]);
+  const currentQuantity = useMemo(() => {
+    if (isStorformat) return storformatSelection?.quantity || 0;
+    return selectedCell?.column || 0;
+  }, [isStorformat, selectedCell?.column, storformatSelection?.quantity]);
+  const canvaReturnUrl = useMemo(() => {
+    if (typeof window === "undefined") return null;
+
+    const url = new URL("/canva-return", window.location.origin);
+    const currentProductPath = `${window.location.pathname}${window.location.search}`;
+    const computedTotalPrice = Math.round(
+      Math.max(0, Number(productPrice || 0) + Number(optionExtraPrice || 0) + Number(shippingCost || 0)),
+    );
+
+    url.searchParams.set("backTo", currentProductPath);
+    if (window.location.search) {
+      url.searchParams.set("tenantQuery", window.location.search);
+    }
+    if (dbProduct?.id) {
+      url.searchParams.set("productId", dbProduct.id);
+    }
+    if (slug) {
+      url.searchParams.set("productSlug", slug);
+    }
+    if (dbProduct?.name || product?.name) {
+      url.searchParams.set("productName", dbProduct?.name || product?.name || "");
+    }
+    if (currentQuantity > 0) {
+      url.searchParams.set("quantity", String(currentQuantity));
+    }
+    if (selectedVariantName) {
+      url.searchParams.set("selectedVariant", selectedVariantName);
+    }
+    if (selectedFormat) {
+      url.searchParams.set("selectedFormat", selectedFormat);
+    }
+    if (typeof designDimensions.width === "number" && designDimensions.width > 0) {
+      url.searchParams.set("widthMm", String(designDimensions.width));
+    }
+    if (typeof designDimensions.height === "number" && designDimensions.height > 0) {
+      url.searchParams.set("heightMm", String(designDimensions.height));
+    }
+    if (typeof designDimensions.bleed === "number" && designDimensions.bleed >= 0) {
+      url.searchParams.set("bleedMm", String(designDimensions.bleed));
+    }
+    if (typeof designSafeAreaMm === "number" && designSafeAreaMm >= 0) {
+      url.searchParams.set("safeMm", String(designSafeAreaMm));
+    }
+    if (Number.isFinite(Number(productPrice)) && Number(productPrice) > 0) {
+      url.searchParams.set("productPrice", String(Math.round(Number(productPrice))));
+    }
+    if (Number.isFinite(Number(optionExtraPrice)) && Number(optionExtraPrice) > 0) {
+      url.searchParams.set("extraPrice", String(Math.round(Number(optionExtraPrice))));
+    }
+    if (Number.isFinite(Number(shippingCost)) && Number(shippingCost) > 0) {
+      url.searchParams.set("shippingCost", String(Math.round(Number(shippingCost))));
+    }
+    if (computedTotalPrice > 0) {
+      url.searchParams.set("totalPrice", String(computedTotalPrice));
+    }
+
+    return url.toString();
+  }, [
+    currentQuantity,
+    dbProduct?.id,
+    dbProduct?.name,
+    designDimensions.bleed,
+    designDimensions.height,
+    designDimensions.width,
+    designSafeAreaMm,
+    optionExtraPrice,
+    product?.name,
+    productPrice,
+    selectedFormat,
+    selectedVariantName,
+    shippingCost,
+    slug,
+  ]);
+  const canvaOffer = useMemo(() => {
+    const tenantCanva = (shopSettings.data as any)?.canva || null;
+    const productCanva = (dbProduct?.technical_specs as any)?.canva || null;
+
+    return resolveCanvaOffer(tenantCanva, productCanva, {
+      productId: dbProduct?.id || null,
+      productSlug: slug || null,
+      productName: dbProduct?.name || product?.name || null,
+      widthMm: designDimensions.width ?? null,
+      heightMm: designDimensions.height ?? null,
+      bleedMm: designDimensions.bleed ?? null,
+      safeAreaMm: designSafeAreaMm ?? null,
+      selectedFormat: selectedFormat || null,
+      returnUrl: canvaReturnUrl,
+    });
+  }, [
+    canvaReturnUrl,
+    dbProduct?.id,
+    dbProduct?.name,
+    dbProduct?.technical_specs,
+    designDimensions.bleed,
+    designDimensions.height,
+    designDimensions.width,
+    designSafeAreaMm,
+    product?.name,
+    selectedFormat,
+    shopSettings.data,
+    slug,
+  ]);
+  const renderInStorefrontFrame = (content: any, mainClassName: string, topSlot?: any) => (
+    <StorefrontThemeFrame
+      branding={branding}
+      tenantName={tenantName}
+      topSlot={topSlot}
+    >
+      <main className={mainClassName}>
+        {content}
+      </main>
+    </StorefrontThemeFrame>
+  );
   if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col">
-        <Header />
-        <main className="flex-1 container mx-auto px-4 py-16 flex justify-center items-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-        </main>
-        <Footer />
-      </div>
+    return renderInStorefrontFrame(
+      <div className="flex justify-center items-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>,
+      "flex-1 container mx-auto px-4 py-16",
     );
   }
 
   // Not Found State
   if (!product) {
-    return (
-      <div className="min-h-screen flex flex-col">
-        <Header />
-        <main className="flex-1 container mx-auto px-4 py-16">
-          <h1 className="text-3xl font-heading font-bold text-center">Produkt ikke fundet</h1>
-        </main>
-        <Footer />
-      </div>
+    return renderInStorefrontFrame(
+      <h1 className="text-3xl font-heading font-bold text-center">Produkt ikke fundet</h1>,
+      "flex-1 container mx-auto px-4 py-16",
     );
   }
 
@@ -1053,6 +1188,7 @@ const ProductPrice = () => {
               quantity={storformatSelection?.quantity || 0}
               productPrice={storformatSelection?.totalPrice || 0}
               extraPrice={optionExtraPrice}
+              branding={shopSettings.data?.branding}
               deliveryBusinessDayOffset={storformatDeliveryBusinessDayOffset}
               orderValidationError={orderValidationError}
               onShippingChange={handleShippingChange}
@@ -1060,12 +1196,14 @@ const ProductPrice = () => {
               selectedVariant={storformatSelection?.materialName}
               productName={product?.name || ''}
               productSlug={slug || ''}
+              linkedTemplateId={linkedTemplateId}
               orderDeliveryConfig={orderDeliveryConfig}
               externalDeliveryEnabled={podShippingEnabled}
               externalDeliveryMethods={podShippingMethods}
               externalDeliveryLoading={podShippingLoading}
               externalDeliveryError={podShippingError}
               externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+              canvaOffer={canvaOffer}
               summary={summaryParts.join(' • ')}
             />
           </div>
@@ -1084,6 +1222,10 @@ const ProductPrice = () => {
               onSelectionSummary={setMatrixSelectionSummary}
               onSelectionChange={handleMatrixSelectionChange}
             />
+            <DynamicProductOptions
+              productId={dbProductId}
+              onSelectionChange={handleOptionSelectionChange}
+            />
             {sizeDistributionBlock}
           </div>
           <div className="lg:col-span-1 lg:self-start">
@@ -1092,6 +1234,7 @@ const ProductPrice = () => {
               quantity={selectedCell?.column || 0}
               productPrice={productPrice}
               extraPrice={optionExtraPrice}
+              branding={shopSettings.data?.branding}
               orderValidationError={orderValidationError}
               onShippingChange={handleShippingChange}
               optionSelections={combinedOptionSelections}
@@ -1099,6 +1242,7 @@ const ProductPrice = () => {
               productName={product?.name || ''}
               productSlug={slug || ''}
               selectedFormat={selectedFormat}
+              linkedTemplateId={linkedTemplateId}
               orderDeliveryConfig={orderDeliveryConfig}
               designWidthMm={designDimensions.width}
               designHeightMm={designDimensions.height}
@@ -1109,6 +1253,7 @@ const ProductPrice = () => {
               externalDeliveryLoading={podShippingLoading}
               externalDeliveryError={podShippingError}
               externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+              canvaOffer={canvaOffer}
               summary={[
                 product?.name,
                 ...matrixSelectionSummary,
@@ -1216,6 +1361,7 @@ const ProductPrice = () => {
                 quantity={selectedCell?.column || 0}
                 productPrice={productPrice}
                 extraPrice={optionExtraPrice}
+                branding={shopSettings.data?.branding}
                 orderValidationError={orderValidationError}
                 onShippingChange={handleShippingChange}
                 optionSelections={combinedOptionSelections}
@@ -1223,6 +1369,7 @@ const ProductPrice = () => {
                 productName={product.name}
                 productSlug={slug || ""}
                 selectedFormat={selectedFormat}
+                linkedTemplateId={linkedTemplateId}
                 orderDeliveryConfig={orderDeliveryConfig}
                 designWidthMm={designDimensions.width}
                 designHeightMm={designDimensions.height}
@@ -1233,6 +1380,7 @@ const ProductPrice = () => {
                 externalDeliveryLoading={podShippingLoading}
                 externalDeliveryError={podShippingError}
                 externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+                canvaOffer={canvaOffer}
                 summary={[
                   product.name,
                   // For area-based products, show custom dimensions instead of format
@@ -1252,35 +1400,49 @@ const ProductPrice = () => {
     );
   };
 
-  return (
-    <div className="min-h-screen flex flex-col">
-      <SEO
-        title={`${product.name} - Bestil Online hos Webprinter`}
-        description={product.description}
-      />
-      <ProductSchema
-        name={product.name}
-        description={product.description}
-        price={productPrice || 99}
-        image={dbProduct?.image_url || getProductImage(product.slug)}
-      />
-      <BreadcrumbSchema
-        items={[
-          { name: 'Forside', url: '/' },
-          { name: 'Produkter', url: '/produkter' },
-          { name: product.name, url: `/produkt/${slug}` }
-        ]}
-      />
-      <Header />
-      <main className="flex-1 container mx-auto px-4 py-8">
+  return renderInStorefrontFrame(
+    <>
         {fallbackNotice && (
           <div className="mb-6 rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
             {fallbackNotice}
           </div>
         )}
-        <div className="flex flex-col md:flex-row gap-6 mb-8">
+        <div className="flex flex-col md:flex-row gap-6 mb-8" data-branding-id="productPage.heading">
           <div className="flex-1">
-            <h1 className="text-3xl md:text-4xl font-heading font-bold mb-2">{product.name}</h1>
+            {(() => {
+              const ph = (branding as any)?.productPage?.heading;
+              const headingText = ph?.customText?.trim() || product.name;
+              const headingFont = ph?.font || 'inherit';
+              const headingSize = ph?.sizePx ? `${ph.sizePx}px` : undefined;
+              const headingColor = ph?.color || undefined;
+              const subtext = ph?.subtext;
+              return (
+                <>
+                  <h1
+                    className="font-bold mb-2 leading-tight"
+                    style={{
+                      fontFamily: headingFont !== 'inherit' ? headingFont : undefined,
+                      fontSize: headingSize,
+                      color: headingColor,
+                    }}
+                  >
+                    {headingText}
+                  </h1>
+                  {subtext?.enabled && subtext?.text?.trim() && (
+                    <p
+                      className="font-bold mb-2"
+                      style={{
+                        fontFamily: subtext.font && subtext.font !== 'inherit' ? subtext.font : undefined,
+                        fontSize: subtext.sizePx ? `${subtext.sizePx}px` : undefined,
+                        color: subtext.color || undefined,
+                      }}
+                    >
+                      {subtext.text}
+                    </p>
+                  )}
+                </>
+              );
+            })()}
             <p className="text-muted-foreground">{product.description}</p>
           </div>
           {product && (
@@ -1311,9 +1473,27 @@ const ProductPrice = () => {
             <div>Matrix Cols: {matrixData.columns.length}</div>
           </div>
         )}
-      </main>
-      <Footer />
-    </div>
+    </>,
+    "flex-1 container mx-auto px-4 py-8",
+    <>
+      <SEO
+        title={`${product.name} - Bestil Online hos Webprinter`}
+        description={product.description}
+      />
+      <ProductSchema
+        name={product.name}
+        description={product.description}
+        price={productPrice || 99}
+        image={dbProduct?.image_url || getProductImage(product.slug)}
+      />
+      <BreadcrumbSchema
+        items={[
+          { name: 'Forside', url: '/' },
+          { name: 'Produkter', url: '/produkter' },
+          { name: product.name, url: `/produkt/${slug}` }
+        ]}
+      />
+    </>,
   );
 };
 

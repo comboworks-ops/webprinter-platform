@@ -1,209 +1,217 @@
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
-import HeroSlider from "@/components/HeroSlider";
-import { FeaturedProductConfigurator } from "@/components/FeaturedProductConfigurator";
-import { StorefrontProductTabs } from "@/components/StorefrontProductTabs";
-import { Truck, Award, Phone } from "lucide-react";
-import { useShopSettings } from "@/hooks/useShopSettings";
+import { useEffect, useState } from "react";
+
 import { SitePackagePreview } from "@/components/sites/SitePackagePreview";
+import { StorefrontHomeContent } from "@/components/storefront/StorefrontHomeContent";
+import { StorefrontSeo } from "@/components/storefront/StorefrontSeo";
+import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
+import { useShopSettings } from "@/hooks/useShopSettings";
+
+const FEATURED_SIDE_PANEL_BOX_ID = "forside.products.featured.side-panel.box";
+
+function resolveEditSelectionElement(target: HTMLElement | null): HTMLElement | null {
+  const brandingElement = target?.closest?.("[data-branding-id], [data-click-to-edit]") as HTMLElement | null;
+  if (!brandingElement) return null;
+
+  const rawId = brandingElement.getAttribute("data-branding-id")
+    || brandingElement.getAttribute("data-click-to-edit")
+    || "";
+
+  if (rawId.startsWith("forside.products.featured.side-panel.") && rawId !== FEATURED_SIDE_PANEL_BOX_ID) {
+    return (
+      brandingElement.closest(
+        `[data-branding-id="${FEATURED_SIDE_PANEL_BOX_ID}"], [data-click-to-edit="${FEATURED_SIDE_PANEL_BOX_ID}"]`,
+      ) as HTMLElement | null
+    ) || brandingElement;
+  }
+
+  return brandingElement;
+}
 
 const Shop = () => {
-    const { data: settings } = useShopSettings();
-    const branding = settings?.branding;
-    const activeSiteId = settings?.site_frontends?.activeSiteId;
-    const hostname = typeof window !== "undefined" ? window.location.hostname : "";
-    const rootDomain = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
-    const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
-    const isPlatformRoot = hostname === rootDomain || hostname === `www.${rootDomain}`;
-    const shouldRenderActiveSite = Boolean(activeSiteId && settings?.id && !isLocalhost && !isPlatformRoot);
-    const productsSection = branding?.forside?.productsSection;
-    const showProducts = productsSection?.enabled ?? true;
-    const productColumns = productsSection?.columns ?? 4;
-    const productButtonConfig = productsSection?.button;
-    const productBackgroundConfig = productsSection?.background;
-    const productLayoutStyle = productsSection?.layoutStyle;
-    const showStorformatTab = productsSection?.showStorformatTab ?? true;
-    const featuredProductConfig = productsSection?.featuredProductConfig;
-    const hasFeaturedProduct = featuredProductConfig?.enabled && featuredProductConfig?.productId;
-    const hiddenFeaturedProductIds = hasFeaturedProduct && featuredProductConfig?.showInProductList === false
-        ? [featuredProductConfig.productId as string]
-        : [];
-    const featuredAboveCategories = (featuredProductConfig?.position || 'above') === 'above';
+  const { data: settings } = useShopSettings();
+  const branding = settings?.branding;
+  const tenantName = String(
+    branding?.shop_name
+    || settings?.tenant_name
+    || settings?.company?.name
+    || "Din Shop",
+  ).trim() || "Din Shop";
 
-    if (shouldRenderActiveSite && activeSiteId) {
-        return (
-            <SitePackagePreview
-                siteId={activeSiteId}
-                tenantId={settings?.id || null}
-                mode="live"
-            />
-        );
+  const activeSiteId = settings?.site_frontends?.activeSiteId;
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+  const rootDomain = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
+  const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
+  const isPlatformRoot = hostname === rootDomain || hostname === `www.${rootDomain}`;
+  const shouldRenderActiveSite = Boolean(activeSiteId && settings?.id && !isLocalhost && !isPlatformRoot);
+
+  const [editMode, setEditMode] = useState(false);
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === "SET_EDIT_MODE") {
+        setEditMode(event.data.enabled === true);
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: "PREVIEW_READY" }, "*");
     }
 
-    return <div className="min-h-screen flex flex-col">
-        <Header />
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
 
-        {/* Main content - HeroSlider uses negative margin to slide under the Header */}
-        <main className="flex-1" style={{ marginTop: '-80px' }}>
-            <HeroSlider />
+  useEffect(() => {
+    if (!editMode) return;
 
-            {/* Products Section */}
-            {showProducts && (
-                <section
-                    className="py-16"
-                    id="produkter"
-                    style={{
-                        paddingTop: hasFeaturedProduct && featuredAboveCategories
-                            ? "64px"
-                            : undefined,
-                    }}
-                >
-                    <div className="container mx-auto px-4">
-                        {hasFeaturedProduct && featuredProductConfig && featuredAboveCategories && (
-                            <div className="mb-8 relative z-10">
-                                <FeaturedProductConfigurator
-                                    config={featuredProductConfig}
-                                    branding={branding}
-                                />
-                            </div>
-                        )}
-                        {showStorformatTab ? (
-                            <StorefrontProductTabs
-                                columns={productColumns}
-                                buttonConfig={productButtonConfig}
-                                backgroundConfig={productBackgroundConfig}
-                                layoutStyle={productLayoutStyle}
-                                showCategoryTabs
-                                hiddenProductIds={hiddenFeaturedProductIds}
-                            />
-                        ) : (
-                            <StorefrontProductTabs
-                                columns={productColumns}
-                                buttonConfig={productButtonConfig}
-                                backgroundConfig={productBackgroundConfig}
-                                layoutStyle={productLayoutStyle}
-                                showCategoryTabs={false}
-                                hiddenProductIds={hiddenFeaturedProductIds}
-                            />
-                        )}
-                        {hasFeaturedProduct && featuredProductConfig && !featuredAboveCategories && (
-                            <div className="mt-8">
-                                <FeaturedProductConfigurator
-                                    config={featuredProductConfig}
-                                    branding={branding}
-                                />
-                            </div>
-                        )}
-                    </div>
-                </section>
-            )}
+    document.querySelectorAll('[data-selected="true"]').forEach((element) => {
+      element.removeAttribute("data-selected");
+    });
 
-            {/* Content Block Section - Dynamic from branding */}
-            {branding?.forside?.contentBlocks?.filter(block => block.enabled).map((block) => (
-                <section
-                    key={block.id}
-                    data-branding-id={block.id}
-                    className="bg-secondary py-8"
-                >
-                    <div className={`container mx-auto px-4 ${block.textAlign === 'center' ? 'text-center' : block.textAlign === 'right' ? 'text-right' : 'text-left'}`}>
-                        <div className={`flex flex-col ${block.imageUrl ? (block.imagePosition === 'right' ? 'md:flex-row' : 'md:flex-row-reverse') : ''} gap-8 items-center`}>
-                            {/* Text Content */}
-                            <div className={`flex-1 ${block.imageUrl ? '' : 'w-full'}`}>
-                                {block.heading && (
-                                    <h2
-                                        className="text-2xl md:text-3xl font-semibold"
-                                        style={{
-                                            fontFamily: `'${block.headingFont || 'Poppins'}', sans-serif`,
-                                            color: block.headingColor || '#1F2937'
-                                        }}
-                                    >
-                                        {block.heading}
-                                    </h2>
-                                )}
-                                {block.text && (
-                                    <p
-                                        className="mt-4"
-                                        style={{
-                                            fontFamily: `'${block.textFont || 'Inter'}', sans-serif`,
-                                            color: block.textColor || '#4B5563'
-                                        }}
-                                    >
-                                        {block.text}
-                                    </p>
-                                )}
-                            </div>
-                            {/* Optional Image */}
-                            {block.imageUrl && (
-                                <div className="flex-1">
-                                    <img
-                                        src={block.imageUrl}
-                                        alt={block.heading || 'Content image'}
-                                        className="rounded-lg max-h-64 object-cover mx-auto"
-                                    />
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </section>
-            ))}
+    if (!selectedElementId) return;
 
-            {/* USP Strip */}
-            <section className="bg-primary text-primary-foreground py-12">
-                <div className="container mx-auto px-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
-                        <div className="flex flex-col items-center">
-                            <Truck className="h-12 w-12 mb-4" />
-                            <h3 className="text-lg font-heading font-semibold mb-2">Hurtig levering</h3>
-                            <p className="text-sm opacity-90">Express-muligheder til hele Danmark</p>
-                        </div>
-                        <div className="flex flex-col items-center">
-                            <Award className="h-12 w-12 mb-4" />
-                            <h3 className="text-lg font-heading font-semibold mb-2">Kvalitet til skarpe priser</h3>
-                            <p className="text-sm opacity-90">25+ års erfaring med professionelt tryk</p>
-                        </div>
-                        <div className="flex flex-col items-center">
-                            <Phone className="h-12 w-12 mb-4" />
-                            <h3 className="text-lg font-heading font-semibold mb-2">Personlig rådgivning</h3>
-                            <p className="text-sm opacity-90">Tlf: 71 99 11 10</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
+    const selectedElement = document.querySelector(
+      `[data-branding-id="${selectedElementId}"], [data-click-to-edit="${selectedElementId}"]`,
+    );
 
-            {/* SEO Content */}
-            <section className="py-16 bg-secondary/30">
-                <div className="container mx-auto px-4">
-                    <div className="max-w-4xl mx-auto space-y-8">
-                        <div>
-                            <h2 className="text-xl font-heading font-semibold mb-3">Billige tryksager online</h2>
-                            <p className="text-muted-foreground leading-relaxed">
-                                Webprinter.dk gør det nemt at bestille flyers, foldere, visitkort og hæfter i høj kvalitet til lave priser.
-                                Beregn din pris direkte online og få levering i hele Danmark.
-                            </p>
-                        </div>
+    if (selectedElement) {
+      selectedElement.setAttribute("data-selected", "true");
+    }
+  }, [editMode, selectedElementId]);
 
-                        <div>
-                            <h2 className="text-xl font-heading font-semibold mb-3">Storformat print til enhver opgave</h2>
-                            <p className="text-muted-foreground leading-relaxed">
-                                Fra bannere og beachflag til skilte og tekstilprint – vi producerer storformat i topkvalitet.
-                                Alt printes med UV-bestandige farver og professionel finish.
-                            </p>
-                        </div>
+  useEffect(() => {
+    if (!editMode) {
+      setSelectedElementId(null);
+      return;
+    }
 
-                        <div>
-                            <h2 className="text-xl font-heading font-semibold mb-3">Dansk trykkeri med hurtig levering</h2>
-                            <p className="text-muted-foreground leading-relaxed">
-                                Vi har over 25 års erfaring og leverer både til erhverv og private.
-                                Kontakt os i dag og oplev service, kvalitet og konkurrencedygtige priser.
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </section>
-        </main>
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const brandingElement = resolveEditSelectionElement(target);
 
-        <Footer />
-    </div>;
+      if (!brandingElement) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const id = brandingElement.getAttribute("data-branding-id")
+        || brandingElement.getAttribute("data-click-to-edit");
+
+      document.querySelectorAll('[data-selected="true"]').forEach((element) => {
+        element.removeAttribute("data-selected");
+      });
+
+      if (id) {
+        setSelectedElementId(id);
+        brandingElement.setAttribute("data-selected", "true");
+        if (window.parent !== window) {
+          window.parent.postMessage({
+            type: "EDIT_SECTION",
+            sectionId: id,
+          }, "*");
+        }
+      }
+    };
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === "CLEAR_SELECTION") {
+        setSelectedElementId(null);
+      }
+    };
+
+    document.addEventListener("click", handleClick, true);
+    window.addEventListener("message", handleMessage);
+
+    return () => {
+      document.removeEventListener("click", handleClick, true);
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [editMode]);
+
+  if (shouldRenderActiveSite && activeSiteId) {
+    return (
+      <SitePackagePreview
+        siteId={activeSiteId}
+        tenantId={settings?.id || null}
+        mode="live"
+      />
+    );
+  }
+
+  return (
+    <div className={editMode ? "preview-edit-mode" : ""}>
+      <style>{`
+        .preview-edit-mode [data-branding-id] {
+          cursor: pointer;
+          position: relative;
+        }
+        .preview-edit-mode [data-branding-id]:hover {
+          outline: 2px dashed #0EA5E9;
+          outline-offset: 4px;
+        }
+        .preview-edit-mode [data-branding-id]:hover::after {
+          content: 'Klik for at redigere';
+          position: absolute;
+          top: -24px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: #0EA5E9;
+          color: white;
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-size: 11px;
+          white-space: nowrap;
+          z-index: 100;
+          pointer-events: none;
+        }
+        .preview-edit-mode [data-branding-id][data-selected="true"],
+        .preview-edit-mode [data-click-to-edit][data-selected="true"] {
+          outline: 3px solid #F97316;
+          outline-offset: 4px;
+        }
+        .preview-edit-mode [data-branding-id][data-selected="true"]::before,
+        .preview-edit-mode [data-click-to-edit][data-selected="true"]::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: rgba(249, 115, 22, 0.1);
+          pointer-events: none;
+          z-index: 50;
+          border-radius: inherit;
+        }
+        .preview-edit-mode [data-branding-id][data-selected="true"]::after,
+        .preview-edit-mode [data-click-to-edit][data-selected="true"]::after {
+          content: 'Redigerer...';
+          position: absolute;
+          top: -28px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: #F97316;
+          color: white;
+          padding: 4px 12px;
+          border-radius: 4px;
+          font-size: 11px;
+          font-weight: 600;
+          white-space: nowrap;
+          z-index: 100;
+          pointer-events: none;
+        }
+      `}</style>
+
+      <StorefrontThemeFrame
+        branding={branding}
+        tenantName={tenantName}
+        topSlot={<StorefrontSeo />}
+      >
+        <StorefrontHomeContent
+          branding={branding}
+          tenantName={tenantName}
+        />
+      </StorefrontThemeFrame>
+    </div>
+  );
 };
 
 export default Shop;

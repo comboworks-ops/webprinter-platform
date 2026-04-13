@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Phone, Mail, MapPin, Building2 } from "lucide-react";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { sendContactMessage } from "@/lib/contact/sendContactMessage";
 
 export const ContactContent = () => {
     const [formData, setFormData] = useState({
@@ -17,16 +18,18 @@ export const ContactContent = () => {
         message: "",
         consent: false,
     });
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
     const { data: settings } = useShopSettings();
     const company = settings?.company || {};
-    const contactPhone = company.phone || "+45 XX XX XX XX";
-    const contactEmail = company.email || "support@ditdomæne.dk";
-    const contactName = company.name || "Virksomhed";
-    const contactAddress = company.address || "Adresse";
-    const contactCvr = company.cvr || "";
+    const contactPhone = typeof company.phone === "string" ? company.phone.trim() : "";
+    const contactEmail = typeof company.email === "string" ? company.email.trim() : "";
+    const contactName = typeof company.name === "string" ? company.name.trim() : (settings?.tenant_name || "");
+    const contactAddress = typeof company.address === "string" ? company.address.trim() : "";
+    const contactCvr = typeof company.cvr === "string" ? company.cvr.trim() : "";
+    const addressLines = [contactName, contactAddress].filter(Boolean);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
         if (!formData.name || !formData.email || !formData.message) {
@@ -47,88 +50,128 @@ export const ContactContent = () => {
             return;
         }
 
-        console.log("Contact form submitted:", formData);
+        if (!settings?.id) {
+            toast({
+                title: "Fejl",
+                description: "Shop-kontekst mangler. Prøv at genindlæse siden.",
+                variant: "destructive",
+            });
+            return;
+        }
 
-        toast({
-            title: "Tak for din henvendelse!",
-            description: "Vi vender tilbage hurtigst muligt.",
-        });
+        setIsSubmitting(true);
 
-        setFormData({
-            name: "",
-            email: "",
-            phone: "",
-            subject: "",
-            message: "",
-            consent: false,
-        });
+        try {
+            await sendContactMessage({
+                mode: "tenant",
+                tenantId: settings.id,
+                senderName: formData.name,
+                senderEmail: formData.email,
+                senderPhone: formData.phone,
+                subject: formData.subject,
+                message: formData.message,
+            });
+
+            toast({
+                title: "Tak for din henvendelse!",
+                description: "Din besked er sendt. Vi vender tilbage hurtigst muligt.",
+            });
+
+            setFormData({
+                name: "",
+                email: "",
+                phone: "",
+                subject: "",
+                message: "",
+                consent: false,
+            });
+        } catch (error) {
+            const errorMessage =
+                error instanceof Error
+                    ? error.message
+                    : "Vi kunne ikke sende din besked. Prøv igen om et øjeblik.";
+            console.error("Contact form submission failed:", error);
+            toast({
+                title: "Der opstod en fejl",
+                description: errorMessage,
+                variant: "destructive",
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
         <div className="container mx-auto px-4">
             <div className="max-w-5xl mx-auto">
-                <h1 className="text-4xl md:text-5xl font-heading font-bold mb-12 text-center">Kontakt os</h1>
+                <h1 data-branding-id="typography.heading" className="text-4xl md:text-5xl font-heading font-bold mb-12 text-center">Kontakt os</h1>
 
                 <div className="grid md:grid-cols-2 gap-12">
                     {/* Contact Info */}
                     <div className="space-y-6">
                         <div>
-                            <h2 className="text-2xl font-heading font-semibold mb-6">Kontaktinformation</h2>
+                            <h2 data-branding-id="typography.heading" className="text-2xl font-heading font-semibold mb-6">Kontaktinformation</h2>
 
                             <div className="space-y-4">
-                                <div className="flex items-start gap-3">
-                                    <Phone className="h-5 w-5 text-primary mt-1" />
-                                    <div>
-                                        <p className="font-medium">Telefon</p>
-                                        <a
-                                            href={`tel:${contactPhone.replace(/\s/g, '')}`}
-                                            className="text-muted-foreground hover:text-primary transition-colors"
-                                        >
-                                            {contactPhone}
-                                        </a>
+                                {contactPhone && (
+                                    <div className="flex items-start gap-3">
+                                        <Phone className="h-5 w-5 text-primary mt-1" />
+                                        <div>
+                                            <p data-branding-id="typography.heading" className="font-medium">Telefon</p>
+                                            <a
+                                                href={`tel:${contactPhone.replace(/\s/g, '')}`}
+                                                data-branding-id="colors.linkText"
+                                                className="text-muted-foreground hover:text-primary transition-colors"
+                                            >
+                                                {contactPhone}
+                                            </a>
+                                        </div>
                                     </div>
-                                </div>
+                                )}
 
-                                <div className="flex items-start gap-3">
-                                    <Mail className="h-5 w-5 text-primary mt-1" />
-                                    <div>
-                                        <p className="font-medium">E-mail</p>
-                                        <a
-                                            href={`mailto:${contactEmail}`}
-                                            className="text-muted-foreground hover:text-primary transition-colors"
-                                        >
-                                            {contactEmail}
-                                        </a>
+                                {contactEmail && (
+                                    <div className="flex items-start gap-3">
+                                        <Mail className="h-5 w-5 text-primary mt-1" />
+                                        <div>
+                                            <p data-branding-id="typography.heading" className="font-medium">E-mail</p>
+                                            <a
+                                                href={`mailto:${contactEmail}`}
+                                                data-branding-id="colors.linkText"
+                                                className="text-muted-foreground hover:text-primary transition-colors"
+                                            >
+                                                {contactEmail}
+                                            </a>
+                                        </div>
                                     </div>
-                                </div>
+                                )}
 
-                                <div className="flex items-start gap-3">
-                                    <MapPin className="h-5 w-5 text-primary mt-1" />
-                                    <div>
-                                        <p className="font-medium">Adresse</p>
-                                        <p className="text-muted-foreground whitespace-pre-line">
-                                            {contactName}
-                                            {"\n"}
-                                            {contactAddress}
-                                        </p>
+                                {addressLines.length > 0 && (
+                                    <div className="flex items-start gap-3">
+                                        <MapPin className="h-5 w-5 text-primary mt-1" />
+                                        <div>
+                                            <p data-branding-id="typography.heading" className="font-medium">Adresse</p>
+                                            <p data-branding-id="typography.body" className="text-muted-foreground whitespace-pre-line">
+                                                {addressLines.join("\n")}
+                                            </p>
+                                        </div>
                                     </div>
-                                </div>
+                                )}
 
                                 {contactCvr && (
                                     <div className="flex items-start gap-3">
                                         <Building2 className="h-5 w-5 text-primary mt-1" />
                                         <div>
-                                            <p className="font-medium">CVR-nummer</p>
-                                            <p className="text-muted-foreground">{contactCvr}</p>
+                                            <p data-branding-id="typography.heading" className="font-medium">CVR-nummer</p>
+                                            <p data-branding-id="typography.body" className="text-muted-foreground">{contactCvr}</p>
                                         </div>
                                     </div>
                                 )}
                             </div>
                         </div>
 
-                        <div className="bg-muted p-6 rounded-lg">
-                            <h3 className="font-heading font-semibold mb-2">Åbningstider</h3>
-                            <p className="text-sm text-muted-foreground">
+                        <div data-branding-id="colors.card" className="bg-muted p-6 rounded-lg">
+                            <h3 data-branding-id="typography.heading" className="font-heading font-semibold mb-2">Åbningstider</h3>
+                            <p data-branding-id="typography.body" className="text-sm text-muted-foreground">
                                 Mandag - Fredag: 09:00 - 16:00
                                 <br />
                                 Lørdag - Søndag: Lukket
@@ -202,8 +245,8 @@ export const ContactContent = () => {
                                 </Label>
                             </div>
 
-                            <Button type="submit" size="lg" className="w-full">
-                                Send besked
+                            <Button data-branding-id="colors.primary" type="submit" size="lg" className="w-full" disabled={isSubmitting}>
+                                {isSubmitting ? "Sender..." : "Send besked"}
                             </Button>
                         </form>
                     </div>

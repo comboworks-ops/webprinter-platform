@@ -2,8 +2,6 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useShopSettings } from "@/hooks/useShopSettings";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -33,6 +31,7 @@ import {
     getFoilMatrixDataFromDB,
     getGenericMatrixDataFromDB
 } from "@/utils/pricingDatabase";
+import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
 
 interface TechnicalSpecs {
     width_mm: number;
@@ -48,6 +47,11 @@ interface TemplateFile {
     path: string;
     format?: string;
     uploadedAt: string;
+}
+
+interface LinkedTemplatePreview {
+    previewUrl: string;
+    source: "image" | "pdf";
 }
 
 type OptionPriceMode = "fixed" | "per_quantity" | "per_area";
@@ -515,9 +519,20 @@ const FileUploadConfiguration = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const locationSearchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+    const returnedPaymentIntentId = locationSearchParams.get("payment_intent");
+    const returnedRedirectStatus = locationSearchParams.get("redirect_status");
     const persistedCheckoutState = useMemo(() => readSiteCheckoutSession(), []);
-    const state = (location.state as any) || persistedCheckoutState;
+    const rawCheckoutState = (location.state as any) || persistedCheckoutState;
+    const hasCheckoutState = Boolean(rawCheckoutState);
+    const state = rawCheckoutState || {};
     const shopSettings = useShopSettings();
+    const branding = shopSettings.data?.branding;
+    const tenantName = String(
+        branding?.shop_name
+        || shopSettings.data?.tenant_name
+        || shopSettings.data?.company?.name
+        || "Din Shop",
+    ).trim() || "Din Shop";
     const initialShippingCost = Number.isFinite(Number(state?.shippingCost)) ? Math.round(Number(state.shippingCost)) : 0;
     const initialTotalPrice = Number.isFinite(Number(state?.totalPrice)) ? Math.round(Number(state.totalPrice)) : 0;
     const initialBasePrice = Math.round(Number(state?.productPrice || 0) + Number(state?.extraPrice || 0));
@@ -618,6 +633,7 @@ const FileUploadConfiguration = () => {
             sourceHeightPx: Number(persistedSiteUpload.heightPx || 0),
         };
     });
+    const [linkedTemplatePreview, setLinkedTemplatePreview] = useState<LinkedTemplatePreview | null>(null);
     const [pdfContourScan, setPdfContourScan] = useState<PdfContourScanResult | null>(null);
     const [proofingOpen, setProofingOpen] = useState(false);
     const [proofingApproved, setProofingApproved] = useState(false);
@@ -642,12 +658,127 @@ const FileUploadConfiguration = () => {
     const [paymentSuccess, setPaymentSuccess] = useState(false);
     const [createdOrderNumber, setCreatedOrderNumber] = useState<string | null>(null);
     const [orderPersistWarning, setOrderPersistWarning] = useState<string | null>(null);
+    const [orderNotificationWarning, setOrderNotificationWarning] = useState<string | null>(null);
+    const [orderSuccessMessage, setOrderSuccessMessage] = useState("Vi har modtaget din betaling og begynder at behandle din ordre.");
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const proofingDragStartRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
     const proofingResizeStartRef = useRef<{ centerX: number; centerY: number; startDistance: number; startScale: number } | null>(null);
     const proofingArtworkRef = useRef<HTMLDivElement>(null);
     const proofingArtboardRef = useRef<HTMLDivElement>(null);
+    const processedRedirectPaymentIntentRef = useRef<string | null>(null);
+
+    const clearStripeReturnParams = () => {
+        const nextParams = new URLSearchParams(locationSearchParams);
+        const keys = ["payment_intent", "payment_intent_client_secret", "redirect_status"];
+        let changed = false;
+
+        keys.forEach((key) => {
+            if (nextParams.has(key)) {
+                nextParams.delete(key);
+                changed = true;
+            }
+        });
+
+        if (!changed) return;
+
+        navigate(
+            {
+                pathname: location.pathname,
+                search: nextParams.toString() ? `?${nextParams.toString()}` : "",
+            },
+            { replace: true, state: location.state }
+        );
+    };
+
+    const notificationSettings = (shopSettings.data?.notifications as Record<string, any> | undefined) || {};
+    const companySettings = (shopSettings.data?.company as Record<string, any> | undefined) || {};
+    const customerOrderConfirmationsEnabled = notificationSettings.order_confirmations ?? true;
+    const adminNewOrderNotificationsEnabled = notificationSettings.new_orders ?? true;
+    const supportEmail = String(companySettings.email || "info@webprinter.dk").trim();
+    const shopName = String(companySettings.name || shopSettings.data?.tenant_name || "Webprinter").trim();
+    const adminName = String(companySettings.admin_name || "").trim();
+    const customerOrdersUrl = typeof window !== "undefined" ? `${window.location.origin}/mine-ordrer` : undefined;
+    const adminOrdersUrl = typeof window !== "undefined" ? `${window.location.origin}/admin/ordrer` : undefined;
+
+    useEffect(() => {
+        const linkedTemplateId = String(state?.linkedTemplateId || "").trim();
+        if (!linkedTemplateId) {
+            setLinkedTemplatePreview(null);
+            return;
+        }
+
+        let cancelled = false;
+
+        const loadLinkedTemplatePreview = async () => {
+            try {
+                const { data: template, error } = await supabase
+                    .from("designer_templates" as any)
+                    .select("preview_image_url, template_pdf_url")
+                    .eq("id", linkedTemplateId)
+                    .maybeSingle();
+
+                if (cancelled) return;
+                if (error || !template) {
+                    setLinkedTemplatePreview(null);
+                    return;
+                }
+
+                if ((template as any).preview_image_url) {
+                    setLinkedTemplatePreview({
+                        previewUrl: String((template as any).preview_image_url),
+                        source: "image",
+                    });
+                    return;
+                }
+
+                if ((template as any).template_pdf_url) {
+                    const pdfjs = await import("pdfjs-dist");
+                    pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+
+                    const loadingTask = pdfjs.getDocument(String((template as any).template_pdf_url));
+                    const pdf = await loadingTask.promise;
+                    const page = await pdf.getPage(1);
+                    const viewport = page.getViewport({ scale: 2.5 });
+
+                    const offscreenCanvas = document.createElement("canvas");
+                    offscreenCanvas.width = Math.round(viewport.width);
+                    offscreenCanvas.height = Math.round(viewport.height);
+                    const context = offscreenCanvas.getContext("2d");
+                    if (!context) {
+                        setLinkedTemplatePreview(null);
+                        return;
+                    }
+
+                    context.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+                    await page.render({
+                        canvasContext: context,
+                        viewport,
+                    }).promise;
+
+                    if (cancelled) return;
+
+                    setLinkedTemplatePreview({
+                        previewUrl: offscreenCanvas.toDataURL("image/png", 1.0),
+                        source: "pdf",
+                    });
+                    return;
+                }
+
+                setLinkedTemplatePreview(null);
+            } catch (error) {
+                if (cancelled) return;
+                console.error("[Checkout] Failed to load linked template preview:", error);
+                setLinkedTemplatePreview(null);
+            }
+        };
+
+        loadLinkedTemplatePreview();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [state?.linkedTemplateId]);
 
     const applySavedAddress = (address: CheckoutSavedAddress) => {
         setDeliveryRecipientName([address.first_name, address.last_name].filter(Boolean).join(" ").trim());
@@ -989,7 +1120,9 @@ const FileUploadConfiguration = () => {
         setShowPaymentModal(false);
         setPaymentClientSecret(null);
         setOrderPersistWarning(null);
+        setOrderNotificationWarning(null);
         setCreatedOrderNumber(null);
+        setOrderSuccessMessage("Vi har modtaget din betaling og begynder at behandle din ordre.");
 
         const productConfigurationText = sizeDistributionConfig && sizeDistributionEntries.length > 0
             ? `${sizeDistributionConfig.title}: ${sizeDistributionSummary}`
@@ -1159,24 +1292,98 @@ const FileUploadConfiguration = () => {
                 }
             }
 
+            const emailWarnings: string[] = [];
+            const emailContext = {
+                name: shopName || "Webprinter",
+                supportEmail: supportEmail || "info@webprinter.dk",
+                orderUrl: customerOrdersUrl,
+                adminOrderUrl: adminOrdersUrl,
+                homepageUrl: typeof window !== "undefined" ? window.location.origin : undefined,
+            };
+
             try {
-                const { sendOrderConfirmation } = await import("@/lib/emailService");
-                await sendOrderConfirmation({
-                    order_number: insertedOrder.order_number,
-                    product_name: insertedOrder.product_name,
-                    quantity: insertedOrder.quantity,
-                    total_price: insertedOrder.total_price,
-                    customer_email: insertedOrder.customer_email,
-                    customer_name: insertedOrder.customer_name || "Kunde",
-                    customer_phone: customerPhone.trim() || undefined,
-                    delivery_type: selectedDeliveryLabel || undefined,
-                    delivery_summary: deliverySummary || undefined,
-                    billing_summary: billingSummary || undefined,
-                    blind_shipping: senderMode === "blind",
-                    sender_summary: senderSummary || undefined,
-                });
+                const { sendAdminNewOrderNotification, sendOrderConfirmation } = await import("@/lib/emailService");
+                const emailJobs: Promise<boolean>[] = [];
+
+                if (customerOrderConfirmationsEnabled) {
+                    emailJobs.push(
+                        sendOrderConfirmation({
+                            order_number: insertedOrder.order_number,
+                            product_name: insertedOrder.product_name,
+                            quantity: insertedOrder.quantity,
+                            total_price: insertedOrder.total_price,
+                            customer_email: insertedOrder.customer_email,
+                            customer_name: insertedOrder.customer_name || "Kunde",
+                            customer_phone: customerPhone.trim() || undefined,
+                            delivery_type: selectedDeliveryLabel || undefined,
+                            delivery_summary: deliverySummary || undefined,
+                            billing_summary: billingSummary || undefined,
+                            blind_shipping: senderMode === "blind",
+                            sender_summary: senderSummary || undefined,
+                            shop: emailContext,
+                        })
+                    );
+                }
+
+                if (adminNewOrderNotificationsEnabled) {
+                    const adminRecipientEmail = String(companySettings.email || "").trim();
+                    if (adminRecipientEmail) {
+                        emailJobs.push(
+                            sendAdminNewOrderNotification({
+                                order_number: insertedOrder.order_number,
+                                product_name: insertedOrder.product_name,
+                                quantity: insertedOrder.quantity,
+                                total_price: insertedOrder.total_price,
+                                customer_email: insertedOrder.customer_email,
+                                customer_name: insertedOrder.customer_name || "Kunde",
+                                customer_phone: customerPhone.trim() || undefined,
+                                delivery_type: selectedDeliveryLabel || undefined,
+                                delivery_summary: deliverySummary || undefined,
+                                billing_summary: billingSummary || undefined,
+                                blind_shipping: senderMode === "blind",
+                                sender_summary: senderSummary || undefined,
+                                admin_email: adminRecipientEmail,
+                                admin_name: adminName || companySettings.name || undefined,
+                                shop: emailContext,
+                            })
+                        );
+                    } else {
+                        console.warn("Order notification skipped: tenant company email is missing for new order notifications.");
+                        emailWarnings.push("Hvis du ikke modtager en bekræftelse eller hører fra os snart, så kontakt os.");
+                    }
+                }
+
+                const results = await Promise.all(emailJobs);
+                let resultIndex = 0;
+                let customerConfirmationSent = false;
+
+                if (customerOrderConfirmationsEnabled) {
+                    customerConfirmationSent = results[resultIndex] ?? false;
+                    resultIndex += 1;
+                    if (!customerConfirmationSent) {
+                        emailWarnings.push("Vi kunne ikke sende ordrebekræftelsen automatisk. Kontakt os, hvis du ikke hører fra os.");
+                    }
+                }
+
+                if (adminNewOrderNotificationsEnabled && String(companySettings.email || "").trim()) {
+                    const adminNotificationSent = results[resultIndex] ?? false;
+                    if (!adminNotificationSent) {
+                        emailWarnings.push("Hvis du ikke modtager en bekræftelse eller hører fra os snart, så kontakt os.");
+                    }
+                }
+
+                if (customerOrderConfirmationsEnabled && customerConfirmationSent) {
+                    setOrderSuccessMessage("Vi har modtaget din betaling og begynder at behandle din ordre. Du modtager en bekræftelse på email.");
+                } else {
+                    setOrderSuccessMessage("Vi har modtaget din betaling og begynder at behandle din ordre.");
+                }
             } catch (emailError) {
-                console.error("Order confirmation email error:", emailError);
+                console.error("Order notification error:", emailError);
+                emailWarnings.push("Vi kunne ikke sende alle automatiske beskeder om ordren.");
+            }
+
+            if (emailWarnings.length > 0) {
+                setOrderNotificationWarning(emailWarnings.join(" "));
             }
 
             if (user?.id && saveAddressForLater && deliveryAddress.trim() && deliveryZip.trim() && deliveryCity.trim()) {
@@ -1214,8 +1421,9 @@ const FileUploadConfiguration = () => {
             setOrderPersistWarning(`Betaling gennemført, men ordren kunne ikke gemmes automatisk. Gem reference: ${paymentIntentId}`);
         }
 
+        clearStripeReturnParams();
         setPaymentSuccess(true);
-        toast.success("Din ordre er modtaget! Vi sender en bekræftelse på email.");
+        toast.success("Din ordre er modtaget!");
         console.log("Payment successful:", paymentIntentId);
     };
 
@@ -1223,6 +1431,31 @@ const FileUploadConfiguration = () => {
         setShowPaymentModal(false);
         setPaymentClientSecret(null);
     };
+
+    useEffect(() => {
+        if (!returnedPaymentIntentId || !returnedRedirectStatus) return;
+        if (processedRedirectPaymentIntentRef.current === returnedPaymentIntentId) return;
+
+        if (returnedRedirectStatus === "succeeded") {
+            processedRedirectPaymentIntentRef.current = returnedPaymentIntentId;
+            toast.success("Betaling bekræftet. Vi færdiggør din ordre...");
+            void handlePaymentSuccess(returnedPaymentIntentId);
+            return;
+        }
+
+        if (returnedRedirectStatus === "processing") {
+            processedRedirectPaymentIntentRef.current = returnedPaymentIntentId;
+            toast.info("Betalingen behandles stadig hos Stripe. Opdater siden om et øjeblik.");
+            clearStripeReturnParams();
+            return;
+        }
+
+        if (returnedRedirectStatus === "failed") {
+            processedRedirectPaymentIntentRef.current = returnedPaymentIntentId;
+            toast.error("Betalingen kunne ikke bekræftes. Prøv igen.");
+            clearStripeReturnParams();
+        }
+    }, [returnedPaymentIntentId, returnedRedirectStatus]);
 
     // Resolve specs: prefer explicit width/height from state or query, then standard formats, then product metadata
     const getResolvedSpecs = (): TechnicalSpecs | null => {
@@ -1521,7 +1754,7 @@ const FileUploadConfiguration = () => {
 
     // If no state, redirect back to home or a generic products page
     useEffect(() => {
-        if (!state) {
+        if (!hasCheckoutState) {
             console.warn("No state found in FileUploadConfiguration, redirecting...");
             navigate("/");
             return;
@@ -1622,7 +1855,7 @@ const FileUploadConfiguration = () => {
         };
 
         fetchProductData();
-    }, [state, navigate]);
+    }, [hasCheckoutState, navigate, state]);
 
     useEffect(() => {
         const hydrateCustomer = async () => {
@@ -2188,6 +2421,7 @@ const FileUploadConfiguration = () => {
 
         const params = new URLSearchParams(location.search);
         if (state?.productId) params.set("productId", String(state.productId));
+        if (state?.linkedTemplateId) params.set("templateId", String(state.linkedTemplateId));
         if (resolvedFormatLabel && resolvedFormatLabel !== "Standard") {
             params.set("format", String(resolvedFormatLabel));
         } else if (specs) {
@@ -2202,8 +2436,10 @@ const FileUploadConfiguration = () => {
     };
 
     return (
-        <div className="min-h-screen flex flex-col bg-slate-50">
-            <Header />
+        <StorefrontThemeFrame
+            branding={branding}
+            tenantName={tenantName}
+        >
             <main className="flex-1 container mx-auto px-4 py-12">
                 <div className="max-w-5xl mx-auto">
                     <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -2974,6 +3210,16 @@ const FileUploadConfiguration = () => {
                                                                 className="relative w-full overflow-hidden border border-slate-300 bg-white"
                                                                 style={{ aspectRatio: targetWidth > 0 && targetHeight > 0 ? `${targetWidth} / ${targetHeight}` : "1 / 1" }}
                                                             >
+                                                                {linkedTemplatePreview && (
+                                                                    <div className="absolute inset-0">
+                                                                        <img
+                                                                            src={linkedTemplatePreview.previewUrl}
+                                                                            alt="Template preview"
+                                                                            className="h-full w-full object-contain select-none"
+                                                                            draggable={false}
+                                                                        />
+                                                                    </div>
+                                                                )}
                                                                 {proofingPreview && (
                                                                     <div
                                                                         className="absolute"
@@ -3287,8 +3533,6 @@ const FileUploadConfiguration = () => {
                     </div>
                 </div>
             </main>
-            <Footer />
-
             <Dialog open={proofingOpen} onOpenChange={setProofingOpen}>
                 <DialogContent className="max-w-6xl p-0 overflow-hidden">
                     <DialogHeader className="border-b border-slate-200 px-6 py-4">
@@ -3325,6 +3569,16 @@ const FileUploadConfiguration = () => {
                                         onMouseDown={handleProofingArtboardPointerDown}
                                         style={{ aspectRatio: targetWidth > 0 && targetHeight > 0 ? `${targetWidth} / ${targetHeight}` : "1 / 1" }}
                                     >
+                                        {linkedTemplatePreview && (
+                                            <div className="absolute inset-0">
+                                                <img
+                                                    src={linkedTemplatePreview.previewUrl}
+                                                    alt="Template preview"
+                                                    className="h-full w-full object-contain select-none"
+                                                    draggable={false}
+                                                />
+                                            </div>
+                                        )}
                                         {proofingPreview && (
                                             <div
                                                 ref={proofingArtworkRef}
@@ -3560,8 +3814,7 @@ const FileUploadConfiguration = () => {
                                 Tak for din ordre!
                             </h2>
                             <p className="text-muted-foreground mb-6">
-                                Vi har modtaget din betaling og begynder at behandle din ordre.
-                                Du modtager snart en bekræftelse på email.
+                                {orderSuccessMessage}
                             </p>
                             {createdOrderNumber && (
                                 <p className="text-sm font-medium text-slate-700 mb-3">
@@ -3580,6 +3833,12 @@ const FileUploadConfiguration = () => {
                                     <p className="text-sm text-amber-700">{orderPersistWarning}</p>
                                 </div>
                             )}
+                            {orderNotificationWarning && (
+                                <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-left">
+                                    <p className="text-xs font-semibold text-amber-800">Email / notifikationer</p>
+                                    <p className="text-sm text-amber-700">{orderNotificationWarning}</p>
+                                </div>
+                            )}
                             <Button onClick={() => navigate("/")} className="w-full">
                                 Tilbage til forsiden
                             </Button>
@@ -3587,7 +3846,7 @@ const FileUploadConfiguration = () => {
                     </Card>
                 </div>
             )}
-        </div>
+        </StorefrontThemeFrame>
     );
 };
 

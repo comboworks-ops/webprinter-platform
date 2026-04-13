@@ -12,12 +12,14 @@ import { ProductOverview } from '@/components/admin/ProductOverview';
 import { ProductPriceManager } from '@/components/admin/ProductPriceManager';
 import { ProductCreator } from '@/components/admin/ProductCreator';
 import { SeoManager } from '@/components/admin/SeoManager';
+import { AiSeoManager } from '@/components/admin/AiSeoManager';
 import { OrderManager } from '@/components/admin/OrderManager';
 import AdminMessages from '@/components/admin/AdminMessages';
 import DomainSettings from '@/components/admin/DomainSettings';
 import BrandingSettings from '@/components/admin/BrandingSettings';
 import TenantBrandingSettings from '@/components/admin/TenantBrandingSettings';
 import TenantBrandingSettingsV2 from '@/components/admin/TenantBrandingSettingsV2';
+import TenantSiteDesignV2 from '@/components/admin/TenantSiteDesignV2';
 import MasterBrandingTemplate from '@/components/admin/MasterBrandingTemplate';
 import SubscriptionSettings from '@/components/admin/SubscriptionSettings';
 import ShopSettings from '@/components/admin/ShopSettings';
@@ -49,8 +51,11 @@ import { Pod2Admin } from '@/pages/admin/Pod2Admin';
 import { Pod2Katalog } from '@/pages/admin/Pod2Katalog';
 import Pod2Betaling from '@/pages/admin/Pod2Betaling';
 import Pod2Ordrer from '@/pages/admin/Pod2Ordrer';
+import Pod3FlyerAlarm from '@/pages/admin/Pod3FlyerAlarm';
 import { ShopModules } from '@/components/admin/ShopModules';
 import SitesAdmin from '@/pages/admin/SitesAdmin';
+import IconStudioPage from '@/pages/admin/IconStudioPage';
+import AdminPrintDesignerRedirect from '@/pages/admin/AdminPrintDesignerRedirect';
 
 
 export default function Admin() {
@@ -97,7 +102,7 @@ export default function Admin() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
-      <SidebarProvider>
+      <SidebarProvider defaultOpen={false}>
         <div className="flex-1 flex w-full">
           <AdminSidebar />
 
@@ -110,11 +115,13 @@ export default function Admin() {
                 <Route path="/products" element={<ProductOverview />} /> {/* Moved ProductOverview to /products */}
                 <Route path="/prismoduler" element={<PricingModules />} />
                 <Route path="/machine-pricing" element={<MachinePricingManager />} />
+                <Route path="/print-designer" element={<AdminPrintDesignerRedirect />} />
                 <Route path="/designer-templates" element={<DesignerTemplateManager />} />
                 <Route path="/farveprofiler" element={<ColorProfilesManager />} />
                 <Route path="/product/:slug" element={<ProductPriceManager />} />
                 <Route path="/create-product" element={<ProductCreator />} />
                 <Route path="/seo" element={<SeoManager />} />
+                <Route path="/ai-seo" element={<AiSeoManager />} />
                 <Route path="/kunder" element={<OrderManager />} />
                 <Route path="/companyhub" element={<AdminCompanyHub />} />
                 <Route path="/beskeder" element={<AdminMessages />} />
@@ -122,6 +129,8 @@ export default function Admin() {
                 <Route path="/domaene" element={<DomainSettings />} />
                 <Route path="/branding" element={<Navigate to="/admin/branding-v2" replace />} />
                 <Route path="/branding-v2" element={<TenantBrandingSettingsV2 />} />
+                <Route path="/site-design-v2" element={<TenantSiteDesignV2 />} />
+                <Route path="/icon-studio" element={<IconStudioPage />} />
                 <Route path="/branding-classic" element={<TenantBrandingSettings />} />
                 <Route path="/abonnement" element={<SubscriptionSettings />} />
                 <Route path="/indstillinger" element={<ShopSettings />} />
@@ -150,6 +159,8 @@ export default function Admin() {
                 <Route path="/pod2-katalog" element={<Pod2Katalog />} />
                 <Route path="/pod2-ordrer" element={<Pod2Ordrer />} />
                 <Route path="/pod2-betaling" element={<Pod2Betaling />} />
+                {/* Print on Demand v3 Routes (Flyer Alarm) */}
+                <Route path="/pod3" element={<Pod3FlyerAlarm />} />
               </Routes>
             </div>
           </main>

@@ -35,7 +35,7 @@ const PlatformPriser = () => {
                         Enkle, transparente priser
                     </h1>
                     <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-8">
-                        Vælg den plan der passer til din virksomhed. Start med en gratis prøveperiode.
+                        Opret konto først, og vælg derefter plan i admin. Din 14 dages prøveperiode starter, når du aktiverer checkout i Stripe.
                     </p>
 
                     {/* Billing toggle */}
@@ -127,7 +127,7 @@ const PlatformPriser = () => {
                         <div className="bg-white p-6 rounded-lg shadow-sm">
                             <h3 className="font-semibold mb-2">Hvad sker der efter prøveperioden?</h3>
                             <p className="text-muted-foreground text-sm">
-                                Efter de 14 dages gratis prøveperiode fortsætter du automatisk på den valgte plan. Du kan annullere når som helst.
+                                Når du har valgt en plan og gennemført Stripe checkout, starter den 14 dages prøveperiode. Herefter fortsætter abonnementet automatisk på den valgte plan, medmindre du annullerer.
                             </p>
                         </div>
                         <div className="bg-white p-6 rounded-lg shadow-sm">

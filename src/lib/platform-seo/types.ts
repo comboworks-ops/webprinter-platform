@@ -78,6 +78,7 @@ export interface ComputedPlatformSeo {
     ogTitle: string;
     ogDescription: string;
     ogImageUrl: string | null;
+    iconUrl: string;
     ogUrl: string;
     ogSiteName: string;
     hreflangTags: { lang: string; href: string }[];

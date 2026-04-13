@@ -6,6 +6,19 @@ export function getPageBackgroundStyle(branding?: BrandingData | null): CSSPrope
     const solid = colors?.background || "#F8FAFC";
     const backgroundType = colors?.backgroundType || "solid";
 
+    if (backgroundType === "image" && colors?.backgroundImageUrl) {
+        const imageMode = colors.backgroundImageMode || "cover";
+        const repeating = imageMode === "repeat";
+
+        return {
+            backgroundColor: solid,
+            backgroundImage: `url(${colors.backgroundImageUrl})`,
+            backgroundPosition: "center center",
+            backgroundRepeat: repeating ? "repeat" : "no-repeat",
+            backgroundSize: repeating ? "auto" : imageMode,
+        };
+    }
+
     if (backgroundType !== "gradient") {
         return { backgroundColor: solid };
     }

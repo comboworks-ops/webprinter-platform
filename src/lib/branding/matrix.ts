@@ -1,9 +1,27 @@
 import type { CSSProperties } from "react";
 import { DEFAULT_BRANDING, type BrandingData } from "@/hooks/useBrandingDraft";
 
-export const getMatrixStyleVars = (branding?: BrandingData | null): CSSProperties => {
+interface MatrixBoxConfig {
+    backgroundColor?: string;
+    borderRadiusPx?: number;
+    borderWidthPx?: number;
+    borderColor?: string;
+    paddingPx?: number;
+}
+
+export const getMatrixStyleVars = (
+    branding?: BrandingData | null,
+    matrixBoxOverride?: MatrixBoxConfig | null
+): CSSProperties => {
     const matrix = branding?.productPage?.matrix || DEFAULT_BRANDING.productPage.matrix;
     const font = matrix.font || DEFAULT_BRANDING.productPage.matrix.font;
+
+    // Use override if provided, otherwise use branding
+    const boxBg = matrixBoxOverride?.backgroundColor || matrix.boxBackgroundColor || matrix.cellBg || "#FFFFFF";
+    const boxRadius = matrixBoxOverride?.borderRadiusPx ?? matrix.boxBorderRadiusPx ?? 12;
+    const boxBorderWidth = matrixBoxOverride?.borderWidthPx ?? matrix.boxBorderWidthPx ?? 1;
+    const boxBorderColor = matrixBoxOverride?.borderColor || matrix.boxBorderColor || matrix.borderColor || "#E2E8F0";
+    const boxPadding = matrixBoxOverride?.paddingPx ?? matrix.boxPaddingPx ?? 16;
 
     return {
         "--matrix-font": `'${font}', sans-serif`,
@@ -18,5 +36,11 @@ export const getMatrixStyleVars = (branding?: BrandingData | null): CSSPropertie
         "--matrix-selected-bg": matrix.selectedBg,
         "--matrix-selected-text": matrix.selectedText,
         "--matrix-border": matrix.borderColor,
+        // Box styling
+        "--matrix-box-bg": boxBg,
+        "--matrix-box-radius": `${boxRadius}px`,
+        "--matrix-box-border-width": `${boxBorderWidth}px`,
+        "--matrix-box-border-color": boxBorderColor,
+        "--matrix-box-padding": `${boxPadding}px`,
     } as CSSProperties;
 };

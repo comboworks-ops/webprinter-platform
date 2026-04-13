@@ -34,6 +34,8 @@ import {
   type ThumbnailSizeMode
 } from "@/lib/pricing/thumbnailSizes";
 import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
+import { getThumbnailSizeFromUiMode, type SelectorStyling } from "@/lib/pricing/selectorStyling";
+import { TemplateConnectDialog } from "@/components/admin/TemplateConnectDialog";
 
 type StorformatManagerProps = {
   productId: string;
@@ -45,12 +47,13 @@ type StorformatManagerProps = {
 
 type LayoutSectionType = "materials" | "finishes" | "products";
 type LayoutDisplayMode = "buttons" | "dropdown" | "checkboxes" | "small" | "medium" | "large" | "xl" | "xl_notext";
-type SelectionMode = "required" | "optional";
+type SelectionMode = "required" | "optional" | "free";
 
 type ValueSettings = {
   showThumbnail?: boolean;
   customImage?: string;
   displayName?: string;
+  linkedTemplateId?: string;
 };
 
 type LayoutSection = {
@@ -64,7 +67,14 @@ type LayoutSection = {
   description?: string;
   valueIds?: string[];
   valueSettings?: Record<string, ValueSettings>;
+  selectorStyling?: SelectorStyling;
 };
+
+const isOptionalSelectionMode = (mode?: SelectionMode) => mode === "optional";
+const isPriceNeutralSection = (section: LayoutSection, verticalAxisType?: LayoutSectionType | null) =>
+  section.selection_mode === "free"
+  && section.sectionType !== "materials"
+  && section.sectionType !== verticalAxisType;
 
 type LayoutRow = {
   id: string;
@@ -82,6 +92,7 @@ type VerticalAxisConfig = {
   description?: string;
   valueIds?: string[];
   valueSettings?: Record<string, ValueSettings>;
+  selectorStyling?: SelectorStyling;
 };
 
 type SelectedTarget = {
@@ -233,8 +244,8 @@ export function StorformatManager({
     {
       id: "row-1",
       sections: [
-        { id: "section-products", sectionType: "products", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [] },
-        { id: "section-finishes", sectionType: "finishes", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [] }
+        { id: "section-products", sectionType: "products", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [], selectorStyling: {} },
+        { id: "section-finishes", sectionType: "finishes", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [], selectorStyling: {} }
       ]
     }
   ]);
@@ -243,10 +254,12 @@ export function StorformatManager({
     sectionType: "materials",
     thumbnail_size: "small",
     valueIds: [],
-    valueSettings: {}
+    valueSettings: {},
+    selectorStyling: {}
   });
   const [selectedSectionValues, setSelectedSectionValues] = useState<Record<string, string>>({});
   const [selectedTarget, setSelectedTarget] = useState<SelectedTarget | null>(null);
+  const [templateConnectSectionId, setTemplateConnectSectionId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const layoutRef = useRef<HTMLDivElement>(null);
   const [uploadTarget, setUploadTarget] = useState<UploadTarget | null>(null);
@@ -272,8 +285,9 @@ export function StorformatManager({
     if (verticalAxis.sectionType === type && overrideId) return overrideId;
     const section = layoutRows.flatMap((r) => r.sections).find((s) => s.sectionType === type);
     if (!section) return null;
+    if (isPriceNeutralSection(section, verticalAxis.sectionType)) return null;
     const selected = selectedSectionValues[section.id];
-    if (section.selection_mode === "optional") {
+    if (isOptionalSelectionMode(section.selection_mode)) {
       return selected || null;
     }
     return selected || section.valueIds?.[0] || null;
@@ -502,7 +516,8 @@ export function StorformatManager({
                     title: section?.title,
                     description: section?.description,
                     valueIds: normalizeValueIds(section?.valueIds, available),
-                    valueSettings: section?.valueSettings || {}
+                    valueSettings: section?.valueSettings || {},
+                    selectorStyling: section?.selectorStyling || {}
                   } satisfies LayoutSection;
                 })
                 .filter(Boolean) as LayoutSection[]
@@ -520,7 +535,8 @@ export function StorformatManager({
             selection_mode: "required",
             thumbnail_size: "small",
             valueIds: [...idsByType.products],
-            valueSettings: {}
+            valueSettings: {},
+            selectorStyling: {}
           });
         }
         if (idsByType.finishes.length) {
@@ -531,7 +547,8 @@ export function StorformatManager({
             selection_mode: "optional",
             thumbnail_size: "small",
             valueIds: [...idsByType.finishes],
-            valueSettings: {}
+            valueSettings: {},
+            selectorStyling: {}
           });
         }
         if (defaultSections.length) {
@@ -551,7 +568,8 @@ export function StorformatManager({
         title: cfgVertical?.title,
         description: cfgVertical?.description,
         valueIds: normalizeValueIds(cfgVertical?.valueIds, idsByType[verticalType]),
-        valueSettings: cfgVertical?.valueSettings || {}
+        valueSettings: cfgVertical?.valueSettings || {},
+        selectorStyling: cfgVertical?.selectorStyling || {}
       };
 
       const storedQuantities = cfg?.quantities?.length ? cfg.quantities : defaultQuantities;
@@ -598,7 +616,7 @@ export function StorformatManager({
         }
         return;
       }
-      if (mode === "optional") {
+      if (isOptionalSelectionMode(mode)) {
         if (next[sectionId] && !values.includes(next[sectionId])) {
           delete next[sectionId];
           changed = true;
@@ -1416,8 +1434,8 @@ export function StorformatManager({
       {
         id: "row-1",
         sections: [
-          { id: "section-products", sectionType: "products", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [] },
-          { id: "section-finishes", sectionType: "finishes", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [] }
+          { id: "section-products", sectionType: "products", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [], selectorStyling: {} },
+          { id: "section-finishes", sectionType: "finishes", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [], selectorStyling: {} }
         ]
       }
     ]);
@@ -1426,7 +1444,8 @@ export function StorformatManager({
       sectionType: "materials",
       thumbnail_size: "small",
       valueIds: [],
-      valueSettings: {}
+      valueSettings: {},
+      selectorStyling: {}
     });
     setSelectedSectionValues({});
     setSelectedTarget(null);
@@ -3155,7 +3174,7 @@ export function StorformatManager({
                     </SelectContent>
                   </Select>
                   <div className="flex items-center gap-2">
-                    <Label className="text-[10px] text-muted-foreground">Thumb:</Label>
+                    <Label className="text-[10px] text-muted-foreground">Billede:</Label>
                     <Select
                       value={normalizeThumbnailSize(verticalAxis.thumbnail_size)}
                       onValueChange={(value) => setVerticalAxis((prev) => ({ ...prev, thumbnail_size: value as ThumbnailSizeMode, thumbnail_custom_px: undefined }))}
@@ -3383,16 +3402,40 @@ export function StorformatManager({
                                 <SelectContent>
                                   <SelectItem value="required">Påkrævet</SelectItem>
                                   <SelectItem value="optional">Valgfri</SelectItem>
+                                  <SelectItem value="free">Gratis</SelectItem>
                                 </SelectContent>
                               </Select>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-[10px]"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setTemplateConnectSectionId(section.id);
+                                }}
+                              >
+                                Template Connect
+                                {Object.values(section.valueSettings || {}).some((settings) => Boolean(settings?.linkedTemplateId)) ? (
+                                  <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px]">
+                                    {Object.values(section.valueSettings || {}).filter((settings) => Boolean(settings?.linkedTemplateId)).length}
+                                  </Badge>
+                                ) : null}
+                              </Button>
                               <Label className="text-[10px] text-muted-foreground">Visning:</Label>
                               <Select
                                 value={section.ui_mode || "buttons"}
                                 onValueChange={(value) => {
+                                  const nextThumbnailSize = getThumbnailSizeFromUiMode(value);
                                   setLayoutRows((prev) =>
                                     prev.map((r) => ({
                                       ...r,
-                                      sections: r.sections.map((s) => s.id === section.id ? { ...s, ui_mode: value as LayoutDisplayMode } : s)
+                                      sections: r.sections.map((s) => s.id === section.id ? {
+                                        ...s,
+                                        ui_mode: value as LayoutDisplayMode,
+                                        thumbnail_size: nextThumbnailSize,
+                                        thumbnail_custom_px: undefined
+                                      } : s)
                                     }))
                                   );
                                 }}
@@ -3411,7 +3454,7 @@ export function StorformatManager({
                                   <SelectItem value="xl_notext">Foto XL kun foto (128px)</SelectItem>
                                 </SelectContent>
                               </Select>
-                              <Label className="text-[10px] text-muted-foreground">Thumb:</Label>
+                              <Label className="text-[10px] text-muted-foreground">Billede:</Label>
                               <Select
                                 value={normalizeThumbnailSize(section.thumbnail_size)}
                                 onValueChange={(value) => {
@@ -3597,6 +3640,37 @@ export function StorformatManager({
                                 </span>
                               )}
                             </div>
+                            <TemplateConnectDialog
+                              open={templateConnectSectionId === section.id}
+                              onOpenChange={(open) => setTemplateConnectSectionId(open ? section.id : null)}
+                              tenantId={tenantId}
+                              sectionTitle={section.title || getSectionLabel(section.sectionType)}
+                              values={getValuesForType(section.sectionType)
+                                .filter((value) => section.valueIds?.includes(value.id))
+                                .map((value) => ({ id: value.id, name: value.name || "" }))}
+                              valueSettings={section.valueSettings}
+                              onTemplateChange={(valueId, templateId) => {
+                                setLayoutRows((prev) =>
+                                  prev.map((layoutRow) => ({
+                                    ...layoutRow,
+                                    sections: layoutRow.sections.map((sectionItem) =>
+                                      sectionItem.id === section.id
+                                        ? {
+                                            ...sectionItem,
+                                            valueSettings: {
+                                              ...sectionItem.valueSettings,
+                                              [valueId]: {
+                                                ...(sectionItem.valueSettings?.[valueId] || {}),
+                                                linkedTemplateId: templateId || undefined,
+                                              },
+                                            },
+                                          }
+                                        : sectionItem
+                                    ),
+                                  }))
+                                );
+                              }}
+                            />
                           </div>
                         ))}
                       </div>
@@ -3612,7 +3686,7 @@ export function StorformatManager({
                                 ...r,
                                 sections: [
                                   ...r.sections,
-                                  { id: `section-${Date.now()}`, sectionType: "products", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [] }
+                                  { id: `section-${Date.now()}`, sectionType: "products", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [], selectorStyling: {} }
                                 ]
                               };
                             })
@@ -3631,7 +3705,7 @@ export function StorformatManager({
                       ...prev,
                       {
                         id: `row-${Date.now()}`,
-                        sections: [{ id: `section-${Date.now()}`, sectionType: "products", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [] }]
+                        sections: [{ id: `section-${Date.now()}`, sectionType: "products", ui_mode: "buttons", selection_mode: "required", thumbnail_size: "small", valueIds: [], selectorStyling: {} }]
                       }
                     ])}
                   >
@@ -3810,7 +3884,7 @@ export function StorformatManager({
                           section.thumbnail_custom_px
                         );
                         const selectionMode = section.selection_mode || "required";
-                        const selectedValue = selectionMode === "optional"
+                        const selectedValue = isOptionalSelectionMode(selectionMode)
                           ? (selectedSectionValues[section.id] || "")
                           : (selectedSectionValues[section.id] || values[0]?.id || "");
                         const displayMode = section.ui_mode || "buttons";
@@ -3841,9 +3915,9 @@ export function StorformatManager({
                               <span className="text-[10px] text-muted-foreground italic">Ingen værdier tilføjet</span>
                             ) : displayMode === "dropdown" ? (
                               <Select
-                                value={selectedValue || (selectionMode === "optional" ? "__none__" : "")}
+                                value={selectedValue || (isOptionalSelectionMode(selectionMode) ? "__none__" : "")}
                                 onValueChange={(value) => {
-                                  if (selectionMode === "optional" && value === "__none__") {
+                                  if (isOptionalSelectionMode(selectionMode) && value === "__none__") {
                                     setSelectedSectionValues((prev) => {
                                       const next = { ...prev };
                                       delete next[section.id];
@@ -3858,7 +3932,7 @@ export function StorformatManager({
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {selectionMode === "optional" && (
+                                  {isOptionalSelectionMode(selectionMode) && (
                                     <SelectItem value="__none__">Ingen</SelectItem>
                                   )}
                                   {values.map((v) => {
@@ -3899,7 +3973,7 @@ export function StorformatManager({
                                         isSelected ? "bg-primary/10 border-primary" : "border-muted"
                                       )}
                                       onClick={() => {
-                                        if (selectionMode === "optional" && isSelected) {
+                                        if (isOptionalSelectionMode(selectionMode) && isSelected) {
                                           setSelectedSectionValues((prev) => {
                                             const next = { ...prev };
                                             delete next[section.id];
@@ -3945,7 +4019,7 @@ export function StorformatManager({
                                     <button
                                       key={v.id}
                                       onClick={() => {
-                                        if (selectionMode === "optional" && isSelected) {
+                                        if (isOptionalSelectionMode(selectionMode) && isSelected) {
                                           setSelectedSectionValues((prev) => {
                                             const next = { ...prev };
                                             delete next[section.id];
@@ -4008,7 +4082,7 @@ export function StorformatManager({
                                       size="sm"
                                       variant={isSelected ? "default" : "outline"}
                                       onClick={() => {
-                                        if (selectionMode === "optional" && isSelected) {
+                                        if (isOptionalSelectionMode(selectionMode) && isSelected) {
                                           setSelectedSectionValues((prev) => {
                                             const next = { ...prev };
                                             delete next[section.id];
@@ -4804,8 +4878,9 @@ export function StorformatManager({
                                     .filter((section) => section.sectionType === type)
                                     .map((section) => {
                                       const selected = selectedSectionValues[section.id];
+                                      if (isPriceNeutralSection(section, verticalAxis.sectionType)) return null;
                                       if (selected) return selected;
-                                      if (section.selection_mode === "optional") return null;
+                                      if (isOptionalSelectionMode(section.selection_mode)) return null;
                                       return section.valueIds?.[0] || null;
                                     })
                                     .filter((value): value is string => Boolean(value));

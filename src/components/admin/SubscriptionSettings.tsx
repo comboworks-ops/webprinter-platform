@@ -1,57 +1,193 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, Check, Zap, Crown, FileText, Download } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { CreditCard, Check, Zap, Crown, Loader2, RefreshCw, ExternalLink } from 'lucide-react';
+import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
+import { PRICING_TIERS, formatPrice } from '@/lib/platform/pricing';
+import { useTenantSubscription, type TenantSubscription } from '@/hooks/useTenantSubscription';
+
+const STATUS_META: Record<string, { label: string; className: string }> = {
+    inactive: { label: 'Ikke aktiveret', className: 'border-slate-200 bg-slate-50 text-slate-700' },
+    trialing: { label: 'Prøveperiode', className: 'border-sky-200 bg-sky-50 text-sky-700' },
+    active: { label: 'Aktiv', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
+    past_due: { label: 'Forfalden', className: 'border-amber-200 bg-amber-50 text-amber-700' },
+    canceled: { label: 'Opsagt', className: 'border-slate-200 bg-slate-50 text-slate-700' },
+    unpaid: { label: 'Ubetalt', className: 'border-red-200 bg-red-50 text-red-700' },
+    incomplete: { label: 'Afventer betaling', className: 'border-amber-200 bg-amber-50 text-amber-700' },
+    incomplete_expired: { label: 'Udløbet', className: 'border-red-200 bg-red-50 text-red-700' },
+    paused: { label: 'Sat på pause', className: 'border-slate-200 bg-slate-50 text-slate-700' },
+};
+
+function formatDate(value: string | null) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleDateString('da-DK');
+}
+
+async function invokeFunction<T>(name: string, body: Record<string, unknown>) {
+    const { data, error } = await supabase.functions.invoke(name, { body });
+
+    if (error) {
+        const details = await (error as any)?.context?.json?.().catch(() => null);
+        throw new Error(details?.error || error.message || 'Ukendt fejl');
+    }
+
+    return data as T;
+}
+
+function getCurrentPlan(subscription: TenantSubscription | undefined) {
+    if (!subscription || subscription.plan_id === 'free') {
+        return {
+            name: 'Gratis',
+            priceText: '0 kr/måned',
+            icon: <Zap className="h-6 w-6 text-primary" />,
+        };
+    }
+
+    const tier = PRICING_TIERS.find((entry) => entry.id === subscription.plan_id);
+    const priceText = subscription.billing_cycle === 'yearly'
+        ? `${formatPrice(tier?.yearlyPrice || 0)}/år`
+        : `${formatPrice(tier?.monthlyPrice || 0)}/måned`;
+
+    return {
+        name: tier?.name || subscription.plan_id,
+        priceText,
+        icon: <Crown className="h-6 w-6 text-primary" />,
+    };
+}
 
 export function SubscriptionSettings() {
-    // Mock data
-    const currentPlan = 'free';
-    const billingCycle = 'monthly';
-    const nextBilling: string | null = null;
+    const { data, isLoading, tenantId, refetch } = useTenantSubscription();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [isYearly, setIsYearly] = useState(false);
+    const [checkoutPlanId, setCheckoutPlanId] = useState<string | null>(null);
+    const [portalLoading, setPortalLoading] = useState(false);
 
-    const plans = [
-        {
-            id: 'free',
-            name: 'Gratis',
-            price: 0,
-            features: ['Basis webshop', 'Standard support', '1 admin bruger', 'Webprinter subdomain'],
-            icon: <Zap className="h-5 w-5" />,
-        },
-        {
-            id: 'starter',
-            name: 'Starter',
-            price: 299,
-            features: ['Op til 10 produkter', 'Basis support', '1 admin bruger', 'Webprinter subdomain'],
-            icon: <Zap className="h-5 w-5" />,
-        },
-        {
-            id: 'pro',
-            name: 'Pro',
-            price: 599,
-            features: ['Ubegrænsede produkter', 'Prioriteret support', '5 admin brugere', 'Eget domæne', 'Avanceret statistik'],
-            icon: <Crown className="h-5 w-5" />,
-            popular: true,
-        },
-        {
-            id: 'enterprise',
-            name: 'Enterprise',
-            price: 1299,
-            features: ['Alt i Pro', 'Dedikeret support', 'Ubegrænsede brugere', 'API adgang', 'White-label emails', 'Custom integration'],
-            icon: <Crown className="h-5 w-5" />,
-        },
-    ];
+    useEffect(() => {
+        if (data?.billing_cycle === 'yearly') {
+            setIsYearly(true);
+        }
+    }, [data?.billing_cycle]);
 
-    const invoices: { id: string; date: string; amount: number; status: string }[] = [];
-    const paymentMethod: { brand: string; last4: string; expiry: string } | null = null;
+    useEffect(() => {
+        const checkoutState = searchParams.get('checkout');
+        if (!checkoutState) return;
+
+        if (checkoutState === 'success') {
+            toast.success('Stripe checkout er gennemført. Abonnementet opdateres, når Stripe webhooken er færdig.');
+            void refetch();
+        } else if (checkoutState === 'cancelled') {
+            toast.message('Stripe checkout blev annulleret.');
+        }
+
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('checkout');
+        setSearchParams(nextParams, { replace: true });
+    }, [refetch, searchParams, setSearchParams]);
+
+    const subscription = data;
+    const statusMeta = STATUS_META[subscription?.status || 'inactive'] || STATUS_META.inactive;
+    const currentPlan = getCurrentPlan(subscription);
+    const nextBilling = formatDate(subscription?.current_period_end || null);
+    const trialEnd = formatDate(subscription?.trial_end || null);
+    const hasStripeCustomer = Boolean(subscription?.stripe_customer_id);
+    const hasManagedSubscription = Boolean(
+        subscription?.stripe_subscription_id && ['trialing', 'active', 'past_due', 'unpaid', 'paused'].includes(subscription.status)
+    );
+
+    const headerDescription = useMemo(() => {
+        if (!subscription || subscription.plan_id === 'free') {
+            return 'Din tenant er oprettet. Vælg en plan for at starte prøveperioden i Stripe.';
+        }
+        if (subscription.status === 'trialing' && trialEnd) {
+            return `Prøveperioden er aktiv indtil ${trialEnd}.`;
+        }
+        if (subscription.status === 'active' && nextBilling) {
+            return `Næste fakturering sker ${nextBilling}.`;
+        }
+        if (subscription.status === 'past_due') {
+            return 'Der er et udestående beløb. Åbn Stripe for at opdatere betaling eller kort.';
+        }
+        return 'Administrer dit platformabonnement og fakturering her.';
+    }, [nextBilling, subscription, trialEnd]);
+
+    const handleStartCheckout = async (planId: string) => {
+        if (!tenantId) {
+            toast.error('Kunne ikke finde tenant til abonnement.');
+            return;
+        }
+
+        setCheckoutPlanId(planId);
+        try {
+            const billingCycle = isYearly ? 'yearly' : 'monthly';
+            const data = await invokeFunction<{ url?: string }>('stripe-subscription-create-checkout', {
+                tenant_id: tenantId,
+                plan_id: planId,
+                billing_cycle: billingCycle,
+                success_url: `${window.location.origin}/admin/abonnement?checkout=success`,
+                cancel_url: `${window.location.origin}/admin/abonnement?checkout=cancelled`,
+            });
+
+            if (!data?.url) {
+                throw new Error('Stripe returnerede ikke en checkout-url.');
+            }
+
+            window.location.assign(data.url);
+        } catch (error: any) {
+            console.error('Subscription checkout error:', error);
+            toast.error(error?.message || 'Kunne ikke starte abonnement checkout.');
+        } finally {
+            setCheckoutPlanId(null);
+        }
+    };
+
+    const handleOpenPortal = async () => {
+        if (!tenantId) {
+            toast.error('Kunne ikke finde tenant til abonnement.');
+            return;
+        }
+
+        setPortalLoading(true);
+        try {
+            const data = await invokeFunction<{ url?: string }>('stripe-subscription-create-portal', {
+                tenant_id: tenantId,
+                return_url: `${window.location.origin}/admin/abonnement`,
+            });
+
+            if (!data?.url) {
+                throw new Error('Stripe returnerede ikke en portal-url.');
+            }
+
+            window.location.assign(data.url);
+        } catch (error: any) {
+            console.error('Subscription portal error:', error);
+            toast.error(error?.message || 'Kunne ikke åbne Stripe portal.');
+        } finally {
+            setPortalLoading(false);
+        }
+    };
+
+    if (isLoading) {
+        return (
+            <div className="flex justify-center p-8">
+                <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">
             <div>
                 <h1 className="text-3xl font-bold">Abonnement</h1>
-                <p className="text-muted-foreground">Administrer dit abonnement og fakturering</p>
+                <p className="text-muted-foreground">{headerDescription}</p>
             </div>
 
-            {/* Current Plan */}
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -59,152 +195,133 @@ export function SubscriptionSettings() {
                         Dit Nuværende Abonnement
                     </CardTitle>
                 </CardHeader>
-                <CardContent>
-                    <div className="flex items-center justify-between p-4 bg-primary/5 rounded-lg border border-primary/20">
+                <CardContent className="space-y-4">
+                    <div className="flex flex-col gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                                {currentPlan === 'free' ? (
-                                    <Zap className="h-6 w-6 text-primary" />
-                                ) : (
-                                    <Crown className="h-6 w-6 text-primary" />
-                                )}
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                                {currentPlan.icon}
                             </div>
                             <div>
-                                <h3 className="text-xl font-bold">
-                                    {currentPlan === 'free' ? 'Gratis Plan' : 'Pro Plan'}
-                                </h3>
-                                <p className="text-muted-foreground">
-                                    {currentPlan === 'free' ? '0 kr/måned' : '599 kr/måned'}
-                                </p>
+                                <h3 className="text-xl font-bold">{currentPlan.name}</h3>
+                                <p className="text-muted-foreground">{currentPlan.priceText}</p>
                             </div>
                         </div>
-                        <div className="text-right">
-                            <Badge className="bg-green-100 text-green-800">Aktiv</Badge>
-                            {nextBilling && (
-                                <p className="text-sm text-muted-foreground mt-1">
-                                    Næste fakturering: {new Date(nextBilling).toLocaleDateString('da-DK')}
-                                </p>
+
+                        <div className="space-y-2 text-left sm:text-right">
+                            <Badge variant="outline" className={statusMeta.className}>
+                                {statusMeta.label}
+                            </Badge>
+                            {trialEnd && subscription?.status === 'trialing' && (
+                                <p className="text-sm text-muted-foreground">Prøveperiode til {trialEnd}</p>
+                            )}
+                            {nextBilling && subscription?.status !== 'trialing' && (
+                                <p className="text-sm text-muted-foreground">Næste fakturering: {nextBilling}</p>
                             )}
                         </div>
                     </div>
-                </CardContent>
-            </Card>
 
-            {/* Available Plans */}
-            <Card>
-                <CardHeader>
-                    <CardTitle>Tilgængelige Planer</CardTitle>
-                    <CardDescription>Vælg den plan der passer til din virksomhed</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="grid md:grid-cols-3 gap-4">
-                        {plans.map((plan) => (
-                            <div
-                                key={plan.id}
-                                className={`relative p-6 rounded-xl border-2 transition-all ${currentPlan === plan.id
-                                        ? 'border-primary bg-primary/5'
-                                        : 'border-muted hover:border-primary/50'
-                                    }`}
-                            >
-                                {plan.popular && (
-                                    <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 bg-primary">
-                                        Mest Populær
-                                    </Badge>
-                                )}
-                                <div className="flex items-center gap-2 mb-4">
-                                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                                        {plan.icon}
-                                    </div>
-                                    <h3 className="text-lg font-bold">{plan.name}</h3>
-                                </div>
-                                <div className="mb-4">
-                                    <span className="text-3xl font-bold">{plan.price}</span>
-                                    <span className="text-muted-foreground"> kr/md</span>
-                                </div>
-                                <ul className="space-y-2 mb-6">
-                                    {plan.features.map((feature, i) => (
-                                        <li key={i} className="flex items-center gap-2 text-sm">
-                                            <Check className="h-4 w-4 text-green-500 flex-shrink-0" />
-                                            {feature}
-                                        </li>
-                                    ))}
-                                </ul>
-                                <Button
-                                    variant={currentPlan === plan.id ? 'outline' : 'default'}
-                                    className="w-full"
-                                    disabled={currentPlan === plan.id}
-                                >
-                                    {currentPlan === plan.id ? 'Nuværende plan' : 'Skift til denne'}
-                                </Button>
-                            </div>
-                        ))}
+                    <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" onClick={() => void refetch()} disabled={!tenantId}>
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                            Opdater status
+                        </Button>
+
+                        {(hasManagedSubscription || hasStripeCustomer) && (
+                            <Button onClick={handleOpenPortal} disabled={portalLoading || !tenantId}>
+                                {portalLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                {!portalLoading && <ExternalLink className="mr-2 h-4 w-4" />}
+                                Administrér i Stripe
+                            </Button>
+                        )}
                     </div>
                 </CardContent>
             </Card>
 
-            {/* Invoices */}
-            {invoices.length > 0 && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <FileText className="h-5 w-5" />
-                            Fakturaer
-                        </CardTitle>
-                        <CardDescription>Download dine tidligere fakturaer</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="space-y-2">
-                            {invoices.map((invoice) => (
-                                <div
-                                    key={invoice.id}
-                                    className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors"
-                                >
-                                    <div className="flex items-center gap-4">
-                                        <FileText className="h-5 w-5 text-muted-foreground" />
-                                        <div>
-                                            <p className="font-medium">{invoice.id}</p>
-                                            <p className="text-sm text-muted-foreground">
-                                                {new Date(invoice.date).toLocaleDateString('da-DK')}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <span className="font-medium">{invoice.amount} kr</span>
-                                        <Badge className="bg-green-100 text-green-800">Betalt</Badge>
-                                        <Button variant="ghost" size="sm">
-                                            <Download className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
+            <Card>
+                <CardHeader>
+                    <CardTitle>Tilgængelige Planer</CardTitle>
+                    <CardDescription>Vælg den plan der passer til din virksomhed. Checkout åbner i Stripe.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                    <div className="flex items-center justify-center gap-3">
+                        <Label htmlFor="tenant-billing-toggle" className={!isYearly ? 'font-semibold' : 'text-muted-foreground'}>
+                            Månedlig
+                        </Label>
+                        <Switch
+                            id="tenant-billing-toggle"
+                            checked={isYearly}
+                            onCheckedChange={setIsYearly}
+                        />
+                        <Label htmlFor="tenant-billing-toggle" className={isYearly ? 'font-semibold' : 'text-muted-foreground'}>
+                            Årlig <span className="text-green-600 text-sm">(spar 17%)</span>
+                        </Label>
+                    </div>
 
-            {/* Payment Method */}
-            {paymentMethod && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Betalingsmetode</CardTitle>
-                        <CardDescription>Dit kort bruges til at betale dit abonnement</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex items-center justify-between p-4 border rounded-lg">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-8 bg-gradient-to-r from-blue-600 to-blue-800 rounded flex items-center justify-center text-white text-xs font-bold">
-                                    {paymentMethod.brand.toUpperCase()}
+                    <div className="grid gap-4 lg:grid-cols-3">
+                        {PRICING_TIERS.map((plan) => {
+                            const isCurrentPlan = subscription?.plan_id === plan.id && ['trialing', 'active', 'past_due', 'unpaid', 'paused'].includes(subscription.status);
+                            const displayPrice = isYearly ? `${formatPrice(plan.yearlyPrice)}/år` : `${formatPrice(plan.monthlyPrice)}/måned`;
+                            const checkoutLoading = checkoutPlanId === plan.id;
+
+                            return (
+                                <div
+                                    key={plan.id}
+                                    className={`relative rounded-xl border-2 p-6 transition-all ${
+                                        isCurrentPlan
+                                            ? 'border-primary bg-primary/5'
+                                            : 'border-muted hover:border-primary/50'
+                                    }`}
+                                >
+                                    {plan.highlighted && (
+                                        <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 bg-primary">
+                                            Mest populær
+                                        </Badge>
+                                    )}
+
+                                    <div className="mb-4 flex items-center gap-2">
+                                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                                            {plan.id === 'enterprise' ? <Crown className="h-5 w-5" /> : <Zap className="h-5 w-5" />}
+                                        </div>
+                                        <h3 className="text-lg font-bold">{plan.name}</h3>
+                                    </div>
+
+                                    <div className="mb-4">
+                                        <span className="text-3xl font-bold">{displayPrice}</span>
+                                        {isYearly && (
+                                            <p className="mt-1 text-sm text-muted-foreground">
+                                                Svarer til {formatPrice(Math.round(plan.yearlyPrice / 12))}/måned ved årsbetaling
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    <ul className="mb-6 space-y-2">
+                                        {plan.features.map((feature) => (
+                                            <li key={feature} className="flex items-center gap-2 text-sm">
+                                                <Check className="h-4 w-4 flex-shrink-0 text-green-500" />
+                                                {feature}
+                                            </li>
+                                        ))}
+                                    </ul>
+
+                                    <Button
+                                        variant={isCurrentPlan ? 'outline' : 'default'}
+                                        className="w-full"
+                                        disabled={checkoutLoading || isCurrentPlan || !tenantId}
+                                        onClick={() => void handleStartCheckout(plan.id)}
+                                    >
+                                        {checkoutLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                        {isCurrentPlan ? 'Nuværende plan' : 'Vælg plan'}
+                                    </Button>
                                 </div>
-                                <div>
-                                    <p className="font-medium">•••• •••• •••• {paymentMethod.last4}</p>
-                                    <p className="text-sm text-muted-foreground">Udløber {paymentMethod.expiry}</p>
-                                </div>
-                            </div>
-                            <Button variant="outline">Opdater kort</Button>
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
+                            );
+                        })}
+                    </div>
+
+                    <div className="rounded-lg border border-border/70 bg-muted/30 p-4 text-sm text-muted-foreground">
+                        Når du vælger en plan, åbner vi Stripe Checkout. Den 14 dages prøveperiode starter først, når checkout er gennemført.
+                    </div>
+                </CardContent>
+            </Card>
         </div>
     );
 }

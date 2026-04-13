@@ -49,6 +49,7 @@ interface BannerEditorProps {
     draft: BrandingData;
     updateDraft: (partial: Partial<BrandingData>) => void;
     tenantId: string | null;
+    focusTargetId?: string | null;
     savedSwatches?: string[];
     onSaveSwatch?: (color: string) => void;
     onRemoveSwatch?: (color: string) => void;
@@ -128,7 +129,7 @@ export const TEXT_ANIMATION_PRESETS: { value: HeroTextAnimation; label: string; 
     },
 ];
 
-export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSaveSwatch, onRemoveSwatch }: BannerEditorProps) {
+export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, savedSwatches, onSaveSwatch, onRemoveSwatch }: BannerEditorProps) {
     const [uploading, setUploading] = useState(false);
     const [uploadingToLibrary, setUploadingToLibrary] = useState(false);
     const [products, setProducts] = useState<Array<{ id: string; name: string; slug: string }>>([]);
@@ -137,6 +138,10 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
     const [parallaxWarning, setParallaxWarning] = useState(false);
     const [selectedBannerIndex, setSelectedBannerIndex] = useState(0);
+    const mediaCardFocused = focusTargetId === "site-design-focus-banner-media" || focusTargetId === "site-design-focus-banner-overlay";
+    const textCardFocused = focusTargetId === "site-design-focus-banner-title"
+        || focusTargetId === "site-design-focus-banner-subtitle"
+        || focusTargetId === "site-design-focus-banner-buttons";
 
     // Ensure hero has all defaults
     const hero: HeroSettings = {
@@ -666,13 +671,15 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
     return (
         <div className="space-y-6">
             {/* Combined Banner Media Card */}
-            <CollapsibleCard
-                title="Banner Medier"
-                description="Vælg medietype og upload billeder eller video til dit banner"
-                icon={hero.mediaType === 'images' ? <ImageIcon className="h-4 w-4" /> : <Video className="h-4 w-4" />}
-                defaultOpen={false}
-            >
-                <div className="space-y-4">
+            <div id="site-design-focus-banner-media" className={cn(mediaCardFocused && "rounded-xl ring-2 ring-primary/50 ring-offset-2")}>
+                <CollapsibleCard
+                    key={`banner-media-${mediaCardFocused ? focusTargetId : "default"}`}
+                    title="Banner Medier"
+                    description="Vælg medietype og upload billeder eller video til dit banner"
+                    icon={hero.mediaType === 'images' ? <ImageIcon className="h-4 w-4" /> : <Video className="h-4 w-4" />}
+                    defaultOpen={mediaCardFocused}
+                >
+                    <div className="space-y-4">
                     {/* Media Type Selector - Integrated */}
                     <div className="flex items-center justify-between pb-3 border-b">
                         <div>
@@ -1159,7 +1166,8 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
 
                     {/* Banner Overlay Settings - collapsible */}
                     <Separator />
-                    <Collapsible defaultOpen={false}>
+                    <div id="site-design-focus-banner-overlay" className={cn(focusTargetId === "site-design-focus-banner-overlay" && "rounded-xl ring-2 ring-primary/50 ring-offset-2")}>
+                    <Collapsible key={`banner-overlay-${focusTargetId === "site-design-focus-banner-overlay" ? focusTargetId : "default"}`} defaultOpen={focusTargetId === "site-design-focus-banner-overlay"}>
                         <CollapsibleTrigger className="flex items-center justify-between w-full py-2 hover:bg-muted/50 rounded-md px-2 -mx-2">
                             <div>
                                 <h4 className="font-medium text-left">Overlay</h4>
@@ -1254,17 +1262,21 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                             </div>
                         </CollapsibleContent>
                     </Collapsible>
+                    </div>
                 </div>
-            </CollapsibleCard>
+                </CollapsibleCard>
+            </div>
 
             {/* Banner Text & Buttons */}
-            <CollapsibleCard
-                title="Banner Tekst & Knapper"
-                description="Tekst og knapper vist oven på hvert banner. Vælg et banner for at redigere dets tekst."
-                icon={<Sparkles className="h-4 w-4" />}
-                defaultOpen={false}
-            >
-                <div className="space-y-4">
+            <div id="site-design-focus-banner-text" className={cn(textCardFocused && "rounded-xl ring-2 ring-primary/50 ring-offset-2")}>
+                <CollapsibleCard
+                    key={`banner-text-${textCardFocused ? focusTargetId : "default"}`}
+                    title="Banner Tekst & Knapper"
+                    description="Tekst og knapper vist oven på hvert banner. Vælg et banner for at redigere dets tekst."
+                    icon={<Sparkles className="h-4 w-4" />}
+                    defaultOpen={textCardFocused}
+                >
+                    <div className="space-y-4">
                     {/* Banner Selector - Visual Thumbnails */}
                     {heroImages.length > 0 && (
                         <div className="space-y-3">
@@ -1330,7 +1342,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
 
                             {/* Banner Title with color, font, and per-banner toggle */}
                             {/* Banner Title with color, font, and per-banner toggle */}
-                            <div className="space-y-3">
+                            <div id="site-design-focus-banner-title" className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <Label>Banner Overskrift</Label>
                                     <div className="flex items-center gap-1.5 border-l pl-3 ml-2">
@@ -1401,7 +1413,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                             </div>
 
                             {/* Banner Subtitle with color and font - same toggle as title */}
-                            <div className="space-y-3">
+                            <div id="site-design-focus-banner-subtitle" className="space-y-3">
                                 <Label>Banner Undertitel</Label>
 
                                 <div className="space-y-3 pt-1">
@@ -1550,7 +1562,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                     <Separator />
 
                     {/* Per-Banner Buttons */}
-                    <div className="space-y-4">
+                    <div id="site-design-focus-banner-buttons" className="space-y-4">
                         <div className="flex items-center justify-between">
                             <div>
                                 <Label>Call-to-action knapper</Label>
@@ -1853,8 +1865,9 @@ export function BannerEditor({ draft, updateDraft, tenantId, savedSwatches, onSa
                             </div>
                         )}
                     </div>
-                </div>
-            </CollapsibleCard >
+                    </div>
+                </CollapsibleCard >
+            </div>
         </div >
     );
 }

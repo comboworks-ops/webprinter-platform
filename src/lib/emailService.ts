@@ -1,7 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 
 interface OrderEmailData {
-    type: 'status_change' | 'order_confirmation' | 'problem_notification';
+    type: 'status_change' | 'order_confirmation' | 'problem_notification' | 'admin_new_order';
     order: {
         order_number: string;
         product_name: string;
@@ -21,6 +21,17 @@ interface OrderEmailData {
     customer: {
         email: string;
         name: string;
+    };
+    recipient?: {
+        email: string;
+        name?: string;
+    };
+    shop?: {
+        name?: string;
+        supportEmail?: string;
+        orderUrl?: string;
+        adminOrderUrl?: string;
+        homepageUrl?: string;
     };
 }
 
@@ -43,6 +54,14 @@ export async function sendOrderEmail(data: OrderEmailData): Promise<boolean> {
     }
 }
 
+interface ShopEmailContext {
+    name?: string;
+    supportEmail?: string;
+    orderUrl?: string;
+    adminOrderUrl?: string;
+    homepageUrl?: string;
+}
+
 // Send order confirmation email
 export async function sendOrderConfirmation(order: {
     order_number: string;
@@ -57,6 +76,7 @@ export async function sendOrderConfirmation(order: {
     billing_summary?: string;
     blind_shipping?: boolean;
     sender_summary?: string;
+    shop?: ShopEmailContext;
 }): Promise<boolean> {
     return sendOrderEmail({
         type: 'order_confirmation',
@@ -77,6 +97,51 @@ export async function sendOrderConfirmation(order: {
             email: order.customer_email,
             name: order.customer_name,
         },
+        shop: order.shop,
+    });
+}
+
+export async function sendAdminNewOrderNotification(order: {
+    order_number: string;
+    product_name: string;
+    quantity: number;
+    total_price: number;
+    customer_email: string;
+    customer_name: string;
+    customer_phone?: string;
+    delivery_type?: string;
+    delivery_summary?: string;
+    billing_summary?: string;
+    blind_shipping?: boolean;
+    sender_summary?: string;
+    admin_email: string;
+    admin_name?: string;
+    shop?: ShopEmailContext;
+}): Promise<boolean> {
+    return sendOrderEmail({
+        type: 'admin_new_order',
+        order: {
+            order_number: order.order_number,
+            product_name: order.product_name,
+            quantity: order.quantity,
+            total_price: order.total_price,
+            status: 'pending',
+            customer_phone: order.customer_phone,
+            delivery_type: order.delivery_type,
+            delivery_summary: order.delivery_summary,
+            billing_summary: order.billing_summary,
+            blind_shipping: order.blind_shipping,
+            sender_summary: order.sender_summary,
+        },
+        customer: {
+            email: order.customer_email,
+            name: order.customer_name,
+        },
+        recipient: {
+            email: order.admin_email,
+            name: order.admin_name,
+        },
+        shop: order.shop,
     });
 }
 
@@ -91,6 +156,7 @@ export async function sendStatusChangeEmail(order: {
     estimated_delivery?: string;
     customer_email: string;
     customer_name: string;
+    shop?: ShopEmailContext;
 }): Promise<boolean> {
     return sendOrderEmail({
         type: 'status_change',
@@ -107,6 +173,7 @@ export async function sendStatusChangeEmail(order: {
             email: order.customer_email,
             name: order.customer_name,
         },
+        shop: order.shop,
     });
 }
 
@@ -119,6 +186,7 @@ export async function sendProblemNotification(order: {
     problem_description: string;
     customer_email: string;
     customer_name: string;
+    shop?: ShopEmailContext;
 }): Promise<boolean> {
     return sendOrderEmail({
         type: 'problem_notification',
@@ -134,5 +202,6 @@ export async function sendProblemNotification(order: {
             email: order.customer_email,
             name: order.customer_name,
         },
+        shop: order.shop,
     });
 }

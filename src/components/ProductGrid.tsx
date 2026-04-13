@@ -42,6 +42,11 @@ interface ProductGridProps {
   };
 }
 
+function normalizeCardCopy(value?: string | null): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim();
+}
+
 const ProductGrid = ({
   category,
   products: productsOverride,
@@ -106,6 +111,15 @@ const ProductGrid = ({
     gradientEnd: backgroundConfig?.gradientEnd ?? "#F1F5F9",
     gradientAngle: backgroundConfig?.gradientAngle ?? 135,
     opacity: backgroundConfig?.opacity ?? 1,
+  };
+  const productCardConfig = activeBranding?.forside?.productsSection?.card;
+  const productCardStyles = {
+    titleFont: productCardConfig?.titleFont || activeBranding?.fonts?.heading || "Poppins",
+    titleColor: productCardConfig?.titleColor || activeBranding?.colors?.headingText || "#1F2937",
+    bodyFont: productCardConfig?.bodyFont || activeBranding?.fonts?.body || "Inter",
+    bodyColor: productCardConfig?.bodyColor || activeBranding?.colors?.bodyText || "#4B5563",
+    priceFont: productCardConfig?.priceFont || activeBranding?.fonts?.pricing || "Roboto Mono",
+    priceColor: productCardConfig?.priceColor || activeBranding?.colors?.pricingText || "#0EA5E9",
   };
   const buttonAnimationClass = buttonStyles.animation === "lift"
     ? "hover:-translate-y-0.5 hover:shadow-md"
@@ -172,15 +186,28 @@ const ProductGrid = ({
           {filteredProducts.map((product) => {
             const productHref = buildStorefrontProductHref(product, categoryRecords, overviews);
             const productButtonLabel = getStorefrontProductButtonLabel(product);
+            const bannerConfig = (product.banner_config as any) || {};
+            const productTitle = normalizeCardCopy(product.icon_text || product.name);
+            const productDescription = normalizeCardCopy(product.description);
+            const displayPriceLabel = normalizeCardCopy(product.displayPrice) || "Se priser";
             // Extract special badge config from banner_config
-            const badgeConfig = (product.banner_config as any)?.special_badge as ProductBadgeConfig | undefined;
+            const badgeConfig = bannerConfig.special_badge as ProductBadgeConfig | undefined;
             const isHoverBadge = badgeConfig?.showOnHover;
-            const imageScalePct = Math.max(60, Math.min(140, Number((product.banner_config as any)?.image_scale_pct) || 100));
-            const hoverImageUrl = (product.banner_config as any)?.hover_image_url;
+            const imageScalePct = Math.max(60, Math.min(140, Number(bannerConfig.image_scale_pct) || 100));
+            const hoverImageUrl = bannerConfig.hover_image_url;
+            const promoPrice = Number(bannerConfig.promo_price);
+            const originalPrice = Number(bannerConfig.original_price);
+            const showSavingsBadge = bannerConfig.show_savings_badge === true;
+            const hasPromo =
+              Number.isFinite(promoPrice)
+              && Number.isFinite(originalPrice)
+              && originalPrice > promoPrice;
+            const savingsPercent = hasPromo ? Math.round((1 - promoPrice / originalPrice) * 100) : 0;
 
             const productImage = (
               <Link
                 to={productHref}
+                data-branding-id="icons.product-images"
                 className={cn(
                   "block overflow-hidden relative group flex items-center justify-center",
                   !isFlatLayout && !isSlimLayout && "p-2",
@@ -219,6 +246,7 @@ const ProductGrid = ({
               <Tooltip key={product.id}>
                 <TooltipTrigger asChild>
                   <Card
+                    data-branding-id="forside.products.background"
                     className={cn(
                       "hover:shadow-lg transition-shadow cursor-pointer w-full mx-auto relative overflow-visible group flex flex-col h-full",
                       cardWidthClass,
@@ -235,78 +263,75 @@ const ProductGrid = ({
                         className={isHoverBadge ? "opacity-0 group-hover:opacity-100 transition-opacity duration-300" : ""}
                       />
                     )}
-                    <CardHeader className={cn("p-4", isSlimLayout && "relative z-10 pt-5 pb-2 pl-5 pr-28")}>
+                    <CardHeader className={cn("p-4 pb-2", isSlimLayout && "relative z-10 pt-5 pb-2 pl-5 pr-28")}>
                       {productImage}
-                      <div className="flex items-center gap-2">
-                        <CardTitle className="text-lg">{product.icon_text || product.name}</CardTitle>
+                      <div className="flex items-start gap-1.5">
+                        <CardTitle
+                          data-branding-id="forside.products.card.title"
+                          className="line-clamp-2 text-base font-semibold leading-tight sm:text-lg"
+                          style={{
+                            color: productCardStyles.titleColor,
+                            fontFamily: `'${productCardStyles.titleFont}', sans-serif`,
+                          }}
+                        >
+                          {productTitle}
+                        </CardTitle>
                         {product.tooltip_product && (
-                          <Info className="h-4 w-4 text-muted-foreground" />
+                          <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                         )}
                       </div>
                     </CardHeader>
-                    <CardContent className={cn("px-4 pb-3", isSlimLayout && "relative z-10 pt-0 px-5 pb-3 pr-28")}>
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {(() => {
-                            const priceColor = (product.banner_config as any)?.price_color || 'var(--pricing-text)';
-                            const priceBgColor = (product.banner_config as any)?.price_bg_color;
-                            const bgEnabled = (product.banner_config as any)?.price_bg_enabled;
-                            const priceFont = (product.banner_config as any)?.price_font || 'inherit';
-                            const promoPrice = (product.banner_config as any)?.promo_price;
-                            const originalPrice = (product.banner_config as any)?.original_price;
-                            const showSavingsBadge = (product.banner_config as any)?.show_savings_badge;
-                            const hasPromo = promoPrice && originalPrice && originalPrice > promoPrice;
-                            const savingsPercent = hasPromo ? Math.round((1 - promoPrice / originalPrice) * 100) : 0;
-
-                            return (
-                              <>
-                                {hasPromo ? (
-                                  <>
-                                    {/* Original price with strikethrough */}
-                                    <span className="text-base text-muted-foreground line-through">
-                                      {originalPrice} kr
-                                    </span>
-                                    {/* Promo price */}
-                                    <p
-                                      className={`text-2xl font-extrabold ${bgEnabled ? 'px-2 py-1 rounded-md' : ''}`}
-                                      style={{
-                                        color: priceColor,
-                                        backgroundColor: bgEnabled ? priceBgColor : 'transparent',
-                                        fontFamily: priceFont !== 'inherit' ? priceFont : undefined
-                                      }}
-                                    >
-                                      {promoPrice} kr
-                                    </p>
-                                    {/* Savings badge */}
-                                    {showSavingsBadge && (
-                                      <span className="text-xs font-bold text-white bg-green-500 px-2 py-1 rounded-full animate-pulse">
-                                        SPAR {savingsPercent}%
-                                      </span>
-                                    )}
-                                  </>
-                                ) : (
-                                  <p
-                                    className={`text-2xl font-extrabold ${bgEnabled ? 'px-2 py-1 rounded-md' : ''}`}
-                                    style={{
-                                      color: priceColor,
-                                      backgroundColor: bgEnabled ? priceBgColor : 'transparent',
-                                      fontFamily: priceFont !== 'inherit' ? priceFont : undefined
-                                    }}
-                                  >
-                                    {product.displayPrice || "Se priser"}
-                                  </p>
-                                )}
-                              </>
-                            );
-                          })()}
+                    <CardContent className={cn("px-4 pb-4 pt-0", isSlimLayout && "relative z-10 px-5 pb-3 pt-0 pr-28")}>
+                      <div className="space-y-1.5">
+                        <div className="flex items-start gap-1.5 flex-wrap">
+                          {hasPromo ? (
+                            <>
+                              <span className="text-sm text-muted-foreground line-through">
+                                {originalPrice} kr
+                              </span>
+                              <p
+                                data-branding-id="forside.products.card.price"
+                                className="text-2xl font-extrabold leading-none"
+                                style={{
+                                  color: productCardStyles.priceColor,
+                                  fontFamily: `'${productCardStyles.priceFont}', sans-serif`,
+                                }}
+                              >
+                                {promoPrice} kr
+                              </p>
+                              {showSavingsBadge && (
+                                <span className="text-xs font-bold text-white bg-green-500 px-2 py-1 rounded-full animate-pulse">
+                                  SPAR {savingsPercent}%
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <p
+                              data-branding-id="forside.products.card.price"
+                              className="text-2xl font-extrabold leading-none"
+                              style={{
+                                color: productCardStyles.priceColor,
+                                fontFamily: `'${productCardStyles.priceFont}', sans-serif`,
+                              }}
+                            >
+                              {displayPriceLabel}
+                            </p>
+                          )}
                           {product.tooltip_price && (
-                            <Info className="h-3 w-3 text-muted-foreground" />
+                            <Info className="mt-1 h-3 w-3 shrink-0 text-muted-foreground" />
                           )}
 
                         </div>
-                        {product.description && (
-                          <p className="text-xs text-muted-foreground mt-2 line-clamp-2 leading-relaxed">
-                            {product.description}
+                        {productDescription && (
+                          <p
+                            data-branding-id="forside.products.card.body"
+                            className="line-clamp-2 text-sm leading-5 text-muted-foreground"
+                            style={{
+                              color: productCardStyles.bodyColor,
+                              fontFamily: `'${productCardStyles.bodyFont}', sans-serif`,
+                            }}
+                          >
+                            {productDescription}
                           </p>
                         )}
                       </div>
@@ -328,6 +353,7 @@ const ProductGrid = ({
                         )}
                       >
                         <Button
+                          data-branding-id="forside.products.button"
                           size={effectiveButtonStyle === "center" ? "lg" : "sm"}
                           variant="ghost"
                           className={cn(

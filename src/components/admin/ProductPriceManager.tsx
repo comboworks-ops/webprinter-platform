@@ -37,10 +37,6 @@ import { STANDARD_FORMATS, getDimensionsFromVariant } from "@/utils/formatStanda
 import { ProductColorProfileSelector } from "./ProductColorProfileSelector";
 import { ProductSeoTab } from "./ProductSeoTab";
 import { ProductPreviewCard } from "./ProductPreviewCard";
-import ColorPickerWithSwatches from "@/components/ui/ColorPickerWithSwatches";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Palette, Type } from "lucide-react";
-import { FontSelector } from "./FontSelector";
 import { PRODUCT_PRESETS, getPresetLabel } from "./ProductPresetSelector";
 import { ProductAttributeBuilder } from "./ProductAttributeBuilder";
 import { SpecialBadgeEditor } from "./SpecialBadgeEditor";
@@ -363,6 +359,10 @@ export function ProductPriceManager() {
   const [editedMinDpi, setEditedMinDpi] = useState("300");
   const [editedIsFreeForm, setEditedIsFreeForm] = useState(false);
   const [editedStandardFormat, setEditedStandardFormat] = useState("");
+  const [editedCanvaEnabled, setEditedCanvaEnabled] = useState(false);
+  const [editedCanvaTemplateUrl, setEditedCanvaTemplateUrl] = useState("");
+  const [editedCanvaButtonLabel, setEditedCanvaButtonLabel] = useState("");
+  const [editedCanvaHelperText, setEditedCanvaHelperText] = useState("");
   const [editedPodPreflightEnabled, setEditedPodPreflightEnabled] = useState(false);
   const [editedPodPreflightAutoFix, setEditedPodPreflightAutoFix] = useState(true);
   const [hasProductEdits, setHasProductEdits] = useState(false);
@@ -675,6 +675,10 @@ export function ProductPriceManager() {
       setEditedMinDpi(specs.min_dpi?.toString() || "300");
       setEditedIsFreeForm(specs.is_free_form || false);
       setEditedStandardFormat(specs.standard_format || "");
+      setEditedCanvaEnabled(specs.canva?.enabled === true);
+      setEditedCanvaTemplateUrl(specs.canva?.template_url || "");
+      setEditedCanvaButtonLabel(specs.canva?.button_label || "");
+      setEditedCanvaHelperText(specs.canva?.helper_text || "");
       setEditedCategoryLanding({
         ...createDefaultCategoryLandingConfig(),
         ...(typeof specs.category_landing === "object" && specs.category_landing ? specs.category_landing : {}),
@@ -909,7 +913,7 @@ export function ProductPriceManager() {
       const { data, error } = await query.maybeSingle(); // Use maybeSingle to avoid 406 error if multiple
 
       if (error) throw error;
-      if (!data) throw new Error('Product not found');
+      if (!data) throw new Error(`Product not found (slug: "${slug}", tenant: "${tenantId}")`);
 
       setProduct(data);
     } catch (error: any) {
@@ -1164,7 +1168,13 @@ export function ProductPriceManager() {
         bleed_mm: parseFloat(editedBleed) || null,
         min_dpi: parseInt(editedMinDpi) || null,
         is_free_form: editedIsFreeForm,
-        standard_format: editedStandardFormat
+        standard_format: editedStandardFormat,
+        canva: {
+          enabled: editedCanvaEnabled,
+          template_url: editedCanvaTemplateUrl.trim() || null,
+          button_label: editedCanvaButtonLabel.trim() || null,
+          helper_text: editedCanvaHelperText.trim() || null,
+        },
       };
       if (isPodProduct) {
         nextSpecs.pod_preflight_enabled = editedPodPreflightEnabled;
@@ -2960,85 +2970,18 @@ export function ProductPriceManager() {
                           </div>
 
                           <div className="space-y-1.5">
-                            <Label htmlFor="product-price-from" className="text-xs">Fra-pris & Udseende</Label>
-                            <div className="flex gap-2 items-center">
-                              <Input
-                                id="product-price-from"
-                                type="number"
-                                value={editedPriceFrom}
-                                onChange={(e) => {
-                                  setEditedPriceFrom(e.target.value);
-                                  setHasProductEdits(true);
-                                }}
-                                placeholder="395"
-                                className="h-9 w-32"
-                              />
-
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" title="Tilpas Udseende">
-                                    <Palette className="h-4 w-4" />
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-80" align="start">
-                                  <div className="space-y-4">
-                                    <h4 className="font-medium text-sm border-b pb-2">Pris-udseende & Farver</h4>
-                                    <div className="space-y-3">
-                                      {/* Font Family Selection */}
-                                      <FontSelector
-                                        label="Skrifttype"
-                                        value={editedPriceFont}
-                                        onChange={(val) => {
-                                          setEditedPriceFont(val);
-                                          setHasProductEdits(true);
-                                        }}
-                                        inline
-                                      />
-
-                                      <div className="h-px bg-border/50 my-2" />
-
-                                      {/* Text Color */}
-                                      <ColorPickerWithSwatches
-                                        label="Tekstfarve (Pris)"
-                                        value={editedPriceColor}
-                                        onChange={(c) => {
-                                          setEditedPriceColor(c);
-                                          setHasProductEdits(true);
-                                        }}
-                                        inline
-                                      />
-
-                                      <div className="h-px bg-border/50 my-2" />
-
-                                      {/* Background Toggle & Color */}
-                                      <div className="flex items-center justify-between">
-                                        <Label htmlFor="bg-toggle" className="text-xs font-medium cursor-pointer">Vis farvet boks</Label>
-                                        <Switch
-                                          id="bg-toggle"
-                                          checked={editedPriceBgEnabled}
-                                          onCheckedChange={(checked) => {
-                                            setEditedPriceBgEnabled(checked);
-                                            setHasProductEdits(true);
-                                          }}
-                                        />
-                                      </div>
-
-                                      {editedPriceBgEnabled && (
-                                        <ColorPickerWithSwatches
-                                          label="Baggrundsfarve"
-                                          value={editedPriceBgColor}
-                                          onChange={(c) => {
-                                            setEditedPriceBgColor(c);
-                                            setHasProductEdits(true);
-                                          }}
-                                          inline
-                                        />
-                                      )}
-                                    </div>
-                                  </div>
-                                </PopoverContent>
-                              </Popover>
-                            </div>
+                            <Label htmlFor="product-price-from" className="text-xs">Fra-pris</Label>
+                            <Input
+                              id="product-price-from"
+                              type="number"
+                              value={editedPriceFrom}
+                              onChange={(e) => {
+                                setEditedPriceFrom(e.target.value);
+                                setHasProductEdits(true);
+                              }}
+                              placeholder="395"
+                              className="h-9 w-32"
+                            />
                             <p className="text-[10px] text-muted-foreground">Vises som "Fra X,-"</p>
                           </div>
                         </div>
@@ -3656,12 +3599,95 @@ export function ProductPriceManager() {
                 </Card>
               </div>
 
+              <div className="space-y-3">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-md font-medium flex items-center gap-2">
+                      <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">4</span>
+                      Canva (Pro)
+                    </CardTitle>
+                    <CardDescription>
+                      Brug en kurateret Canva-template som ekstra designvej ved siden af Webprinters egen designer.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between rounded-lg border border-dashed px-3 py-3">
+                      <div className="pr-4">
+                        <p className="text-sm font-medium">Aktiver Canva på dette produkt</p>
+                        <p className="text-xs text-muted-foreground">
+                          Viser en Canva-knap på produktsiden, hvis shoppen også har Canva aktiveret.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={editedCanvaEnabled}
+                        onCheckedChange={(checked) => {
+                          setEditedCanvaEnabled(checked);
+                          setHasSpecEdits(true);
+                        }}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Canva template URL</Label>
+                      <Input
+                        value={editedCanvaTemplateUrl}
+                        onChange={(event) => {
+                          setEditedCanvaTemplateUrl(event.target.value);
+                          setHasSpecEdits(true);
+                        }}
+                        placeholder="https://www.canva.com/... eller URL med {width_mm}, {height_mm}, {return_url}"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Du kan bruge placeholders som <code>{`{product_slug}`}</code>, <code>{`{width_mm}`}</code>, <code>{`{height_mm}`}</code>, <code>{`{bleed_mm}`}</code> og <code>{`{return_url}`}</code>.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Knaptekst</Label>
+                        <Input
+                          value={editedCanvaButtonLabel}
+                          onChange={(event) => {
+                            setEditedCanvaButtonLabel(event.target.value);
+                            setHasSpecEdits(true);
+                          }}
+                          placeholder="Design i Canva"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Hjælpetekst</Label>
+                        <Textarea
+                          value={editedCanvaHelperText}
+                          onChange={(event) => {
+                            setEditedCanvaHelperText(event.target.value);
+                            setHasSpecEdits(true);
+                          }}
+                          rows={3}
+                          placeholder="Eksempel: Åbn Canva i nyt vindue og vend tilbage med din færdige fil."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <Button
+                        onClick={handleSaveTechnicalSpecs}
+                        size="sm"
+                        disabled={!hasSpecEdits || saving}
+                      >
+                        {saving ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Save className="mr-2 h-3 w-3" />}
+                        Gem Canva-indstillinger
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
               {(product?.technical_specs?.is_pod || product?.technical_specs?.is_pod_v2) && (
                 <div className="space-y-3">
                   <Card>
                     <CardHeader className="pb-3">
                       <CardTitle className="text-md font-medium flex items-center gap-2">
-                        <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">4</span>
+                        <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">5</span>
                         Print.com PDF Preflight (POD)
                       </CardTitle>
                       <CardDescription>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,6 +52,7 @@ interface SavedDesign {
 }
 
 export default function DesignResources() {
+    const navigate = useNavigate();
     const [items, setItems] = useState<DesignLibraryItem[]>([]);
     const [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([]);
     const [templates, setTemplates] = useState<any[]>([]);
@@ -208,6 +210,10 @@ export default function DesignResources() {
         } catch (error) {
             console.error('Error fetching attributes:', error);
         }
+    };
+
+    const openTemplateDesign = () => {
+        navigate("/admin/designer-templates");
     };
 
     useEffect(() => {
@@ -479,6 +485,10 @@ export default function DesignResources() {
                         <RefreshCw className="w-4 h-4 mr-2" />
                         Opdater
                     </Button>
+                    <Button onClick={openTemplateDesign} variant="outline" size="sm">
+                        <Settings2 className="w-4 h-4 mr-2" />
+                        Template Design
+                    </Button>
                 </div>
             </div>
 
@@ -621,10 +631,16 @@ export default function DesignResources() {
                                     <p className="text-muted-foreground mb-4">
                                         Opret skabeloner her.
                                     </p>
-                                    <Button variant="outline" onClick={() => setShowCreateTemplate(true)}>
-                                        <Plus className="w-4 h-4 mr-2" />
-                                        Opret skabelon
-                                    </Button>
+                                    <div className="flex justify-center gap-2">
+                                        <Button variant="outline" onClick={() => setShowCreateTemplate(true)}>
+                                            <Plus className="w-4 h-4 mr-2" />
+                                            Opret skabelon
+                                        </Button>
+                                        <Button variant="secondary" onClick={openTemplateDesign}>
+                                            <Settings2 className="w-4 h-4 mr-2" />
+                                            Template Design
+                                        </Button>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="space-y-4">
@@ -650,6 +666,10 @@ export default function DesignResources() {
                                                 ))}
                                             </div>
                                         )}
+                                        <Button variant="outline" size="sm" onClick={openTemplateDesign}>
+                                            <Settings2 className="w-4 h-4 mr-2" />
+                                            Template Design
+                                        </Button>
                                         <Button variant="outline" size="sm" onClick={() => setShowCreateTemplate(true)}>
                                             <Plus className="w-4 h-4 mr-2" />
                                             Opret ny skabelon

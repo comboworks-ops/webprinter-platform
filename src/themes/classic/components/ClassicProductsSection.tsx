@@ -11,8 +11,6 @@ import { StorefrontProductTabs } from '@/components/StorefrontProductTabs';
 
 export function ClassicProductsSection({
     branding,
-    tenantName,
-    isPreviewMode,
     showProducts,
     showStorformatTab,
     productColumns,
@@ -24,29 +22,26 @@ export function ClassicProductsSection({
     if (!showProducts) return null;
 
     const hasFeaturedProduct = featuredProductConfig?.enabled && featuredProductConfig?.productId;
+    const hiddenFeaturedProductIds = hasFeaturedProduct && featuredProductConfig?.showInProductList === false
+        ? [featuredProductConfig.productId as string]
+        : [];
+    const featuredAboveCategories = (featuredProductConfig?.position || 'above') === 'above';
+    const categoryTabsConfig = branding?.forside?.productsSection?.categoryTabs;
 
     return (
         <section
             className="py-16"
             id="produkter"
+            data-branding-id="forside.products"
             style={{
-                // Adjust padding when featured product overlaps
-                paddingTop: hasFeaturedProduct && featuredProductConfig?.overlapPx
-                    ? `${64 + (featuredProductConfig.overlapPx || 0)}px`
+                paddingTop: hasFeaturedProduct && featuredAboveCategories
+                    ? "64px"
                     : undefined,
             }}
         >
             <div className="container mx-auto px-4">
-                {/* Featured Product (positioned to overlap hero) */}
-                {hasFeaturedProduct && (
-                    <div
-                        className="mb-8"
-                        style={{
-                            marginTop: `-${featuredProductConfig.overlapPx || 60}px`,
-                            position: 'relative',
-                            zIndex: 10,
-                        }}
-                    >
+                {hasFeaturedProduct && featuredAboveCategories && (
+                    <div className="mb-8 relative z-10">
                         <FeaturedProductConfigurator
                             config={featuredProductConfig}
                             branding={branding}
@@ -57,10 +52,21 @@ export function ClassicProductsSection({
                 <StorefrontProductTabs
                     columns={productColumns as 3 | 4 | 5}
                     buttonConfig={productButtonConfig}
+                    categoryTabsConfig={categoryTabsConfig}
                     backgroundConfig={productBackgroundConfig}
                     layoutStyle={productLayoutStyle}
                     showCategoryTabs={showStorformatTab}
+                    hiddenProductIds={hiddenFeaturedProductIds}
                 />
+
+                {hasFeaturedProduct && !featuredAboveCategories && (
+                    <div className="mt-8">
+                        <FeaturedProductConfigurator
+                            config={featuredProductConfig}
+                            branding={branding}
+                        />
+                    </div>
+                )}
             </div>
         </section>
     );

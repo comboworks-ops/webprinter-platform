@@ -1,6 +1,7 @@
 export type ShopModuleId =
   | "print-designer"
   | "site-design"
+  | "icon-studio"
   | "machine-pricing"
   | "print-on-demand"
   | "company-hub"
@@ -31,6 +32,13 @@ export const SHOP_MODULE_DEFINITIONS: ShopModuleDefinition[] = [
     tier: "free",
     defaultAccess: true,
     defaultEnabled: true,
+  },
+  {
+    id: "icon-studio",
+    name: "Icon Studio",
+    tier: "premium",
+    defaultAccess: false,
+    defaultEnabled: false,
   },
   {
     id: "machine-pricing",
@@ -72,6 +80,7 @@ export const ADMIN_ROUTE_MODULE_MAP: Partial<Record<string, ShopModuleId>> = {
   "/admin/designer-templates": "print-designer",
   "/admin/branding-v2": "site-design",
   "/admin/sites": "site-design",
+  "/admin/icon-studio": "icon-studio",
   "/admin/machine-pricing": "machine-pricing",
   "/admin/pod-katalog": "print-on-demand",
   "/admin/companyhub": "company-hub",
