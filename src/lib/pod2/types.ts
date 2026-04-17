@@ -109,11 +109,35 @@ export interface PodFulfillmentJob {
     shipping_method?: string;
     sender_mode?: PodSenderMode;
     sender_name?: string;
+    sender_contact_id?: string;
+    sender_address_json?: {
+        company_name?: string | null;
+        contact_name?: string | null;
+        email?: string | null;
+        phone?: string | null;
+        street?: string | null;
+        house_number?: string | null;
+        postcode?: string | null;
+        city?: string | null;
+        country?: string | null;
+        vat_number?: string | null;
+    } | null;
+    sender_logo_url?: string | null;
     approved_by_tenant_at?: string;
     approved_by_tenant_user_id?: string;
     submitted_by_master_at?: string;
     submitted_by_master_user_id?: string;
     master_notes?: string;
+    // Print.com submission linkage (populated by pod2-submit-to-printcom).
+    printcom_cart_id?: string | null;
+    printcom_cart_item_id?: string | null;
+    printcom_printjob_id?: string | null;
+    printcom_design_id?: string | null;
+    printcom_order_id?: string | null;
+    printcom_order_raw?: Record<string, unknown> | null;
+    printcom_submission_step?: 'contact' | 'logo' | 'cart' | 'sender' | 'files' | 'finalize' | 'submit' | null;
+    printcom_last_error?: string | null;
+    printcom_last_attempt_at?: string | null;
     created_at: string;
     updated_at: string;
 }

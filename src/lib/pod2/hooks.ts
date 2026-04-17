@@ -499,3 +499,37 @@ export function usePodMasterForwardJob() {
         },
     });
 }
+
+// Automated Print.com submission. Replaces the manual "mark as forwarded"
+// flow when everything (credentials, sender, files) is in order.
+// The manual fallback (usePodMasterForwardJob) is kept for operators who
+// want to forward outside of Print.com.
+export function usePodSubmitToPrintcom() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (params: { jobId: string; paymentMethod?: 'invoice' | 'psp'; dryRun?: boolean }) => {
+            const { data, error } = await supabase.functions.invoke('pod2-submit-to-printcom', {
+                body: params,
+            });
+
+            if (error) throw error;
+            if (!data?.success) {
+                const stepSummary = Array.isArray(data?.steps)
+                    ? data.steps.map((s: any) => `${s.step}${s.ok ? '' : ' ❌'}`).join(' › ')
+                    : '';
+                throw new Error(
+                    `${data?.error || 'Print.com submission failed'}${stepSummary ? ` (ved: ${stepSummary})` : ''}`,
+                );
+            }
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['pod2-jobs'] });
+            toast.success('Sendt til Print.com');
+        },
+        onError: (err: any) => {
+            toast.error('Print.com-indsendelse fejlede: ' + err.message);
+        },
+    });
+}

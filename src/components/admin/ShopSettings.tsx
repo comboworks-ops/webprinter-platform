@@ -10,6 +10,7 @@ import { Mail, Bell, Shield, Globe, Loader2, Save, Sparkles } from "lucide-react
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { TenantPodShippingProfile } from "./TenantPodShippingProfile";
 
 export function ShopSettings() {
     const { data: tenant, isLoading } = useShopSettings();
@@ -321,6 +322,9 @@ export function ShopSettings() {
                     </div>
                 </CardContent>
             </Card>
+
+            {/* POD sender identity (white-label POD shipments) */}
+            <TenantPodShippingProfile />
 
             {/* Notifications */}
             <Card>

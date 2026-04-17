@@ -177,10 +177,53 @@ serve(async (req) => {
     const recipientName = parseTaggedValue(order.status_note, "MODTAGER") || order.customer_name || null;
     const recipientCompany = parseTaggedValue(order.status_note, "MODTAGER-FIRMA");
     const shippingMethod = parseTaggedValue(order.status_note, "LEVERINGSMETODE") || order.delivery_type || null;
-    const senderMode = parseSenderMode(order.status_note);
-    const senderName = senderMode === "custom"
-      ? parseTaggedValue(order.status_note, "AFSENDER")
-      : null;
+    const statusNoteSenderMode = parseSenderMode(order.status_note);
+    const statusNoteHasExplicitSender = statusNoteSenderMode !== "standard";
+
+    // Look up the tenant's POD shipping profile (white-label sender identity).
+    // Missing row is the normal case -> fall back to "standard".
+    const { data: tenantProfile } = await serviceClient
+      .from("tenant_pod_shipping_profile")
+      .select("sender_mode, sender_company_name, sender_contact_name, sender_email, sender_phone, sender_street, sender_house_number, sender_postcode, sender_city, sender_country, sender_vat_number, sender_logo_url")
+      .eq("tenant_id", order.tenant_id)
+      .maybeSingle();
+
+    // Priority:
+    //   1. explicit per-order status_note override (blind / custom w/ AFSENDER tag)
+    //   2. tenant-wide profile (if non-standard)
+    //   3. "standard"
+    let senderMode: "standard" | "blind" | "custom" = statusNoteSenderMode;
+    let senderName: string | null = null;
+    let senderAddressJson: Record<string, unknown> | null = null;
+    let senderLogoUrl: string | null = null;
+
+    if (statusNoteHasExplicitSender) {
+      senderMode = statusNoteSenderMode;
+      senderName = senderMode === "custom"
+        ? parseTaggedValue(order.status_note, "AFSENDER")
+        : null;
+    } else if (tenantProfile && tenantProfile.sender_mode && tenantProfile.sender_mode !== "standard") {
+      senderMode = tenantProfile.sender_mode as "standard" | "blind" | "custom";
+      if (senderMode === "custom") {
+        senderName = tenantProfile.sender_company_name || null;
+        senderAddressJson = {
+          company_name: tenantProfile.sender_company_name,
+          contact_name: tenantProfile.sender_contact_name,
+          email: tenantProfile.sender_email,
+          phone: tenantProfile.sender_phone,
+          street: tenantProfile.sender_street,
+          house_number: tenantProfile.sender_house_number,
+          postcode: tenantProfile.sender_postcode,
+          city: tenantProfile.sender_city,
+          country: tenantProfile.sender_country,
+          vat_number: tenantProfile.sender_vat_number,
+        };
+      }
+      // Always carry the logo snapshot when the profile has one, so the
+      // master forwarding queue can show it regardless of mode. The
+      // submission adapter decides later whether/how to use it.
+      senderLogoUrl = tenantProfile.sender_logo_url || null;
+    }
 
     const { data: createdJob, error: jobError } = await serviceClient
       .from("pod2_fulfillment_jobs")
@@ -203,6 +246,8 @@ serve(async (req) => {
         shipping_method: shippingMethod,
         sender_mode: senderMode,
         sender_name: senderName,
+        sender_address_json: senderAddressJson,
+        sender_logo_url: senderLogoUrl,
       })
       .select()
       .maybeSingle();

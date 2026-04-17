@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { resolveAdminTenant, MASTER_TENANT_ID } from "@/lib/adminTenant";
 import { supabase } from "@/integrations/supabase/client";
-import { usePodAllFulfillmentJobs, usePodApproveAndCharge, usePodCreateJobsForOrder, usePodFulfillmentJobs, usePodMasterForwardJob, usePodTenantBilling } from "@/lib/pod2/hooks";
+import { usePodAllFulfillmentJobs, usePodApproveAndCharge, usePodCreateJobsForOrder, usePodFulfillmentJobs, usePodMasterForwardJob, usePodSubmitToPrintcom, usePodTenantBilling } from "@/lib/pod2/hooks";
 import { POD_JOB_STATUS_COLORS, POD_JOB_STATUS_LABELS, type PodFulfillmentJob } from "@/lib/pod2/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,8 @@ export function Pod2Ordrer() {
     const approveAndCharge = usePodApproveAndCharge();
     const createJobs = usePodCreateJobsForOrder();
     const forwardJob = usePodMasterForwardJob();
+    const submitToPrintcom = usePodSubmitToPrintcom();
+    const [paymentMethod, setPaymentMethod] = useState<"invoice" | "psp">("invoice");
 
     const jobs = useMemo(
         () => (isMasterContext ? allJobsQuery.data || [] : tenantJobsQuery.data || []),
@@ -109,6 +111,21 @@ export function Pod2Ordrer() {
             setMasterNotes("");
         } catch {
             // handled in hook
+        }
+    };
+
+    const handleSubmitToPrintcom = async () => {
+        if (!forwardDialog) return;
+        try {
+            await submitToPrintcom.mutateAsync({
+                jobId: forwardDialog.id,
+                paymentMethod,
+            });
+            setForwardDialog(null);
+            setProviderJobRef("");
+            setMasterNotes("");
+        } catch {
+            // handled in hook — job row carries printcom_last_error for diagnostics
         }
     };
 
@@ -258,7 +275,22 @@ export function Pod2Ordrer() {
                                                     <div className="text-xs text-muted-foreground">{job.shipping_method || "-"}</div>
                                                 </TableCell>
                                                 <TableCell className="text-sm">
-                                                    {job.sender_mode === "custom" ? job.sender_name || "Custom" : job.sender_mode === "blind" ? "Blind shipping" : "Standard"}
+                                                    <div className="flex items-center gap-2">
+                                                        {job.sender_logo_url && (
+                                                            <img
+                                                                src={job.sender_logo_url}
+                                                                alt=""
+                                                                className="h-6 w-6 rounded border bg-white object-contain"
+                                                            />
+                                                        )}
+                                                        <span>
+                                                            {job.sender_mode === "custom"
+                                                                ? job.sender_name || job.sender_address_json?.company_name || "Custom"
+                                                                : job.sender_mode === "blind"
+                                                                    ? "Blind shipping"
+                                                                    : "Standard"}
+                                                        </span>
+                                                    </div>
                                                 </TableCell>
                                                 <TableCell>
                                                     <Badge className={POD_JOB_STATUS_COLORS[job.status]}>{POD_JOB_STATUS_LABELS[job.status]}</Badge>
@@ -388,7 +420,7 @@ export function Pod2Ordrer() {
                     <DialogHeader>
                         <DialogTitle>Videresend POD v2 job fra master</DialogTitle>
                         <DialogDescription>
-                            Registrer eventuelt print-hus reference og notat. Jobbet markeres derefter som videresendt.
+                            Send automatisk til Print.com, eller marker som videresendt manuelt hvis du forwarder udenom.
                         </DialogDescription>
                     </DialogHeader>
                     {forwardDialog && (
@@ -399,26 +431,148 @@ export function Pod2Ordrer() {
                                 <div className="mt-2 text-xs text-muted-foreground">
                                     Tenant: {tenantLabels[forwardDialog.tenant_id] || forwardDialog.tenant_id.slice(0, 8)}
                                 </div>
+                                {forwardDialog.printcom_submission_step && (
+                                    <div className="mt-2 text-xs text-muted-foreground">
+                                        Print.com status: <span className="font-mono">{forwardDialog.printcom_submission_step}</span>
+                                    </div>
+                                )}
+                                {forwardDialog.printcom_last_error && (
+                                    <div className="mt-2 text-xs text-red-700">
+                                        Sidste fejl: {forwardDialog.printcom_last_error}
+                                    </div>
+                                )}
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="providerJobRef">Provider reference</Label>
-                                <Input id="providerJobRef" value={providerJobRef} onChange={(event) => setProviderJobRef(event.target.value)} placeholder="Valgfri reference hos print-huset" />
+
+                            <SenderIdentityCard job={forwardDialog} />
+
+                            <div className="rounded-lg border p-3 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="font-medium text-sm">Send til Print.com</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Opretter kontakt, uploader logo + print-fil, placerer ordren.
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="space-y-1">
+                                    <Label htmlFor="paymentMethod" className="text-xs">Betaling hos Print.com</Label>
+                                    <select
+                                        id="paymentMethod"
+                                        className="w-full rounded-md border py-2 px-3 bg-background text-sm"
+                                        value={paymentMethod}
+                                        onChange={(event) => setPaymentMethod(event.target.value as "invoice" | "psp")}
+                                    >
+                                        <option value="invoice">Faktura (betal senere)</option>
+                                        <option value="psp">Online betaling (psp)</option>
+                                    </select>
+                                </div>
+                                <Button
+                                    onClick={handleSubmitToPrintcom}
+                                    disabled={submitToPrintcom.isPending}
+                                    className="w-full"
+                                >
+                                    {submitToPrintcom.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    <Send className="mr-2 h-4 w-4" />
+                                    Send til Print.com
+                                </Button>
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="masterNotes">Master notat</Label>
-                                <Textarea id="masterNotes" value={masterNotes} onChange={(event) => setMasterNotes(event.target.value)} placeholder="Internt notat om videresendelsen" />
+
+                            <div className="rounded-lg border border-dashed p-3 space-y-3">
+                                <div>
+                                    <p className="font-medium text-sm">Manuel fallback</p>
+                                    <p className="text-xs text-muted-foreground">
+                                        Brug hvis du forwarder udenom Print.com (fx email eller anden leverandør).
+                                    </p>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="providerJobRef" className="text-xs">Provider reference</Label>
+                                    <Input id="providerJobRef" value={providerJobRef} onChange={(event) => setProviderJobRef(event.target.value)} placeholder="Valgfri reference hos print-huset" />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="masterNotes" className="text-xs">Master notat</Label>
+                                    <Textarea id="masterNotes" value={masterNotes} onChange={(event) => setMasterNotes(event.target.value)} placeholder="Internt notat om videresendelsen" />
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    onClick={handleForward}
+                                    disabled={forwardJob.isPending}
+                                    className="w-full"
+                                >
+                                    {forwardJob.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    Marker som videresendt manuelt
+                                </Button>
                             </div>
                         </div>
                     )}
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setForwardDialog(null)}>Annuller</Button>
-                        <Button onClick={handleForward} disabled={forwardJob.isPending}>
-                            {forwardJob.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Marker som videresendt
-                        </Button>
+                        <Button variant="ghost" onClick={() => setForwardDialog(null)}>Luk</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+        </div>
+    );
+}
+
+function SenderIdentityCard({ job }: { job: PodFulfillmentJob }) {
+    const mode = job.sender_mode || "standard";
+    const addr = job.sender_address_json;
+    const logo = job.sender_logo_url;
+
+    let modeLabel = "Standard (platform-afsender)";
+    if (mode === "blind") modeLabel = "Blind forsendelse (ingen afsender)";
+    if (mode === "custom") modeLabel = "Tenants egen afsender";
+
+    return (
+        <div className="rounded-lg border p-3 text-sm space-y-3 bg-muted/30">
+            <div className="flex items-center justify-between">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Afsenderidentitet</div>
+                <Badge variant="secondary" className="text-[10px]">{modeLabel}</Badge>
+            </div>
+
+            {mode === "custom" ? (
+                <div className="flex items-start gap-3">
+                    <div className="h-16 w-16 shrink-0 rounded border bg-white flex items-center justify-center overflow-hidden">
+                        {logo ? (
+                            <img src={logo} alt="Logo" className="max-h-full max-w-full object-contain" />
+                        ) : (
+                            <span className="text-[10px] text-muted-foreground text-center px-1">Intet logo</span>
+                        )}
+                    </div>
+                    <div className="flex-1 text-xs leading-5">
+                        <div className="font-medium text-sm">
+                            {addr?.company_name || job.sender_name || "-"}
+                        </div>
+                        {addr?.contact_name && <div>{addr.contact_name}</div>}
+                        {(addr?.street || addr?.house_number) && (
+                            <div>{[addr?.street, addr?.house_number].filter(Boolean).join(" ")}</div>
+                        )}
+                        {(addr?.postcode || addr?.city) && (
+                            <div>{[addr?.postcode, addr?.city].filter(Boolean).join(" ")}</div>
+                        )}
+                        {addr?.country && <div>{addr.country}</div>}
+                        {(addr?.email || addr?.phone) && (
+                            <div className="mt-1 text-muted-foreground">
+                                {[addr?.email, addr?.phone].filter(Boolean).join(" · ")}
+                            </div>
+                        )}
+                        {addr?.vat_number && (
+                            <div className="text-muted-foreground">CVR/VAT: {addr.vat_number}</div>
+                        )}
+                    </div>
+                </div>
+            ) : (
+                <div className="text-xs text-muted-foreground">
+                    {mode === "blind"
+                        ? "Pakken sendes uden afsenderinformation."
+                        : "Platformens standardafsender bruges ved videresendelse."}
+                </div>
+            )}
+
+            {mode === "custom" && (
+                <div className="text-[11px] text-muted-foreground border-t pt-2">
+                    Denne afsenderidentitet er låst på jobbet ved oprettelsen. Redigér kun hvis print-huset kræver manuel overskrivning.
+                </div>
+            )}
         </div>
     );
 }
