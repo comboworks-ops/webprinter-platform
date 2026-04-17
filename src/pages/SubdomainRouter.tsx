@@ -2,24 +2,15 @@ import Index from "@/pages/Index";
 import Shop from "@/pages/Shop"; // We will likely need a dedicated TenantShopLayout later
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { Loader2 } from "lucide-react";
-
-// Domains that should ALWAYS show the Landing Page (Marketing)
-// Note: localhost is NOT included - developers see the Shop by default
-const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
-const MARKETING_DOMAINS = [
-    ROOT_DOMAIN,
-    `www.${ROOT_DOMAIN}`,
-    "webprinter-platform.vercel.app",
-    // localhost now shows Shop for development convenience
-];
+import { isPlatformContext } from "@/lib/platform/context";
 
 export default function SubdomainRouter() {
     const settings = useShopSettings();
     const hostname = window.location.hostname;
     const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
 
-    // Decide if we are on a Marketing Domain
-    const isMarketing = MARKETING_DOMAINS.includes(hostname);
+    // Decide if we are on a Marketing Domain (also handles ?force_domain on localhost)
+    const isMarketing = isPlatformContext();
 
     // If we are on a marketing domain, render the Index (Landing Page)
     // BUT: If the user explicitly goes to /shop, /login, etc, we should allow it?

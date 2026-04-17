@@ -14,6 +14,7 @@ import PlatformFooter from "@/components/platform/PlatformFooter";
 import { PlatformSlider } from "@/components/platform/PlatformSlider";
 import { SEO } from "@/components/SEO";
 import { OrganizationSchema } from "@/components/ProductSchema";
+import { platformNavLink } from "@/lib/platform/context";
 
 // Feature boxes linking to platform pages
 const FEATURES = [
@@ -82,7 +83,7 @@ const Index = () => {
             Automatiseret prissætning, ordrehåndtering og kundeportaler i ét system.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link to="/opret-shop">
+            <Link to={platformNavLink("/opret-shop")}>
               <Button size="lg" className="h-12 px-8 text-lg gap-2">
                 Start onboarding <ArrowRight className="w-4 h-4" />
               </Button>
@@ -118,7 +119,7 @@ const Index = () => {
             {FEATURES.map((feature, i) => (
               <Link
                 key={i}
-                to={feature.href}
+                to={platformNavLink(feature.href)}
                 className="p-6 rounded-2xl border bg-card hover:shadow-lg transition-shadow group"
               >
                 <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/20 transition-colors">
@@ -154,12 +155,12 @@ const Index = () => {
             Opret konto først. Når din shop er oprettet, kan du vælge plan i admin og starte den 14 dages prøveperiode i Stripe.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link to="/opret-shop">
+            <Link to={platformNavLink("/opret-shop")}>
               <Button size="lg" variant="secondary" className="gap-2">
                 Start onboarding <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
-            <Link to="/kontakt">
+            <Link to={platformNavLink("/kontakt")}>
               <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white/10">
                 Kontakt os
               </Button>

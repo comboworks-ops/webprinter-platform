@@ -15,6 +15,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Menu, X, LogOut, User, Shield, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { platformNavLink } from "@/lib/platform/context";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -97,7 +98,7 @@ const PlatformHeader = () => {
                     {/* Desktop Navigation */}
                     <nav className="hidden lg:flex items-center gap-8">
                         <Link
-                            to="/platform"
+                            to={platformNavLink("/platform")}
                             className={`text-sm font-medium transition-colors duration-200 ${isActive('/platform') ? 'text-primary' : 'text-gray-700 hover:text-primary'
                                 }`}
                         >
@@ -115,7 +116,7 @@ const PlatformHeader = () => {
                             <DropdownMenuContent align="start" className="w-56">
                                 {FUNKTIONER_PAGES.map((page) => (
                                     <DropdownMenuItem key={page.path} asChild>
-                                        <Link to={page.path} className="cursor-pointer">
+                                        <Link to={platformNavLink(page.path)} className="cursor-pointer">
                                             {page.label}
                                         </Link>
                                     </DropdownMenuItem>
@@ -124,7 +125,7 @@ const PlatformHeader = () => {
                         </DropdownMenu>
 
                         <Link
-                            to="/priser"
+                            to={platformNavLink("/priser")}
                             className={`text-sm font-medium transition-colors duration-200 ${isActive('/priser') ? 'text-primary' : 'text-gray-700 hover:text-primary'
                                 }`}
                         >
@@ -132,7 +133,7 @@ const PlatformHeader = () => {
                         </Link>
 
                         <Link
-                            to="/kontakt"
+                            to={platformNavLink("/kontakt")}
                             className={`text-sm font-medium transition-colors duration-200 ${isActive('/kontakt') ? 'text-primary' : 'text-gray-700 hover:text-primary'
                                 }`}
                         >
@@ -143,7 +144,7 @@ const PlatformHeader = () => {
                     {/* Right Side Actions */}
                     <div className="flex items-center gap-3">
                         {/* CTA Button */}
-                        <Link to="/opret-shop">
+                        <Link to={platformNavLink("/opret-shop")}>
                             <Button size="sm" className="hidden md:flex">
                                 Start gratis
                             </Button>
@@ -208,7 +209,7 @@ const PlatformHeader = () => {
                 <div className="lg:hidden absolute top-full left-0 right-0 bg-white border-b shadow-lg">
                     <nav className="container mx-auto px-4 py-4 flex flex-col gap-2">
                         <Link
-                            to="/platform"
+                            to={platformNavLink("/platform")}
                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isActive('/platform') ? 'bg-primary/10 text-primary' : 'text-gray-700 hover:bg-gray-100'
                                 }`}
                             onClick={() => setMobileMenuOpen(false)}
@@ -221,7 +222,7 @@ const PlatformHeader = () => {
                         {FUNKTIONER_PAGES.map((page) => (
                             <Link
                                 key={page.path}
-                                to={page.path}
+                                to={platformNavLink(page.path)}
                                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isActive(page.path) ? 'bg-primary/10 text-primary' : 'text-gray-700 hover:bg-gray-100'
                                     }`}
                                 onClick={() => setMobileMenuOpen(false)}
@@ -231,7 +232,7 @@ const PlatformHeader = () => {
                         ))}
 
                         <Link
-                            to="/priser"
+                            to={platformNavLink("/priser")}
                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isActive('/priser') ? 'bg-primary/10 text-primary' : 'text-gray-700 hover:bg-gray-100'
                                 }`}
                             onClick={() => setMobileMenuOpen(false)}
@@ -240,7 +241,7 @@ const PlatformHeader = () => {
                         </Link>
 
                         <Link
-                            to="/kontakt"
+                            to={platformNavLink("/kontakt")}
                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isActive('/kontakt') ? 'bg-primary/10 text-primary' : 'text-gray-700 hover:bg-gray-100'
                                 }`}
                             onClick={() => setMobileMenuOpen(false)}
@@ -249,7 +250,7 @@ const PlatformHeader = () => {
                         </Link>
 
                         <div className="border-t my-2" />
-                        <Link to="/opret-shop" onClick={() => setMobileMenuOpen(false)}>
+                        <Link to={platformNavLink("/opret-shop")} onClick={() => setMobileMenuOpen(false)}>
                             <Button className="w-full">Start gratis</Button>
                         </Link>
                         {!user && (

@@ -13,6 +13,7 @@
 import { Link } from "react-router-dom";
 import { Facebook, Instagram, Linkedin, Mail, MapPin, Phone } from "lucide-react";
 import { useCookieConsent } from "@/components/consent";
+import { platformNavLink } from "@/lib/platform/context";
 
 // Small button component to open cookie settings
 const CookieSettingsButton = () => {
@@ -78,7 +79,7 @@ const PlatformFooter = () => {
                             {PLATFORM_LINKS.funktioner.map((link) => (
                                 <li key={link.href}>
                                     <Link
-                                        to={link.href}
+                                        to={platformNavLink(link.href)}
                                         className="text-gray-400 hover:text-white transition-colors text-sm"
                                     >
                                         {link.label}
@@ -95,7 +96,7 @@ const PlatformFooter = () => {
                             {PLATFORM_LINKS.virksomhed.map((link) => (
                                 <li key={link.href}>
                                     <Link
-                                        to={link.href}
+                                        to={platformNavLink(link.href)}
                                         className="text-gray-400 hover:text-white transition-colors text-sm"
                                     >
                                         {link.label}
@@ -105,7 +106,7 @@ const PlatformFooter = () => {
                             {PLATFORM_LINKS.juridisk.map((link) => (
                                 <li key={link.href}>
                                     <Link
-                                        to={link.href}
+                                        to={platformNavLink(link.href)}
                                         className="text-gray-400 hover:text-white transition-colors text-sm"
                                     >
                                         {link.label}
