@@ -517,7 +517,27 @@ export function useShopSettings() {
             } catch (error) {
                 if ((error as any)?.code === 'SHOP_SETTINGS_TRANSPORT') {
                     const fallbackDomain = forceDomain || (isLocalhost ? ROOT_DOMAIN : hostname);
-                    console.warn('[useShopSettings] Supabase transport unavailable. Using fallback tenant context.');
+
+                    // Prefer the previously cached successful tenant over the generic
+                    // Webprinter/master fallback. Otherwise a transient Supabase blip
+                    // while the user's tab is backgrounded causes a tenant shop (e.g.
+                    // onlinetryksager.dk) to visually swap to the Webprinter master
+                    // site even though the URL hasn't changed.
+                    // Only return the master fallback if we truly have nothing cached.
+                    const cachedForThisContext = forceTenantId
+                        ? readStorefrontSettingsCacheByTenantId(forceTenantId)
+                        : forceDomain
+                            ? readStorefrontSettingsCacheByDomain(forceDomain)
+                            : (!isLocalhost && !marketingDomains.includes(hostname)
+                                ? readStorefrontSettingsCacheByDomain(hostname)
+                                : null);
+
+                    if (cachedForThisContext) {
+                        console.warn('[useShopSettings] Supabase transport unavailable. Reusing cached tenant settings for', hostname);
+                        return cachedForThisContext;
+                    }
+
+                    console.warn('[useShopSettings] Supabase transport unavailable and no tenant cache. Using fallback tenant context.');
                     return {
                         ...localhostFallback,
                         tenant_name: isLocalhost ? 'Webprinter' : 'Webprinter (fallback)',
