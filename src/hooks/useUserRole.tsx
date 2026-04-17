@@ -4,11 +4,15 @@ import { resolveAdminTenant, MASTER_TENANT_ID } from '@/lib/adminTenant';
 
 export type UserRole = 'admin' | 'master_admin' | 'moderator' | 'user' | null;
 
-// Whitelisted admin emails as a last-resort fallback to avoid lockouts
+// Whitelisted admin emails as a last-resort fallback to avoid lockouts.
+// Keep in sync with the user_roles table - whitelist is only used to avoid
+// locking out a known operator if the DB read fails; if it contradicts the
+// DB, the UI role (master tools visibility, etc.) will disagree with the
+// actual permissions enforced by RLS.
 const EMAIL_ROLE_MAP: Record<string, UserRole> = {
   'admin@webprinter.dk': 'master_admin',
+  'info@webprinter.dk': 'master_admin',
   'result-admin@webprinter.dk': 'admin',
-  'info@webprinter.dk': 'admin',
   'online-trukserre@gmail.com': 'admin',
 };
 

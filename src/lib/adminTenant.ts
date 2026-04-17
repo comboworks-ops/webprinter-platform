@@ -209,6 +209,15 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
             tenantId = MASTER_TENANT_ID;
         }
 
+        // Safety net: any admin-like role on the central admin host that still
+        // has no resolved tenant should default to master tenant. Without this,
+        // an admin row with a null tenant_id (and no owned shop) produces a
+        // blank "No tenant found" dashboard. RLS still enforces real access;
+        // this only decides which tenant the UI scopes to.
+        if (!tenantId && role === 'admin' && isAdminRoute && isCentralAdminHost) {
+            tenantId = MASTER_TENANT_ID;
+        }
+
         // Ensure we don't accidentally return Master ID if we found a specific one
         if (tenantId && tenantId !== MASTER_TENANT_ID && isMasterAdmin) {
             // User is a master admin but viewing a specific shop (Salgsmapper)
