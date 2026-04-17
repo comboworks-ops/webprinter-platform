@@ -2,6 +2,8 @@
 
 This document describes how the Matrix Layout V1 pricing system works end-to-end: layout setup, CSV export/import, publishing to the frontend, and the data model behind it.
 
+For pricing import architecture and the shared extractor -> normalizer -> publisher modules, see `docs/PRICING_INGESTION_ARCHITECTURE.md`.
+
 ## 1) Overview
 
 Matrix Layout V1 is a structured price-matrix system that:

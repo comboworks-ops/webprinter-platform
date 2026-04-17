@@ -1,5 +1,12 @@
 # Webprinter Print Designer - Agent Handover Document
 
+## Current Pricing Handover
+
+For current pricing/import work, read this after the repo entry docs:
+- `docs/PRICING_HANDOFF_2026-04-16.md`
+
+That document contains the current matrix pricing/import status, the `new-folders` source-mapping fixes, and the safe workflow for manual final pricing versus future re-imports.
+
 **Last Updated**: 2026-01-06  
 **Project Path**: `/Users/cookabelly/Documents/Antigravity stuff/printmaker-web-craft-main`
 
