@@ -802,11 +802,8 @@ export function Designer() {
             navigate('/');
             return;
         }
-        if (window.history.length > 2) {
-            navigate(-1);
-        } else {
-            navigate('/admin/designer-templates');
-        }
+        // Admin/backend designer: always return to dashboard
+        navigate('/admin');
     }, [navigate, orderMode, safeReturnTo]);
 
     // Handle back navigation with unsaved changes guard

@@ -1446,7 +1446,7 @@ export function ProductAttributeBuilder({
 
     const fetchAllGenericProductPrices = useCallback(async () => {
         if (!productId) return [] as any[];
-        const pageSize = 5000;
+        const pageSize = 1000;
         let offset = 0;
         const allRows: any[] = [];
 

@@ -114,7 +114,10 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
     }
 
     if (rawId === "forside.hero.overlay") {
-        return { rawId, sectionId: "banner", label: "Banner overlay", focusTargetId: "site-design-focus-banner-overlay" };
+        // The overlay is a full-coverage transparent div (z-10) that sits on top of the hero
+        // background image. Clicks on the visible "background image" always land on this overlay.
+        // Route to the media card so the user is taken to "the box with the background image".
+        return { rawId, sectionId: "banner", label: "Banner billede", focusTargetId: "site-design-focus-banner-media" };
     }
 
     if (rawId === "forside.hero.title") {
