@@ -559,18 +559,40 @@ serve(async (req) => {
       return jsonResponse(404, { success: false, error: "Product not found", source: productResolution.source });
     }
 
-    const { data, error } = await serviceClient
+    // Extract DB-level pre-filters from the request. Filtering by material
+    // (variant_value) and/or format (variant_name LIKE) dramatically reduces
+    // the row count for large products (new-folders has ~10,887 rows).
+    // Without filters Supabase returns at most 1000 rows (default), which
+    // only covers the lowest quantity levels and causes price misses.
+    const filterMaterialId =
+      typeof input.materialId === "string" && input.materialId ? input.materialId : null;
+    const filterFormatId =
+      typeof input.formatId === "string" && input.formatId ? input.formatId : null;
+
+    // deno-lint-ignore no-explicit-any
+    let priceQuery: any = serviceClient
       .from("generic_product_prices")
       .select("id, variant_name, variant_value, quantity, price_dkk, extra_data")
       .eq("product_id", product.id)
       .order("quantity", { ascending: true });
+
+    if (filterMaterialId) priceQuery = priceQuery.eq("variant_value", filterMaterialId);
+    if (filterFormatId) priceQuery = priceQuery.like("variant_name", `%${filterFormatId}%`);
+    // Raise the row cap when at least one filter is active so all quantity
+    // tiers are reachable (materialId alone still yields ~2 000 rows).
+    if (filterMaterialId || filterFormatId) priceQuery = priceQuery.limit(5000);
+
+    const { data, error } = (await priceQuery) as {
+      data: Record<string, unknown>[] | null;
+      error: { message: string } | null;
+    };
     if (error) throw error;
 
     const { data: attributeRows, error: attributeError } = await serviceClient
-      .from("product_attributes")
+      .from("product_attribute_groups")
       .select("id, name, values:product_attribute_values(id, name)")
       .eq("product_id", product.id)
-      .order("display_order", { ascending: true });
+      .order("sort_order", { ascending: true });
     if (attributeError) throw attributeError;
 
     const preparedRows = (((data as Record<string, unknown>[] | null) || []).map(preparePriceRow));
@@ -699,9 +721,19 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("pricing-read error:", error);
+    let errorMessage = "Unknown error";
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    } else if (error && typeof error === "object") {
+      const e = error as Record<string, unknown>;
+      errorMessage = String(e.message || e.details || e.code || JSON.stringify(error));
+    } else if (typeof error === "string") {
+      errorMessage = error;
+    }
     return jsonResponse(500, {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: errorMessage,
+      errorDetail: error && typeof error === "object" ? error : String(error),
     });
   }
 });
