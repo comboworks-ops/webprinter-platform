@@ -13,6 +13,7 @@ import process from "node:process";
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 import { chromium } from "playwright";
+import { applyConversionRule } from "./product-import/shared/conversion.js";
 
 const DEFAULT_URL =
   "https://www.wir-machen-druck.de/hochwertige-etiketten-auf-rolle-freie-groesse-rechteckig.html#content-view";
@@ -222,14 +223,19 @@ function roundTo(value, step) {
 }
 
 function convertEurToDkk(eurNet, cfg) {
-  const baseDkk = eurNet * cfg.eurToDkk;
-  const markupPct = baseDkk > cfg.thresholdDkk ? cfg.markupHighPct : cfg.markupLowPct;
-  const finalDkk = roundTo(baseDkk * (1 + markupPct / 100), cfg.roundingStep);
+  const converted = applyConversionRule(eurNet, {
+    type: "threshold_markup",
+    eurToDkk: cfg.eurToDkk,
+    thresholdDkk: cfg.thresholdDkk,
+    markupLowPct: cfg.markupLowPct,
+    markupHighPct: cfg.markupHighPct,
+    roundingStep: cfg.roundingStep,
+  });
   return {
     eurNet,
-    baseDkk,
-    markupPct,
-    finalDkk,
+    baseDkk: converted.convertedPriceDkk,
+    markupPct: converted.markupPct,
+    finalDkk: converted.finalPriceDkk,
   };
 }
 

@@ -25,6 +25,9 @@ import {
   roundToStep,
 } from "./product-import/ul-prices.js";
 import { ensureDir, timestampForFile } from "./product-import/snapshot-io.js";
+import { CONVERSION_RULES, applyConversionRule } from "./product-import/shared/conversion.js";
+import { createNormalizedMatrixRecord } from "./product-import/shared/normalized-pricing.js";
+import { publishNormalizedMatrixProduct } from "./product-import/shared/matrix-publisher.js";
 
 const DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -204,14 +207,12 @@ function parseQuantityPriceText(text) {
 }
 
 function transformedPrice(eur) {
-  const dkkBase = eur * EUR_TO_DKK;
-  const tierMultiplier = resolveTierMultiplier(dkkBase, TIERS);
-  const dkkFinal = Math.round(roundToStep(dkkBase * tierMultiplier, 1));
+  const converted = applyConversionRule(eur, CONVERSION_RULES.wmd_tiered_fx_7_6);
 
   return {
-    dkkBase: Number(dkkBase.toFixed(4)),
-    tierMultiplier,
-    dkkFinal,
+    dkkBase: converted.convertedPriceDkk,
+    tierMultiplier: converted.tierMultiplier,
+    dkkFinal: converted.finalPriceDkk,
   };
 }
 
@@ -749,89 +750,25 @@ async function importToSupabase({ tenantId, productName, productSlug, mappedRows
   const activeMaterials = Array.from(new Set(mappedRows.map((row) => row.materialLabel)));
   const activeFormats = Array.from(new Set(mappedRows.map((row) => row.formatLabel)));
   const quantities = Array.from(new Set(mappedRows.map((row) => row.quantity))).sort((a, b) => a - b);
-
-  if (dryRun) {
-    return {
-      dryRun: true,
-      productSlug,
-      rowsPrepared: mappedRows.length,
-      uniqueMaterials: activeMaterials.length,
-      uniqueFormats: activeFormats.length,
-      quantities,
-    };
-  }
-
-  const client = getSupabaseClient();
-  const ensured = await ensureProduct(client, tenantId, productName, productSlug);
-
-  const context = {
-    tenantId,
-    productId: ensured.product.id,
-    groups: await loadGroups(client, tenantId, ensured.product.id),
-  };
-
-  const formatGroup = await ensureGroup(client, context, {
-    name: "Format",
-    kind: "format",
-    sortOrder: 0,
-    uiMode: "buttons",
-  });
-
-  const materialGroup = await ensureGroup(client, context, {
-    name: "Materiale",
-    kind: "material",
-    sortOrder: 1,
-    uiMode: "buttons",
-  });
-
-  const formatMap = new Map();
-  for (const formatConfig of SOURCE_FORMATS) {
-    const value = await ensureValue(client, context, formatGroup, formatConfig.label, {
-      widthMm: formatConfig.widthMm,
-      heightMm: formatConfig.heightMm,
-    });
-    formatMap.set(formatConfig.label, value);
-  }
-
-  const materialMap = new Map();
-  for (const materialLabel of activeMaterials) {
-    const value = await ensureValue(client, context, materialGroup, materialLabel);
-    materialMap.set(materialLabel, value);
-  }
-
-  const pricingStructure = buildPricingStructure({
-    materialGroup,
-    materialValues: activeMaterials.map((name) => materialMap.get(name)).filter(Boolean),
-    formatGroup,
-    formatValues: activeFormats.map((name) => formatMap.get(name)).filter(Boolean),
-    quantities,
-  });
-
-  const dedupeRows = new Map();
-
-  mappedRows.forEach((row) => {
-    const materialValue = materialMap.get(row.materialLabel);
-    const formatValue = formatMap.get(row.formatLabel);
-    if (!materialValue || !formatValue) return;
-
-    const variantName = formatValue.id;
-
-    const payload = {
-      tenant_id: tenantId,
-      product_id: ensured.product.id,
-      variant_name: variantName,
-      variant_value: materialValue.id,
+  const normalizedRows = mappedRows.map((row) =>
+    createNormalizedMatrixRecord({
+      supplier: "wir-machen-druck",
+      sourceType: "playwright",
+      importerKey: "standard_rollup_fetch_import",
+      productFamily: "rollup",
+      sourceUrl: row.sourceUrl,
+      supplierProductType: "standard-rollup",
       quantity: row.quantity,
-      price_dkk: row.dkkFinal,
-      extra_data: {
-        verticalAxisGroupId: materialGroup.id,
-        verticalAxisValueId: materialValue.id,
-        formatId: formatValue.id,
-        materialId: materialValue.id,
-        selectionMap: {
-          format: formatValue.id,
-          material: materialValue.id,
-        },
+      supplierCurrency: "EUR",
+      supplierPrice: row.eur,
+      convertedPriceDkk: row.dkkBase,
+      finalPriceDkk: row.dkkFinal,
+      conversionRuleKey: CONVERSION_RULES.wmd_tiered_fx_7_6.key,
+      selections: {
+        material: row.materialLabel,
+        format: row.formatLabel,
+      },
+      extraData: {
         source: "standard_rollup_fetch_import",
         sourceUrl: row.sourceUrl,
         sourceMaterialLabel: row.sourceMaterialLabel,
@@ -841,25 +778,82 @@ async function importToSupabase({ tenantId, productName, productSlug, mappedRows
         dkkBase: row.dkkBase,
         tierMultiplier: row.tierMultiplier,
       },
+      rawPayload: {
+        sourceMaterialLabel: row.sourceMaterialLabel,
+        sourceUrl: row.sourceUrl,
+      },
+    })
+  );
+
+  if (dryRun) {
+    return {
+      dryRun: true,
+      productSlug,
+      rowsPrepared: normalizedRows.length,
+      uniqueMaterials: activeMaterials.length,
+      uniqueFormats: activeFormats.length,
+      quantities,
     };
+  }
 
-    const key = `${payload.product_id}|${payload.variant_name}|${payload.variant_value}|${payload.quantity}`;
-    dedupeRows.set(key, payload);
-  });
+  const client = getSupabaseClient();
+  const ensured = await ensureProduct(client, tenantId, productName, productSlug);
+  const matrixConfig = {
+    verticalAxis: {
+      key: "material",
+      groupName: "Materiale",
+      kind: "material",
+      sectionType: "materials",
+      sortOrder: 1,
+      sectionId: "vertical-axis",
+      uiMode: "buttons",
+      title: "Materiale",
+      description: "",
+      selectionMapKey: "material",
+      extraDataIdField: "materialId",
+      valueSpecs: activeMaterials.map((name) => ({ name })),
+    },
+    sections: [
+      {
+        key: "format",
+        rowId: "row-format",
+        sectionId: "format-section",
+        groupName: "Format",
+        kind: "format",
+        sectionType: "formats",
+        sortOrder: 0,
+        uiMode: "buttons",
+        selectionMode: "required",
+        title: "Format",
+        description: "",
+        selectionMapKey: "format",
+        extraDataIdField: "formatId",
+        requireDimensions: true,
+        valueSpecs: SOURCE_FORMATS.filter((format) => activeFormats.includes(format.label)).map(
+          (format) => ({
+            name: format.label,
+            widthMm: format.widthMm,
+            heightMm: format.heightMm,
+          })
+        ),
+      },
+    ],
+  };
 
-  const priceRows = Array.from(dedupeRows.values());
-
-  const { error: productUpdateError } = await client
-    .from("products")
-    .update({
+  const result = await publishNormalizedMatrixProduct({
+    client,
+    tenantId,
+    productId: ensured.product.id,
+    matrixConfig,
+    normalizedRows,
+    deleteByTenant: true,
+    productUpdate: {
       name: productName,
       slug: productSlug,
       description: SHORT_DESCRIPTION_DA,
       about_title: ABOUT_TITLE_DA,
       about_description: ABOUT_DESCRIPTION_DA,
       category: DEFAULT_CATEGORY,
-      pricing_type: "matrix",
-      pricing_structure: pricingStructure,
       technical_specs: {
         width_mm: 1000,
         height_mm: 2000,
@@ -874,38 +868,18 @@ async function importToSupabase({ tenantId, productName, productSlug, mappedRows
           rollup_100x200: source100Url,
         },
       },
-    })
-    .eq("id", ensured.product.id);
-
-  if (productUpdateError) throw productUpdateError;
-
-  const { error: deleteError } = await client
-    .from("generic_product_prices")
-    .delete()
-    .eq("tenant_id", tenantId)
-    .eq("product_id", ensured.product.id);
-
-  if (deleteError) throw deleteError;
-
-  const chunkSize = 500;
-  let inserted = 0;
-
-  for (let i = 0; i < priceRows.length; i += chunkSize) {
-    const chunk = priceRows.slice(i, i + chunkSize);
-    const { error: insertError } = await client.from("generic_product_prices").insert(chunk);
-    if (insertError) throw insertError;
-    inserted += chunk.length;
-  }
+    },
+  });
 
   return {
     dryRun: false,
     productId: ensured.product.id,
     productSlug,
     productCreated: ensured.created,
-    rowsInserted: inserted,
+    rowsInserted: result.rowsInserted,
     uniqueMaterials: activeMaterials.length,
     uniqueFormats: activeFormats.length,
-    quantities,
+    quantities: result.quantities,
   };
 }
 

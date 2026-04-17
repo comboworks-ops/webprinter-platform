@@ -24,6 +24,14 @@ import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { parseLocalizedNumber, resolveTierMultiplier, roundToStep } from "./product-import/ul-prices.js";
 import { ensureDir, timestampForFile } from "./product-import/snapshot-io.js";
+import {
+    salesmapperTransformedPrice,
+    buildSalesmapperNormalizedRows,
+    buildSalesmapperMaterialAxis,
+    buildSalesmapperFormatSection,
+    buildSalesmapperOptionSection,
+    publishSalesmapperMatrix,
+} from "./product-import/shared/salesmapper-matrix.js";
 
 /* ────────── constants ────────── */
 
@@ -108,10 +116,7 @@ function parseQuantityPriceText(t) {
 }
 
 function transformedPrice(eur) {
-    const dkkBase = eur * EUR_TO_DKK;
-    const tierMultiplier = resolveTierMultiplier(dkkBase, TIERS);
-    const dkkFinal = Math.round(roundToStep(dkkBase * tierMultiplier, 1));
-    return { dkkBase: Number(dkkBase.toFixed(4)), tierMultiplier, dkkFinal };
+    return salesmapperTransformedPrice(eur);
 }
 
 function materialWanted(label) { const n = normalizeLabel(label); return MATERIAL_MATCHERS.find((m) => m.pattern.test(n)) || null; }
@@ -221,84 +226,69 @@ function buildPricingStructure({ materialGroup, materialValues, formatGroup, for
 
 async function importToSupabase({ tenantId, productName, productSlug, transformedRows, dryRun }) {
     if (!transformedRows.length) throw new Error("No rows");
+    const formatNames = FORMAT_SLUGS.map((f) => f.formatLabel);
+    const printModeNames = ["4+0", "4+4"];
+    const kacheringNames = KACHERING_TYPES.map((k) => k.label);
+    const materialNames = MATERIAL_MATCHERS.map((m) => m.label);
+    const normalizedRows = buildSalesmapperNormalizedRows(transformedRows, {
+        importerKey: "salesmapper_kachering_fetch_import",
+        supplierProductType: "salesmapper-kachering-3-laschen",
+        selectionsForRow: (row) => ({
+            material: row.materialLabel,
+            format: row.formatLabel,
+            printMode: row.printMode,
+            kachering: row.kacheringLabel,
+        }),
+    });
     if (dryRun) return {
-        dryRun: true, productSlug, rowsPrepared: transformedRows.length,
-        uniqueFormats: new Set(transformedRows.map((r) => r.formatLabel)).size,
-        uniquePrintModes: new Set(transformedRows.map((r) => r.printMode)).size,
-        uniqueKachering: new Set(transformedRows.map((r) => r.kacheringLabel)).size,
-        uniqueMaterials: new Set(transformedRows.map((r) => r.materialLabel)).size,
+        dryRun: true, productSlug, rowsPrepared: normalizedRows.length,
+        uniqueFormats: formatNames.length,
+        uniquePrintModes: printModeNames.length,
+        uniqueKachering: kacheringNames.length,
+        uniqueMaterials: materialNames.length,
     };
 
     const client = getSupabaseClient();
     const ensured = await ensureProduct(client, tenantId, productName, productSlug);
-    const ctx = { tenantId, productId: ensured.product.id, groups: await loadGroups(client, tenantId, ensured.product.id) };
-
-    const fmtGrp = await ensureGroup(client, ctx, { name: "Format", kind: "format", sortOrder: 0 });
-    const pmGrp = await ensureGroup(client, ctx, { name: "Tryk", kind: "finish", sortOrder: 1 });
-    const kachGrp = await ensureGroup(client, ctx, { name: "Kachering", kind: "finish", sortOrder: 2 });
-    const matGrp = await ensureGroup(client, ctx, { name: "Materiale", kind: "material", sortOrder: 3 });
-
-    const fmtMap = new Map(), pmMap = new Map(), kachMap = new Map(), matMap = new Map();
-
-    const FMT_ORDER = FORMAT_SLUGS.map((f) => f.formatLabel);
-    for (const n of FMT_ORDER) fmtMap.set(n, await ensureValue(client, ctx, fmtGrp, n));
-    for (const n of ["4+0", "4+4"]) pmMap.set(n, await ensureValue(client, ctx, pmGrp, n));
-    for (const k of KACHERING_TYPES) kachMap.set(k.label, await ensureValue(client, ctx, kachGrp, k.label));
-    for (const m of MATERIAL_MATCHERS) matMap.set(m.label, await ensureValue(client, ctx, matGrp, m.label));
-
-    const fmtVals = FMT_ORDER.map((n) => fmtMap.get(n)).filter(Boolean);
-    const pmVals = ["4+0", "4+4"].map((n) => pmMap.get(n)).filter(Boolean);
-    const kachVals = KACHERING_TYPES.map((k) => kachMap.get(k.label)).filter(Boolean);
-    const matVals = MATERIAL_MATCHERS.map((m) => matMap.get(m.label)).filter(Boolean);
-    const allQty = Array.from(new Set(transformedRows.map((r) => r.quantity))).sort((a, b) => a - b);
-
-    const ps = buildPricingStructure({
-        materialGroup: matGrp, materialValues: matVals,
-        formatGroup: fmtGrp, formatValues: fmtVals,
-        printModeGroup: pmGrp, printModeValues: pmVals,
-        kacheringGroup: kachGrp, kacheringValues: kachVals,
-        allQuantities: allQty,
+    const result = await publishSalesmapperMatrix({
+        client,
+        tenantId,
+        productId: ensured.product.id,
+        normalizedRows,
+        matrixConfig: {
+            verticalAxis: buildSalesmapperMaterialAxis(materialNames, 3),
+            sections: [
+                buildSalesmapperFormatSection(formatNames),
+                buildSalesmapperOptionSection({
+                    key: "printMode",
+                    rowId: "row-print-mode",
+                    sectionId: "print-mode-section",
+                    groupName: "Tryk",
+                    title: "Tryk",
+                    valueNames: printModeNames,
+                    sortOrder: 1,
+                    extraDataIdField: "printModeId",
+                }),
+                buildSalesmapperOptionSection({
+                    key: "kachering",
+                    rowId: "row-kachering",
+                    sectionId: "kachering-section",
+                    groupName: "Kachering",
+                    title: "Kachering",
+                    valueNames: kacheringNames,
+                    sortOrder: 2,
+                    sectionType: "options",
+                    extraDataIdField: "kacheringId",
+                }),
+            ],
+        },
+        productUpdate: { name: productName, slug: productSlug },
     });
-
-    // variant_name = sorted combo of format + printMode + kachering value IDs
-    const dedup = new Map();
-    transformedRows.forEach((r) => {
-        const fv = fmtMap.get(r.formatLabel), pv = pmMap.get(r.printMode), kv = kachMap.get(r.kacheringLabel), mv = matMap.get(r.materialLabel);
-        if (!fv || !pv || !kv || !mv) return;
-        const vn = [fv.id, pv.id, kv.id].sort().join("|");
-        const payload = {
-            tenant_id: tenantId, product_id: ensured.product.id, variant_name: vn, variant_value: mv.id,
-            quantity: r.quantity, price_dkk: r.dkkFinal,
-            extra_data: {
-                verticalAxisGroupId: matGrp.id, verticalAxisValueId: mv.id,
-                formatId: fv.id, materialId: mv.id, printModeId: pv.id, kacheringId: kv.id,
-                variantValueIds: [pv.id, kv.id],
-                selectionMap: { format: fv.id, material: mv.id, variantValueIds: [pv.id, kv.id] },
-                source: "salesmapper_kachering_fetch_import", sourceUrl: r.detailUrl,
-                eur: r.eur, dkkBase: r.dkkBase, tierMultiplier: r.tierMultiplier,
-            },
-        };
-        dedup.set(`${payload.product_id}|${vn}|${mv.id}|${r.quantity}`, payload);
-    });
-
-    const priceRows = Array.from(dedup.values());
-    const { error: upErr } = await client.from("products").update({ name: productName, slug: productSlug, pricing_type: "matrix", pricing_structure: ps }).eq("id", ensured.product.id);
-    if (upErr) throw upErr;
-    const { error: delErr } = await client.from("generic_product_prices").delete().eq("product_id", ensured.product.id);
-    if (delErr) throw delErr;
-
-    let inserted = 0;
-    for (let i = 0; i < priceRows.length; i += 500) {
-        const b = priceRows.slice(i, i + 500);
-        const { error } = await client.from("generic_product_prices").insert(b);
-        if (error) throw error;
-        inserted += b.length;
-    }
 
     return {
         dryRun: false, productId: ensured.product.id, productSlug, productCreated: ensured.created,
-        rowsInserted: inserted, uniqueFormats: fmtVals.length, uniquePrintModes: pmVals.length,
-        uniqueKachering: kachVals.length, uniqueMaterials: matVals.length,
+        rowsInserted: result.rowsInserted, uniqueFormats: formatNames.length, uniquePrintModes: printModeNames.length,
+        uniqueKachering: kacheringNames.length, uniqueMaterials: materialNames.length,
     };
 }
 

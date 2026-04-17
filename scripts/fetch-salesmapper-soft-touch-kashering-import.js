@@ -25,6 +25,14 @@ import {
   roundToStep,
 } from "./product-import/ul-prices.js";
 import { ensureDir, timestampForFile } from "./product-import/snapshot-io.js";
+import {
+  salesmapperTransformedPrice,
+  buildSalesmapperNormalizedRows,
+  buildSalesmapperMaterialAxis,
+  buildSalesmapperFormatSection,
+  buildSalesmapperOptionSection,
+  publishSalesmapperMatrix,
+} from "./product-import/shared/salesmapper-matrix.js";
 
 const DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 const DEFAULT_PRODUCT_NAME = "Salgsmapper soft touch kashering";
@@ -130,14 +138,7 @@ function parseQuantityPriceText(text) {
 }
 
 function transformedPrice(eur) {
-  const dkkBase = eur * EUR_TO_DKK;
-  const tierMultiplier = resolveTierMultiplier(dkkBase, TIERS);
-  const dkkFinal = Math.round(roundToStep(dkkBase * tierMultiplier, 1));
-  return {
-    dkkBase: Number(dkkBase.toFixed(4)),
-    tierMultiplier,
-    dkkFinal,
-  };
+  return salesmapperTransformedPrice(eur);
 }
 
 async function withRetry(fn, retries = 2) {
@@ -462,173 +463,76 @@ async function importToSupabase({
   dryRun,
 }) {
   if (!transformedRows.length) throw new Error("No rows to import");
+  const normalizedRows = buildSalesmapperNormalizedRows(transformedRows, {
+    importerKey: "salesmapper_soft_touch_kashering_fetch_import",
+    supplierProductType: "salesmapper-soft-touch-kashering",
+    selectionsForRow: (row) => ({
+      material: row.materialLabel,
+      format: DEFAULT_FORMAT_LABEL,
+      printMode: row.printMode,
+      spotLak: row.spotLakLabel,
+    }),
+    extraDataForRow: (row) => ({
+      sourceMaterialLabel: row.sourceMaterialLabel,
+    }),
+  });
 
   if (dryRun) {
     return {
       dryRun: true,
       productSlug,
-      rowsPrepared: transformedRows.length,
-      uniquePrintModes: new Set(transformedRows.map((row) => row.printMode)).size,
-      uniqueSpotLakValues: new Set(
-        transformedRows.map((row) => row.spotLakLabel)
-      ).size,
-      uniqueMaterials: new Set(transformedRows.map((row) => row.materialLabel)).size,
+      rowsPrepared: normalizedRows.length,
+      uniquePrintModes: PRINT_MODES.length,
+      uniqueSpotLakValues: SPOT_LAK_VALUES.length,
+      uniqueMaterials: 1,
     };
   }
 
   const client = getSupabaseClient();
   const ensured = await ensureProduct(client, tenantId, productName, productSlug);
-  const context = {
+  const result = await publishSalesmapperMatrix({
+    client,
     tenantId,
     productId: ensured.product.id,
-    groups: await loadGroups(client, tenantId, ensured.product.id),
-  };
-
-  const formatGroup = await ensureGroup(client, context, {
-    name: "Format",
-    kind: "format",
-    sortOrder: 0,
-  });
-  const printModeGroup = await ensureGroup(client, context, {
-    name: "Tryk",
-    kind: "finish",
-    sortOrder: 1,
-  });
-  const spotLakGroup = await ensureGroup(client, context, {
-    name: "Spot Lak",
-    kind: "finish",
-    sortOrder: 2,
-  });
-  const materialGroup = await ensureGroup(client, context, {
-    name: "Materiale",
-    kind: "material",
-    sortOrder: 3,
-  });
-
-  const formatValue = await ensureValue(
-    client,
-    context,
-    formatGroup,
-    DEFAULT_FORMAT_LABEL
-  );
-  const printModeMap = new Map();
-  for (const valueName of PRINT_MODES) {
-    printModeMap.set(
-      valueName,
-      await ensureValue(client, context, printModeGroup, valueName)
-    );
-  }
-  const spotLakMap = new Map();
-  for (const valueName of SPOT_LAK_VALUES) {
-    spotLakMap.set(
-      valueName,
-      await ensureValue(client, context, spotLakGroup, valueName)
-    );
-  }
-  const materialValue = await ensureValue(
-    client,
-    context,
-    materialGroup,
-    MATERIAL_LABEL
-  );
-
-  const allQuantities = Array.from(
-    new Set(transformedRows.map((row) => row.quantity))
-  ).sort((a, b) => a - b);
-
-  const pricingStructure = buildPricingStructure({
-    materialGroup,
-    materialValues: [materialValue],
-    formatGroup,
-    formatValues: [formatValue],
-    printModeGroup,
-    printModeValues: PRINT_MODES.map((name) => printModeMap.get(name)).filter(
-      Boolean
-    ),
-    spotLakGroup,
-    spotLakValues: SPOT_LAK_VALUES.map((name) => spotLakMap.get(name)).filter(
-      Boolean
-    ),
-    allQuantities,
-  });
-
-  const dedupe = new Map();
-  transformedRows.forEach((row) => {
-    const printModeValue = printModeMap.get(row.printMode);
-    const spotLakValue = spotLakMap.get(row.spotLakLabel);
-    if (!printModeValue || !spotLakValue) return;
-
-    const variantName = [formatValue.id, printModeValue.id, spotLakValue.id]
-      .sort()
-      .join("|");
-    const variantValueIds = [printModeValue.id, spotLakValue.id].sort();
-    const payload = {
-      tenant_id: tenantId,
-      product_id: ensured.product.id,
-      variant_name: variantName,
-      variant_value: materialValue.id,
-      quantity: row.quantity,
-      price_dkk: row.dkkFinal,
-      extra_data: {
-        verticalAxisGroupId: materialGroup.id,
-        verticalAxisValueId: materialValue.id,
-        formatId: formatValue.id,
-        materialId: materialValue.id,
-        printModeId: printModeValue.id,
-        spotLakId: spotLakValue.id,
-        variantValueIds,
-        selectionMap: {
-          format: formatValue.id,
-          material: materialValue.id,
-          variantValueIds,
-        },
-        source: "salesmapper_soft_touch_kashering_fetch_import",
-        sourceUrl: row.detailUrl,
-        sourceMaterialLabel: row.sourceMaterialLabel,
-        eur: row.eur,
-        dkkBase: row.dkkBase,
-        tierMultiplier: row.tierMultiplier,
-      },
-    };
-
-    dedupe.set(
-      `${payload.product_id}|${variantName}|${payload.variant_value}|${row.quantity}`,
-      payload
-    );
-  });
-
-  const priceRows = Array.from(dedupe.values());
-  const { error: updateError } = await client
-    .from("products")
-    .update({
+    normalizedRows,
+    matrixConfig: {
+      verticalAxis: buildSalesmapperMaterialAxis([MATERIAL_LABEL], 3),
+      sections: [
+        buildSalesmapperFormatSection([DEFAULT_FORMAT_LABEL]),
+        buildSalesmapperOptionSection({
+          key: "printMode",
+          rowId: "row-print-mode",
+          sectionId: "print-mode-section",
+          groupName: "Tryk",
+          title: "Tryk",
+          valueNames: PRINT_MODES,
+          sortOrder: 1,
+          extraDataIdField: "printModeId",
+        }),
+        buildSalesmapperOptionSection({
+          key: "spotLak",
+          rowId: "row-spot-lak",
+          sectionId: "spot-lak-section",
+          groupName: "Spot Lak",
+          title: "Spot Lak",
+          valueNames: SPOT_LAK_VALUES,
+          sortOrder: 2,
+          extraDataIdField: "spotLakId",
+        }),
+      ],
+    },
+    productUpdate: {
       name: productName,
       slug: productSlug,
-      pricing_type: "matrix",
-      pricing_structure: pricingStructure,
-    })
-    .eq("id", ensured.product.id);
-  if (updateError) throw updateError;
-
-  const { error: deleteError } = await client
-    .from("generic_product_prices")
-    .delete()
-    .eq("product_id", ensured.product.id);
-  if (deleteError) throw deleteError;
-
-  let inserted = 0;
-  for (let i = 0; i < priceRows.length; i += 500) {
-    const batch = priceRows.slice(i, i + 500);
-    const { error } = await client.from("generic_product_prices").insert(batch);
-    if (error) throw error;
-    inserted += batch.length;
-  }
+    },
+  });
 
   return {
     dryRun: false,
     productId: ensured.product.id,
     productSlug,
     productCreated: ensured.created,
-    rowsInserted: inserted,
+    rowsInserted: result.rowsInserted,
   };
 }
 

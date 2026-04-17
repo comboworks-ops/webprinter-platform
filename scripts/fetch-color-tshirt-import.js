@@ -34,6 +34,9 @@ import {
 } from "./product-import/ul-prices.js";
 import { ensureDir, timestampForFile } from "./product-import/snapshot-io.js";
 import { buildTshirtTechnicalSpecs } from "./product-import/tshirt-size-distribution-lock.js";
+import { CONVERSION_RULES, applyConversionRule } from "./product-import/shared/conversion.js";
+import { createNormalizedMatrixRecord } from "./product-import/shared/normalized-pricing.js";
+import { publishNormalizedMatrixProduct } from "./product-import/shared/matrix-publisher.js";
 
 const SOURCE_URL =
   "https://www.wir-machen-druck.de/tshirt-herren-budget-farbig-fruit-of-the-loom-mit-einer-druckposition.html";
@@ -167,13 +170,11 @@ function parseQuantityPerUnitText(text) {
 }
 
 function transformedPrice(totalEur) {
-  const dkkBase = totalEur * EUR_TO_DKK;
-  const tierMultiplier = resolveTierMultiplier(dkkBase, TIERS);
-  const dkkFinal = Math.round(roundToStep(dkkBase * tierMultiplier, 1));
+  const converted = applyConversionRule(totalEur, CONVERSION_RULES.wmd_tiered_fx_7_6);
   return {
-    dkkBase: Number(dkkBase.toFixed(4)),
-    tierMultiplier,
-    dkkFinal,
+    dkkBase: converted.convertedPriceDkk,
+    tierMultiplier: converted.tierMultiplier,
+    dkkFinal: converted.finalPriceDkk,
   };
 }
 
@@ -808,143 +809,28 @@ async function importToSupabase({
   const activePrintPositions = Array.from(new Set(mappedRows.map((row) => row.printPositionLabel))).sort();
   const activeTshirtColors = Array.from(new Set(mappedRows.map((row) => row.tshirtColorLabel))).sort();
   const quantities = Array.from(new Set(mappedRows.map((row) => row.quantity))).sort((a, b) => a - b);
-
-  if (dryRun) {
-    return {
-      dryRun: true,
-      productSlug,
-      rowsPrepared: mappedRows.length,
-      uniquePrintModes: activePrintModes.length,
-      uniquePrintPositions: activePrintPositions.length,
-      uniqueTshirtColors: activeTshirtColors.length,
-      quantities,
-    };
-  }
-
-  const client = getSupabaseClient();
-  const ensured = await ensureProduct(client, tenantId, productName, productSlug, {
-    formatLabel,
-    widthMm,
-    heightMm,
-  });
-
-  const context = {
-    tenantId,
-    productId: ensured.product.id,
-    groups: await loadGroups(client, tenantId, ensured.product.id),
-  };
-
-  const formatGroup = await ensureGroup(client, context, {
-    name: "Format",
-    kind: "format",
-    sortOrder: 0,
-    uiMode: "buttons",
-  });
-  const materialGroup = await ensureGroup(client, context, {
-    name: "Materiale",
-    kind: "material",
-    sortOrder: 1,
-    uiMode: "buttons",
-  });
-  const printModeGroup = await ensureGroup(client, context, {
-    name: "Silketryk",
-    kind: "finish",
-    sortOrder: 2,
-    uiMode: "buttons",
-  });
-  const printPositionGroup = await ensureGroup(client, context, {
-    name: "Trykposition",
-    kind: "finish",
-    sortOrder: 3,
-    uiMode: "dropdown",
-  });
-  const tshirtColorGroup = await ensureGroup(client, context, {
-    name: "T-shirt farve",
-    kind: "finish",
-    sortOrder: 4,
-    uiMode: "dropdown",
-  });
-
-  const formatValue = await ensureValue(client, context, formatGroup, formatLabel, {
-    widthMm,
-    heightMm,
-  });
-  const materialValue = await ensureValue(client, context, materialGroup, TARGET_MATERIAL);
-
-  const printModeMap = new Map();
-  for (const printModeLabel of activePrintModes) {
-    printModeMap.set(
-      printModeLabel,
-      await ensureValue(client, context, printModeGroup, printModeLabel)
-    );
-  }
-
-  const printPositionMap = new Map();
-  for (const printPositionLabel of activePrintPositions) {
-    printPositionMap.set(
-      printPositionLabel,
-      await ensureValue(client, context, printPositionGroup, printPositionLabel)
-    );
-  }
-
-  const tshirtColorMap = new Map();
-  for (const tshirtColorLabel of activeTshirtColors) {
-    tshirtColorMap.set(
-      tshirtColorLabel,
-      await ensureValue(client, context, tshirtColorGroup, tshirtColorLabel)
-    );
-  }
-
-  const pricingStructure = buildPricingStructure({
-    materialGroup,
-    materialValue,
-    formatGroup,
-    formatValue,
-    printModeGroup,
-    printModeValues: activePrintModes.map((label) => printModeMap.get(label)).filter(Boolean),
-    printPositionGroup,
-    printPositionValues: activePrintPositions.map((label) => printPositionMap.get(label)).filter(Boolean),
-    tshirtColorGroup,
-    tshirtColorValues: activeTshirtColors.map((label) => tshirtColorMap.get(label)).filter(Boolean),
-    quantities,
-  });
-
-  const dedupeRows = new Map();
-  mappedRows.forEach((row) => {
-    const printModeValue = printModeMap.get(row.printModeLabel);
-    const printPositionValue = printPositionMap.get(row.printPositionLabel);
-    const tshirtColorValue = tshirtColorMap.get(row.tshirtColorLabel);
-    if (!printModeValue || !printPositionValue || !tshirtColorValue) return;
-
-    const variantName = [formatValue.id, printModeValue.id, printPositionValue.id, tshirtColorValue.id]
-      .sort()
-      .join("|");
-    const variantValueIds = [printModeValue.id, printPositionValue.id, tshirtColorValue.id].sort();
-
-    const payload = {
-      tenant_id: tenantId,
-      product_id: ensured.product.id,
-      variant_name: variantName,
-      variant_value: materialValue.id,
+  const normalizedRows = mappedRows.map((row) =>
+    createNormalizedMatrixRecord({
+      supplier: "wir-machen-druck",
+      sourceType: "playwright",
+      importerKey: "color_tshirt_fetch_import",
+      productFamily: "tshirt",
+      sourceUrl: row.sourceUrl,
+      supplierProductType: "color-tshirt",
       quantity: row.quantity,
-      price_dkk: row.dkkFinal,
-      extra_data: {
-        verticalAxisGroupId: materialGroup.id,
-        verticalAxisValueId: materialValue.id,
-        formatId: formatValue.id,
-        materialId: materialValue.id,
-        printModeId: printModeValue.id,
-        printPositionId: printPositionValue.id,
-        tshirtColorId: tshirtColorValue.id,
-        variantValueIds,
-        selectionMap: {
-          format: formatValue.id,
-          material: materialValue.id,
-          printMode: printModeValue.id,
-          printPosition: printPositionValue.id,
-          tshirtColor: tshirtColorValue.id,
-          variantValueIds,
-        },
+      supplierCurrency: "EUR",
+      supplierPrice: row.totalEur,
+      convertedPriceDkk: row.dkkBase,
+      finalPriceDkk: row.dkkFinal,
+      conversionRuleKey: CONVERSION_RULES.wmd_tiered_fx_7_6.key,
+      selections: {
+        material: TARGET_MATERIAL,
+        format: formatLabel,
+        printMode: row.printModeLabel,
+        printPosition: row.printPositionLabel,
+        tshirtColor: row.tshirtColorLabel,
+      },
+      extraData: {
         source: "color_tshirt_fetch_import",
         sourceUrl: row.sourceUrl,
         sourceModeLabel: row.sourceModeLabel,
@@ -958,52 +844,142 @@ async function importToSupabase({
         dkkBase: row.dkkBase,
         tierMultiplier: row.tierMultiplier,
       },
+      rawPayload: {
+        sourceModeValue: row.sourceModeValue,
+        sourcePositionValue: row.sourcePositionValue,
+        sourceColorValue: row.sourceColorValue,
+      },
+    })
+  );
+
+  if (dryRun) {
+    return {
+      dryRun: true,
+      productSlug,
+      rowsPrepared: normalizedRows.length,
+      uniquePrintModes: activePrintModes.length,
+      uniquePrintPositions: activePrintPositions.length,
+      uniqueTshirtColors: activeTshirtColors.length,
+      quantities,
     };
+  }
 
-    const key = `${payload.product_id}|${payload.variant_name}|${payload.variant_value}|${payload.quantity}`;
-    dedupeRows.set(key, payload);
+  const client = getSupabaseClient();
+  const ensured = await ensureProduct(client, tenantId, productName, productSlug, {
+    formatLabel,
+    widthMm,
+    heightMm,
   });
-
-  const priceRows = Array.from(dedupeRows.values());
-
-  const { error: productUpdateError } = await client
-    .from("products")
-    .update({
+  const result = await publishNormalizedMatrixProduct({
+    client,
+    tenantId,
+    productId: ensured.product.id,
+    deleteByTenant: true,
+    matrixConfig: {
+      verticalAxis: {
+        key: "material",
+        groupName: "Materiale",
+        kind: "material",
+        sectionType: "materials",
+        sortOrder: 1,
+        sectionId: "vertical-axis",
+        uiMode: "buttons",
+        title: "Materiale",
+        description: "",
+        selectionMapKey: "material",
+        extraDataIdField: "materialId",
+        valueSpecs: [{ name: TARGET_MATERIAL }],
+      },
+      sections: [
+        {
+          key: "format",
+          rowId: "row-format",
+          sectionId: "format-section",
+          groupName: "Format",
+          kind: "format",
+          sectionType: "formats",
+          sortOrder: 0,
+          uiMode: "hidden",
+          selectionMode: "required",
+          title: "Format",
+          description: "",
+          selectionMapKey: "format",
+          extraDataIdField: "formatId",
+          requireDimensions: true,
+          valueSpecs: [{ name: formatLabel, widthMm, heightMm }],
+        },
+        {
+          key: "printMode",
+          rowId: "row-print-mode",
+          sectionId: "print-mode-section",
+          groupName: "Silketryk",
+          kind: "finish",
+          sectionType: "finishes",
+          sortOrder: 2,
+          uiMode: "buttons",
+          selectionMode: "required",
+          title: "Trykfarve",
+          description: "",
+          selectionMapKey: "printMode",
+          extraDataIdField: "printModeId",
+          isVariantDimension: true,
+          valueSpecs: activePrintModes.map((name) => ({ name })),
+        },
+        {
+          key: "printPosition",
+          rowId: "row-print-position",
+          sectionId: "print-position-section",
+          groupName: "Trykposition",
+          kind: "finish",
+          sectionType: "finishes",
+          sortOrder: 3,
+          uiMode: "dropdown",
+          selectionMode: "required",
+          title: "Trykposition",
+          description: "",
+          selectionMapKey: "printPosition",
+          extraDataIdField: "printPositionId",
+          isVariantDimension: true,
+          valueSpecs: activePrintPositions.map((name) => ({ name })),
+        },
+        {
+          key: "tshirtColor",
+          rowId: "row-tshirt-color",
+          sectionId: "tshirt-color-section",
+          groupName: "T-shirt farve",
+          kind: "finish",
+          sectionType: "finishes",
+          sortOrder: 4,
+          uiMode: "dropdown",
+          selectionMode: "required",
+          title: "T-shirt farve",
+          description: "",
+          selectionMapKey: "tshirtColor",
+          extraDataIdField: "tshirtColorId",
+          isVariantDimension: true,
+          valueSpecs: activeTshirtColors.map((name) => ({ name })),
+        },
+      ],
+    },
+    normalizedRows,
+    productUpdate: {
       name: productName,
       slug: productSlug,
-      pricing_type: "matrix",
-      pricing_structure: pricingStructure,
       category: "tekstiltryk",
       technical_specs: buildTshirtTechnicalSpecs({ widthMm, heightMm, formatLabel }),
-    })
-    .eq("id", ensured.product.id);
-  if (productUpdateError) throw productUpdateError;
-
-  const { error: deleteError } = await client
-    .from("generic_product_prices")
-    .delete()
-    .eq("tenant_id", tenantId)
-    .eq("product_id", ensured.product.id);
-  if (deleteError) throw deleteError;
-
-  let inserted = 0;
-  for (let i = 0; i < priceRows.length; i += 500) {
-    const chunk = priceRows.slice(i, i + 500);
-    const { error: insertError } = await client.from("generic_product_prices").insert(chunk);
-    if (insertError) throw insertError;
-    inserted += chunk.length;
-  }
+    },
+  });
 
   return {
     dryRun: false,
     productId: ensured.product.id,
     productSlug,
     productCreated: ensured.created,
-    rowsInserted: inserted,
+    rowsInserted: result.rowsInserted,
     uniquePrintModes: activePrintModes.length,
     uniquePrintPositions: activePrintPositions.length,
     uniqueTshirtColors: activeTshirtColors.length,
-    quantities,
+    quantities: result.quantities,
   };
 }
 

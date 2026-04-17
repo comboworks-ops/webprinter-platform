@@ -15,6 +15,7 @@ import process from "node:process";
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 import { chromium } from "playwright";
+import { applyConversionRule } from "./product-import/shared/conversion.js";
 
 const PROFILE_FLAT = "flat-surface-adhesive";
 const PROFILE_RIGIDS = "rigids";
@@ -471,8 +472,14 @@ function materialGroupLabel(name) {
 }
 
 function computeConvertedPricePerM2(pricePerM2Eur, args) {
-  const converted = pricePerM2Eur * args.eurToDkk * (1 + args.markupPct / 100);
-  return Number(converted.toFixed(6));
+  return applyConversionRule(pricePerM2Eur, {
+    type: "fixed_markup",
+    eurToDkk: args.eurToDkk,
+    markupPct: args.markupPct,
+    roundingStep: 0.000001,
+    integerResult: false,
+    precision: 6,
+  }).finalPriceDkk;
 }
 
 function median(values) {

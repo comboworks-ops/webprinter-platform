@@ -21,6 +21,14 @@ import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { parseLocalizedNumber, resolveTierMultiplier, roundToStep } from "./product-import/ul-prices.js";
 import { ensureDir, timestampForFile } from "./product-import/snapshot-io.js";
+import {
+    salesmapperTransformedPrice,
+    buildSalesmapperNormalizedRows,
+    buildSalesmapperMaterialAxis,
+    buildSalesmapperFormatSection,
+    buildSalesmapperOptionSection,
+    publishSalesmapperMatrix,
+} from "./product-import/shared/salesmapper-matrix.js";
 
 /* ────────── constants ────────── */
 
@@ -169,10 +177,7 @@ function parseQuantityPriceText(text) {
 }
 
 function transformedPrice(eur) {
-    const dkkBase = eur * EUR_TO_DKK;
-    const tierMultiplier = resolveTierMultiplier(dkkBase, TIERS);
-    const dkkFinal = Math.round(roundToStep(dkkBase * tierMultiplier, 1));
-    return { dkkBase: Number(dkkBase.toFixed(4)), tierMultiplier, dkkFinal };
+    return salesmapperTransformedPrice(eur);
 }
 
 function materialWanted(optionLabel) {
@@ -345,84 +350,57 @@ function buildPricingStructure({ materialGroup, materialValues, formatGroup, for
 
 async function importToSupabase({ tenantId, productName, productSlug, transformedRows, dryRun }) {
     if (!transformedRows.length) throw new Error("No rows to import");
+    const formatNames = Array.from(new Set(SOURCE_PAGES.map((page) => page.formatLabel)));
+    const printModeNames = ["4+0", "4+4"];
+    const materialNames = MATERIAL_MATCHERS.map((m) => m.label);
+    const normalizedRows = buildSalesmapperNormalizedRows(transformedRows, {
+        importerKey: "salesmapper_uvlak_fetch_import",
+        supplierProductType: "salesmapper-uvlak-3-laschen",
+        selectionsForRow: (row) => ({
+            material: row.materialLabel,
+            format: row.formatLabel,
+            printMode: row.printMode,
+        }),
+    });
 
     if (dryRun) {
         return {
-            dryRun: true, productSlug, rowsPrepared: transformedRows.length,
-            uniqueFormats: new Set(transformedRows.map((r) => r.formatLabel)).size,
-            uniquePrintModes: new Set(transformedRows.map((r) => r.printMode)).size,
-            uniqueMaterials: new Set(transformedRows.map((r) => r.materialLabel)).size
+            dryRun: true, productSlug, rowsPrepared: normalizedRows.length,
+            uniqueFormats: formatNames.length,
+            uniquePrintModes: printModeNames.length,
+            uniqueMaterials: materialNames.length
         };
     }
 
     const client = getSupabaseClient();
     const ensured = await ensureProduct(client, tenantId, productName, productSlug);
-    const ctx = { tenantId, productId: ensured.product.id, groups: await loadGroups(client, tenantId, ensured.product.id) };
-
-    const formatGroup = await ensureGroup(client, ctx, { name: "Format", kind: "format", sortOrder: 0 });
-    const printModeGroup = await ensureGroup(client, ctx, { name: "Tryk", kind: "finish", sortOrder: 1 });
-    const materialGroup = await ensureGroup(client, ctx, { name: "Materiale", kind: "material", sortOrder: 2 });
-
-    const formatMap = new Map();
-    const printModeMap = new Map();
-    const materialMap = new Map();
-
-    const FORMAT_ORDER = ["A4 salgsmappe med UV lak 3-laschen", "A5 salgsmappe med UV lak 3-laschen", "A6 salgsmappe med UV lak 3-laschen", "DIN Lang salgsmappe med UV lak 3-laschen", "21x21 salgsmappe med UV lak 3-laschen"];
-    for (const n of FORMAT_ORDER) { formatMap.set(n, await ensureValue(client, ctx, formatGroup, n)); }
-
-    for (const n of ["4+0", "4+4"]) { printModeMap.set(n, await ensureValue(client, ctx, printModeGroup, n)); }
-
-    const MATERIAL_ORDER = MATERIAL_MATCHERS.map((m) => m.label);
-    for (const n of MATERIAL_ORDER) { materialMap.set(n, await ensureValue(client, ctx, materialGroup, n)); }
-
-    const formatValues = FORMAT_ORDER.map((n) => formatMap.get(n)).filter(Boolean);
-    const printModeValues = ["4+0", "4+4"].map((n) => printModeMap.get(n)).filter(Boolean);
-    const materialValues = MATERIAL_ORDER.map((n) => materialMap.get(n)).filter(Boolean);
-
-    const allQuantities = Array.from(new Set(transformedRows.map((r) => r.quantity))).sort((a, b) => a - b);
-
-    const pricingStructure = buildPricingStructure({ materialGroup, materialValues, formatGroup, formatValues, printModeGroup, printModeValues, allQuantities });
-
-    const dedupeRows = new Map();
-    transformedRows.forEach((row) => {
-        const fv = formatMap.get(row.formatLabel), pm = printModeMap.get(row.printMode), mv = materialMap.get(row.materialLabel);
-        if (!fv || !pm || !mv) return;
-        const variantValueIds = [fv.id, pm.id].sort();
-        const variantName = variantValueIds.join("|");
-        const payload = {
-            tenant_id: tenantId, product_id: ensured.product.id, variant_name: variantName, variant_value: mv.id,
-            quantity: row.quantity, price_dkk: row.dkkFinal,
-            extra_data: {
-                verticalAxisGroupId: materialGroup.id, verticalAxisValueId: mv.id,
-                formatId: fv.id, materialId: mv.id, printModeId: pm.id,
-                variantValueIds: [pm.id],
-                selectionMap: { format: fv.id, material: mv.id, variantValueIds: [pm.id] },
-                source: "salesmapper_uvlak_fetch_import", sourceUrl: row.detailUrl,
-                eur: row.eur, dkkBase: row.dkkBase, tierMultiplier: row.tierMultiplier,
-            },
-        };
-        dedupeRows.set(`${payload.product_id}|${variantName}|${mv.id}|${row.quantity}`, payload);
+    const result = await publishSalesmapperMatrix({
+        client,
+        tenantId,
+        productId: ensured.product.id,
+        normalizedRows,
+        matrixConfig: {
+            verticalAxis: buildSalesmapperMaterialAxis(materialNames, 2),
+            sections: [
+                buildSalesmapperFormatSection(formatNames),
+                buildSalesmapperOptionSection({
+                    key: "printMode",
+                    rowId: "row-print-mode",
+                    sectionId: "print-mode-section",
+                    groupName: "Tryk",
+                    title: "Tryk",
+                    valueNames: printModeNames,
+                    sortOrder: 1,
+                    extraDataIdField: "printModeId",
+                }),
+            ],
+        },
+        productUpdate: { name: productName, slug: productSlug },
     });
 
-    const priceRows = Array.from(dedupeRows.values());
-
-    const { error: upErr } = await client.from("products").update({ name: productName, slug: productSlug, pricing_type: "matrix", pricing_structure: pricingStructure }).eq("id", ensured.product.id);
-    if (upErr) throw upErr;
-
-    const { error: delErr } = await client.from("generic_product_prices").delete().eq("product_id", ensured.product.id);
-    if (delErr) throw delErr;
-
-    let inserted = 0;
-    for (let i = 0; i < priceRows.length; i += 500) {
-        const batch = priceRows.slice(i, i + 500);
-        const { error: insErr } = await client.from("generic_product_prices").insert(batch);
-        if (insErr) throw insErr;
-        inserted += batch.length;
-    }
-
     return {
-        dryRun: false, productId: ensured.product.id, productSlug, productCreated: ensured.created, rowsInserted: inserted,
-        uniqueFormats: formatValues.length, uniquePrintModes: printModeValues.length, uniqueMaterials: materialValues.length
+        dryRun: false, productId: ensured.product.id, productSlug, productCreated: ensured.created, rowsInserted: result.rowsInserted,
+        uniqueFormats: formatNames.length, uniquePrintModes: printModeNames.length, uniqueMaterials: materialNames.length
     };
 }
 

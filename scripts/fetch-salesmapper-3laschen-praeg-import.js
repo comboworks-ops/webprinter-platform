@@ -26,6 +26,14 @@ import {
   roundToStep,
 } from "./product-import/ul-prices.js";
 import { ensureDir, timestampForFile } from "./product-import/snapshot-io.js";
+import {
+  salesmapperTransformedPrice,
+  buildSalesmapperNormalizedRows,
+  buildSalesmapperMaterialAxis,
+  buildSalesmapperFormatSection,
+  buildSalesmapperOptionSection,
+  publishSalesmapperMatrix,
+} from "./product-import/shared/salesmapper-matrix.js";
 
 const DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 const DEFAULT_PRODUCT_NAME = "Salgsmapper med præg 3-laschen";
@@ -176,14 +184,7 @@ function parseQuantityPriceText(text) {
 }
 
 function transformedPrice(eur) {
-  const dkkBase = eur * EUR_TO_DKK;
-  const tierMultiplier = resolveTierMultiplier(dkkBase, TIERS);
-  const dkkFinal = Math.round(roundToStep(dkkBase * tierMultiplier, 1));
-  return {
-    dkkBase: Number(dkkBase.toFixed(4)),
-    tierMultiplier,
-    dkkFinal,
-  };
+  return salesmapperTransformedPrice(eur);
 }
 
 function resolveMaterialLabel(rawLabel) {
@@ -517,172 +518,82 @@ async function importToSupabase({
   dryRun,
 }) {
   if (!transformedRows.length) throw new Error("No rows");
+  const materialNames = MATERIAL_MATCHERS.map((entry) => entry.label);
+  const normalizedRows = buildSalesmapperNormalizedRows(transformedRows, {
+    importerKey: "salesmapper_praeg_fetch_import",
+    supplierProductType: "salesmapper-praeg-3-laschen",
+    selectionsForRow: (row) => ({
+      material: row.materialLabel,
+      format: row.formatLabel,
+      printMode: row.printMode,
+      embossing: row.embossingLabel,
+    }),
+    extraDataForRow: (row) => ({
+      sourceMaterialLabel: row.sourceMaterialLabel,
+    }),
+  });
 
   if (dryRun) {
     return {
       dryRun: true,
       productSlug,
-      rowsPrepared: transformedRows.length,
-      uniqueFormats: new Set(transformedRows.map((row) => row.formatLabel)).size,
-      uniquePrintModes: new Set(transformedRows.map((row) => row.printMode)).size,
-      uniqueEmbossing: new Set(transformedRows.map((row) => row.embossingLabel)).size,
-      uniqueMaterials: new Set(transformedRows.map((row) => row.materialLabel)).size,
+      rowsPrepared: normalizedRows.length,
+      uniqueFormats: FORMAT_ORDER.length,
+      uniquePrintModes: PRINT_MODE_ORDER.length,
+      uniqueEmbossing: EMBOSSING_ORDER.length,
+      uniqueMaterials: materialNames.length,
     };
   }
 
   const client = getSupabaseClient();
   const ensured = await ensureProduct(client, tenantId, productName, productSlug);
-  const context = {
+  const result = await publishSalesmapperMatrix({
+    client,
     tenantId,
     productId: ensured.product.id,
-    groups: await loadGroups(client, tenantId, ensured.product.id),
-  };
-
-  const formatGroup = await ensureGroup(client, context, {
-    name: "Format",
-    kind: "format",
-    sortOrder: 0,
-  });
-  const printModeGroup = await ensureGroup(client, context, {
-    name: "Tryk",
-    kind: "finish",
-    sortOrder: 1,
-  });
-  const embossingGroup = await ensureGroup(client, context, {
-    name: "Prægning",
-    kind: "finish",
-    sortOrder: 2,
-  });
-  const materialGroup = await ensureGroup(client, context, {
-    name: "Materiale",
-    kind: "material",
-    sortOrder: 3,
-  });
-
-  const formatMap = new Map();
-  for (const name of FORMAT_ORDER) {
-    formatMap.set(name, await ensureValue(client, context, formatGroup, name));
-  }
-
-  const printModeMap = new Map();
-  for (const name of PRINT_MODE_ORDER) {
-    printModeMap.set(name, await ensureValue(client, context, printModeGroup, name));
-  }
-
-  const embossingMap = new Map();
-  for (const name of EMBOSSING_ORDER) {
-    embossingMap.set(name, await ensureValue(client, context, embossingGroup, name));
-  }
-
-  const materialMap = new Map();
-  for (const material of MATERIAL_MATCHERS.map((entry) => entry.label)) {
-    materialMap.set(material, await ensureValue(client, context, materialGroup, material));
-  }
-
-  const allQuantities = Array.from(
-    new Set(transformedRows.map((row) => row.quantity))
-  ).sort((a, b) => a - b);
-
-  const pricingStructure = buildPricingStructure({
-    materialGroup,
-    materialValues: MATERIAL_MATCHERS.map((entry) => materialMap.get(entry.label)).filter(
-      Boolean
-    ),
-    formatGroup,
-    formatValues: FORMAT_ORDER.map((name) => formatMap.get(name)).filter(Boolean),
-    printModeGroup,
-    printModeValues: PRINT_MODE_ORDER.map((name) => printModeMap.get(name)).filter(
-      Boolean
-    ),
-    embossingGroup,
-    embossingValues: EMBOSSING_ORDER.map((name) => embossingMap.get(name)).filter(
-      Boolean
-    ),
-    allQuantities,
-  });
-
-  const dedupe = new Map();
-  transformedRows.forEach((row) => {
-    const formatValue = formatMap.get(row.formatLabel);
-    const printValue = printModeMap.get(row.printMode);
-    const embossingValue = embossingMap.get(row.embossingLabel);
-    const materialValue = materialMap.get(row.materialLabel);
-    if (!formatValue || !printValue || !embossingValue || !materialValue) return;
-
-    const variantName = [formatValue.id, printValue.id, embossingValue.id]
-      .sort()
-      .join("|");
-    const variantValueIds = [printValue.id, embossingValue.id].sort();
-    const payload = {
-      tenant_id: tenantId,
-      product_id: ensured.product.id,
-      variant_name: variantName,
-      variant_value: materialValue.id,
-      quantity: row.quantity,
-      price_dkk: row.dkkFinal,
-      extra_data: {
-        verticalAxisGroupId: materialGroup.id,
-        verticalAxisValueId: materialValue.id,
-        formatId: formatValue.id,
-        materialId: materialValue.id,
-        printModeId: printValue.id,
-        embossingId: embossingValue.id,
-        variantValueIds,
-        selectionMap: {
-          format: formatValue.id,
-          material: materialValue.id,
-          variantValueIds,
-        },
-        source: "salesmapper_praeg_fetch_import",
-        sourceUrl: row.detailUrl,
-        sourceMaterialLabel: row.sourceMaterialLabel,
-        eur: row.eur,
-        dkkBase: row.dkkBase,
-        tierMultiplier: row.tierMultiplier,
-      },
-    };
-    dedupe.set(
-      `${payload.product_id}|${payload.variant_name}|${payload.variant_value}|${payload.quantity}`,
-      payload
-    );
-  });
-
-  const priceRows = Array.from(dedupe.values());
-  const { error: updateError } = await client
-    .from("products")
-    .update({
+    normalizedRows,
+    matrixConfig: {
+      verticalAxis: buildSalesmapperMaterialAxis(materialNames, 3),
+      sections: [
+        buildSalesmapperFormatSection(FORMAT_ORDER),
+        buildSalesmapperOptionSection({
+          key: "printMode",
+          rowId: "row-print-mode",
+          sectionId: "print-mode-section",
+          groupName: "Tryk",
+          title: "Tryk",
+          valueNames: PRINT_MODE_ORDER,
+          sortOrder: 1,
+          extraDataIdField: "printModeId",
+        }),
+        buildSalesmapperOptionSection({
+          key: "embossing",
+          rowId: "row-embossing",
+          sectionId: "embossing-section",
+          groupName: "Prægning",
+          title: "Prægning",
+          valueNames: EMBOSSING_ORDER,
+          sortOrder: 2,
+          extraDataIdField: "embossingId",
+        }),
+      ],
+    },
+    productUpdate: {
       name: productName,
       slug: productSlug,
-      pricing_type: "matrix",
-      pricing_structure: pricingStructure,
-    })
-    .eq("id", ensured.product.id);
-  if (updateError) throw updateError;
-
-  const { error: deleteError } = await client
-    .from("generic_product_prices")
-    .delete()
-    .eq("product_id", ensured.product.id);
-  if (deleteError) throw deleteError;
-
-  let inserted = 0;
-  for (let i = 0; i < priceRows.length; i += 500) {
-    const batch = priceRows.slice(i, i + 500);
-    const { error } = await client.from("generic_product_prices").insert(batch);
-    if (error) throw error;
-    inserted += batch.length;
-  }
+    },
+  });
 
   return {
     dryRun: false,
     productId: ensured.product.id,
     productSlug,
     productCreated: ensured.created,
-    rowsInserted: inserted,
+    rowsInserted: result.rowsInserted,
     uniqueFormats: FORMAT_ORDER.length,
     uniquePrintModes: PRINT_MODE_ORDER.length,
     uniqueEmbossing: EMBOSSING_ORDER.length,
-    uniqueMaterials: MATERIAL_MATCHERS.length,
+    uniqueMaterials: materialNames.length,
   };
 }
 
