@@ -365,6 +365,7 @@ export function ProductPriceManager() {
   const [editedCanvaHelperText, setEditedCanvaHelperText] = useState("");
   const [editedPodPreflightEnabled, setEditedPodPreflightEnabled] = useState(false);
   const [editedPodPreflightAutoFix, setEditedPodPreflightAutoFix] = useState(true);
+  const [editedRequiresCutContour, setEditedRequiresCutContour] = useState(false);
   const [hasProductEdits, setHasProductEdits] = useState(false);
   const [hasSpecEdits, setHasSpecEdits] = useState(false);
   const [editedOutputColorProfileId, setEditedOutputColorProfileId] = useState<string | null>(null);
@@ -685,6 +686,7 @@ export function ProductPriceManager() {
       });
       setEditedPodPreflightEnabled(Boolean(specs.pod_preflight_enabled));
       setEditedPodPreflightAutoFix(specs.pod_preflight_auto_fix ?? true);
+      setEditedRequiresCutContour(Boolean(specs.requires_cut_contour));
       const initialSiteIds = readProductSiteIds(specs);
       setSelectedSiteIds(initialSiteIds);
       setEditedSiteOnly(isSiteExclusiveProduct(specs));
@@ -1169,6 +1171,7 @@ export function ProductPriceManager() {
         min_dpi: parseInt(editedMinDpi) || null,
         is_free_form: editedIsFreeForm,
         standard_format: editedStandardFormat,
+        requires_cut_contour: editedRequiresCutContour,
         canva: {
           enabled: editedCanvaEnabled,
           template_url: editedCanvaTemplateUrl.trim() || null,
@@ -3682,12 +3685,54 @@ export function ProductPriceManager() {
                 </Card>
               </div>
 
+              <div className="space-y-3">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-md font-medium flex items-center gap-2">
+                      <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">5</span>
+                      Konturskæring (CutContour)
+                    </CardTitle>
+                    <CardDescription>
+                      Aktiver hvis dette produkt kræver konturskæring (fx klistermærker, formskårne skilte). Når slået til, viser filoploaderen en CutContour-status; når slået fra, skjules advarslen helt.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between rounded-lg border border-dashed px-3 py-3">
+                      <div className="pr-4">
+                        <p className="text-sm font-medium">Produktet kræver konturskæring</p>
+                        <p className="text-xs text-muted-foreground">
+                          Standard: Fra. Slå til for produkter hvor kunden skal levere en CutContour-sti (spotfarve "CutContour" i PDF'en).
+                        </p>
+                      </div>
+                      <Switch
+                        checked={editedRequiresCutContour}
+                        onCheckedChange={(checked) => {
+                          setEditedRequiresCutContour(checked);
+                          setHasSpecEdits(true);
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <Button
+                        onClick={handleSaveTechnicalSpecs}
+                        size="sm"
+                        disabled={!hasSpecEdits || saving}
+                      >
+                        {saving ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Save className="mr-2 h-3 w-3" />}
+                        Gem konturskærings-indstilling
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
               {(product?.technical_specs?.is_pod || product?.technical_specs?.is_pod_v2) && (
                 <div className="space-y-3">
                   <Card>
                     <CardHeader className="pb-3">
                       <CardTitle className="text-md font-medium flex items-center gap-2">
-                        <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">5</span>
+                        <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">6</span>
                         Print.com PDF Preflight (POD)
                       </CardTitle>
                       <CardDescription>

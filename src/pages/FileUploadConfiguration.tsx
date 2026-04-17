@@ -1495,6 +1495,10 @@ const FileUploadConfiguration = () => {
     const isPodProduct = Boolean(product?.technical_specs?.is_pod || product?.technical_specs?.is_pod_v2);
     const isPodV2Product = Boolean(product?.technical_specs?.is_pod_v2);
     const podPreflightEnabled = Boolean(product?.technical_specs?.pod_preflight_enabled) && isPodV2Product;
+    // Only products that actually need a cut contour (stickers, die-cut shapes, etc.)
+    // should surface CutContour status/warnings in the upload previews. Admin opts in
+    // via `technical_specs.requires_cut_contour` in ProductPriceManager.
+    const requiresCutContour = Boolean((product?.technical_specs as any)?.requires_cut_contour);
     const podPreflightAutoFix = (product?.technical_specs as any)?.pod_preflight_auto_fix ?? true;
     const platformPreflightBlocking = isPodProduct
         && podPreflightEnabled
@@ -3287,7 +3291,7 @@ const FileUploadConfiguration = () => {
                                                             Åbn korrektur
                                                         </Button>
                                                     </div>
-                                                    {(proofingPreview?.fileType === "pdf" || proofingPreview?.fileType === "image") && (
+                                                    {requiresCutContour && (proofingPreview?.fileType === "pdf" || proofingPreview?.fileType === "image") && (
                                                         <div className={`mt-4 rounded-lg border px-3 py-3 text-sm ${
                                                             proofingPreview?.fileType === "pdf"
                                                                 ? (pdfContourScan?.cutContourNameDetected ? "border-green-200 bg-green-50" : "border-slate-200 bg-slate-50")
@@ -3692,7 +3696,7 @@ const FileUploadConfiguration = () => {
                                         {proofingPlacementPrimaryIssue || "Placeringen ser korrekt ud i previewet."}
                                     </p>
                                 </div>
-                                {proofingPreview?.fileType === "pdf" && (
+                                {requiresCutContour && proofingPreview?.fileType === "pdf" && (
                                     <div className={`rounded-lg border px-3 py-3 text-sm ${
                                         pdfContourScan?.cutContourNameDetected
                                             ? "border-green-200 bg-green-50 text-green-900"
@@ -3713,7 +3717,7 @@ const FileUploadConfiguration = () => {
                                         </p>
                                     </div>
                                 )}
-                                {proofingPreview?.fileType === "image" && (
+                                {requiresCutContour && proofingPreview?.fileType === "image" && (
                                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
                                         <p className="font-medium">Rasterfil</p>
                                         <p className="mt-1 text-xs">
