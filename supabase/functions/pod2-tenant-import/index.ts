@@ -523,65 +523,16 @@ serve(async (req) => {
                 .eq("id", newProduct.id);
         }
 
-        // Create option groups from catalog attributes
+        // NOTE: POD v2 catalog attributes are written to product_attribute_groups /
+        // product_attribute_values earlier in this function (that's what the matrix reads).
+        // We intentionally do NOT create parallel rows in product_option_groups /
+        // product_option_group_assignments / product_options. DynamicProductOptions
+        // would render those as required selectors *below* the matrix on the storefront
+        // — duplicate / unwanted UI for imported POD products. If an admin ever wants to
+        // expose a specific attribute as a standalone storefront selector, they can add
+        // it manually via the normal admin option-group flow (non-`pod2_*` name).
         const attributes = catalogAttributes;
-        for (const attr of attributes) {
-            const groupName = `pod2_${newProduct.id}_${attr.group_key}`;
-            let groupId: string | null = null;
-
-            const { data: existingGroup } = await serviceClient
-                .from("product_option_groups")
-                .select("id")
-                .eq("name", groupName)
-                .maybeSingle();
-
-            if (existingGroup?.id) {
-                groupId = existingGroup.id;
-            } else {
-                const { data: group, error: groupError } = await serviceClient
-                    .from("product_option_groups")
-                    .insert({
-                        tenant_id: tenantId,
-                        name: groupName,
-                        label: attr.group_label?.da || attr.group_key,
-                        display_type: "buttons",
-                    })
-                    .select()
-                    .single();
-
-                if (groupError) {
-                    console.error("Option group creation error:", groupError);
-                }
-                groupId = group?.id || null;
-            }
-
-            if (!groupId) continue;
-
-            await serviceClient
-                .from("product_option_group_assignments")
-                .insert({
-                    tenant_id: tenantId,
-                    product_id: newProduct.id,
-                    option_group_id: groupId,
-                    sort_order: attr.sort_order,
-                    is_required: true,
-                });
-
-            const values = attr.pod2_catalog_attribute_values || [];
-            for (const val of values) {
-                await serviceClient
-                    .from("product_options")
-                    .insert({
-                        tenant_id: tenantId,
-                        group_id: groupId,
-                        name: val.value_key,
-                        label: val.value_label?.da || val.value_key,
-                        extra_price: 0,
-                        price_mode: "fixed",
-                        sort_order: val.sort_order,
-                    });
-            }
-        }
+        void attributes; // kept for reference; no longer iterated here
 
         // Create pricing matrix from catalog pricing (chunked for stability)
         const priceMatrix = (catalogProduct as any).pod2_catalog_price_matrix || [];

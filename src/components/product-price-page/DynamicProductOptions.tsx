@@ -73,7 +73,13 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
       .in('id', groupIds);
 
     if (groupsData) {
-      const sortedGroups = groupsData.sort((a, b) => {
+      // Hide option groups auto-created by the POD2 tenant-import edge function.
+      // These are identifiable by the `pod2_<productId>_<axis>` naming convention
+      // set in supabase/functions/pod2-tenant-import/index.ts and would otherwise
+      // render as required selectors below the matrix on the storefront.
+      // Admin-configured option groups (non-POD) are unaffected.
+      const visibleGroups = groupsData.filter(g => !g.name?.startsWith('pod2_'));
+      const sortedGroups = visibleGroups.sort((a, b) => {
         const aOrder = assignments.find(x => x.option_group_id === a.id)?.sort_order || 0;
         const bOrder = assignments.find(x => x.option_group_id === b.id)?.sort_order || 0;
         return aOrder - bOrder;
