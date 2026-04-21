@@ -501,6 +501,54 @@ export function usePodMasterForwardJob() {
     });
 }
 
+// Manually trigger a status sync against Print.com. Polls GET /orders/{id}
+// for every non-terminal job (or a specific list) and updates our
+// pod2_fulfillment_jobs.status from the response. Stopgap until Print.com
+// gives us real webhooks — the mapping logic is shared, so only the
+// transport will change then.
+export function usePodSyncPrintcomStatus() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (params?: { jobIds?: string[] }) => {
+            const { data, error } = await supabase.functions.invoke('pod2-printcom-sync-status', {
+                body: params || {},
+            });
+
+            if (error) throw error;
+            return data as {
+                success: boolean;
+                scanned: number;
+                updated: number;
+                errors: number;
+                jobs: Array<{
+                    jobId: string;
+                    before?: string;
+                    after?: string;
+                    rawStatus?: string | null;
+                    mapped?: string | null;
+                    changed?: boolean;
+                    error?: boolean;
+                    message?: string;
+                }>;
+            };
+        },
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ['pod2-jobs'] });
+            if (data.updated > 0) {
+                toast.success(`Print.com sync: ${data.updated} job(s) opdateret`);
+            } else if (data.errors > 0) {
+                toast.warning(`Print.com sync: ${data.errors} fejl, ${data.scanned} scannet`);
+            } else {
+                toast.info(`Print.com sync: ${data.scanned} job(s) scannet, ingen ændringer`);
+            }
+        },
+        onError: (err: any) => {
+            toast.error('Print.com sync fejlede: ' + err.message);
+        },
+    });
+}
+
 // Automated Print.com submission. Replaces the manual "mark as forwarded"
 // flow when everything (credentials, sender, files) is in order.
 //

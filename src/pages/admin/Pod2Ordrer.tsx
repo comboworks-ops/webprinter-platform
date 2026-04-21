@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { resolveAdminTenant, MASTER_TENANT_ID } from "@/lib/adminTenant";
 import { supabase } from "@/integrations/supabase/client";
-import { usePodAllFulfillmentJobs, usePodApproveAndCharge, usePodCreateJobsForOrder, usePodFulfillmentJobs, usePodMasterForwardJob, usePodSubmitToPrintcom, usePodTenantBilling } from "@/lib/pod2/hooks";
+import { usePodAllFulfillmentJobs, usePodApproveAndCharge, usePodCreateJobsForOrder, usePodFulfillmentJobs, usePodMasterForwardJob, usePodSubmitToPrintcom, usePodSyncPrintcomStatus, usePodTenantBilling } from "@/lib/pod2/hooks";
 import { POD_JOB_STATUS_COLORS, POD_JOB_STATUS_LABELS, type PodFulfillmentJob } from "@/lib/pod2/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Clock, CreditCard, Package, Send, CheckCircle, AlertCircle } from "lucide-react";
+import { Loader2, Clock, CreditCard, Package, Send, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 export function Pod2Ordrer() {
@@ -39,6 +39,7 @@ export function Pod2Ordrer() {
     const createJobs = usePodCreateJobsForOrder();
     const forwardJob = usePodMasterForwardJob();
     const submitToPrintcom = usePodSubmitToPrintcom();
+    const syncPrintcomStatus = usePodSyncPrintcomStatus();
     const [paymentMethod, setPaymentMethod] = useState<"invoice" | "psp">("invoice");
     const [dryRun, setDryRun] = useState<boolean>(true);
     // Inline result pane — success or error shown directly in the dialog,
@@ -171,12 +172,27 @@ export function Pod2Ordrer() {
                     </p>
                 </div>
 
-                {!isMasterContext && (
-                    <Button onClick={() => setCreateJobDialogOpen(true)}>
-                        <Package className="mr-2 h-4 w-4" />
-                        Opret job fra ordre
-                    </Button>
-                )}
+                <div className="flex items-center gap-2">
+                    {isMasterContext && (
+                        <Button
+                            variant="outline"
+                            onClick={() => syncPrintcomStatus.mutate(undefined)}
+                            disabled={syncPrintcomStatus.isPending}
+                            title="Polls Print.com for status updates on all submitted/processing jobs."
+                        >
+                            {syncPrintcomStatus.isPending
+                                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                : <RefreshCw className="mr-2 h-4 w-4" />}
+                            Sync Print.com status
+                        </Button>
+                    )}
+                    {!isMasterContext && (
+                        <Button onClick={() => setCreateJobDialogOpen(true)}>
+                            <Package className="mr-2 h-4 w-4" />
+                            Opret job fra ordre
+                        </Button>
+                    )}
+                </div>
             </div>
 
             {!isMasterContext && !billingReady && (

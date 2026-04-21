@@ -98,7 +98,7 @@ export interface PodFulfillmentJob {
     qty: number;
     tenant_cost: number;
     currency: string;
-    status: 'awaiting_approval' | 'payment_pending' | 'paid' | 'submitted' | 'failed' | 'completed';
+    status: 'awaiting_approval' | 'payment_pending' | 'paid' | 'submitted' | 'processing' | 'failed' | 'completed';
     stripe_payment_intent_id?: string;
     provider_job_ref?: string;
     error_message?: string;
@@ -168,6 +168,7 @@ export const POD_JOB_STATUS_LABELS: Record<PodFulfillmentJob['status'], string> 
     payment_pending: 'Betaling afventer',
     paid: 'Betalt - afventer master',
     submitted: 'Sendt til leverandør',
+    processing: 'I produktion',
     failed: 'Fejlet',
     completed: 'Afsluttet',
 };
@@ -177,6 +178,7 @@ export const POD_JOB_STATUS_COLORS: Record<PodFulfillmentJob['status'], string> 
     payment_pending: 'bg-blue-100 text-blue-800',
     paid: 'bg-green-100 text-green-800',
     submitted: 'bg-purple-100 text-purple-800',
+    processing: 'bg-indigo-100 text-indigo-800',
     failed: 'bg-red-100 text-red-800',
     completed: 'bg-gray-100 text-gray-800',
 };
