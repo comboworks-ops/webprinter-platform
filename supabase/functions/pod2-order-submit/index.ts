@@ -247,7 +247,16 @@ serve(async (req) => {
             .eq("id", jobId)
             .maybeSingle();
         if (jobError || !job) return json({ error: "Job not found" }, 404);
-        if (!["paid", "awaiting_approval", "processing"].includes(String(job.status)) && !dryRun) {
+        // Normal flow: paid/awaiting_approval/processing can submit.
+        // Retry flow: "submitted" is allowed too, but only when Print.com
+        // never actually acknowledged an order — i.e. printcom_order_id is
+        // null. That covers the case where someone clicked "Marker som
+        // videresendt manuelt" (which sets status=submitted without calling
+        // Print.com) and now wants to do the real submission.
+        const allowedStatuses = ["paid", "awaiting_approval", "processing"];
+        const isRetryAfterManualMark =
+            String(job.status) === "submitted" && !job.printcom_order_id;
+        if (!allowedStatuses.includes(String(job.status)) && !isRetryAfterManualMark && !dryRun) {
             return json({ error: `Job status is "${job.status}" — expected paid/awaiting_approval/processing` }, 400);
         }
 
