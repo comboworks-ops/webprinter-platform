@@ -59,29 +59,37 @@ serve(async (req) => {
     const applicationFee = Math.max(0, Math.min(amountOre, percentAmount + flatFee));
 
     if (canUseConnected) {
-      const paymentIntent = await stripe.paymentIntents.create(
-        {
-          amount: Math.round(amountOre),
-          currency,
-          application_fee_amount: applicationFee > 0 ? applicationFee : undefined,
-          metadata: {
-            tenant_id: tenantId,
-            ...(metadata || {}),
-          },
+      // Destination charge: PI lives on the platform account, funds transfer
+      // to the connected account. This is simpler than direct charges because
+      // the client can use the platform publishable key without any
+      // `stripeAccount` option — Elements just works.
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amountOre),
+        currency,
+        application_fee_amount: applicationFee > 0 ? applicationFee : undefined,
+        on_behalf_of: settings!.stripe_account_id!,
+        transfer_data: { destination: settings!.stripe_account_id! },
+        automatic_payment_methods: { enabled: true },
+        metadata: {
+          tenant_id: tenantId,
+          ...(metadata || {}),
         },
-        { stripeAccount: settings!.stripe_account_id! }
-      );
+      });
 
       return jsonResponse({
         client_secret: paymentIntent.client_secret,
-        connected: true,
-        mode: "direct",
+        // Destination charges don't need stripeAccount on the client, so
+        // report `connected: false` to keep the frontend on the platform
+        // publishable key path.
+        connected: false,
+        mode: "destination",
       });
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(amountOre),
       currency,
+      automatic_payment_methods: { enabled: true },
       metadata: {
         tenant_id: tenantId,
         ...(metadata || {}),
