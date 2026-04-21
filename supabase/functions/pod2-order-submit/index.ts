@@ -180,6 +180,15 @@ function buildPrintcomOptions(
         }
     }
 
+    // Print.com expects `copies` on options (the number of printed copies), in
+    // addition to the item-level `quantity`. Variant signatures never carry
+    // this and curated maps often omit it too, so fill it in from qty when
+    // missing. `quantity` on the item stays as-is (Print.com treats them as
+    // separate — copies per shipment vs. total shipped units).
+    if (!options.copies && Number.isFinite(qty) && qty > 0) {
+        options.copies = String(qty);
+    }
+
     return { options, warnings };
 }
 
