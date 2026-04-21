@@ -84,28 +84,43 @@ serve(async (req) => {
     }
 
     try {
-        const supabaseClient = createClient(
-            Deno.env.get("SUPABASE_URL") ?? "",
-            Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-            { global: { headers: { Authorization: req.headers.get("Authorization") || "" } } },
-        );
+        // Two entry paths:
+        //   1. Master admin clicks the "Sync Print.com status" button in the
+        //      UI — arrives with a real user JWT.
+        //   2. pg_cron invokes the function on a schedule — arrives with the
+        //      service role key as bearer. No user session to check.
+        //
+        // We accept either. The service-role bypass compares the full
+        // Authorization header against SUPABASE_SERVICE_ROLE_KEY so random
+        // callers can't impersonate a cron.
+        const authHeader = req.headers.get("Authorization") || "";
+        const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const isCronCall = Boolean(serviceRoleKey) && authHeader === `Bearer ${serviceRoleKey}`;
 
-        const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
-        if (authError || !user) {
-            return json({ error: "Unauthorized" }, 401);
-        }
+        if (!isCronCall) {
+            const supabaseClient = createClient(
+                Deno.env.get("SUPABASE_URL") ?? "",
+                Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+                { global: { headers: { Authorization: authHeader } } },
+            );
 
-        // Master-only gate.
-        const { data: masterRole } = await supabaseClient
-            .from("user_roles")
-            .select("role, tenant_id")
-            .eq("user_id", user.id)
-            .eq("tenant_id", MASTER_TENANT_ID)
-            .in("role", ["admin", "master_admin"])
-            .limit(1)
-            .maybeSingle();
-        if (!masterRole) {
-            return json({ error: "Kun master admin kan synkronisere Print.com status" }, 403);
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+            if (authError || !user) {
+                return json({ error: "Unauthorized" }, 401);
+            }
+
+            // Master-only gate.
+            const { data: masterRole } = await supabaseClient
+                .from("user_roles")
+                .select("role, tenant_id")
+                .eq("user_id", user.id)
+                .eq("tenant_id", MASTER_TENANT_ID)
+                .in("role", ["admin", "master_admin"])
+                .limit(1)
+                .maybeSingle();
+            if (!masterRole) {
+                return json({ error: "Kun master admin kan synkronisere Print.com status" }, 403);
+            }
         }
 
         const body = await req.json().catch(() => ({}));
