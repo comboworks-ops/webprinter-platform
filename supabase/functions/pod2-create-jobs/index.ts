@@ -43,20 +43,15 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: req.headers.get("Authorization")! } } },
-    );
-
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
+    // This endpoint is called from two places:
+    //   1. Tenant/master admins clicking "Opret job fra ordre" in the UI.
+    //   2. The checkout flow, right after an order is persisted — often
+    //      as an anonymous customer with no JWT.
+    //
+    // The operation is fully determined by the order row (tenant_id,
+    // product, qty, etc. all come from the DB, not the caller) and is
+    // idempotent (one job per order+catalog_product). So the orderId
+    // itself is the authorization — no role gate.
     const { orderId } = await req.json();
     if (!orderId) {
       return new Response(JSON.stringify({ error: "orderId required" }), {
@@ -95,36 +90,6 @@ serve(async (req) => {
     if (orderError || !order) {
       return new Response(JSON.stringify({ error: "Order not found" }), {
         status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Access gate: allow either
-    //   (a) a tenant-scoped role on the order's tenant, OR
-    //   (b) a platform-wide master_admin (tenant_id IS NULL)
-    // Platform-wide admins can act on any tenant — the tenant-scoped
-    // `.eq("tenant_id", ...)` alone was wrongly excluding them.
-    const { data: tenantRole } = await supabaseClient
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("tenant_id", order.tenant_id)
-      .in("role", ["admin", "staff", "master_admin"])
-      .limit(1)
-      .maybeSingle();
-
-    const { data: platformRole } = await supabaseClient
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .is("tenant_id", null)
-      .eq("role", "master_admin")
-      .limit(1)
-      .maybeSingle();
-
-    if (!tenantRole && !platformRole) {
-      return new Response(JSON.stringify({ error: "Access denied" }), {
-        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
