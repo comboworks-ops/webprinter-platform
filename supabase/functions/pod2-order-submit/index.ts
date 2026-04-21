@@ -128,6 +128,24 @@ function buildPrintcomOptions(
     const options: Record<string, string> = { ...(supplierData.fixed_options || {}) };
 
     const attrMap: any[] = Array.isArray(supplierData.attribute_map) ? supplierData.attribute_map : [];
+
+    // Passthrough fallback: if the master hasn't curated attribute_map or
+    // fixed_options for this catalog product yet, treat the customer's
+    // variant_signature as already being in Print.com key:value format and
+    // pass it straight through. Imported POD v2 catalog rows store variants
+    // in Print.com's native slug vocabulary, so this is a safe default until
+    // curation overrides specific keys.
+    const hasCuration = attrMap.length > 0
+        || Object.keys(supplierData.fixed_options || {}).length > 0;
+    if (!hasCuration) {
+        for (const [k, v] of Object.entries(customerConfig)) {
+            if (k && v !== undefined && v !== null && v !== "") {
+                options[k] = String(v);
+            }
+        }
+        warnings.push("No curated attribute_map — forwarding variant_signature to Print.com as-is");
+    }
+
     for (const entry of attrMap) {
         const optionSlug: string = entry.printcom_option || entry.webprinter_attr;
         if (!optionSlug) continue;

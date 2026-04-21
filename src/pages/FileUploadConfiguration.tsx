@@ -1255,6 +1255,15 @@ const FileUploadConfiguration = () => {
                     currency: "DKK",
                     status: "pending",
                     delivery_type: selectedDeliveryLabel || null,
+                    // Persist the structured delivery fields — POD v2 submission
+                    // reads these off the order row to build Print.com's
+                    // recipient address. Previously only delivery_city landed
+                    // here so the shipment address came out with empty street
+                    // and postcode.
+                    delivery_address: deliveryAddress.trim() || null,
+                    delivery_zip: deliveryZip.trim() || null,
+                    delivery_city: deliveryCity.trim() || null,
+                    delivery_country: "DK",
                     tenant_id: tenantId,
                 };
 
