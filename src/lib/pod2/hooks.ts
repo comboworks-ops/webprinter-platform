@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { USE_POD2_ORDER_SUBMIT } from '@/lib/api/featureFlags';
 import type {
     PodSupplierConnection,
     PodApiPreset,
@@ -502,6 +503,13 @@ export function usePodMasterForwardJob() {
 
 // Automated Print.com submission. Replaces the manual "mark as forwarded"
 // flow when everything (credentials, sender, files) is in order.
+//
+// Two adapters live in parallel, toggled by USE_POD2_ORDER_SUBMIT:
+//   - pod2-order-submit (new) — single real Print.com POST /orders call.
+//   - pod2-submit-to-printcom (legacy) — 7-step pipeline built against a
+//     fictional Print.com API; kept deployed as a fallback until the new
+//     adapter proves out on real orders.
+//
 // The manual fallback (usePodMasterForwardJob) is kept for operators who
 // want to forward outside of Print.com.
 export function usePodSubmitToPrintcom() {
@@ -509,24 +517,55 @@ export function usePodSubmitToPrintcom() {
 
     return useMutation({
         mutationFn: async (params: { jobId: string; paymentMethod?: 'invoice' | 'psp'; dryRun?: boolean }) => {
-            const { data, error } = await supabase.functions.invoke('pod2-submit-to-printcom', {
+            const functionName = USE_POD2_ORDER_SUBMIT ? 'pod2-order-submit' : 'pod2-submit-to-printcom';
+            const { data, error } = await supabase.functions.invoke(functionName, {
                 body: params,
             });
 
-            if (error) throw error;
+            // When the edge function returns a non-2xx status, supabase-js
+            // throws a FunctionsHttpError whose `.context` is the raw Response.
+            // The body contains { error, payload, response } — extract it so
+            // the UI can render Print.com's actual rejection message.
+            if (error) {
+                let bodyError = error.message || 'Print.com submission failed';
+                let bodyPayload: any = undefined;
+                let bodyResponse: any = undefined;
+                const ctx: any = (error as any).context;
+                if (ctx && typeof ctx.json === 'function') {
+                    try {
+                        const body = await ctx.json();
+                        bodyError = body?.error || body?.message || bodyError;
+                        bodyPayload = body?.payload;
+                        bodyResponse = body?.response;
+                    } catch {
+                        // fall through with plain message
+                    }
+                }
+                const err: any = new Error(bodyError);
+                err.payload = bodyPayload;
+                err.response = bodyResponse;
+                throw err;
+            }
             if (!data?.success) {
                 const stepSummary = Array.isArray(data?.steps)
                     ? data.steps.map((s: any) => `${s.step}${s.ok ? '' : ' ❌'}`).join(' › ')
                     : '';
-                throw new Error(
+                const err: any = new Error(
                     `${data?.error || 'Print.com submission failed'}${stepSummary ? ` (ved: ${stepSummary})` : ''}`,
                 );
+                err.payload = data?.payload;
+                err.response = data?.response;
+                throw err;
             }
             return data;
         },
-        onSuccess: () => {
+        onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ['pod2-jobs'] });
-            toast.success('Sendt til Print.com');
+            if (data?.dryRun) {
+                toast.success('Dry run OK — payload genereret');
+            } else {
+                toast.success('Sendt til Print.com');
+            }
         },
         onError: (err: any) => {
             toast.error('Print.com-indsendelse fejlede: ' + err.message);

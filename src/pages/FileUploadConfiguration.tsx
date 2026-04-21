@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Loader2, Upload, AlertCircle, CheckCircle2, FileText, ArrowRight, Download, Info, Sparkles, Package, X, Clock3, RotateCcw } from "lucide-react";
+import { Loader2, Upload, AlertCircle, CheckCircle2, FileText, ArrowRight, Download, Info, Sparkles, Package, X, Clock3, RotateCcw, ChevronDown, User, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { StripePaymentForm } from "@/components/checkout/StripePaymentForm";
@@ -650,6 +650,12 @@ const FileUploadConfiguration = () => {
     const [sizeDistributionValues, setSizeDistributionValues] = useState<Record<string, number>>({});
     const [shippingSelected, setShippingSelected] = useState<string>(String(state?.shippingSelected || ""));
     const [deliveryNow, setDeliveryNow] = useState<Date>(() => new Date());
+    // Recipient-is-me toggle: when true, customer fields are reused as delivery fields.
+    const [sendToSelf, setSendToSelf] = useState<boolean>(false);
+    // "More options" accordion (sender mode + separate billing). Collapsed by default.
+    const [moreOptionsOpen, setMoreOptionsOpen] = useState<boolean>(false);
+    // "Your details" accordion — starts collapsed for logged-in users with pre-fill, expanded for guests.
+    const [yourDetailsOpen, setYourDetailsOpen] = useState<boolean>(false);
 
     // Stripe payment state
     const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -826,6 +832,51 @@ const FileUploadConfiguration = () => {
             setShippingSelected(activeDeliveryMethods[0].id);
         }
     }, [activeDeliveryMethods, shippingSelected]);
+
+    // Mirror customer fields → delivery fields while "Send til mig selv" is on.
+    // We snapshot delivery fields on toggle-on so we can restore them on toggle-off,
+    // letting the customer experiment without losing typed recipient data.
+    const savedRecipientSnapshot = useRef<null | {
+        name: string;
+        company: string;
+        address: string;
+        zip: string;
+        city: string;
+        savedAddressId: string;
+    }>(null);
+    useEffect(() => {
+        if (!sendToSelf) return;
+        setDeliveryRecipientName(customerName);
+        setDeliveryCompany(customerCompany);
+    }, [sendToSelf, customerName, customerCompany]);
+    const handleSendToSelfToggle = (next: boolean) => {
+        if (next && !sendToSelf) {
+            // Turning ON — snapshot current recipient, copy from customer.
+            savedRecipientSnapshot.current = {
+                name: deliveryRecipientName,
+                company: deliveryCompany,
+                address: deliveryAddress,
+                zip: deliveryZip,
+                city: deliveryCity,
+                savedAddressId: selectedSavedAddressId,
+            };
+            setDeliveryRecipientName(customerName);
+            setDeliveryCompany(customerCompany);
+            setSelectedSavedAddressId("new");
+        } else if (!next && sendToSelf) {
+            // Turning OFF — restore whatever was there before, if anything.
+            const snap = savedRecipientSnapshot.current;
+            if (snap) {
+                setDeliveryRecipientName(snap.name);
+                setDeliveryCompany(snap.company);
+                setDeliveryAddress(snap.address);
+                setDeliveryZip(snap.zip);
+                setDeliveryCity(snap.city);
+                setSelectedSavedAddressId(snap.savedAddressId);
+            }
+        }
+        setSendToSelf(next);
+    };
 
     useEffect(() => {
         const timer = window.setInterval(() => setDeliveryNow(new Date()), 1000);
@@ -1292,6 +1343,24 @@ const FileUploadConfiguration = () => {
                 }
             }
 
+            // Auto-create POD v2 fulfillment job for POD products so tenants
+            // don't have to open the admin and click "Opret job fra ordre".
+            // Fire-and-forget: order is already persisted; a job failure here
+            // shouldn't block the customer's success flow. Tenant admins can
+            // retry manually in POD v2 Ordrer if this misses.
+            if (isPodV2Product && insertedOrder?.id) {
+                try {
+                    const { error: podJobError } = await supabase.functions.invoke("pod2-create-jobs", {
+                        body: { orderId: insertedOrder.id },
+                    });
+                    if (podJobError) {
+                        console.error("POD v2 auto-create-jobs error:", podJobError);
+                    }
+                } catch (podErr) {
+                    console.error("POD v2 auto-create-jobs threw:", podErr);
+                }
+            }
+
             const emailWarnings: string[] = [];
             const emailContext = {
                 name: shopName || "Webprinter",
@@ -1500,12 +1569,9 @@ const FileUploadConfiguration = () => {
     // via `technical_specs.requires_cut_contour` in ProductPriceManager.
     const requiresCutContour = Boolean((product?.technical_specs as any)?.requires_cut_contour);
     const podPreflightAutoFix = (product?.technical_specs as any)?.pod_preflight_auto_fix ?? true;
-    const platformPreflightBlocking = isPodProduct
-        && podPreflightEnabled
-        && (platformPreflightLoading
-            || platformPreflight?.status === "PROCESSING"
-            || platformPreflight?.status === "FAILED"
-            || (platformPreflight?.errors?.length ?? 0) > 0);
+    // NOTE: We used to gate checkout on the server-side preflight result, but per
+    // product direction we now keep that preflight silent (background autoFix only)
+    // and rely entirely on our local preflight for customer-visible gating.
 
     const specs = getResolvedSpecs();
     const displayProductName = product?.name || state?.productName || "Produkt";
@@ -1584,7 +1650,11 @@ const FileUploadConfiguration = () => {
             ...(proofingArtworkOutsideArtboard ? ["Motivet ligger delvist uden for trykfladen. Flyt eller skalér det ind, så hele motivet ligger inden for rammen."] : []),
         ]
         : [];
-    const originalFilePrimaryIssue = preflightResults?.issues?.[0] || platformPreflight?.errors?.[0] || null;
+    // Only show issues from our own local preflight — CMYK/RGB, dimensions,
+    // resolution, corruption. The server-side Print.com check runs silently
+    // in the background for its auto-fix capability only; its findings are
+    // never surfaced to customers directly.
+    const originalFilePrimaryIssue = preflightResults?.issues?.[0] || null;
     const proofingPlacementPrimaryIssue = proofingPlacementIssues[0] || null;
     const proofingApprovalPending = Boolean(uploadedFile) && !proofingApproved;
     const proofingDpiWarning = Boolean(proofingEffectiveDpi && specs?.min_dpi && proofingEffectiveDpi < specs.min_dpi);
@@ -1592,7 +1662,6 @@ const FileUploadConfiguration = () => {
     const proofingRequiresModalReview = Boolean(
         originalFilePrimaryIssue
         || proofingPlacementPrimaryIssue
-        || platformPreflightBlocking
     );
     const quickApproveAvailable = Boolean(proofingApprovalPending && !proofingRequiresModalReview);
     const proofingFileKindLabel = proofingPreview?.fileType === "image" ? "Rasterfil" : "PDF / vektor";
@@ -2274,6 +2343,48 @@ const FileUploadConfiguration = () => {
                     aspectRatioMatch = false;
                     issues.push(`PDF-formatet er ${Math.round(pdfWidthMm)} × ${Math.round(pdfHeightMm)} mm og matcher hverken trimformatet ${Math.round(trimWidthMm)} × ${Math.round(trimHeightMm)} mm eller formatet med bleed ${Math.round(targetWidthMm)} × ${Math.round(targetHeightMm)} mm.`);
                 }
+
+                // Scan the first up-to-3 pages for RGB colour usage. We walk
+                // the operator list and look for explicit RGB colour-space
+                // switches or RGB fill/stroke operators. Catches the common
+                // case of "designed in RGB, exported as-is" without needing a
+                // server-side preflight engine.
+                try {
+                    const OPS: any = (pdfjsLib as any).OPS || {};
+                    let hasRGB = false;
+                    const pagesToScan = Math.min(pdf.numPages, 3);
+                    const scanPages: any[] = [page];
+                    for (let pIdx = 2; pIdx <= pagesToScan; pIdx++) {
+                        scanPages.push(await pdf.getPage(pIdx));
+                    }
+                    for (const scanPage of scanPages) {
+                        if (hasRGB) break;
+                        const ops = await scanPage.getOperatorList();
+                        const fns: number[] = ops.fnArray || [];
+                        const args: any[] = ops.argsArray || [];
+                        for (let i = 0; i < fns.length; i++) {
+                            const op = fns[i];
+                            if (op === OPS.setFillRGBColor || op === OPS.setStrokeRGBColor) {
+                                hasRGB = true;
+                                break;
+                            }
+                            if (op === OPS.setFillColorSpace || op === OPS.setStrokeColorSpace) {
+                                const csName = args[i]?.[0];
+                                if (csName === "DeviceRGB" || csName === "CalRGB") {
+                                    hasRGB = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (hasRGB) {
+                        issues.push("Filen indeholder RGB-farver. Til tryk skal farverne være i CMYK — eksporter som CMYK-PDF og upload igen.");
+                    }
+                } catch (colorErr) {
+                    // Colour-space scanning is best-effort; never block the
+                    // customer on a scan failure.
+                    console.debug("Color space scan skipped:", colorErr);
+                }
             } catch (pdfError) {
                 console.error("PDF dimension check failed:", pdfError);
                 issues.push("Kunne ikke læse PDF-dimensioner automatisk. Kontroller filformatet manuelt.");
@@ -2341,10 +2452,10 @@ const FileUploadConfiguration = () => {
                 setUploadedFile((prev) => prev ? { ...prev, url: data.updatedFileUrl } : prev);
             }
         } catch (err: any) {
-            console.error("Platform preflight error:", err);
+            console.error("Teknisk kontrol fejlede:", err);
             setPlatformPreflight({
                 status: "FAILED",
-                errors: [err?.message || "Platform preflight fejlede"],
+                errors: ["Filen kunne ikke valideres. Prøv igen, eller kontakt os hvis problemet fortsætter."],
                 warnings: [],
                 fixes: [],
             });
@@ -2527,15 +2638,57 @@ const FileUploadConfiguration = () => {
                                             <span className="text-muted-foreground">Pris ex. moms:</span>
                                             <span className="font-medium">{orderPrice} kr</span>
                                         </div>
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-muted-foreground">
-                                                Levering{selectedDeliveryLabel ? ` (${selectedDeliveryLabel})` : ""}:
-                                            </span>
-                                            <span className="font-medium">{shippingCost} kr</span>
-                                        </div>
                                     </div>
 
-                                    <div className="pt-4 border-t-2 border-primary/10 flex justify-between items-end">
+                                    {/* Leveringsmetode lives here now (used to be on the customer card) so
+                                        shipping cost is picked as part of configuring the product. */}
+                                    {activeDeliveryMethods.length > 0 && (
+                                        <div className="space-y-2 pt-2 border-t border-black/5">
+                                            <div className="flex items-center gap-2">
+                                                <Truck className="h-4 w-4 text-primary" />
+                                                <h4 className="text-sm font-semibold text-slate-900">Leveringsmetode</h4>
+                                            </div>
+                                            <RadioGroup value={shippingSelected} onValueChange={setShippingSelected} className="space-y-1.5">
+                                                {activeDeliveryMethods.map((method) => {
+                                                    const methodCost = resolveDeliveryMethodCost(orderPrice, method);
+                                                    const deadline = getNextCutoffDate(method, deliveryNow);
+                                                    const countdown = deadline ? formatCountdown(deadline.getTime() - deliveryNow.getTime()) : null;
+                                                    const estimatedDelivery = getEstimatedDeliveryDate(method, deliveryNow);
+                                                    const isSelected = shippingSelected === method.id;
+                                                    return (
+                                                        <label
+                                                            key={method.id}
+                                                            htmlFor={`cfg-delivery-${method.id}`}
+                                                            className={`block cursor-pointer rounded-lg border px-3 py-2.5 transition-colors ${isSelected ? "border-primary bg-primary/5" : "border-slate-200 bg-white hover:border-primary/40"}`}
+                                                        >
+                                                            <div className="flex items-start gap-2.5">
+                                                                <RadioGroupItem id={`cfg-delivery-${method.id}`} value={method.id} className="mt-0.5" />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-start justify-between gap-2">
+                                                                        <p className="text-sm font-medium text-slate-900 truncate">{method.name}</p>
+                                                                        <p className="text-sm font-semibold text-slate-900 whitespace-nowrap">{methodCost} kr</p>
+                                                                    </div>
+                                                                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+                                                                        {estimatedDelivery && (
+                                                                            <span>Levering {deliveryDateFormatter.format(estimatedDelivery)}</span>
+                                                                        )}
+                                                                        {countdown && (
+                                                                            <span className="inline-flex items-center gap-1 text-primary">
+                                                                                <Clock3 className="h-3 w-3" />
+                                                                                {countdown}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </RadioGroup>
+                                        </div>
+                                    )}
+
+                                    <div className="pt-3 border-t-2 border-primary/10 flex justify-between items-end">
                                         <span className="font-bold">Total (ex. moms):</span>
                                         <span className="text-2xl font-bold text-primary">{checkoutTotal} kr</span>
                                     </div>
@@ -2556,18 +2709,6 @@ const FileUploadConfiguration = () => {
                                                 </div>
                                             </div>
                                         )}
-
-                                    {platformPreflightBlocking && (
-                                        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 flex items-start gap-2 shadow-sm">
-                                            <AlertCircle className="h-4 w-4 mt-0.5" />
-                                            <div>
-                                                <p className="font-medium">Print.com preflight mangler</p>
-                                                <p className="text-xs text-red-700">
-                                                    Filen skal godkendes eller fixes før betaling kan fortsætte.
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
 
                                     {sizeDistributionMismatch && (
                                         <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 flex items-start gap-2 shadow-sm">
@@ -2633,7 +2774,7 @@ const FileUploadConfiguration = () => {
                                     <Button
                                         className="w-full h-12 text-lg font-bold mt-4 group shadow-md"
                                         onClick={handleProceedToPayment}
-                                        disabled={!uploadedFile || paymentLoading || platformPreflightBlocking || sizeDistributionMismatch || proofingApprovalPending}
+                                        disabled={!uploadedFile || paymentLoading || sizeDistributionMismatch || proofingApprovalPending}
                                     >
                                         {paymentLoading ? (
                                             <>
@@ -2654,290 +2795,307 @@ const FileUploadConfiguration = () => {
                                 <CardHeader className="bg-primary/5">
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <CardTitle>Kunde & levering</CardTitle>
-                                            <CardDescription>Udfyld kundeoplysninger, leveringsadresse og vælg leveringsmetode før betaling.</CardDescription>
+                                            <CardTitle>Kontakt & modtager</CardTitle>
+                                            <CardDescription>Vi bruger dine oplysninger til bekræftelse og modtager-adressen til forsendelse.</CardDescription>
                                         </div>
-                                        <Info className="h-8 w-8 text-primary opacity-20" />
+                                        <User className="h-8 w-8 text-primary opacity-20" />
                                     </div>
                                 </CardHeader>
-                                <CardContent className="pt-6 space-y-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="customer-name">Bestiller</Label>
-                                            <Input id="customer-name" value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="customer-email">E-mail</Label>
-                                            <Input id="customer-email" type="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="customer-phone">Telefon</Label>
-                                            <Input id="customer-phone" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="customer-company">Firma</Label>
-                                            <Input id="customer-company" value={customerCompany} onChange={(event) => setCustomerCompany(event.target.value)} />
-                                        </div>
-                                    </div>
+                                <CardContent className="pt-6 space-y-4">
 
-                                    {checkoutUserId && (
-                                        <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-4 shadow-sm">
-                                            <div>
-                                                <h3 className="text-sm font-semibold">Kundebank</h3>
-                                                <p className="text-xs text-muted-foreground">
-                                                    Gem komplette kundeopsætninger til bureau- og genbestillingsflow.
-                                                </p>
-                                            </div>
-                                            <select
-                                                value={selectedCustomerProfileId}
-                                                onChange={async (event) => {
-                                                    const nextValue = event.target.value;
-                                                    setSelectedCustomerProfileId(nextValue);
-                                                    if (nextValue === "new") {
-                                                        setCustomerProfileLabel("");
-                                                        return;
-                                                    }
-                                                    const profile = savedCustomerProfiles.find((entry) => entry.id === nextValue);
-                                                    if (profile) {
-                                                        applyCustomerProfile(profile);
-                                                    }
-                                                }}
-                                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm"
-                                            >
-                                                <option value="new">Ny kundeopsætning</option>
-                                                {savedCustomerProfiles.map((profile) => (
-                                                    <option key={profile.id} value={profile.id}>
-                                                        {profile.label}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2">
-                                                <Input
-                                                    value={customerProfileLabel}
-                                                    onChange={(event) => setCustomerProfileLabel(event.target.value)}
-                                                    placeholder="Fx Kunde Nordhavn eller Designkunde 12"
-                                                />
-                                                <Button
+                                    {/* ──────────────────────────────────────────────────────────────
+                                         Step 1 — Dine oplysninger
+                                         Collapsed-by-default summary chip when pre-filled from profile.
+                                         Clicking the chip expands the 4 input fields. Guests see the
+                                         form expanded automatically because there's nothing to summarise.
+                                         ────────────────────────────────────────────────────────────── */}
+                                    {(() => {
+                                        const hasContactSummary = Boolean(customerName.trim() || customerEmail.trim());
+                                        const contactExpanded = yourDetailsOpen || !hasContactSummary;
+                                        return (
+                                            <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
+                                                <button
                                                     type="button"
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={async () => {
-                                                        if (!checkoutUserId) return;
-                                                        const label = customerProfileLabel.trim()
-                                                            || deliveryCompany.trim()
-                                                            || deliveryRecipientName.trim()
-                                                            || customerCompany.trim()
-                                                            || customerName.trim();
-                                                        if (!label) {
-                                                            toast.error("Giv kundeprofilen et navn før du gemmer den.");
-                                                            return;
-                                                        }
-                                                        const profile = await upsertCheckoutCustomerProfile(checkoutUserId, {
-                                                            id: selectedCustomerProfileId !== "new" ? selectedCustomerProfileId : null,
-                                                            label,
-                                                            customerEmail,
-                                                            customerName,
-                                                            customerPhone,
-                                                            customerCompany,
-                                                            deliveryRecipientName,
-                                                            deliveryCompany,
-                                                            deliveryAddress,
-                                                            deliveryZip,
-                                                            deliveryCity,
-                                                            useSeparateBillingAddress,
-                                                            billingName,
-                                                            billingCompany,
-                                                            billingAddress,
-                                                            billingZip,
-                                                            billingCity,
-                                                            senderMode,
-                                                            senderName,
-                                                        });
-                                                        if (!profile) {
-                                                            toast.error("Kundeprofilen kunne ikke gemmes.");
-                                                            return;
-                                                        }
-                                                        const nextProfiles = await readCheckoutCustomerProfiles(checkoutUserId);
-                                                        setSavedCustomerProfiles(nextProfiles);
-                                                        setSelectedCustomerProfileId(profile.id);
-                                                        setCustomerProfileLabel(profile.label);
-                                                        toast.success("Kundeprofil gemt.");
-                                                    }}
+                                                    className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50/60"
+                                                    onClick={() => setYourDetailsOpen(!yourDetailsOpen)}
                                                 >
-                                                    Gem kunde
-                                                </Button>
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    disabled={selectedCustomerProfileId === "new"}
-                                                    onClick={async () => {
-                                                        if (!checkoutUserId || selectedCustomerProfileId === "new") return;
-                                                        const ok = await deleteCheckoutCustomerProfile(checkoutUserId, selectedCustomerProfileId);
-                                                        if (!ok) {
-                                                            toast.error("Kundeprofilen kunne ikke slettes.");
-                                                            return;
-                                                        }
-                                                        setSavedCustomerProfiles(await readCheckoutCustomerProfiles(checkoutUserId));
-                                                        setSelectedCustomerProfileId("new");
-                                                        setCustomerProfileLabel("");
-                                                        toast.success("Kundeprofil slettet.");
-                                                    }}
-                                                >
-                                                    Slet
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    )}
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary shrink-0">
+                                                            <span className="text-xs font-bold">1</span>
+                                                        </div>
+                                                        <div className="min-w-0 text-left">
+                                                            <p className="text-sm font-semibold text-slate-900">Dine oplysninger</p>
+                                                            {hasContactSummary && !contactExpanded ? (
+                                                                <p className="text-xs text-muted-foreground truncate">
+                                                                    {[customerName, customerEmail, customerCompany].filter(Boolean).join(" · ")}
+                                                                </p>
+                                                            ) : (
+                                                                <p className="text-xs text-muted-foreground">
+                                                                    {checkoutUserId ? "Udfyldt fra din profil — klik for at rette" : "Udfyld dine kontaktdetaljer"}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${contactExpanded ? "rotate-180" : ""}`} />
+                                                </button>
+                                                {contactExpanded && (
+                                                    <div className="px-4 pb-4 pt-1 space-y-4 border-t border-slate-100">
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            <div className="space-y-1.5">
+                                                                <Label htmlFor="customer-name" className="text-xs">Bestiller</Label>
+                                                                <Input id="customer-name" value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
+                                                            </div>
+                                                            <div className="space-y-1.5">
+                                                                <Label htmlFor="customer-email" className="text-xs">E-mail</Label>
+                                                                <Input id="customer-email" type="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} />
+                                                            </div>
+                                                            <div className="space-y-1.5">
+                                                                <Label htmlFor="customer-phone" className="text-xs">Telefon</Label>
+                                                                <Input id="customer-phone" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
+                                                            </div>
+                                                            <div className="space-y-1.5">
+                                                                <Label htmlFor="customer-company" className="text-xs">Firma</Label>
+                                                                <Input id="customer-company" value={customerCompany} onChange={(event) => setCustomerCompany(event.target.value)} />
+                                                            </div>
+                                                        </div>
 
-                                    {checkoutUserId && (
-                                        <div className="space-y-2">
+                                                        {/* Kundebank (agency/power-user feature) — tucked inside step 1 */}
+                                                        {checkoutUserId && savedCustomerProfiles.length > 0 && (
+                                                            <details className="rounded-md border border-slate-200 bg-slate-50/60 overflow-hidden">
+                                                                <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100/80">
+                                                                    Kundebank — gem & genbrug kundeopsætninger
+                                                                </summary>
+                                                                <div className="space-y-3 px-3 py-3 border-t border-slate-200">
+                                                                    <select
+                                                                        value={selectedCustomerProfileId}
+                                                                        onChange={async (event) => {
+                                                                            const nextValue = event.target.value;
+                                                                            setSelectedCustomerProfileId(nextValue);
+                                                                            if (nextValue === "new") {
+                                                                                setCustomerProfileLabel("");
+                                                                                return;
+                                                                            }
+                                                                            const profile = savedCustomerProfiles.find((entry) => entry.id === nextValue);
+                                                                            if (profile) {
+                                                                                applyCustomerProfile(profile);
+                                                                            }
+                                                                        }}
+                                                                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm"
+                                                                    >
+                                                                        <option value="new">Ny kundeopsætning</option>
+                                                                        {savedCustomerProfiles.map((profile) => (
+                                                                            <option key={profile.id} value={profile.id}>
+                                                                                {profile.label}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                    <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2">
+                                                                        <Input
+                                                                            value={customerProfileLabel}
+                                                                            onChange={(event) => setCustomerProfileLabel(event.target.value)}
+                                                                            placeholder="Fx Kunde Nordhavn eller Designkunde 12"
+                                                                        />
+                                                                        <Button
+                                                                            type="button"
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            onClick={async () => {
+                                                                                if (!checkoutUserId) return;
+                                                                                const label = customerProfileLabel.trim()
+                                                                                    || deliveryCompany.trim()
+                                                                                    || deliveryRecipientName.trim()
+                                                                                    || customerCompany.trim()
+                                                                                    || customerName.trim();
+                                                                                if (!label) {
+                                                                                    toast.error("Giv kundeprofilen et navn før du gemmer den.");
+                                                                                    return;
+                                                                                }
+                                                                                const profile = await upsertCheckoutCustomerProfile(checkoutUserId, {
+                                                                                    id: selectedCustomerProfileId !== "new" ? selectedCustomerProfileId : null,
+                                                                                    label,
+                                                                                    customerEmail,
+                                                                                    customerName,
+                                                                                    customerPhone,
+                                                                                    customerCompany,
+                                                                                    deliveryRecipientName,
+                                                                                    deliveryCompany,
+                                                                                    deliveryAddress,
+                                                                                    deliveryZip,
+                                                                                    deliveryCity,
+                                                                                    useSeparateBillingAddress,
+                                                                                    billingName,
+                                                                                    billingCompany,
+                                                                                    billingAddress,
+                                                                                    billingZip,
+                                                                                    billingCity,
+                                                                                    senderMode,
+                                                                                    senderName,
+                                                                                });
+                                                                                if (!profile) {
+                                                                                    toast.error("Kundeprofilen kunne ikke gemmes.");
+                                                                                    return;
+                                                                                }
+                                                                                const nextProfiles = await readCheckoutCustomerProfiles(checkoutUserId);
+                                                                                setSavedCustomerProfiles(nextProfiles);
+                                                                                setSelectedCustomerProfileId(profile.id);
+                                                                                setCustomerProfileLabel(profile.label);
+                                                                                toast.success("Kundeprofil gemt.");
+                                                                            }}
+                                                                        >
+                                                                            Gem kunde
+                                                                        </Button>
+                                                                        <Button
+                                                                            type="button"
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            disabled={selectedCustomerProfileId === "new"}
+                                                                            onClick={async () => {
+                                                                                if (!checkoutUserId || selectedCustomerProfileId === "new") return;
+                                                                                const ok = await deleteCheckoutCustomerProfile(checkoutUserId, selectedCustomerProfileId);
+                                                                                if (!ok) {
+                                                                                    toast.error("Kundeprofilen kunne ikke slettes.");
+                                                                                    return;
+                                                                                }
+                                                                                setSavedCustomerProfiles(await readCheckoutCustomerProfiles(checkoutUserId));
+                                                                                setSelectedCustomerProfileId("new");
+                                                                                setCustomerProfileLabel("");
+                                                                                toast.success("Kundeprofil slettet.");
+                                                                            }}
+                                                                        >
+                                                                            Slet
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                            </details>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {/* ──────────────────────────────────────────────────────────────
+                                         Step 2 — Modtager (main visible step)
+                                         "Send til mig selv" toggle at the top. If off, address-book
+                                         picker (logged-in) + recipient fields below.
+                                         ────────────────────────────────────────────────────────────── */}
+                                    <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
+                                        <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100">
+                                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary shrink-0">
+                                                <span className="text-xs font-bold">2</span>
+                                            </div>
                                             <div>
-                                                <h3 className="text-sm font-semibold">Adressebank</h3>
-                                                <p className="text-xs text-muted-foreground">
-                                                    Vælg en tidligere modtager, hvis du ofte sender til forskellige kunder.
-                                                </p>
+                                                <p className="text-sm font-semibold text-slate-900">Modtager</p>
+                                                <p className="text-xs text-muted-foreground">Hvor skal pakken sendes hen?</p>
                                             </div>
-                                            <select
-                                                value={selectedSavedAddressId}
-                                                onChange={(event) => {
-                                                    const nextValue = event.target.value;
-                                                    setSelectedSavedAddressId(nextValue);
-                                                    if (nextValue === "new") {
-                                                        setDeliveryRecipientName("");
-                                                        setDeliveryCompany("");
-                                                        setDeliveryAddress("");
-                                                        setDeliveryZip("");
-                                                        setDeliveryCity("");
-                                                        setAddressLabel("");
-                                                        return;
-                                                    }
-                                                    const selectedAddress = savedAddresses.find((entry) => entry.id === nextValue);
-                                                    if (selectedAddress) {
-                                                        applySavedAddress(selectedAddress);
-                                                    }
-                                                }}
-                                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm"
-                                                disabled={savedAddressesLoading}
-                                            >
-                                                <option value="new">Ny leveringsadresse</option>
-                                                {savedAddresses.map((address) => (
-                                                    <option key={address.id} value={address.id}>
-                                                        {formatSavedAddressLabel(address)}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            {savedAddressesLoading && (
-                                                <p className="text-xs text-muted-foreground">Henter gemte adresser...</p>
-                                            )}
                                         </div>
-                                    )}
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="delivery-recipient-name">Modtager navn</Label>
-                                            <Input
-                                                id="delivery-recipient-name"
-                                                value={deliveryRecipientName}
-                                                onChange={(event) => setDeliveryRecipientName(event.target.value)}
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="delivery-company">Modtager firma</Label>
-                                            <Input
-                                                id="delivery-company"
-                                                value={deliveryCompany}
-                                                onChange={(event) => setDeliveryCompany(event.target.value)}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <Label htmlFor="delivery-address">Leveringsadresse</Label>
-                                        <Input id="delivery-address" value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} />
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="delivery-zip">Postnr.</Label>
-                                            <Input id="delivery-zip" value={deliveryZip} onChange={(event) => setDeliveryZip(event.target.value)} />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="delivery-city">By</Label>
-                                            <Input id="delivery-city" value={deliveryCity} onChange={(event) => setDeliveryCity(event.target.value)} />
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-4 shadow-sm">
-                                        <div>
-                                            <h3 className="text-sm font-semibold">Afsender på pakken</h3>
-                                            <p className="text-xs text-muted-foreground">
-                                                Vælg om pakken skal sendes med standardafsender, blind forsendelse eller dit eget navn.
-                                            </p>
-                                        </div>
-                                        <RadioGroup
-                                            value={senderMode}
-                                            onValueChange={(value) => {
-                                                const nextValue = value as CheckoutSenderMode;
-                                                setSenderMode(nextValue);
-                                                if (nextValue === "custom" && !senderName.trim()) {
-                                                    setSenderName(customerCompany.trim() || customerName.trim());
-                                                }
-                                            }}
-                                            className="space-y-2"
-                                        >
-                                            <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-3">
-                                                <RadioGroupItem value="standard" id="sender-standard" className="mt-1" />
-                                                <div>
-                                                    <p className="text-sm font-medium text-slate-900">Standard</p>
-                                                    <p className="text-xs text-muted-foreground">WebPrinter står som normal afsender.</p>
-                                                </div>
-                                            </label>
-                                            <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-3">
-                                                <RadioGroupItem value="blind" id="sender-blind" className="mt-1" />
-                                                <div>
-                                                    <p className="text-sm font-medium text-slate-900">Blind forsendelse</p>
-                                                    <p className="text-xs text-muted-foreground">Modtageren ser ikke WebPrinter som afsender.</p>
-                                                </div>
-                                            </label>
-                                            <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-3">
-                                                <RadioGroupItem value="custom" id="sender-custom" className="mt-1" />
-                                                <div>
-                                                    <p className="text-sm font-medium text-slate-900">Brug eget navn/firma</p>
-                                                    <p className="text-xs text-muted-foreground">Pakken sendes med dit navn eller firmanavn som afsender.</p>
-                                                </div>
-                                            </label>
-                                        </RadioGroup>
-                                        {senderMode === "custom" && (
-                                            <div className="space-y-2">
-                                                <Label htmlFor="sender-name">Afsendernavn</Label>
-                                                <Input
-                                                    id="sender-name"
-                                                    value={senderName}
-                                                    onChange={(event) => setSenderName(event.target.value)}
-                                                    placeholder="Dit navn eller firmanavn"
-                                                />
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {checkoutUserId && (
-                                        <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-4 shadow-sm">
-                                            <label className="flex items-start gap-3">
+                                        <div className="px-4 py-4 space-y-4">
+                                            <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50/60 px-3 py-2.5 cursor-pointer">
                                                 <input
                                                     type="checkbox"
                                                     className="mt-1 h-4 w-4 rounded border-slate-300"
-                                                    checked={saveAddressForLater}
-                                                    onChange={(event) => setSaveAddressForLater(event.target.checked)}
+                                                    checked={sendToSelf}
+                                                    onChange={(event) => handleSendToSelfToggle(event.target.checked)}
                                                 />
                                                 <div>
-                                                    <p className="text-sm font-medium text-slate-900">Gem modtager i adressebank</p>
-                                                    <p className="text-xs text-muted-foreground">Så kan du hurtigt vælge adressen igen næste gang.</p>
+                                                    <p className="text-sm font-medium text-slate-900">Send til mig selv</p>
+                                                    <p className="text-xs text-muted-foreground">Brug samme navn og firma som dig — du skal kun udfylde adressen.</p>
                                                 </div>
                                             </label>
-                                            {saveAddressForLater && (
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="address-label">Adresselabel</Label>
+
+                                            {checkoutUserId && !sendToSelf && savedAddresses.length > 0 && (
+                                                <div className="space-y-1.5">
+                                                    <Label className="text-xs">Adressebog</Label>
+                                                    <select
+                                                        value={selectedSavedAddressId}
+                                                        onChange={(event) => {
+                                                            const nextValue = event.target.value;
+                                                            setSelectedSavedAddressId(nextValue);
+                                                            if (nextValue === "new") {
+                                                                setDeliveryRecipientName("");
+                                                                setDeliveryCompany("");
+                                                                setDeliveryAddress("");
+                                                                setDeliveryZip("");
+                                                                setDeliveryCity("");
+                                                                setAddressLabel("");
+                                                                return;
+                                                            }
+                                                            const selectedAddress = savedAddresses.find((entry) => entry.id === nextValue);
+                                                            if (selectedAddress) {
+                                                                applySavedAddress(selectedAddress);
+                                                            }
+                                                        }}
+                                                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm"
+                                                        disabled={savedAddressesLoading}
+                                                    >
+                                                        <option value="new">Ny leveringsadresse</option>
+                                                        {savedAddresses.map((address) => (
+                                                            <option key={address.id} value={address.id}>
+                                                                {formatSavedAddressLabel(address)}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    {savedAddressesLoading && (
+                                                        <p className="text-xs text-muted-foreground">Henter gemte adresser...</p>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {!sendToSelf && (
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    <div className="space-y-1.5">
+                                                        <Label htmlFor="delivery-recipient-name" className="text-xs">Modtager navn</Label>
+                                                        <Input
+                                                            id="delivery-recipient-name"
+                                                            value={deliveryRecipientName}
+                                                            onChange={(event) => setDeliveryRecipientName(event.target.value)}
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-1.5">
+                                                        <Label htmlFor="delivery-company" className="text-xs">Modtager firma</Label>
+                                                        <Input
+                                                            id="delivery-company"
+                                                            value={deliveryCompany}
+                                                            onChange={(event) => setDeliveryCompany(event.target.value)}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="delivery-address" className="text-xs">Leveringsadresse</Label>
+                                                <Input id="delivery-address" value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} />
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div className="space-y-1.5">
+                                                    <Label htmlFor="delivery-zip" className="text-xs">Postnr.</Label>
+                                                    <Input id="delivery-zip" value={deliveryZip} onChange={(event) => setDeliveryZip(event.target.value)} />
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <Label htmlFor="delivery-city" className="text-xs">By</Label>
+                                                    <Input id="delivery-city" value={deliveryCity} onChange={(event) => setDeliveryCity(event.target.value)} />
+                                                </div>
+                                            </div>
+
+                                            {checkoutUserId && (
+                                                <label className="flex items-start gap-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="mt-1 h-4 w-4 rounded border-slate-300"
+                                                        checked={saveAddressForLater}
+                                                        onChange={(event) => setSaveAddressForLater(event.target.checked)}
+                                                    />
+                                                    <div>
+                                                        <p className="text-sm font-medium text-slate-900">Gem modtager i adressebog</p>
+                                                        <p className="text-xs text-muted-foreground">Så kan du hurtigt vælge adressen igen næste gang.</p>
+                                                    </div>
+                                                </label>
+                                            )}
+
+                                            {checkoutUserId && saveAddressForLater && (
+                                                <div className="space-y-1.5 pl-7">
+                                                    <Label htmlFor="address-label" className="text-xs">Adresselabel</Label>
                                                     <Input
                                                         id="address-label"
                                                         value={addressLabel}
@@ -2947,142 +3105,122 @@ const FileUploadConfiguration = () => {
                                                 </div>
                                             )}
                                         </div>
-                                    )}
-
-                                    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-4 shadow-sm">
-                                        <label className="flex items-start gap-3">
-                                            <input
-                                                type="checkbox"
-                                                className="mt-1 h-4 w-4 rounded border-slate-300"
-                                                checked={useSeparateBillingAddress}
-                                                onChange={(event) => setUseSeparateBillingAddress(event.target.checked)}
-                                            />
-                                            <div>
-                                                <p className="text-sm font-medium text-slate-900">Brug separat faktureringsadresse</p>
-                                                <p className="text-xs text-muted-foreground">Hvis fakturaen skal gå til en anden adresse end leveringen.</p>
-                                            </div>
-                                        </label>
-
-                                        {useSeparateBillingAddress && (
-                                            <div className="space-y-4">
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="billing-name">Faktura navn</Label>
-                                                        <Input
-                                                            id="billing-name"
-                                                            value={billingName}
-                                                            onChange={(event) => setBillingName(event.target.value)}
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="billing-company">Faktura firma</Label>
-                                                        <Input
-                                                            id="billing-company"
-                                                            value={billingCompany}
-                                                            onChange={(event) => setBillingCompany(event.target.value)}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="billing-address">Faktura adresse</Label>
-                                                    <Input
-                                                        id="billing-address"
-                                                        value={billingAddress}
-                                                        onChange={(event) => setBillingAddress(event.target.value)}
-                                                    />
-                                                </div>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="billing-zip">Faktura postnr.</Label>
-                                                        <Input
-                                                            id="billing-zip"
-                                                            value={billingZip}
-                                                            onChange={(event) => setBillingZip(event.target.value)}
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="billing-city">Faktura by</Label>
-                                                        <Input
-                                                            id="billing-city"
-                                                            value={billingCity}
-                                                            onChange={(event) => setBillingCity(event.target.value)}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
                                     </div>
 
-                                    <div className="space-y-2">
-                                        <div>
-                                            <h3 className="text-sm font-semibold">Leveringsmetode</h3>
-                                            <p className="text-xs text-muted-foreground">
-                                                Vælg levering her i checkout. Deadline og nedtælling opdateres live.
-                                            </p>
-                                        </div>
-
-                                        <RadioGroup value={shippingSelected} onValueChange={setShippingSelected} className="space-y-2">
-                                            {activeDeliveryMethods.map((method) => {
-                                                const methodCost = resolveDeliveryMethodCost(orderPrice, method);
-                                                const deadline = getNextCutoffDate(method, deliveryNow);
-                                                const countdown = deadline ? formatCountdown(deadline.getTime() - deliveryNow.getTime()) : null;
-                                                const estimatedDelivery = getEstimatedDeliveryDate(method, deliveryNow);
-                                                const isSelected = shippingSelected === method.id;
-
-                                                return (
-                                                    <label
-                                                        key={method.id}
-                                                        htmlFor={`delivery-${method.id}`}
-                                                        className={`block cursor-pointer rounded-lg border px-3 py-3 shadow-sm transition-colors ${isSelected ? "border-primary bg-primary/5" : "border-slate-200 bg-white hover:border-primary/40"}`}
+                                    {/* ──────────────────────────────────────────────────────────────
+                                         Step 3 — Flere muligheder (collapsed by default)
+                                         Afsender på pakken + separat faktureringsadresse.
+                                         ────────────────────────────────────────────────────────────── */}
+                                    <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
+                                        <button
+                                            type="button"
+                                            className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50/60"
+                                            onClick={() => setMoreOptionsOpen(!moreOptionsOpen)}
+                                        >
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 shrink-0">
+                                                    <span className="text-xs font-bold">3</span>
+                                                </div>
+                                                <div className="text-left">
+                                                    <p className="text-sm font-semibold text-slate-900">Flere muligheder</p>
+                                                    <p className="text-xs text-muted-foreground">Afsender, blind forsendelse, separat fakturering</p>
+                                                </div>
+                                            </div>
+                                            <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${moreOptionsOpen ? "rotate-180" : ""}`} />
+                                        </button>
+                                        {moreOptionsOpen && (
+                                            <div className="px-4 pb-4 pt-1 space-y-4 border-t border-slate-100">
+                                                <div className="space-y-2">
+                                                    <p className="text-xs font-semibold text-slate-700">Afsender på pakken</p>
+                                                    <RadioGroup
+                                                        value={senderMode}
+                                                        onValueChange={(value) => {
+                                                            const nextValue = value as CheckoutSenderMode;
+                                                            setSenderMode(nextValue);
+                                                            if (nextValue === "custom" && !senderName.trim()) {
+                                                                setSenderName(customerCompany.trim() || customerName.trim());
+                                                            }
+                                                        }}
+                                                        className="space-y-1.5"
                                                     >
-                                                        <div className="flex items-start gap-3">
-                                                            <RadioGroupItem id={`delivery-${method.id}`} value={method.id} className="mt-1" />
-                                                            <div className="flex-1 space-y-2">
-                                                                <div className="flex items-start justify-between gap-4">
-                                                                    <div>
-                                                                        <p className="text-sm font-semibold text-slate-900">{method.name}</p>
-                                                                        {method.description && (
-                                                                            <p className="text-xs text-muted-foreground">{method.description}</p>
-                                                                        )}
-                                                                    </div>
-                                                                    <div className="text-right">
-                                                                        <p className="text-sm font-semibold text-slate-900">{methodCost} kr</p>
-                                                                        <p className="text-[11px] text-muted-foreground">ex. moms</p>
-                                                                    </div>
-                                                                </div>
+                                                        <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5">
+                                                            <RadioGroupItem value="standard" id="sender-standard" className="mt-0.5" />
+                                                            <div>
+                                                                <p className="text-sm font-medium text-slate-900">Standard</p>
+                                                                <p className="text-xs text-muted-foreground">WebPrinter står som normal afsender.</p>
+                                                            </div>
+                                                        </label>
+                                                        <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5">
+                                                            <RadioGroupItem value="blind" id="sender-blind" className="mt-0.5" />
+                                                            <div>
+                                                                <p className="text-sm font-medium text-slate-900">Blind forsendelse</p>
+                                                                <p className="text-xs text-muted-foreground">Modtageren ser ikke WebPrinter som afsender.</p>
+                                                            </div>
+                                                        </label>
+                                                        <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5">
+                                                            <RadioGroupItem value="custom" id="sender-custom" className="mt-0.5" />
+                                                            <div>
+                                                                <p className="text-sm font-medium text-slate-900">Brug eget navn/firma</p>
+                                                                <p className="text-xs text-muted-foreground">Pakken sendes med dit navn eller firmanavn som afsender.</p>
+                                                            </div>
+                                                        </label>
+                                                    </RadioGroup>
+                                                    {senderMode === "custom" && (
+                                                        <div className="space-y-1.5">
+                                                            <Label htmlFor="sender-name" className="text-xs">Afsendernavn</Label>
+                                                            <Input
+                                                                id="sender-name"
+                                                                value={senderName}
+                                                                onChange={(event) => setSenderName(event.target.value)}
+                                                                placeholder="Dit navn eller firmanavn"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
 
-                                                                <div className="space-y-1.5 text-xs text-muted-foreground">
-                                                                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                                                        <span className="font-medium text-slate-700">
-                                                                            {method.cutoff_label === "latest" ? "Seneste bestilling:" : "Bestil inden:"}
-                                                                        </span>
-                                                                        <span>{deadline ? deliveryDateTimeFormatter.format(deadline) : "Ingen deadline angivet"}</span>
-                                                                        {countdown && (
-                                                                            <span className="inline-flex items-center gap-1 text-primary">
-                                                                                <Clock3 className="h-3 w-3" />
-                                                                                {countdown} tilbage
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
+                                                <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50/60 px-3 py-2.5">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="mt-1 h-4 w-4 rounded border-slate-300"
+                                                        checked={useSeparateBillingAddress}
+                                                        onChange={(event) => setUseSeparateBillingAddress(event.target.checked)}
+                                                    />
+                                                    <div>
+                                                        <p className="text-sm font-medium text-slate-900">Brug separat faktureringsadresse</p>
+                                                        <p className="text-xs text-muted-foreground">Hvis fakturaen skal gå til en anden adresse end leveringen.</p>
+                                                    </div>
+                                                </label>
 
-                                                                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                                                        <span className="font-medium text-slate-700">Forventet levering:</span>
-                                                                        <span>{estimatedDelivery ? deliveryDateFormatter.format(estimatedDelivery) : "Beregnes ved ordre"}</span>
-                                                                        {typeof method.lead_time_days === "number" && method.lead_time_days > 0 && (
-                                                                            <span>Ca. {method.lead_time_days} hverdage</span>
-                                                                        )}
-                                                                    </div>
-
-                                                                    {method.cutoff_text && (
-                                                                        <p className="text-[11px] text-muted-foreground">{method.cutoff_text}</p>
-                                                                    )}
-                                                                </div>
+                                                {useSeparateBillingAddress && (
+                                                    <div className="space-y-3 pl-7">
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            <div className="space-y-1.5">
+                                                                <Label htmlFor="billing-name" className="text-xs">Faktura navn</Label>
+                                                                <Input id="billing-name" value={billingName} onChange={(event) => setBillingName(event.target.value)} />
+                                                            </div>
+                                                            <div className="space-y-1.5">
+                                                                <Label htmlFor="billing-company" className="text-xs">Faktura firma</Label>
+                                                                <Input id="billing-company" value={billingCompany} onChange={(event) => setBillingCompany(event.target.value)} />
                                                             </div>
                                                         </div>
-                                                    </label>
-                                                );
-                                            })}
-                                        </RadioGroup>
+                                                        <div className="space-y-1.5">
+                                                            <Label htmlFor="billing-address" className="text-xs">Faktura adresse</Label>
+                                                            <Input id="billing-address" value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} />
+                                                        </div>
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            <div className="space-y-1.5">
+                                                                <Label htmlFor="billing-zip" className="text-xs">Faktura postnr.</Label>
+                                                                <Input id="billing-zip" value={billingZip} onChange={(event) => setBillingZip(event.target.value)} />
+                                                            </div>
+                                                            <div className="space-y-1.5">
+                                                                <Label htmlFor="billing-city" className="text-xs">Faktura by</Label>
+                                                                <Input id="billing-city" value={billingCity} onChange={(event) => setBillingCity(event.target.value)} />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </CardContent>
                             </Card>
@@ -3386,59 +3524,12 @@ const FileUploadConfiguration = () => {
                                                 </div>
                                             )}
 
-                                            {(platformPreflightLoading || platformPreflight) && (
-                                                <div className={`rounded-xl border-2 p-6 shadow-sm ${platformPreflight?.status === 'FAILED' || (platformPreflight?.errors?.length ?? 0) > 0 ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
-                                                    <div className="flex items-center gap-2 mb-4">
-                                                        {platformPreflightLoading || platformPreflight?.status === 'PROCESSING' ? (
-                                                            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                                                        ) : platformPreflight?.errors?.length ? (
-                                                            <AlertCircle className="h-5 w-5 text-red-600" />
-                                                        ) : (
-                                                            <CheckCircle2 className="h-5 w-5 text-green-600" />
-                                                        )}
-                                                        <h3 className="font-bold text-base">
-                                                            {platformPreflightLoading || platformPreflight?.status === 'PROCESSING'
-                                                                ? 'Print.com preflight kører...'
-                                                                : platformPreflight?.errors?.length
-                                                                    ? 'Print.com preflight fandt fejl'
-                                                                    : 'Print.com preflight gennemført'}
-                                                        </h3>
-                                                    </div>
-
-                                                    {platformPreflight?.errors?.length > 0 && (
-                                                        <div className="mb-3">
-                                                            <p className="text-xs font-semibold text-red-700 uppercase tracking-wide">Fejl</p>
-                                                            <ul className="space-y-1 mt-1">
-                                                                {platformPreflight.errors.map((issue, idx) => (
-                                                                    <li key={`pf-error-${idx}`} className="text-sm text-red-900">• {issue}</li>
-                                                                ))}
-                                                            </ul>
-                                                        </div>
-                                                    )}
-
-                                                    {platformPreflight?.warnings?.length > 0 && (
-                                                        <div className="mb-3">
-                                                            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Advarsler</p>
-                                                            <ul className="space-y-1 mt-1">
-                                                                {platformPreflight.warnings.map((issue, idx) => (
-                                                                    <li key={`pf-warn-${idx}`} className="text-sm text-amber-900">• {issue}</li>
-                                                                ))}
-                                                            </ul>
-                                                        </div>
-                                                    )}
-
-                                                    {platformPreflight?.fixes?.length > 0 && (
-                                                        <div>
-                                                            <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Auto-fix</p>
-                                                            <ul className="space-y-1 mt-1">
-                                                                {platformPreflight.fixes.map((fix, idx) => (
-                                                                    <li key={`pf-fix-${idx}`} className="text-sm text-green-900">• {fix}</li>
-                                                                ))}
-                                                            </ul>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
+                                            {/*
+                                                Server-side preflight (pod2-pdf-preflight) still runs in the background
+                                                so its autoFix path can silently repair the uploaded PDF, but we no longer
+                                                surface its messages to the customer. All visible feedback comes from our
+                                                own local preflight (DPI, size, CMYK/RGB) above.
+                                            */}
                                         </div>
                                     )}
                                     <div className="border-t border-slate-200 pt-6">

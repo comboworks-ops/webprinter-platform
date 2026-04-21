@@ -141,6 +141,10 @@ serve(async (req) => {
       case "authorization_bearer":
         headers["Authorization"] = `Bearer ${apiKey}`;
         break;
+      case "authorization_printapikey":
+        // Print.com's real auth scheme, matches pod2-order-submit.
+        headers["Authorization"] = `PrintApiKey ${apiKey}`;
+        break;
       case "x_api_key":
         headers["X-API-Key"] = apiKey;
         break;

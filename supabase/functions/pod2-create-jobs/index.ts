@@ -76,6 +76,22 @@ serve(async (req) => {
       .eq("id", orderId)
       .maybeSingle();
 
+    // Pull the tenant's POD v2 auto-forward flag. Self-owned tenants skip
+    // the approve+charge gate so the job lands straight in master queue.
+    // Defensive: if the column hasn't been migrated yet, fall back to false
+    // so existing tenants keep the normal approve flow.
+    let autoForward = false;
+    try {
+      const { data: tenantRow } = await serviceClient
+        .from("tenants")
+        .select("pod2_auto_forward")
+        .eq("id", order?.tenant_id || "")
+        .maybeSingle();
+      autoForward = Boolean((tenantRow as any)?.pod2_auto_forward);
+    } catch {
+      autoForward = false;
+    }
+
     if (orderError || !order) {
       return new Response(JSON.stringify({ error: "Order not found" }), {
         status: 404,
@@ -83,16 +99,30 @@ serve(async (req) => {
       });
     }
 
-    const { data: roleData } = await supabaseClient
+    // Access gate: allow either
+    //   (a) a tenant-scoped role on the order's tenant, OR
+    //   (b) a platform-wide master_admin (tenant_id IS NULL)
+    // Platform-wide admins can act on any tenant — the tenant-scoped
+    // `.eq("tenant_id", ...)` alone was wrongly excluding them.
+    const { data: tenantRole } = await supabaseClient
       .from("user_roles")
-      .select("tenant_id")
+      .select("role")
       .eq("user_id", user.id)
       .eq("tenant_id", order.tenant_id)
       .in("role", ["admin", "staff", "master_admin"])
       .limit(1)
       .maybeSingle();
 
-    if (!roleData) {
+    const { data: platformRole } = await supabaseClient
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .is("tenant_id", null)
+      .eq("role", "master_admin")
+      .limit(1)
+      .maybeSingle();
+
+    if (!tenantRole && !platformRole) {
       return new Response(JSON.stringify({ error: "Access denied" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -238,7 +268,7 @@ serve(async (req) => {
         qty,
         tenant_cost: tenantCost,
         currency: priceMatrix.currency || "DKK",
-        status: "awaiting_approval",
+        status: autoForward ? "paid" : "awaiting_approval",
         customer_email: order.customer_email || null,
         recipient_name: recipientName,
         recipient_company: recipientCompany,

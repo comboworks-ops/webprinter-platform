@@ -40,6 +40,15 @@ export function Pod2Ordrer() {
     const forwardJob = usePodMasterForwardJob();
     const submitToPrintcom = usePodSubmitToPrintcom();
     const [paymentMethod, setPaymentMethod] = useState<"invoice" | "psp">("invoice");
+    const [dryRun, setDryRun] = useState<boolean>(true);
+    // Inline result pane — success or error shown directly in the dialog,
+    // so the operator never has to open DevTools.
+    const [submitResult, setSubmitResult] = useState<
+        | { kind: "dryRun"; payload: any; warnings: string[] }
+        | { kind: "success"; response: any; payload: any }
+        | { kind: "error"; message: string; response?: any; payload?: any }
+        | null
+    >(null);
 
     const jobs = useMemo(
         () => (isMasterContext ? allJobsQuery.data || [] : tenantJobsQuery.data || []),
@@ -116,16 +125,37 @@ export function Pod2Ordrer() {
 
     const handleSubmitToPrintcom = async () => {
         if (!forwardDialog) return;
+        setSubmitResult(null);
         try {
-            await submitToPrintcom.mutateAsync({
+            const result: any = await submitToPrintcom.mutateAsync({
                 jobId: forwardDialog.id,
                 paymentMethod,
+                dryRun,
             });
-            setForwardDialog(null);
-            setProviderJobRef("");
-            setMasterNotes("");
-        } catch {
-            // handled in hook — job row carries printcom_last_error for diagnostics
+
+            if (result?.dryRun) {
+                setSubmitResult({
+                    kind: "dryRun",
+                    payload: result.payload,
+                    warnings: result.warnings || [],
+                });
+                return;
+            }
+
+            setSubmitResult({
+                kind: "success",
+                response: result?.response,
+                payload: result?.payload,
+            });
+        } catch (err: any) {
+            // The hook unpacks the edge function's 502 body so we can see
+            // exactly what Print.com rejected and what we sent.
+            setSubmitResult({
+                kind: "error",
+                message: String(err?.message || err || "Ukendt fejl"),
+                payload: err?.payload,
+                response: err?.response,
+            });
         }
     };
 
@@ -193,7 +223,6 @@ export function Pod2Ordrer() {
                                             <TableRow>
                                                 <TableHead>Job</TableHead>
                                                 <TableHead>Produkt</TableHead>
-                                                <TableHead>Variant</TableHead>
                                                 <TableHead>Modtager</TableHead>
                                                 <TableHead>Pris</TableHead>
                                                 <TableHead className="text-right">Handling</TableHead>
@@ -204,10 +233,9 @@ export function Pod2Ordrer() {
                                                 <TableRow key={job.id}>
                                                     <TableCell className="font-mono text-xs">{job.id.slice(0, 8)}</TableCell>
                                                     <TableCell>
-                                                        <div className="font-medium">{job.product_name || "-"}</div>
-                                                        <div className="text-xs text-muted-foreground">{job.order_id.slice(0, 8)}</div>
+                                                        <div className="font-medium">{job.product_name || "-"} × {job.qty}</div>
+                                                        <div className="text-xs text-muted-foreground">Ordre {job.order_id.slice(0, 8)}</div>
                                                     </TableCell>
-                                                    <TableCell className="text-sm">{job.variant_signature}</TableCell>
                                                     <TableCell className="text-sm">
                                                         <div>{job.recipient_name || "-"}</div>
                                                         {job.delivery_summary && <div className="text-xs text-muted-foreground">{job.delivery_summary}</div>}
@@ -267,8 +295,8 @@ export function Pod2Ordrer() {
                                                 <TableCell className="font-mono text-xs">{job.id.slice(0, 8)}</TableCell>
                                                 {isMasterContext && <TableCell className="text-sm">{tenantLabels[job.tenant_id] || job.tenant_id.slice(0, 8)}</TableCell>}
                                                 <TableCell>
-                                                    <div className="font-medium">{job.product_name || "-"}</div>
-                                                    <div className="text-xs text-muted-foreground">{job.variant_signature}</div>
+                                                    <div className="font-medium">{job.product_name || "-"} × {job.qty}</div>
+                                                    <div className="text-xs text-muted-foreground">Ordre {job.order_id.slice(0, 8)}</div>
                                                 </TableCell>
                                                 <TableCell className="text-sm">
                                                     <div>{job.recipient_name || "-"}</div>
@@ -388,8 +416,8 @@ export function Pod2Ordrer() {
                     {approveDialog && (
                         <div className="space-y-3 text-sm">
                             <div className="rounded-lg border p-3">
-                                <div className="font-medium">{approveDialog.product_name || "-"}</div>
-                                <div className="text-muted-foreground">{approveDialog.variant_signature}</div>
+                                <div className="font-medium">{approveDialog.product_name || "-"} × {approveDialog.qty}</div>
+                                <div className="text-xs text-muted-foreground">Ordre {approveDialog.order_id.slice(0, 8)}</div>
                                 <div className="mt-2 font-medium">{Number(approveDialog.tenant_cost).toFixed(2)} {approveDialog.currency}</div>
                             </div>
                             {!billingReady && (
@@ -414,6 +442,7 @@ export function Pod2Ordrer() {
                     setForwardDialog(null);
                     setProviderJobRef("");
                     setMasterNotes("");
+                    setSubmitResult(null);
                 }
             }}>
                 <DialogContent>
@@ -426,8 +455,8 @@ export function Pod2Ordrer() {
                     {forwardDialog && (
                         <div className="space-y-4">
                             <div className="rounded-lg border p-3 text-sm">
-                                <div className="font-medium">{forwardDialog.product_name || "-"}</div>
-                                <div className="text-muted-foreground">{forwardDialog.variant_signature}</div>
+                                <div className="font-medium">{forwardDialog.product_name || "-"} × {forwardDialog.qty}</div>
+                                <div className="text-xs text-muted-foreground">Ordre {forwardDialog.order_id.slice(0, 8)}</div>
                                 <div className="mt-2 text-xs text-muted-foreground">
                                     Tenant: {tenantLabels[forwardDialog.tenant_id] || forwardDialog.tenant_id.slice(0, 8)}
                                 </div>
@@ -450,7 +479,7 @@ export function Pod2Ordrer() {
                                     <div>
                                         <p className="font-medium text-sm">Send til Print.com</p>
                                         <p className="text-xs text-muted-foreground">
-                                            Opretter kontakt, uploader logo + print-fil, placerer ordren.
+                                            Videresender ordren i &eacute;t kald med afsender-identitet, logo og print-fil.
                                         </p>
                                     </div>
                                 </div>
@@ -466,15 +495,30 @@ export function Pod2Ordrer() {
                                         <option value="psp">Online betaling (psp)</option>
                                     </select>
                                 </div>
+                                <label className="flex items-start gap-2 text-xs cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={dryRun}
+                                        onChange={(event) => setDryRun(event.target.checked)}
+                                        className="mt-0.5"
+                                    />
+                                    <span>
+                                        <span className="font-medium">Dry run</span>
+                                        {" "}&mdash; byg payload uden at sende til Print.com (log i konsol).
+                                    </span>
+                                </label>
                                 <Button
                                     onClick={handleSubmitToPrintcom}
                                     disabled={submitToPrintcom.isPending}
                                     className="w-full"
+                                    variant={dryRun ? "outline" : "default"}
                                 >
                                     {submitToPrintcom.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                     <Send className="mr-2 h-4 w-4" />
-                                    Send til Print.com
+                                    {dryRun ? "Test (dry run)" : "Send til Print.com"}
                                 </Button>
+
+                                {submitResult && <SubmitResultPanel result={submitResult} />}
                             </div>
 
                             <div className="rounded-lg border border-dashed p-3 space-y-3">
@@ -509,6 +553,97 @@ export function Pod2Ordrer() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+        </div>
+    );
+}
+
+type SubmitResult =
+    | { kind: "dryRun"; payload: any; warnings: string[] }
+    | { kind: "success"; response: any; payload: any }
+    | { kind: "error"; message: string; response?: any; payload?: any };
+
+function SubmitResultPanel({ result }: { result: SubmitResult }) {
+    if (result.kind === "dryRun") {
+        const options = result.payload?.items?.[0]?.options || {};
+        const optionPairs = Object.entries(options);
+        return (
+            <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs space-y-2">
+                <div className="flex items-center gap-2 font-medium text-blue-900">
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    Dry run OK &mdash; payload klar, intet sendt til Print.com
+                </div>
+                {result.warnings.length > 0 && (
+                    <div className="text-yellow-800">
+                        Advarsler: {result.warnings.join("; ")}
+                    </div>
+                )}
+                <div>
+                    <div className="text-blue-900 font-medium mb-1">Print.com valgmuligheder ({optionPairs.length}):</div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono">
+                        {optionPairs.map(([k, v]) => (
+                            <div key={k}><span className="text-blue-700">{k}</span>: {String(v)}</div>
+                        ))}
+                    </div>
+                </div>
+                <details>
+                    <summary className="cursor-pointer text-blue-700">Vis fuld payload</summary>
+                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-white p-2 text-[10px] leading-tight">
+                        {JSON.stringify(result.payload, null, 2)}
+                    </pre>
+                </details>
+            </div>
+        );
+    }
+
+    if (result.kind === "success") {
+        const orderId = result.response?.orderId || result.response?.id || result.response?.order?.id;
+        return (
+            <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-xs space-y-2">
+                <div className="flex items-center gap-2 font-medium text-green-900">
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    Ordren er oprettet hos Print.com
+                </div>
+                {orderId && (
+                    <div className="font-mono">Print.com ordre-id: {String(orderId)}</div>
+                )}
+                <details>
+                    <summary className="cursor-pointer text-green-800">Vis fuld respons</summary>
+                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-white p-2 text-[10px] leading-tight">
+                        {JSON.stringify(result.response, null, 2)}
+                    </pre>
+                </details>
+            </div>
+        );
+    }
+
+    // error
+    return (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs space-y-2">
+            <div className="flex items-center gap-2 font-medium text-red-900">
+                <AlertCircle className="h-3.5 w-3.5" />
+                Print.com afviste ordren
+            </div>
+            <div className="whitespace-pre-wrap break-words text-red-800">
+                {result.message}
+            </div>
+            {result.response && (
+                <details open>
+                    <summary className="cursor-pointer text-red-800 font-medium">Print.com svar</summary>
+                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-white p-2 text-[10px] leading-tight">
+                        {typeof result.response === "string"
+                            ? result.response
+                            : JSON.stringify(result.response, null, 2)}
+                    </pre>
+                </details>
+            )}
+            {result.payload && (
+                <details>
+                    <summary className="cursor-pointer text-red-800">Hvad vi sendte</summary>
+                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-white p-2 text-[10px] leading-tight">
+                        {JSON.stringify(result.payload, null, 2)}
+                    </pre>
+                </details>
+            )}
         </div>
     );
 }

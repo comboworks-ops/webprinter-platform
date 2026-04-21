@@ -37,8 +37,21 @@ interface Order {
     delivery_address: string | null;
     delivery_city: string | null;
     delivery_zip: string | null;
+    delivery_type: string | null;
     tenant_id?: string | null;
 }
+
+/**
+ * Parse `[TAG] value` entries from the order's `status_note`.
+ * Checkout writes recipient / delivery / billing / sender info as tagged
+ * lines so admin views can reconstruct them. Returns value or null.
+ */
+const readOrderTag = (note: string | null | undefined, tag: string): string | null => {
+    const src = String(note || "");
+    const re = new RegExp(`\\[${tag}\\]\\s*([^\\n]+)`, "i");
+    const m = src.match(re);
+    return m?.[1]?.trim() || null;
+};
 
 interface OrderFile {
     id: string;
@@ -89,6 +102,7 @@ export function OrderManager() {
     const [editHasProblem, setEditHasProblem] = useState(false);
     const [editProblemDescription, setEditProblemDescription] = useState('');
     const [editRequiresReupload, setEditRequiresReupload] = useState(false);
+    const [editDeliveryType, setEditDeliveryType] = useState('');
 
     useEffect(() => {
         fetchOrders();
@@ -169,6 +183,11 @@ export function OrderManager() {
         setEditHasProblem(order.has_problem);
         setEditProblemDescription(order.problem_description || '');
         setEditRequiresReupload(order.requires_file_reupload);
+        // Prefer the explicit delivery_type column; fall back to the
+        // [LEVERINGSMETODE] tag in status_note for older orders.
+        setEditDeliveryType(
+            order.delivery_type || readOrderTag(order.status_note, "LEVERINGSMETODE") || ""
+        );
         fetchOrderFiles(order.id);
         setDialogOpen(true);
     };
@@ -178,14 +197,30 @@ export function OrderManager() {
 
         setSaving(true);
         try {
+            // Keep the [LEVERINGSMETODE] tag in status_note in sync with any
+            // edited delivery_type so downstream readers (POD jobs, emails,
+            // etc. that scan status_note) stay consistent.
+            const syncedStatusNote = (() => {
+                const base = editStatusNote || '';
+                if (!editDeliveryType) {
+                    return base.replace(/\[LEVERINGSMETODE\][^\n]*\n?/gi, '').trim() || null;
+                }
+                const tagLine = `[LEVERINGSMETODE] ${editDeliveryType}`;
+                if (/\[LEVERINGSMETODE\]/i.test(base)) {
+                    return base.replace(/\[LEVERINGSMETODE\][^\n]*/i, tagLine);
+                }
+                return base ? `${base}\n${tagLine}` : tagLine;
+            })();
+
             const updates: any = {
                 status: editStatus,
-                status_note: editStatusNote || null,
+                status_note: syncedStatusNote || null,
                 tracking_number: editTrackingNumber || null,
                 estimated_delivery: editEstimatedDelivery || null,
                 has_problem: editHasProblem,
                 problem_description: editHasProblem ? editProblemDescription : null,
                 requires_file_reupload: editRequiresReupload,
+                delivery_type: editDeliveryType || null,
             };
 
             // Set shipped_at if status changed to shipped
@@ -493,10 +528,57 @@ export function OrderManager() {
                                     </div>
                                     <div>
                                         <Label className="text-muted-foreground">Leveringsadresse</Label>
-                                        <p className="text-sm">
-                                            {selectedOrder.delivery_address || 'Ikke angivet'}<br />
-                                            {selectedOrder.delivery_zip} {selectedOrder.delivery_city}
-                                        </p>
+                                        {(() => {
+                                            const note = selectedOrder.status_note;
+                                            const recipient = readOrderTag(note, 'MODTAGER');
+                                            const recipientCompany = readOrderTag(note, 'MODTAGER-FIRMA');
+                                            const delivery = readOrderTag(note, 'LEVERING');
+                                            const billing = readOrderTag(note, 'FAKTURERING');
+                                            const senderTag = readOrderTag(note, 'AFSENDER');
+                                            const blindTag = readOrderTag(note, 'BLIND_SHIPPING');
+                                            const method = selectedOrder.delivery_type
+                                                || readOrderTag(note, 'LEVERINGSMETODE');
+
+                                            // Build a short address from columns if tags missing.
+                                            const columnAddress = [
+                                                selectedOrder.delivery_address,
+                                                [selectedOrder.delivery_zip, selectedOrder.delivery_city].filter(Boolean).join(' '),
+                                            ].filter(Boolean).join(', ');
+                                            const address = delivery || columnAddress;
+
+                                            if (!address && !recipient && !method) {
+                                                return <p className="text-sm text-muted-foreground">Ikke angivet</p>;
+                                            }
+
+                                            return (
+                                                <div className="text-sm space-y-1">
+                                                    {(recipient || recipientCompany) && (
+                                                        <p className="font-medium">
+                                                            {recipient}
+                                                            {recipient && recipientCompany ? ' · ' : ''}
+                                                            {recipientCompany}
+                                                        </p>
+                                                    )}
+                                                    {address && <p>{address}</p>}
+                                                    {method && (
+                                                        <p className="text-xs text-muted-foreground">
+                                                            <span className="font-medium">Metode:</span> {method}
+                                                        </p>
+                                                    )}
+                                                    {(blindTag?.toLowerCase() === 'ja' || (senderTag && senderTag !== 'Standard WebPrinter-afsender')) && (
+                                                        <p className="text-xs text-muted-foreground">
+                                                            <span className="font-medium">Afsender:</span>{' '}
+                                                            {blindTag?.toLowerCase() === 'ja' ? 'Blind forsendelse' : senderTag}
+                                                        </p>
+                                                    )}
+                                                    {billing && billing !== (delivery || '') && (
+                                                        <p className="text-xs text-muted-foreground">
+                                                            <span className="font-medium">Faktura:</span> {billing}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
 
@@ -548,13 +630,23 @@ export function OrderManager() {
                                         </div>
                                     </div>
 
-                                    <div>
-                                        <Label>Forventet levering</Label>
-                                        <Input
-                                            type="date"
-                                            value={editEstimatedDelivery}
-                                            onChange={(e) => setEditEstimatedDelivery(e.target.value)}
-                                        />
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <Label>Forventet levering</Label>
+                                            <Input
+                                                type="date"
+                                                value={editEstimatedDelivery}
+                                                onChange={(e) => setEditEstimatedDelivery(e.target.value)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <Label>Leveringsmetode</Label>
+                                            <Input
+                                                value={editDeliveryType}
+                                                onChange={(e) => setEditDeliveryType(e.target.value)}
+                                                placeholder="Kundens valg pre-udfyldt — kan ændres hvis nødvendigt"
+                                            />
+                                        </div>
                                     </div>
 
                                     <div>
