@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
     Elements,
     PaymentElement,
@@ -193,10 +193,17 @@ export function StripePaymentForm({
         locale: "da",
     };
 
-    // Get stripe instance - for connected accounts, create with stripeAccount option
-    const stripeInstance = connectedAccountId
-        ? loadStripe(stripeKey, { stripeAccount: connectedAccountId })
-        : getStripePromise();
+    // Memoize the stripe instance. Without this, `loadStripe` fires on every
+    // render in the connected-account path — <Elements> sees a new Stripe
+    // promise, remounts, and the PaymentElement never stays mounted (Stripe
+    // then throws "elements should have a mounted Payment Element" on
+    // confirmPayment and hammers elements/sessions with 400s).
+    const stripeInstance = useMemo(() => {
+        if (!stripeKey) return null;
+        return connectedAccountId
+            ? loadStripe(stripeKey, { stripeAccount: connectedAccountId })
+            : getStripePromise();
+    }, [stripeKey, connectedAccountId]);
 
     return (
         <Card className="w-full max-w-md mx-auto shadow-xl border-2">
