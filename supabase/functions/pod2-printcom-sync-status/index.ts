@@ -87,17 +87,23 @@ serve(async (req) => {
         // Two entry paths:
         //   1. Master admin clicks the "Sync Print.com status" button in the
         //      UI — arrives with a real user JWT.
-        //   2. pg_cron invokes the function on a schedule — arrives with the
-        //      service role key as bearer. No user session to check.
+        //   2. pg_cron invokes the function on a schedule — arrives with a
+        //      shared cron secret in the X-Pod2-Cron-Secret header. No user
+        //      session to check.
         //
-        // We accept either. The service-role bypass compares the full
-        // Authorization header against SUPABASE_SERVICE_ROLE_KEY so random
-        // callers can't impersonate a cron.
-        const authHeader = req.headers.get("Authorization") || "";
-        const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-        const isCronCall = Boolean(serviceRoleKey) && authHeader === `Bearer ${serviceRoleKey}`;
+        // We accept either. The cron secret is a dedicated env var
+        // (POD2_CRON_SECRET) so we don't have to guess which flavor of
+        // service role key Supabase injects (legacy JWT vs. the newer
+        // sb_secret_* format).
+        const cronSecret = Deno.env.get("POD2_CRON_SECRET") ?? "";
+        const providedSecret = req.headers.get("x-pod2-cron-secret") || "";
+        const isCronCall = Boolean(cronSecret) && providedSecret === cronSecret;
 
         if (!isCronCall) {
+            const authHeader = req.headers.get("Authorization") || "";
+            if (!authHeader) {
+                return json({ error: "Unauthorized" }, 401);
+            }
             const supabaseClient = createClient(
                 Deno.env.get("SUPABASE_URL") ?? "",
                 Deno.env.get("SUPABASE_ANON_KEY") ?? "",
