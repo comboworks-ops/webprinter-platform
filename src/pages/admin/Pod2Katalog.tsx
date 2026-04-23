@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Loader2, Package, Download, Check, Search, GitMerge, ArrowUpRight, ListFilter, Layers } from "lucide-react";
+import { Loader2, Package, Download, Check, Search, GitMerge, ArrowUpRight, ListFilter, Layers, ExternalLink } from "lucide-react";
 import { usePodCatalogProducts, usePodImportProduct, usePodTenantImports, usePodRemoveImport, usePodMergeProducts } from "@/lib/pod2/hooks";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveAdminTenant, MASTER_TENANT_ID } from "@/lib/adminTenant";
@@ -665,6 +665,19 @@ export function Pod2Katalog() {
                                             <Badge variant="secondary">Kræver tilbud</Badge>
                                         )}
                                     </div>
+                                    {product.supplier_product_ref && (
+                                        <a
+                                            href={`https://app.print.com/selector/${product.supplier_product_ref}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="absolute top-3 right-3 inline-flex items-center gap-1 rounded-md bg-background/90 backdrop-blur px-2 py-1 text-xs font-medium text-foreground shadow-sm hover:bg-background border border-border/50"
+                                            title={`Åbn ${product.supplier_product_ref} på Print.com i ny fane`}
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <ExternalLink className="h-3 w-3" />
+                                            Print.com
+                                        </a>
+                                    )}
                                 </div>
 
                                 <CardHeader className="pb-2">

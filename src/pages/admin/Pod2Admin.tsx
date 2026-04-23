@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Play, Save, Trash2, Plus, RefreshCw, Globe, Key, Zap, GripVertical } from "lucide-react";
+import { Loader2, Play, Save, Trash2, Plus, RefreshCw, Globe, Key, Zap, GripVertical, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -2444,14 +2444,27 @@ function BrowseTab() {
                                                         <h3 className="font-medium truncate">{displayTitle}</h3>
                                                         <p className="text-sm text-muted-foreground truncate">{sku || product.id || "-"}</p>
                                                     </div>
-                                                    <Button
-                                                        size="sm"
-                                                        variant={isImported ? "secondary" : "default"}
-                                                        disabled={importingSku === sku}
-                                                        onClick={() => openImportWizard(product)}
-                                                    >
-                                                        {importingSku === sku ? <Loader2 className="h-3 w-3 animate-spin" /> : isImported ? "Importer igen" : "Konfigurer"}
-                                                    </Button>
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                        {sku && (
+                                                            <a
+                                                                href={`https://app.print.com/selector/${sku}`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                title={`Åbn ${sku} på Print.com`}
+                                                                className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent"
+                                                            >
+                                                                <ExternalLink className="h-3.5 w-3.5" />
+                                                            </a>
+                                                        )}
+                                                        <Button
+                                                            size="sm"
+                                                            variant={isImported ? "secondary" : "default"}
+                                                            disabled={importingSku === sku}
+                                                            onClick={() => openImportWizard(product)}
+                                                        >
+                                                            {importingSku === sku ? <Loader2 className="h-3 w-3 animate-spin" /> : isImported ? "Importer igen" : "Konfigurer"}
+                                                        </Button>
+                                                    </div>
                                                 </div>
                                                 <div className="mt-2 flex flex-wrap gap-2">
                                                     {product.category && (
