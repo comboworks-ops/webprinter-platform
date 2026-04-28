@@ -30,6 +30,19 @@ interface ProductGridProps {
     hoverTextColor?: string;
     font?: string;
     animation?: "none" | "lift" | "glow" | "pulse";
+    borderRadiusPx?: number;
+    shadow?: string;
+    hoverShadow?: string;
+    hoverScale?: number;
+    hoverY?: number;
+    transitionMs?: number;
+    surfaceStyle?: string;
+    gradientStart?: string;
+    gradientEnd?: string;
+    hoverGradientStart?: string;
+    hoverGradientEnd?: string;
+    innerShadow?: string;
+    sheenColor?: string;
   };
   layoutStyle?: "cards" | "flat" | "grouped" | "slim";
   backgroundConfig?: {
@@ -45,6 +58,30 @@ interface ProductGridProps {
 function normalizeCardCopy(value?: string | null): string {
   if (typeof value !== "string") return "";
   return value.replace(/\s+/g, " ").trim();
+}
+
+function getHexLuminance(color?: string | null): number | null {
+  const normalized = String(color || "").trim();
+  const shortMatch = normalized.match(/^#([0-9a-f]{3})$/i);
+  const longMatch = normalized.match(/^#([0-9a-f]{6})$/i);
+  const hex = shortMatch
+    ? shortMatch[1].split("").map((part) => `${part}${part}`).join("")
+    : longMatch?.[1];
+  if (!hex) return null;
+  const channels = [0, 2, 4].map((index) => {
+    const value = parseInt(hex.slice(index, index + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function ensureReadableTextColor(background: string, preferred: string): string {
+  const bg = getHexLuminance(background);
+  const text = getHexLuminance(preferred);
+  if (bg === null || text === null) return preferred;
+  const ratio = (Math.max(bg, text) + 0.05) / (Math.min(bg, text) + 0.05);
+  if (ratio >= 4.5) return preferred;
+  return bg > 0.48 ? "#0F172A" : "#FFFFFF";
 }
 
 const ProductGrid = ({
@@ -103,6 +140,19 @@ const ProductGrid = ({
     hoverTextColor: buttonConfig?.hoverTextColor ?? "#FFFFFF",
     font: buttonConfig?.font ?? "Poppins",
     animation: buttonConfig?.animation ?? "none",
+    borderRadiusPx: buttonConfig?.borderRadiusPx,
+    shadow: buttonConfig?.shadow,
+    hoverShadow: buttonConfig?.hoverShadow,
+    hoverScale: buttonConfig?.hoverScale,
+    hoverY: buttonConfig?.hoverY,
+    transitionMs: buttonConfig?.transitionMs,
+    surfaceStyle: buttonConfig?.surfaceStyle,
+    gradientStart: buttonConfig?.gradientStart,
+    gradientEnd: buttonConfig?.gradientEnd,
+    hoverGradientStart: buttonConfig?.hoverGradientStart,
+    hoverGradientEnd: buttonConfig?.hoverGradientEnd,
+    innerShadow: buttonConfig?.innerShadow,
+    sheenColor: buttonConfig?.sheenColor,
   };
   const backgroundStyles = {
     type: backgroundConfig?.type ?? "solid",
@@ -128,6 +178,27 @@ const ProductGrid = ({
       : buttonStyles.animation === "pulse"
         ? "hover:scale-[1.02]"
         : "";
+  const buttonMotionStyle = {
+    borderRadius: buttonStyles.borderRadiusPx ? `${buttonStyles.borderRadiusPx}px` : undefined,
+    boxShadow: buttonStyles.innerShadow
+      ? `${buttonStyles.innerShadow}, ${buttonStyles.shadow || "none"}`
+      : buttonStyles.shadow,
+    transitionDuration: buttonStyles.transitionMs ? `${buttonStyles.transitionMs}ms` : undefined,
+    ["--product-button-hover-shadow" as any]: buttonStyles.hoverShadow || buttonStyles.shadow || "none",
+    ["--product-button-hover-scale" as any]: buttonStyles.hoverScale || 1.015,
+    ["--product-button-hover-y" as any]: `${buttonStyles.hoverY ?? -1}px`,
+    ["--product-button-surface" as any]: `linear-gradient(180deg, ${buttonStyles.gradientStart || buttonStyles.bgColor}, ${buttonStyles.gradientEnd || buttonStyles.bgColor})`,
+    ["--product-button-hover-surface" as any]: `linear-gradient(180deg, ${buttonStyles.hoverGradientStart || buttonStyles.hoverBgColor}, ${buttonStyles.hoverGradientEnd || buttonStyles.hoverBgColor})`,
+    ["--product-button-sheen" as any]: buttonStyles.sheenColor || "rgba(255,255,255,0.28)",
+  };
+  const resolvedButtonTextColor = ensureReadableTextColor(
+    buttonStyles.gradientStart || buttonStyles.bgColor,
+    buttonStyles.textColor,
+  );
+  const resolvedButtonHoverTextColor = ensureReadableTextColor(
+    buttonStyles.hoverGradientStart || buttonStyles.hoverBgColor,
+    buttonStyles.hoverTextColor,
+  );
 
   const toRgba = (hex: string, opacity: number) => {
     if (!hex || typeof hex !== "string") return hex;
@@ -354,11 +425,14 @@ const ProductGrid = ({
                       >
                         <Button
                           data-branding-id="forside.products.button"
+                          data-surface={buttonStyles.surfaceStyle || "matte"}
                           size={effectiveButtonStyle === "center" ? "lg" : "sm"}
                           variant="ghost"
                           className={cn(
                             "transition-all font-semibold",
-                            "bg-[var(--btn-bg)] text-[var(--btn-text)] hover:bg-[var(--btn-hover-bg)] hover:text-[var(--btn-hover-text)]",
+                            "relative overflow-hidden before:pointer-events-none before:absolute before:inset-0 before:bg-[linear-gradient(180deg,var(--product-button-sheen),transparent_42%),linear-gradient(100deg,transparent_0%,rgba(255,255,255,0.28)_45%,transparent_60%)] before:opacity-35 before:transition-transform before:duration-500 before:ease-out before:-translate-x-1/3 hover:before:translate-x-1/4 hover:before:opacity-60",
+                            "hover:shadow-[var(--product-button-hover-shadow)] hover:[transform:translateY(var(--product-button-hover-y))_scale(var(--product-button-hover-scale))]",
+                            "bg-[image:var(--product-button-surface)] text-[var(--btn-text)] hover:bg-[image:var(--product-button-hover-surface)] hover:text-[var(--btn-hover-text)]",
                             effectiveButtonStyle === "bar" ? "w-full rounded-none py-5" : "px-4",
                             effectiveButtonStyle === "center" ? "min-w-[220px] py-5" : "",
                             isSlimLayout ? "h-8 px-3 text-xs" : "",
@@ -367,9 +441,10 @@ const ProductGrid = ({
                           style={{
                             ["--btn-bg" as any]: buttonStyles.bgColor,
                             ["--btn-hover-bg" as any]: buttonStyles.hoverBgColor,
-                            ["--btn-text" as any]: buttonStyles.textColor,
-                            ["--btn-hover-text" as any]: buttonStyles.hoverTextColor,
+                            ["--btn-text" as any]: resolvedButtonTextColor,
+                            ["--btn-hover-text" as any]: resolvedButtonHoverTextColor,
                             fontFamily: `'${buttonStyles.font}', sans-serif`,
+                            ...buttonMotionStyle,
                           }}
                           asChild
                         >

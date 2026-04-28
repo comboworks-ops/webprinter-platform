@@ -162,17 +162,17 @@ export function Pod2Ordrer() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold">POD v2 Ordrer</h1>
-                    <p className="text-muted-foreground">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                    <h1 className="text-3xl font-bold tracking-tight">POD v2 Ordrer</h1>
+                    <p className="text-muted-foreground max-w-2xl">
                         {isMasterContext
                             ? "Master-forwarding af betalte POD v2 jobs til print-huset."
                             : "Godkend og betal POD v2 jobs i din tenant, før master videresender dem."}
                     </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     {isMasterContext && (
                         <Button
                             variant="outline"
@@ -196,13 +196,13 @@ export function Pod2Ordrer() {
             </div>
 
             {!isMasterContext && !billingReady && (
-                <Card className="border-yellow-500/40 bg-yellow-50/50">
+                <Card className="border-amber-500/40 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-950/30">
                     <CardContent className="py-4">
-                        <div className="flex items-center gap-3">
-                            <AlertCircle className="h-5 w-5 text-yellow-700" />
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                            <AlertCircle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
                             <div className="flex-1">
-                                <p className="font-medium text-yellow-900">POD v2 betaling mangler</p>
-                                <p className="text-sm text-yellow-800">
+                                <p className="font-medium text-amber-900 dark:text-amber-100">POD v2 betaling mangler</p>
+                                <p className="text-sm text-amber-800 dark:text-amber-200/80">
                                     Gem en betalingsmetode under <span className="font-medium">POD v2 Betaling</span>, før du kan godkende jobs.
                                 </p>
                             </div>
@@ -224,7 +224,7 @@ export function Pod2Ordrer() {
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
-                                    <Clock className="h-5 w-5 text-yellow-600" />
+                                    <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
                                     Afventer tenant-godkendelse
                                     {pendingApproval.length > 0 && <Badge variant="secondary">{pendingApproval.length}</Badge>}
                                 </CardTitle>
@@ -247,7 +247,7 @@ export function Pod2Ordrer() {
                                         <TableBody>
                                             {pendingApproval.map((job) => (
                                                 <TableRow key={job.id}>
-                                                    <TableCell className="font-mono text-xs">{job.id.slice(0, 8)}</TableCell>
+                                                    <TableCell className="font-mono text-xs tabular-nums">{job.id.slice(0, 8)}</TableCell>
                                                     <TableCell>
                                                         <div className="font-medium">{job.product_name || "-"} × {job.qty}</div>
                                                         <div className="text-xs text-muted-foreground">Ordre {job.order_id.slice(0, 8)}</div>
@@ -256,7 +256,7 @@ export function Pod2Ordrer() {
                                                         <div>{job.recipient_name || "-"}</div>
                                                         {job.delivery_summary && <div className="text-xs text-muted-foreground">{job.delivery_summary}</div>}
                                                     </TableCell>
-                                                    <TableCell className="font-medium">{Number(job.tenant_cost).toFixed(2)} {job.currency}</TableCell>
+                                                    <TableCell className="font-medium tabular-nums whitespace-nowrap">{Number(job.tenant_cost).toFixed(2)} {job.currency}</TableCell>
                                                     <TableCell className="text-right">
                                                         <Button
                                                             size="sm"
@@ -279,7 +279,7 @@ export function Pod2Ordrer() {
                     <Card>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
-                                {isMasterContext ? <Send className="h-5 w-5 text-sky-600" /> : <Clock className="h-5 w-5 text-green-600" />}
+                                {isMasterContext ? <Send className="h-5 w-5 text-sky-600 dark:text-sky-400" /> : <Clock className="h-5 w-5 text-green-600 dark:text-green-400" />}
                                 {isMasterContext ? "Afventer master-videresendelse" : "Betalt - afventer master"}
                                 {awaitingMaster.length > 0 && <Badge variant="secondary">{awaitingMaster.length}</Badge>}
                             </CardTitle>
@@ -308,7 +308,7 @@ export function Pod2Ordrer() {
                                     <TableBody>
                                         {awaitingMaster.map((job) => (
                                             <TableRow key={job.id}>
-                                                <TableCell className="font-mono text-xs">{job.id.slice(0, 8)}</TableCell>
+                                                <TableCell className="font-mono text-xs tabular-nums">{job.id.slice(0, 8)}</TableCell>
                                                 {isMasterContext && <TableCell className="text-sm">{tenantLabels[job.tenant_id] || job.tenant_id.slice(0, 8)}</TableCell>}
                                                 <TableCell>
                                                     <div className="font-medium">{job.product_name || "-"} × {job.qty}</div>
@@ -361,7 +361,7 @@ export function Pod2Ordrer() {
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
-                                    <CheckCircle className="h-5 w-5 text-slate-600" />
+                                    <CheckCircle className="h-5 w-5 text-slate-600 dark:text-slate-300" />
                                     Historik
                                 </CardTitle>
                                 <CardDescription>Jobs der allerede er videresendt, afsluttet eller fejlet.</CardDescription>
@@ -381,14 +381,14 @@ export function Pod2Ordrer() {
                                     <TableBody>
                                         {[...processingJobs, ...finishedJobs].slice(0, 25).map((job) => (
                                             <TableRow key={job.id}>
-                                                <TableCell className="font-mono text-xs">{job.id.slice(0, 8)}</TableCell>
+                                                <TableCell className="font-mono text-xs tabular-nums">{job.id.slice(0, 8)}</TableCell>
                                                 {isMasterContext && <TableCell className="text-sm">{tenantLabels[job.tenant_id] || job.tenant_id.slice(0, 8)}</TableCell>}
                                                 <TableCell className="text-sm">{job.product_name || "-"}</TableCell>
                                                 <TableCell>
                                                     <Badge className={POD_JOB_STATUS_COLORS[job.status]}>{POD_JOB_STATUS_LABELS[job.status]}</Badge>
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">{job.provider_job_ref || "-"}</TableCell>
-                                                <TableCell className="text-xs text-muted-foreground">{new Date(job.updated_at).toLocaleString("da-DK")}</TableCell>
+                                                <TableCell className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">{new Date(job.updated_at).toLocaleString("da-DK")}</TableCell>
                                             </TableRow>
                                         ))}
                                     </TableBody>
@@ -461,7 +461,7 @@ export function Pod2Ordrer() {
                     setSubmitResult(null);
                 }
             }}>
-                <DialogContent>
+                <DialogContent className="sm:max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>Videresend POD v2 job fra master</DialogTitle>
                         <DialogDescription>
@@ -503,7 +503,7 @@ export function Pod2Ordrer() {
                                     <Label htmlFor="paymentMethod" className="text-xs">Betaling hos Print.com</Label>
                                     <select
                                         id="paymentMethod"
-                                        className="w-full rounded-md border py-2 px-3 bg-background text-sm"
+                                        className="w-full rounded-md border border-input bg-background py-2 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                         value={paymentMethod}
                                         onChange={(event) => setPaymentMethod(event.target.value as "invoice" | "psp")}
                                     >
@@ -511,7 +511,7 @@ export function Pod2Ordrer() {
                                         <option value="psp">Online betaling (psp)</option>
                                     </select>
                                 </div>
-                                <label className="flex items-start gap-2 text-xs cursor-pointer">
+                                <label className="flex items-start gap-2 text-xs cursor-pointer py-1">
                                     <input
                                         type="checkbox"
                                         checked={dryRun}
@@ -583,27 +583,27 @@ function SubmitResultPanel({ result }: { result: SubmitResult }) {
         const options = result.payload?.items?.[0]?.options || {};
         const optionPairs = Object.entries(options);
         return (
-            <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs space-y-2">
-                <div className="flex items-center gap-2 font-medium text-blue-900">
+            <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs space-y-2 dark:border-blue-500/30 dark:bg-blue-950/30">
+                <div className="flex items-center gap-2 font-medium text-blue-900 dark:text-blue-100">
                     <CheckCircle className="h-3.5 w-3.5" />
                     Dry run OK &mdash; payload klar, intet sendt til Print.com
                 </div>
                 {result.warnings.length > 0 && (
-                    <div className="text-yellow-800">
+                    <div className="text-yellow-800 dark:text-yellow-300">
                         Advarsler: {result.warnings.join("; ")}
                     </div>
                 )}
                 <div>
-                    <div className="text-blue-900 font-medium mb-1">Print.com valgmuligheder ({optionPairs.length}):</div>
+                    <div className="text-blue-900 dark:text-blue-100 font-medium mb-1">Print.com valgmuligheder ({optionPairs.length}):</div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono">
                         {optionPairs.map(([k, v]) => (
-                            <div key={k}><span className="text-blue-700">{k}</span>: {String(v)}</div>
+                            <div key={k}><span className="text-blue-700 dark:text-blue-300">{k}</span>: {String(v)}</div>
                         ))}
                     </div>
                 </div>
                 <details>
-                    <summary className="cursor-pointer text-blue-700">Vis fuld payload</summary>
-                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-white p-2 text-[10px] leading-tight">
+                    <summary className="cursor-pointer text-blue-700 dark:text-blue-300">Vis fuld payload</summary>
+                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-white p-2 text-[10px] leading-tight dark:bg-slate-900 dark:text-slate-100">
                         {JSON.stringify(result.payload, null, 2)}
                     </pre>
                 </details>
@@ -614,17 +614,17 @@ function SubmitResultPanel({ result }: { result: SubmitResult }) {
     if (result.kind === "success") {
         const orderId = result.response?.orderId || result.response?.id || result.response?.order?.id;
         return (
-            <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-xs space-y-2">
-                <div className="flex items-center gap-2 font-medium text-green-900">
+            <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-xs space-y-2 dark:border-green-500/30 dark:bg-green-950/30">
+                <div className="flex items-center gap-2 font-medium text-green-900 dark:text-green-100">
                     <CheckCircle className="h-3.5 w-3.5" />
                     Ordren er oprettet hos Print.com
                 </div>
                 {orderId && (
-                    <div className="font-mono">Print.com ordre-id: {String(orderId)}</div>
+                    <div className="font-mono tabular-nums">Print.com ordre-id: {String(orderId)}</div>
                 )}
                 <details>
-                    <summary className="cursor-pointer text-green-800">Vis fuld respons</summary>
-                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-white p-2 text-[10px] leading-tight">
+                    <summary className="cursor-pointer text-green-800 dark:text-green-300">Vis fuld respons</summary>
+                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-white p-2 text-[10px] leading-tight dark:bg-slate-900 dark:text-slate-100">
                         {JSON.stringify(result.response, null, 2)}
                     </pre>
                 </details>
@@ -634,18 +634,18 @@ function SubmitResultPanel({ result }: { result: SubmitResult }) {
 
     // error
     return (
-        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs space-y-2">
-            <div className="flex items-center gap-2 font-medium text-red-900">
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs space-y-2 dark:border-red-500/30 dark:bg-red-950/30">
+            <div className="flex items-center gap-2 font-medium text-red-900 dark:text-red-100">
                 <AlertCircle className="h-3.5 w-3.5" />
                 Print.com afviste ordren
             </div>
-            <div className="whitespace-pre-wrap break-words text-red-800">
+            <div className="whitespace-pre-wrap break-words text-red-800 dark:text-red-200">
                 {result.message}
             </div>
             {result.response && (
                 <details open>
-                    <summary className="cursor-pointer text-red-800 font-medium">Print.com svar</summary>
-                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-white p-2 text-[10px] leading-tight">
+                    <summary className="cursor-pointer text-red-800 dark:text-red-300 font-medium">Print.com svar</summary>
+                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-white p-2 text-[10px] leading-tight dark:bg-slate-900 dark:text-slate-100">
                         {typeof result.response === "string"
                             ? result.response
                             : JSON.stringify(result.response, null, 2)}
@@ -654,8 +654,8 @@ function SubmitResultPanel({ result }: { result: SubmitResult }) {
             )}
             {result.payload && (
                 <details>
-                    <summary className="cursor-pointer text-red-800">Hvad vi sendte</summary>
-                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-white p-2 text-[10px] leading-tight">
+                    <summary className="cursor-pointer text-red-800 dark:text-red-300">Hvad vi sendte</summary>
+                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-white p-2 text-[10px] leading-tight dark:bg-slate-900 dark:text-slate-100">
                         {JSON.stringify(result.payload, null, 2)}
                     </pre>
                 </details>

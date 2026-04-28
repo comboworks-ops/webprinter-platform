@@ -29,6 +29,8 @@ import {
     type HeroButtonLinkType,
     type HeroSettings,
     type HeroSlideshowSettings,
+    type HeroSlideTransition,
+    type HeroParallaxStyle,
     type HeroOverlaySettings,
     type HeroVideoSettings,
     type HeroTextAnimation,
@@ -127,6 +129,42 @@ export const TEXT_ANIMATION_PRESETS: { value: HeroTextAnimation; label: string; 
         label: 'Fokusér',
         description: 'Tekst skifter fra sløret til skarp'
     },
+    {
+        value: 'reveal-up',
+        label: 'Reveal Up',
+        description: 'Moderne rolig maskeret opbygning'
+    },
+    {
+        value: 'soft-mask',
+        label: 'Soft Mask',
+        description: 'Elegant indtoning med let afdækning'
+    },
+    {
+        value: 'stagger-rise',
+        label: 'Stagger Rise',
+        description: 'Professionel sekventiel tekstbevægelse'
+    },
+    {
+        value: 'cinematic',
+        label: 'Cinematic',
+        description: 'Diskret zoom og fade med premium-følelse'
+    },
+];
+
+const SLIDE_TRANSITION_PRESETS: Array<{ value: HeroSlideTransition; label: string; description: string }> = [
+    { value: 'fade', label: 'Fade', description: 'Blød klassisk indtoning' },
+    { value: 'slide', label: 'Slide', description: 'Horisontal glidende overgang' },
+    { value: 'zoom-fade', label: 'Zoom fade', description: 'Diskret zoom med fade' },
+    { value: 'cross-zoom', label: 'Cross zoom', description: 'Begge billeder bevæger sig blødt' },
+    { value: 'soft-wipe', label: 'Soft wipe', description: 'Rolig maskeret overgang fra siden' },
+    { value: 'ken-burns', label: 'Ken Burns', description: 'Langsom professionel billedbevægelse' },
+];
+
+const PARALLAX_STYLE_PRESETS: Array<{ value: HeroParallaxStyle; label: string; description: string }> = [
+    { value: 'classic', label: 'Classic', description: 'Ren lodret dybde' },
+    { value: 'soft-depth', label: 'Soft depth', description: 'Mere afdæmpet, rolig bevægelse' },
+    { value: 'slow-zoom', label: 'Slow zoom', description: 'Let zoom mens siden scroller' },
+    { value: 'fixed-focus', label: 'Fixed focus', description: 'Næsten fast billede med minimal dybde' },
 ];
 
 export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, savedSwatches, onSaveSwatch, onRemoveSwatch }: BannerEditorProps) {
@@ -679,7 +717,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                     icon={hero.mediaType === 'images' ? <ImageIcon className="h-4 w-4" /> : <Video className="h-4 w-4" />}
                     defaultOpen={mediaCardFocused}
                 >
-                    <div className="space-y-4">
+                    <div className="space-y-4 min-w-0">
                     {/* Media Type Selector - Integrated */}
                     <div className="flex items-center justify-between pb-3 border-b">
                         <div>
@@ -969,18 +1007,25 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
 
                                     <div className="space-y-2">
                                         <Label>Overgangseffekt</Label>
-                                        <Select
-                                            value={hero.slideshow.transition}
-                                            onValueChange={(v) => updateSlideshow({ transition: v as 'fade' | 'slide' })}
-                                        >
-                                            <SelectTrigger>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="fade">Fade (blød)</SelectItem>
-                                                <SelectItem value="slide">Slide (glid)</SelectItem>
-                                            </SelectContent>
-                                        </Select>
+                                        <div className="grid grid-cols-1 gap-2">
+                                            {SLIDE_TRANSITION_PRESETS.map((preset) => {
+                                                const selected = (hero.slideshow.transition || 'fade') === preset.value;
+                                                return (
+                                                    <button
+                                                        key={preset.value}
+                                                        type="button"
+                                                        onClick={() => updateSlideshow({ transition: preset.value })}
+                                                        className={cn(
+                                                            "rounded-lg border px-3 py-2 text-left transition-colors hover:bg-muted/50",
+                                                            selected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border bg-background"
+                                                        )}
+                                                    >
+                                                        <span className="block text-sm font-medium">{preset.label}</span>
+                                                        <span className="block text-[11px] leading-4 text-muted-foreground">{preset.description}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
 
                                     {/* Parallax Effect */}
@@ -1007,8 +1052,45 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                                         )}
 
                                         {hero.parallax && (
-                                            <div className="text-xs text-muted-foreground p-2 rounded bg-muted">
-                                                <strong>Tip:</strong> For bedste parallax-effekt, brug billeder der er mindst {PARALLAX_MIN_HEIGHT}px høje.
+                                            <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs font-medium">Parallax stil</Label>
+                                                    <div className="grid grid-cols-1 gap-2">
+                                                        {PARALLAX_STYLE_PRESETS.map((preset) => {
+                                                            const selected = (hero.parallaxStyle || 'classic') === preset.value;
+                                                            return (
+                                                                <button
+                                                                    key={preset.value}
+                                                                    type="button"
+                                                                    onClick={() => updateHero({ parallaxStyle: preset.value })}
+                                                                    className={cn(
+                                                                        "rounded-md border px-3 py-2 text-left transition-colors hover:bg-background",
+                                                                        selected ? "border-primary bg-background ring-1 ring-primary/20" : "border-border"
+                                                                    )}
+                                                                >
+                                                                    <span className="block text-xs font-medium">{preset.label}</span>
+                                                                    <span className="block text-[11px] leading-4 text-muted-foreground">{preset.description}</span>
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <Label className="text-xs font-medium">Intensitet</Label>
+                                                        <span className="text-xs text-muted-foreground">{hero.parallaxIntensity ?? 30}%</span>
+                                                    </div>
+                                                    <Slider
+                                                        value={[hero.parallaxIntensity ?? 30]}
+                                                        onValueChange={([value]) => updateHero({ parallaxIntensity: value })}
+                                                        min={10}
+                                                        max={60}
+                                                        step={5}
+                                                    />
+                                                </div>
+                                                <div className="text-xs text-muted-foreground p-2 rounded bg-background">
+                                                    <strong>Tip:</strong> For bedste parallax-effekt, brug billeder der er mindst {PARALLAX_MIN_HEIGHT}px høje.
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -1131,6 +1213,46 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                                         />
                                     </div>
 
+                                    {hero.videoSettings.parallaxEnabled && (
+                                        <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-medium">Parallax stil</Label>
+                                                <div className="grid grid-cols-1 gap-2">
+                                                    {PARALLAX_STYLE_PRESETS.map((preset) => {
+                                                        const selected = (hero.parallaxStyle || 'classic') === preset.value;
+                                                        return (
+                                                            <button
+                                                                key={preset.value}
+                                                                type="button"
+                                                                onClick={() => updateHero({ parallaxStyle: preset.value })}
+                                                                className={cn(
+                                                                    "rounded-md border px-3 py-2 text-left transition-colors hover:bg-background",
+                                                                    selected ? "border-primary bg-background ring-1 ring-primary/20" : "border-border"
+                                                                )}
+                                                            >
+                                                                <span className="block text-xs font-medium">{preset.label}</span>
+                                                                <span className="block text-[11px] leading-4 text-muted-foreground">{preset.description}</span>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <div className="flex items-center justify-between">
+                                                    <Label className="text-xs font-medium">Intensitet</Label>
+                                                    <span className="text-xs text-muted-foreground">{hero.parallaxIntensity ?? 30}%</span>
+                                                </div>
+                                                <Slider
+                                                    value={[hero.parallaxIntensity ?? 30]}
+                                                    onValueChange={([value]) => updateHero({ parallaxIntensity: value })}
+                                                    min={10}
+                                                    max={60}
+                                                    step={5}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {heroVideos.length > 1 && (
                                         <>
                                             <Separator />
@@ -1157,6 +1279,25 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                                                     />
                                                 </div>
                                             )}
+
+                                            <div className="space-y-2">
+                                                <Label>Overgangseffekt</Label>
+                                                <Select
+                                                    value={hero.slideshow.transition}
+                                                    onValueChange={(v) => updateSlideshow({ transition: v as HeroSlideTransition })}
+                                                >
+                                                    <SelectTrigger>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {SLIDE_TRANSITION_PRESETS.map((preset) => (
+                                                            <SelectItem key={preset.value} value={preset.value}>
+                                                                {preset.label}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
                                         </>
                                     )}
                                 </CollapsibleContent>
@@ -1315,7 +1456,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                                 })}
                             </div>
                             <p className="text-xs text-muted-foreground">
-                                💡 Klik på et banner for at redigere dets tekst. Grøn prik = har tekst.
+                                Klik på et banner for at redigere dets tekst. Grøn prik betyder, at banneret har tekst.
                             </p>
                         </div>
                     )}
@@ -1324,9 +1465,9 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
 
                     {/* Selected Banner Text Editor */}
                     {heroImages.length > 0 && heroImages[selectedBannerIndex] && (
-                        <div className="space-y-4 p-4 border rounded-lg bg-muted/20">
-                            <div className="flex items-center justify-between">
-                                <h4 className="font-semibold flex items-center gap-2">
+                        <div className="space-y-4 rounded-lg border bg-muted/20 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <h4 className="min-w-0 font-semibold flex items-center gap-2">
                                     <Badge>Banner {selectedBannerIndex + 1}</Badge>
                                     Tekst indstillinger
                                 </h4>
@@ -1343,9 +1484,9 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                             {/* Banner Title with color, font, and per-banner toggle */}
                             {/* Banner Title with color, font, and per-banner toggle */}
                             <div id="site-design-focus-banner-title" className="space-y-3">
-                                <div className="flex items-center justify-between">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
                                     <Label>Banner Overskrift</Label>
-                                    <div className="flex items-center gap-1.5 border-l pl-3 ml-2">
+                                    <div className="flex items-center gap-1.5 rounded-md border bg-background px-2 py-1">
                                         <Label className="text-xs text-muted-foreground whitespace-nowrap">Individuel stil</Label>
                                         <Switch
                                             checked={(extendedOverlay as any)?.usePerBannerStyling || false}
@@ -1480,9 +1621,9 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
 
 
                             {/* Text Animation Preset */}
-                            <div className="space-y-4 pt-3 border-t">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
+                            <div className="space-y-4 border-t pt-3">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div className="flex min-w-0 items-center gap-2">
                                         <Sparkles className="w-4 h-4 text-amber-500" />
                                         <div>
                                             <Label>Tekst Animation</Label>
@@ -1498,7 +1639,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                                             value={selectedBannerIndex.toString()}
                                             onValueChange={(v) => setSelectedBannerIndex(parseInt(v))}
                                         >
-                                            <SelectTrigger className="w-[140px] h-8 text-xs">
+                                            <SelectTrigger className="h-8 w-[128px] text-xs">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -1519,7 +1660,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-2">
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                     {TEXT_ANIMATION_PRESETS.map((preset) => {
                                         const isSelected = (heroImages[selectedBannerIndex].textAnimation || 'none') === preset.value;
                                         return (

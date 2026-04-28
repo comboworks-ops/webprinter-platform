@@ -3,8 +3,16 @@ import { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { useShopSettings } from '@/hooks/useShopSettings';
 import { isPlatformHost } from '@/lib/platform-seo/types';
 import { PLATFORM_META_PATHS } from '@/lib/platform-seo/metadata';
+import {
+    DEFAULT_ROOT_DOMAIN,
+    MASTER_TENANT_ID,
+    normalizeStorefrontPathname,
+    shouldUseTenantStorefrontSeo,
+    type StorefrontSettings,
+} from '@/lib/storefront/seo';
 
 interface SEOProps {
     title?: string;
@@ -23,6 +31,9 @@ export function SEO({
 }: SEOProps) {
     const location = useLocation();
     const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+    const { data: shopSettings } = useShopSettings();
+    const settings = (shopSettings || {}) as StorefrontSettings;
+    const normalizedPathname = normalizeStorefrontPathname(location.pathname);
     const [metadata, setMetadata] = useState({
         title: defaultTitle,
         description: defaultDescription,
@@ -30,13 +41,16 @@ export function SEO({
         structuredData: structuredData
     });
 
-    const platformManagedRoute = isPlatformHost(hostname) && PLATFORM_META_PATHS.has(location.pathname);
-
-    if (platformManagedRoute) {
-        return null;
-    }
+    const platformManagedRoute = isPlatformHost(hostname) && PLATFORM_META_PATHS.has(normalizedPathname);
+    const tenantScopedSeo = shouldUseTenantStorefrontSeo({
+        settings,
+        hostname,
+        rootDomain: import.meta.env.VITE_ROOT_DOMAIN || DEFAULT_ROOT_DOMAIN,
+    });
 
     useEffect(() => {
+        if (platformManagedRoute) return;
+
         // Reset to defaults when location changes, then fetch overrides
         setMetadata({
             title: defaultTitle,
@@ -46,16 +60,23 @@ export function SEO({
         });
 
         const fetchSEO = async () => {
-            const { data, error } = await supabase
+            let query = supabase
                 .from('page_seo' as any)
                 .select('*')
-                .eq('slug', location.pathname)
-                .maybeSingle();
+                .eq('slug', normalizedPathname);
+
+            if (tenantScopedSeo && settings.id) {
+                query = query.eq('tenant_id', settings.id);
+            } else {
+                query = query.eq('tenant_id', MASTER_TENANT_ID);
+            }
+
+            const { data, error } = await query.maybeSingle();
 
             const typedData = data as any;
 
             if (error) {
-                console.warn('[SEO] Could not load page_seo row', { path: location.pathname, error });
+                console.warn('[SEO] Could not load page_seo row', { path: normalizedPathname, error });
                 return;
             }
 
@@ -70,10 +91,27 @@ export function SEO({
         };
 
         fetchSEO();
-    }, [location.pathname, defaultTitle, defaultDescription, defaultImage, structuredData]);
+    }, [
+        normalizedPathname,
+        defaultTitle,
+        defaultDescription,
+        defaultImage,
+        structuredData,
+        platformManagedRoute,
+        tenantScopedSeo,
+        settings.id,
+    ]);
+
+    if (platformManagedRoute) {
+        return null;
+    }
+
+    if (tenantScopedSeo) {
+        return null;
+    }
 
     const siteUrl = window.location.origin;
-    const currentUrl = `${siteUrl}${location.pathname}`;
+    const currentUrl = `${siteUrl}${normalizedPathname}`;
 
     return (
         <Helmet>

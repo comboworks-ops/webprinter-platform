@@ -392,7 +392,39 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
     }
 
     if (rawId === "productPage.matrix.pricing") {
-        return { rawId, sectionId: "product-page-matrix", label: "Produktside pris" };
+        return {
+            rawId,
+            sectionId: "product-page-matrix",
+            label: "Prismatrix priser",
+            focusTargetId: "site-design-focus-product-page-matrix-pricing",
+        };
+    }
+
+    if (rawId === "productPage.matrix.topRow") {
+        return {
+            rawId,
+            sectionId: "product-page-matrix",
+            label: "Prismatrix top-række",
+            focusTargetId: "site-design-focus-product-page-matrix-top-row",
+        };
+    }
+
+    if (rawId === "productPage.matrix.vertical") {
+        return {
+            rawId,
+            sectionId: "product-page-matrix",
+            label: "Prismatrix venstre kolonne",
+            focusTargetId: "site-design-focus-product-page-matrix-vertical",
+        };
+    }
+
+    if (rawId === "productPage.matrix.buttons") {
+        return {
+            rawId,
+            sectionId: "product-page-matrix",
+            label: "Prismatrix knapper",
+            focusTargetId: "site-design-focus-product-page-matrix-buttons",
+        };
     }
 
     if (rawId === "productPage.matrix.box") {
@@ -400,7 +432,7 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
             rawId,
             sectionId: "product-page-matrix",
             label: "Prismatrix boks",
-            focusTargetId: "site-design-focus-product-page-colors",
+            focusTargetId: "site-design-focus-product-page-box",
         };
     }
 
@@ -419,6 +451,15 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
             sectionId: "product-page-matrix",
             label: "Prisberegner titel",
             focusTargetId: "site-design-focus-product-page-price-panel-title",
+        };
+    }
+
+    if (rawId === "productPage.pricePanel.downloadButton") {
+        return {
+            rawId,
+            sectionId: "product-page-matrix",
+            label: "Download tilbud-knap",
+            focusTargetId: "site-design-focus-product-page-price-panel-download-button",
         };
     }
 
@@ -496,6 +537,17 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
             sectionId: "produktvalgknapper", 
             label: "Produktvalgknapper",
             focusTargetId: "site-design-focus-produktvalgknapper"
+        };
+    }
+
+    // Product selector container clicks: product-selector-box.<productId>.<sectionId>.<sectionName>
+    const productSelectorBoxMatch = /^product-selector-box\.([^\.]+)\.([^\.]+)\./.exec(rawId);
+    if (productSelectorBoxMatch) {
+        return {
+            rawId,
+            sectionId: "produktvalgknapper",
+            label: "Valgboks",
+            focusTargetId: "site-design-focus-produktvalgknapper",
         };
     }
 

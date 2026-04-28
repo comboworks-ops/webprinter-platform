@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { motion, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
@@ -34,6 +35,7 @@ interface DynamicProductOptionsProps {
 export function DynamicProductOptions({ productId, onSelectionChange }: DynamicProductOptionsProps) {
   const shopSettings = useShopSettings();
   const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
+  const shouldReduceMotion = useReducedMotion();
   const activeBranding = (isPreviewMode && previewBranding) ? previewBranding : shopSettings.data?.branding;
   const opt = (activeBranding as any)?.productPage?.optionSelectors ?? {};
   const btnCfg = opt.button ?? {};
@@ -46,6 +48,34 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
   const [options, setOptions] = useState<Record<string, ProductOption[]>>({});
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+
+  const resolveMotionProps = (cfg: Record<string, any>, selected = false) => {
+    if (shouldReduceMotion) return {};
+    const hoverScale = Math.max(1, Math.min(1.08, Number(cfg.hoverScale) || 1.015));
+    const hoverY = Math.max(-10, Math.min(0, Number(cfg.hoverY) || -1));
+    const tapScale = Math.max(0.92, Math.min(1, Number(cfg.tapScale) || 0.98));
+    const transitionMs = Math.max(80, Math.min(420, Number(cfg.transitionMs) || 170));
+    const baseShadow = selected
+      ? (cfg.selectedShadow || cfg.hoverShadow || cfg.shadow)
+      : cfg.shadow;
+    const hoverShadow = cfg.hoverShadow || baseShadow;
+
+    return {
+      whileHover: {
+        scale: hoverScale,
+        y: hoverY,
+        boxShadow: hoverShadow,
+      },
+      whileTap: {
+        scale: tapScale,
+        y: 0,
+        boxShadow: baseShadow,
+      },
+      transition: cfg.motionStyle === "elastic"
+        ? { type: "spring" as const, stiffness: 360, damping: 22 }
+        : { type: "tween" as const, duration: transitionMs / 1000, ease: "easeOut" as const },
+    };
+  };
 
   useEffect(() => {
     fetchOptions();
@@ -170,6 +200,9 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
             backgroundColor: isSelected
               ? (btnCfg.selectedBgColor || primaryColor)
               : (btnCfg.bgColor || undefined),
+            backgroundImage: btnCfg.surfaceStyle && !isSelected
+              ? `linear-gradient(180deg, ${btnCfg.gradientStart || btnCfg.bgColor || "transparent"}, ${btnCfg.gradientEnd || btnCfg.bgColor || "transparent"})`
+              : undefined,
             color: isSelected
               ? (btnCfg.selectedTextColor || "#ffffff")
               : (btnCfg.textColor || undefined),
@@ -178,10 +211,14 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
               : (btnCfg.hoverRingEnabled ? undefined : "none"),
             outlineOffset: "2px",
             transition: "all 150ms ease",
+            boxShadow: isSelected
+              ? [btnCfg.innerShadow, btnCfg.selectedShadow || btnCfg.hoverShadow || btnCfg.shadow].filter(Boolean).join(", ")
+              : [btnCfg.innerShadow, btnCfg.shadow].filter(Boolean).join(", "),
           };
 
           const btn = (
-            <button
+            <motion.button
+              {...resolveMotionProps(btnCfg, isSelected)}
               key={option.id}
               onClick={() => handleSelect(group.id, option.id)}
               style={buttonStyle}
@@ -192,7 +229,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
               )}
             >
               {option.label}
-            </button>
+            </motion.button>
           );
 
           if (!option.description) return btn;
@@ -229,12 +266,19 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
             backgroundColor: isSelected
               ? (imgCfg.selectedBgColor || undefined)
               : (imgCfg.bgColor || undefined),
+            backgroundImage: imgCfg.surfaceStyle && !isSelected
+              ? `linear-gradient(180deg, ${imgCfg.gradientStart || imgCfg.bgColor || "transparent"}, ${imgCfg.gradientEnd || imgCfg.bgColor || "transparent"})`
+              : undefined,
             outline: isSelected ? `2px solid ${selectedRing}` : undefined,
             outlineOffset: "2px",
+            boxShadow: isSelected
+              ? [imgCfg.innerShadow, imgCfg.selectedShadow || imgCfg.hoverShadow || imgCfg.shadow].filter(Boolean).join(", ")
+              : [imgCfg.innerShadow, imgCfg.shadow].filter(Boolean).join(", "),
           };
 
           const inner = (
-            <button
+            <motion.button
+              {...resolveMotionProps(imgCfg, isSelected)}
               key={option.id}
               onClick={() => handleSelect(group.id, option.id)}
               className={cn(
@@ -268,7 +312,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
               >
                 {option.label}
               </span>
-            </button>
+            </motion.button>
           );
 
           if (!option.description) return inner;

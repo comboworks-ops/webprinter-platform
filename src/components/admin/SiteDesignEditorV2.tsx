@@ -58,6 +58,7 @@ import { PendingPurchasesDialog, PendingPurchasesBadge } from "@/components/admi
 import { ThemeSelector } from "@/components/admin/ThemeSelector";
 import { ProduktvalgknapperSection } from "@/components/admin/ProduktvalgknapperSection";
 import { ProductOptionButtonEditor } from "@/components/admin/ProductOptionButtonEditor";
+import { ProductOptionSectionBoxEditor } from "@/components/admin/ProductOptionSectionBoxEditor";
 import { ProductDescriptionSection } from "@/components/admin/ProductDescriptionSection";
 import { supabase } from "@/integrations/supabase/client";
 import { usePaidItems } from "@/hooks/usePaidItems";
@@ -95,6 +96,1373 @@ type BrandingColorKey =
     | "bodyText"
     | "pricingText"
     | "linkText";
+
+const BRANDING_COLOR_KEYS: BrandingColorKey[] = [
+    "primary",
+    "secondary",
+    "background",
+    "card",
+    "dropdown",
+    "hover",
+    "headingText",
+    "bodyText",
+    "pricingText",
+    "linkText",
+];
+
+type BrandingColorPresetColors = Record<BrandingColorKey, string>;
+type BrandingFontPresetFonts = typeof DEFAULT_BRANDING.fonts;
+
+type VisualThemePreset = {
+    id: string;
+    name: string;
+    description: string;
+    tags: string[];
+    themeId: "classic" | "glassmorphism";
+    colors: BrandingColorPresetColors;
+    fonts: BrandingFontPresetFonts;
+    headerStyle: typeof DEFAULT_BRANDING.header.style;
+    headerOpacity: number;
+    dropdownPreset: NonNullable<typeof DEFAULT_BRANDING.header.dropdownPreset>;
+    dropdownRadiusPx: number;
+    dropdownImageRadiusPx: number;
+    cardStyle: NonNullable<typeof DEFAULT_BRANDING.forside.productsSection.featuredProductConfig.cardStyle>;
+    radiusPx: number;
+    tightRadiusPx: number;
+    borderWidthPx: number;
+    pageBackgroundType: typeof DEFAULT_BRANDING.colors.backgroundType;
+    productBackgroundType: typeof DEFAULT_BRANDING.forside.productsSection.background.type;
+    buttonAnimation: typeof DEFAULT_BRANDING.forside.productsSection.button.animation;
+    orderButtonAnimation: typeof DEFAULT_BRANDING.productPage.orderButtons.animation;
+    heroTransition: typeof DEFAULT_BRANDING.hero.slideshow.transition;
+    heroTextAnimation: NonNullable<typeof DEFAULT_BRANDING.hero.images[number]["textAnimation"]>;
+    parallaxStyle: NonNullable<typeof DEFAULT_BRANDING.hero.parallaxStyle>;
+    parallaxIntensity: number;
+    heroOverlayOpacity: number;
+    matrixPaddingPx: number;
+    optionButtonPaddingPx: number;
+    optionImageSizePx: number;
+    pictureHoverScale: number;
+    buttonRadiusPx: number;
+    buttonHoverScale: number;
+    buttonHoverY: number;
+    buttonTapScale: number;
+    buttonTransitionMs: number;
+    buttonShadow: string;
+    buttonHoverShadow: string;
+    buttonSurfaceStyle: "matte" | "apple-glass" | "satin" | "pressed" | "luminous";
+    buttonTextColor: string;
+    buttonHoverTextColor: string;
+    buttonGradientStart: string;
+    buttonGradientEnd: string;
+    buttonHoverGradientStart: string;
+    buttonHoverGradientEnd: string;
+    buttonInnerShadow: string;
+    buttonSheenColor: string;
+    dropdownMotionStyle: "precision" | "liquid" | "gallery-rise" | "soft-slide" | "focus-slide";
+    pageTransitionStyle: "subtle-fade" | "soft-depth" | "editorial-rise" | "direct-snap" | "dark-focus";
+    pictureHoverEffect: "fill" | "outline" | "none";
+    pictureSelectedEffect: "fill" | "outline" | "ring" | "none";
+    glassOpacity?: number;
+};
+
+const VISUAL_THEME_PRESETS: VisualThemePreset[] = [
+    {
+        id: "precision-print",
+        name: "Precision Print",
+        description: "Sharp, clean B2B print shop with crisp borders, calm blues and compact controls.",
+        tags: ["Clean", "B2B", "Sharp"],
+        themeId: "classic",
+        colors: {
+            primary: "#1D4ED8",
+            secondary: "#E8EEF7",
+            background: "#F7F9FC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#153E75",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#0F766E",
+            linkText: "#1D4ED8",
+        },
+        fonts: {
+            heading: "Poppins",
+            body: "Inter",
+            pricing: "Roboto Mono",
+        },
+        headerStyle: "solid",
+        headerOpacity: 0.98,
+        dropdownPreset: "compact-columns",
+        dropdownRadiusPx: 14,
+        dropdownImageRadiusPx: 8,
+        cardStyle: "default",
+        radiusPx: 10,
+        tightRadiusPx: 6,
+        borderWidthPx: 1,
+        pageBackgroundType: "solid",
+        productBackgroundType: "solid",
+        buttonAnimation: "lift",
+        orderButtonAnimation: "none",
+        heroTransition: "soft-wipe",
+        heroTextAnimation: "reveal-up",
+        parallaxStyle: "soft-depth",
+        parallaxIntensity: 18,
+        heroOverlayOpacity: 0.36,
+        matrixPaddingPx: 16,
+        optionButtonPaddingPx: 12,
+        optionImageSizePx: 144,
+        pictureHoverScale: 1.025,
+        buttonRadiusPx: 8,
+        buttonHoverScale: 1.015,
+        buttonHoverY: -1,
+        buttonTapScale: 0.98,
+        buttonTransitionMs: 170,
+        buttonShadow: "0 8px 18px rgba(29, 78, 216, 0.12)",
+        buttonHoverShadow: "0 14px 28px rgba(29, 78, 216, 0.2)",
+        buttonSurfaceStyle: "satin",
+        buttonTextColor: "#FFFFFF",
+        buttonHoverTextColor: "#FFFFFF",
+        buttonGradientStart: "#2B66E8",
+        buttonGradientEnd: "#1747B8",
+        buttonHoverGradientStart: "#335FBC",
+        buttonHoverGradientEnd: "#123B80",
+        buttonInnerShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.24), inset 0 -1px 0 rgba(15, 23, 42, 0.18)",
+        buttonSheenColor: "rgba(255, 255, 255, 0.38)",
+        dropdownMotionStyle: "precision",
+        pageTransitionStyle: "subtle-fade",
+        pictureHoverEffect: "outline",
+        pictureSelectedEffect: "ring",
+    },
+    {
+        id: "glass-studio",
+        name: "Glass Studio",
+        description: "Soft glass surfaces, airy dropdowns, cyan-indigo accents and smooth depth effects.",
+        tags: ["Glass", "Modern", "Soft"],
+        themeId: "glassmorphism",
+        colors: {
+            primary: "#315E72",
+            secondary: "#E7EEF3",
+            background: "#F3F6F8",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#6B7AA1",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#315E72",
+            linkText: "#4E6388",
+        },
+        fonts: {
+            heading: "Manrope",
+            body: "Inter",
+            pricing: "Space Grotesk",
+        },
+        headerStyle: "glass",
+        headerOpacity: 0.76,
+        dropdownPreset: "showcase-bar",
+        dropdownRadiusPx: 24,
+        dropdownImageRadiusPx: 18,
+        cardStyle: "glass",
+        radiusPx: 24,
+        tightRadiusPx: 16,
+        borderWidthPx: 1,
+        pageBackgroundType: "gradient",
+        productBackgroundType: "gradient",
+        buttonAnimation: "glow",
+        orderButtonAnimation: "none",
+        heroTransition: "cross-zoom",
+        heroTextAnimation: "soft-mask",
+        parallaxStyle: "slow-zoom",
+        parallaxIntensity: 24,
+        heroOverlayOpacity: 0.28,
+        matrixPaddingPx: 20,
+        optionButtonPaddingPx: 14,
+        optionImageSizePx: 156,
+        pictureHoverScale: 1.035,
+        buttonRadiusPx: 999,
+        buttonHoverScale: 1.025,
+        buttonHoverY: -3,
+        buttonTapScale: 0.97,
+        buttonTransitionMs: 240,
+        buttonShadow: "0 14px 34px rgba(49, 94, 114, 0.16)",
+        buttonHoverShadow: "0 20px 52px rgba(77, 96, 126, 0.24)",
+        buttonSurfaceStyle: "apple-glass",
+        buttonTextColor: "#10202C",
+        buttonHoverTextColor: "#10202C",
+        buttonGradientStart: "rgba(255, 255, 255, 0.88)",
+        buttonGradientEnd: "rgba(230, 240, 246, 0.64)",
+        buttonHoverGradientStart: "rgba(255, 255, 255, 0.96)",
+        buttonHoverGradientEnd: "rgba(215, 230, 240, 0.78)",
+        buttonInnerShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.78), inset 0 -1px 0 rgba(49, 94, 114, 0.16)",
+        buttonSheenColor: "rgba(255, 255, 255, 0.58)",
+        dropdownMotionStyle: "liquid",
+        pageTransitionStyle: "soft-depth",
+        pictureHoverEffect: "fill",
+        pictureSelectedEffect: "ring",
+        glassOpacity: 0.72,
+    },
+    {
+        id: "premium-press",
+        name: "Premium Press",
+        description: "Editorial print feel with navy, restrained gold accents and premium rounded surfaces.",
+        tags: ["Premium", "Editorial", "Warm"],
+        themeId: "classic",
+        colors: {
+            primary: "#22314D",
+            secondary: "#EFE7D6",
+            background: "#FAF8F3",
+            card: "#FFFFFF",
+            dropdown: "#FBF7EF",
+            hover: "#8A6A2F",
+            headingText: "#111827",
+            bodyText: "#52525B",
+            pricingText: "#6F5425",
+            linkText: "#22314D",
+        },
+        fonts: {
+            heading: "Playfair Display",
+            body: "Source Sans 3",
+            pricing: "Roboto Mono",
+        },
+        headerStyle: "solid",
+        headerOpacity: 0.96,
+        dropdownPreset: "split-preview",
+        dropdownRadiusPx: 20,
+        dropdownImageRadiusPx: 12,
+        cardStyle: "default",
+        radiusPx: 18,
+        tightRadiusPx: 12,
+        borderWidthPx: 1,
+        pageBackgroundType: "solid",
+        productBackgroundType: "gradient",
+        buttonAnimation: "lift",
+        orderButtonAnimation: "none",
+        heroTransition: "zoom-fade",
+        heroTextAnimation: "cinematic",
+        parallaxStyle: "fixed-focus",
+        parallaxIntensity: 16,
+        heroOverlayOpacity: 0.42,
+        matrixPaddingPx: 18,
+        optionButtonPaddingPx: 13,
+        optionImageSizePx: 148,
+        pictureHoverScale: 1.025,
+        buttonRadiusPx: 14,
+        buttonHoverScale: 1.018,
+        buttonHoverY: -2,
+        buttonTapScale: 0.985,
+        buttonTransitionMs: 220,
+        buttonShadow: "0 10px 24px rgba(34, 49, 77, 0.14)",
+        buttonHoverShadow: "0 18px 38px rgba(111, 84, 37, 0.22)",
+        buttonSurfaceStyle: "satin",
+        buttonTextColor: "#FFFFFF",
+        buttonHoverTextColor: "#FFFFFF",
+        buttonGradientStart: "#2F405F",
+        buttonGradientEnd: "#17233A",
+        buttonHoverGradientStart: "#8A6A2F",
+        buttonHoverGradientEnd: "#5F461D",
+        buttonInnerShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.22)",
+        buttonSheenColor: "rgba(255, 255, 255, 0.32)",
+        dropdownMotionStyle: "soft-slide",
+        pageTransitionStyle: "editorial-rise",
+        pictureHoverEffect: "outline",
+        pictureSelectedEffect: "fill",
+    },
+    {
+        id: "bold-maker",
+        name: "Bold Maker",
+        description: "High-contrast commerce style with strong borders, warm neutral energy and direct CTAs.",
+        tags: ["Bold", "Contrast", "Campaign"],
+        themeId: "classic",
+        colors: {
+            primary: "#1F2937",
+            secondary: "#E7DDC8",
+            background: "#F6F1E8",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#374151",
+            headingText: "#111827",
+            bodyText: "#374151",
+            pricingText: "#7A4F20",
+            linkText: "#1F2937",
+        },
+        fonts: {
+            heading: "Archivo Black",
+            body: "IBM Plex Sans",
+            pricing: "IBM Plex Mono",
+        },
+        headerStyle: "solid",
+        headerOpacity: 1,
+        dropdownPreset: "gallery-cards",
+        dropdownRadiusPx: 8,
+        dropdownImageRadiusPx: 4,
+        cardStyle: "default",
+        radiusPx: 6,
+        tightRadiusPx: 4,
+        borderWidthPx: 2,
+        pageBackgroundType: "solid",
+        productBackgroundType: "solid",
+        buttonAnimation: "lift",
+        orderButtonAnimation: "none",
+        heroTransition: "slide",
+        heroTextAnimation: "stagger-rise",
+        parallaxStyle: "classic",
+        parallaxIntensity: 12,
+        heroOverlayOpacity: 0.34,
+        matrixPaddingPx: 14,
+        optionButtonPaddingPx: 12,
+        optionImageSizePx: 140,
+        pictureHoverScale: 1.03,
+        buttonRadiusPx: 4,
+        buttonHoverScale: 1.01,
+        buttonHoverY: -2,
+        buttonTapScale: 0.96,
+        buttonTransitionMs: 140,
+        buttonShadow: "0 5px 0 rgba(31, 41, 55, 1)",
+        buttonHoverShadow: "0 7px 0 rgba(31, 41, 55, 1)",
+        buttonSurfaceStyle: "pressed",
+        buttonTextColor: "#FFFFFF",
+        buttonHoverTextColor: "#FFFFFF",
+        buttonGradientStart: "#2B3543",
+        buttonGradientEnd: "#151C27",
+        buttonHoverGradientStart: "#3B4655",
+        buttonHoverGradientEnd: "#1F2937",
+        buttonInnerShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.14)",
+        buttonSheenColor: "rgba(255, 255, 255, 0.18)",
+        dropdownMotionStyle: "gallery-rise",
+        pageTransitionStyle: "direct-snap",
+        pictureHoverEffect: "outline",
+        pictureSelectedEffect: "outline",
+    },
+    {
+        id: "dark-production",
+        name: "Dark Production",
+        description: "Dark production dashboard look with bright cyan pricing, deep panels and focused contrast.",
+        tags: ["Dark", "Technical", "Contrast"],
+        themeId: "classic",
+        colors: {
+            primary: "#60A5FA",
+            secondary: "#1E293B",
+            background: "#070A12",
+            card: "#111827",
+            dropdown: "#0F172A",
+            hover: "#93C5FD",
+            headingText: "#F8FAFC",
+            bodyText: "#CBD5E1",
+            pricingText: "#BAE6FD",
+            linkText: "#93C5FD",
+        },
+        fonts: {
+            heading: "Space Grotesk",
+            body: "Inter",
+            pricing: "JetBrains Mono",
+        },
+        headerStyle: "solid",
+        headerOpacity: 0.96,
+        dropdownPreset: "split-preview",
+        dropdownRadiusPx: 18,
+        dropdownImageRadiusPx: 10,
+        cardStyle: "glass",
+        radiusPx: 16,
+        tightRadiusPx: 10,
+        borderWidthPx: 1,
+        pageBackgroundType: "gradient",
+        productBackgroundType: "gradient",
+        buttonAnimation: "glow",
+        orderButtonAnimation: "none",
+        heroTransition: "ken-burns",
+        heroTextAnimation: "reveal-up",
+        parallaxStyle: "slow-zoom",
+        parallaxIntensity: 18,
+        heroOverlayOpacity: 0.52,
+        matrixPaddingPx: 18,
+        optionButtonPaddingPx: 13,
+        optionImageSizePx: 148,
+        pictureHoverScale: 1.028,
+        buttonRadiusPx: 12,
+        buttonHoverScale: 1.02,
+        buttonHoverY: -2,
+        buttonTapScale: 0.98,
+        buttonTransitionMs: 190,
+        buttonShadow: "0 10px 26px rgba(96, 165, 250, 0.14)",
+        buttonHoverShadow: "0 0 0 1px rgba(186, 230, 253, 0.28), 0 18px 42px rgba(96, 165, 250, 0.2)",
+        buttonSurfaceStyle: "luminous",
+        buttonTextColor: "#FFFFFF",
+        buttonHoverTextColor: "#FFFFFF",
+        buttonGradientStart: "#3B82F6",
+        buttonGradientEnd: "#1D4ED8",
+        buttonHoverGradientStart: "#60A5FA",
+        buttonHoverGradientEnd: "#2563EB",
+        buttonInnerShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.36), inset 0 -1px 0 rgba(2, 6, 23, 0.32)",
+        buttonSheenColor: "rgba(255, 255, 255, 0.42)",
+        dropdownMotionStyle: "focus-slide",
+        pageTransitionStyle: "dark-focus",
+        pictureHoverEffect: "fill",
+        pictureSelectedEffect: "ring",
+        glassOpacity: 0.82,
+    },
+];
+
+const buildColorPresetThemePatch = (
+    draft: typeof DEFAULT_BRANDING,
+    presetColors: BrandingColorPresetColors,
+): Partial<typeof DEFAULT_BRANDING> => {
+    const colors = {
+        ...draft.colors,
+        ...presetColors,
+        backgroundType: "solid" as const,
+        backgroundGradientType: draft.colors.backgroundGradientType || "linear",
+        backgroundGradientStart: presetColors.background,
+        backgroundGradientEnd: presetColors.secondary,
+        backgroundGradientUseMiddle: false,
+        backgroundGradientMiddle: presetColors.card,
+        backgroundGradientAngle: draft.colors.backgroundGradientAngle ?? 135,
+        backgroundImageUrl: null,
+    };
+    const primary = colors.primary || DEFAULT_BRANDING.colors.primary;
+    const secondary = colors.secondary || DEFAULT_BRANDING.colors.secondary;
+    const background = colors.background || DEFAULT_BRANDING.colors.background;
+    const card = colors.card || DEFAULT_BRANDING.colors.card;
+    const dropdown = colors.dropdown || card;
+    const hover = colors.hover || primary;
+    const heading = colors.headingText || DEFAULT_BRANDING.colors.headingText;
+    const body = colors.bodyText || DEFAULT_BRANDING.colors.bodyText;
+    const pricing = colors.pricingText || primary;
+    const primaryFillText = getReadableTextForSolid(primary);
+    const hoverFillText = getReadableTextForSolid(hover, primaryFillText);
+    const cardFillText = getReadableTextForSolid(card, heading);
+    const buttonText = primaryFillText;
+
+    const currentProductPage = draft.productPage || DEFAULT_BRANDING.productPage;
+    const currentHero = draft.hero || DEFAULT_BRANDING.hero;
+    const currentHeroOverlay = currentHero.overlay || DEFAULT_BRANDING.hero.overlay;
+    const currentUspStrip = draft.uspStrip || DEFAULT_BRANDING.uspStrip;
+    const currentMatrix = currentProductPage.matrix || DEFAULT_BRANDING.productPage.matrix;
+    const currentPricePanel = currentProductPage.pricePanel || DEFAULT_BRANDING.productPage.pricePanel;
+    const currentOrderButtons = currentProductPage.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
+    const currentOptionSelectors = currentProductPage.optionSelectors || DEFAULT_BRANDING.productPage.optionSelectors;
+    const currentForside = draft.forside || DEFAULT_BRANDING.forside;
+    const currentProductsSection = currentForside.productsSection || DEFAULT_BRANDING.forside.productsSection;
+    const currentFeatured = currentProductsSection.featuredProductConfig || DEFAULT_BRANDING.forside.productsSection.featuredProductConfig;
+    const themeHeroButton = (
+        button: typeof DEFAULT_BRANDING.hero.overlay.buttons[number],
+        index = 0,
+    ) => {
+        const isSecondary = button.variant === "secondary" || index > 0;
+        const backgroundColor = isSecondary ? card : primary;
+        return {
+            ...button,
+            textColor: isSecondary ? cardFillText : buttonText,
+            bgColor: backgroundColor,
+            bgHoverColor: isSecondary ? secondary : hover,
+            bgOpacity: button.bgOpacity ?? 1,
+        };
+    };
+    const themedHeroButtons = (currentHeroOverlay.buttons?.length
+        ? currentHeroOverlay.buttons
+        : DEFAULT_BRANDING.hero.overlay.buttons
+    ).map(themeHeroButton);
+
+    return {
+        colors,
+        hero: {
+            ...currentHero,
+            overlay_color: heading,
+            overlay_opacity: currentHero.overlay_opacity ?? 0.3,
+            overlay: {
+                ...currentHeroOverlay,
+                titleColor: buttonText,
+                subtitleColor: hexToRgba(buttonText, 0.9),
+                buttons: themedHeroButtons,
+            },
+            images: (currentHero.images || []).map((image) => ({
+                ...image,
+                overlayColor: currentHero.usePerBannerOverlay ? heading : image.overlayColor,
+                overlayOpacity: currentHero.usePerBannerOverlay ? (image.overlayOpacity ?? currentHero.overlay_opacity ?? 0.3) : image.overlayOpacity,
+                buttons: image.buttons?.map(themeHeroButton),
+            })),
+        },
+        header: {
+            ...draft.header,
+            logoTextColor: heading,
+            bgColor: card,
+            textColor: heading,
+            hoverTextColor: hover,
+            activeTextColor: primary,
+            actionHoverBgColor: hexToRgba(primary, 0.1),
+            actionHoverTextColor: hover,
+            dropdownBgColor: dropdown,
+            dropdownHoverColor: secondary,
+            dropdownCategoryColor: body,
+            dropdownProductColor: heading,
+            dropdownMetaColor: body,
+            cta: {
+                ...draft.header.cta,
+                bgColor: primary,
+                textColor: buttonText,
+                hoverBgColor: hover,
+                hoverTextColor: hoverFillText,
+            },
+        },
+        footer: {
+            ...draft.footer,
+            background: "solid" as const,
+            bgColor: heading,
+        },
+        uspStrip: {
+            ...currentUspStrip,
+            backgroundColor: primary,
+            useGradient: true,
+            gradientFrom: primary,
+            gradientTo: hover,
+            textColor: buttonText,
+            iconColor: buttonText,
+            titleColor: buttonText,
+            descriptionColor: hexToRgba(buttonText, 0.9),
+        },
+        forside: {
+            ...currentForside,
+            productsSection: {
+                ...currentProductsSection,
+                categoryTabs: {
+                    ...currentProductsSection.categoryTabs,
+                    textColor: heading,
+                    hoverTextColor: hover,
+                    activeTextColor: primaryFillText,
+                    bgColor: card,
+                    hoverBgColor: secondary,
+                    activeBgColor: primary,
+                    borderColor: secondary,
+                    activeBorderColor: primary,
+                },
+                card: {
+                    ...currentProductsSection.card,
+                    titleColor: heading,
+                    bodyColor: body,
+                    priceColor: pricing,
+                },
+                button: {
+                    ...currentProductsSection.button,
+                    bgColor: primary,
+                    hoverBgColor: hover,
+                    textColor: buttonText,
+                    hoverTextColor: hoverFillText,
+                },
+                background: {
+                    ...currentProductsSection.background,
+                    type: "solid" as const,
+                    color: background,
+                    gradientStart: background,
+                    gradientEnd: secondary,
+                    opacity: 1,
+                },
+                featuredProductConfig: {
+                    ...currentFeatured,
+                    backgroundColor: card,
+                    ctaColor: primary,
+                    ctaTextColor: buttonText,
+                    sidePanel: {
+                        ...currentFeatured.sidePanel,
+                        ctaColor: primary,
+                        ctaTextColor: buttonText,
+                    },
+                },
+            },
+        },
+        productPage: {
+            ...currentProductPage,
+            heading: {
+                ...currentProductPage.heading,
+                color: heading,
+                subtext: {
+                    ...currentProductPage.heading.subtext,
+                    color: body,
+                },
+            },
+            infoSection: {
+                ...currentProductPage.infoSection,
+                bgColor: card,
+                borderColor: secondary,
+                titleColor: heading,
+                textColor: body,
+            },
+            matrix: {
+                ...currentMatrix,
+                headerBg: secondary,
+                headerText: heading,
+                rowHeaderBg: card,
+                rowHeaderText: heading,
+                cellBg: card,
+                cellText: heading,
+                cellHoverBg: secondary,
+                cellHoverText: heading,
+                selectedBg: primary,
+                selectedText: buttonText,
+                borderColor: secondary,
+                navButtonBg: card,
+                navButtonText: heading,
+                navButtonHoverBg: secondary,
+                navButtonHoverText: hover,
+                navButtonBorder: secondary,
+                navButtonHoverBorder: primary,
+                boxBackgroundColor: card,
+                boxBorderColor: secondary,
+                textButtons: {
+                    ...currentMatrix.textButtons,
+                    backgroundColor: card,
+                    hoverBackgroundColor: secondary,
+                    textColor: heading,
+                    hoverTextColor: hover,
+                    selectedBackgroundColor: primary,
+                    selectedTextColor: buttonText,
+                    borderColor: secondary,
+                    hoverBorderColor: primary,
+                },
+                pictureButtons: {
+                    ...currentMatrix.pictureButtons,
+                    hoverColor: primary,
+                    selectedColor: primary,
+                },
+            },
+            pricePanel: {
+                ...currentPricePanel,
+                backgroundType: "solid" as const,
+                backgroundColor: hexToRgba(primary, 0.05),
+                gradientStart: hexToRgba(primary, 0.1),
+                gradientEnd: card,
+                titleColor: heading,
+                textColor: heading,
+                mutedTextColor: body,
+                priceColor: pricing,
+                borderColor: hexToRgba(primary, 0.18),
+                dividerColor: hexToRgba(primary, 0.12),
+                optionBg: card,
+                optionHoverBg: hexToRgba(primary, 0.06),
+                optionSelectedBg: hexToRgba(primary, 0.1),
+                optionBorderColor: secondary,
+                optionHoverBorderColor: hexToRgba(primary, 0.35),
+                optionSelectedBorderColor: primary,
+                badgeBg: hexToRgba(primary, 0.1),
+                badgeText: primary,
+                badgeBorderColor: primary,
+                downloadButtonBg: card,
+                downloadButtonHoverBg: secondary,
+                downloadButtonText: heading,
+                downloadButtonHoverText: hover,
+                downloadButtonBorder: secondary,
+                downloadButtonHoverBorder: primary,
+            },
+            orderButtons: {
+                ...currentOrderButtons,
+                primary: {
+                    ...currentOrderButtons.primary,
+                    bgColor: primary,
+                    hoverBgColor: hover,
+                    textColor: buttonText,
+                    hoverTextColor: hoverFillText,
+                    borderColor: primary,
+                    hoverBorderColor: hover,
+                },
+                secondary: {
+                    ...currentOrderButtons.secondary,
+                    bgColor: card,
+                    hoverBgColor: secondary,
+                    textColor: heading,
+                    hoverTextColor: hover,
+                    borderColor: secondary,
+                    hoverBorderColor: primary,
+                },
+                selected: {
+                    ...currentOrderButtons.selected,
+                    bgColor: primary,
+                    hoverBgColor: hover,
+                    textColor: buttonText,
+                    hoverTextColor: hoverFillText,
+                    borderColor: primary,
+                    hoverBorderColor: hover,
+                },
+            },
+            optionSelectors: {
+                ...currentOptionSelectors,
+                button: {
+                    ...currentOptionSelectors.button,
+                    bgColor: card,
+                    textColor: heading,
+                    selectedBgColor: primary,
+                    selectedTextColor: buttonText,
+                    hoverBgColor: secondary,
+                    hoverTextColor: hover,
+                    borderColor: secondary,
+                    selectedRingColor: primary,
+                },
+                image: {
+                    ...currentOptionSelectors.image,
+                    bgColor: card,
+                    selectedBgColor: hexToRgba(primary, 0.1),
+                    hoverBgColor: secondary,
+                    selectedRingColor: primary,
+                    hoverRingColor: primary,
+                    labelColor: heading,
+                },
+                dropdown: {
+                    ...currentOptionSelectors.dropdown,
+                    bgColor: card,
+                    textColor: heading,
+                    borderColor: secondary,
+                },
+                checkbox: {
+                    ...currentOptionSelectors.checkbox,
+                    accentColor: primary,
+                    labelColor: heading,
+                },
+            },
+        },
+    };
+};
+
+const buildVisualThemePresetPatch = (
+    draft: typeof DEFAULT_BRANDING,
+    preset: VisualThemePreset,
+): Partial<typeof DEFAULT_BRANDING> => {
+    const basePatch = buildColorPresetThemePatch(draft, preset.colors);
+    const primary = preset.colors.primary;
+    const secondary = preset.colors.secondary;
+    const background = preset.colors.background;
+    const card = preset.colors.card;
+    const dropdown = preset.colors.dropdown;
+    const hover = preset.colors.hover;
+    const heading = preset.colors.headingText;
+    const body = preset.colors.bodyText;
+    const pricing = preset.colors.pricingText;
+    const buttonText = preset.buttonTextColor;
+    const buttonHoverText = preset.buttonHoverTextColor;
+    const primaryFillText = getReadableTextForSolid(primary);
+    const hoverFillText = getReadableTextForSolid(hover, buttonHoverText);
+    const isDark = background === "#070A12";
+    const subtleBorder = isDark ? hexToRgba("#FFFFFF", 0.12) : hexToRgba(primary, 0.18);
+    const softPrimary = hexToRgba(primary, isDark ? 0.16 : 0.08);
+    const softHover = hexToRgba(hover, isDark ? 0.2 : 0.1);
+    const panelBg = preset.cardStyle === "glass"
+        ? hexToRgba(card, preset.glassOpacity ?? 0.82)
+        : card;
+    const baseHero = basePatch.hero || draft.hero || DEFAULT_BRANDING.hero;
+    const baseHeroOverlay = baseHero.overlay || draft.hero?.overlay || DEFAULT_BRANDING.hero.overlay;
+    const baseHeader = basePatch.header || draft.header || DEFAULT_BRANDING.header;
+    const baseUspStrip = basePatch.uspStrip || draft.uspStrip || DEFAULT_BRANDING.uspStrip;
+    const baseForside = basePatch.forside || draft.forside || DEFAULT_BRANDING.forside;
+    const baseProductsSection = baseForside.productsSection || draft.forside?.productsSection || DEFAULT_BRANDING.forside.productsSection;
+    const baseFeatured = baseProductsSection.featuredProductConfig || DEFAULT_BRANDING.forside.productsSection.featuredProductConfig;
+    const baseBanner2 = baseForside.banner2 || draft.forside?.banner2 || DEFAULT_BRANDING.forside.banner2;
+    const baseProductPage = basePatch.productPage || draft.productPage || DEFAULT_BRANDING.productPage;
+    const baseMatrix = baseProductPage.matrix || DEFAULT_BRANDING.productPage.matrix;
+    const basePricePanel = baseProductPage.pricePanel || DEFAULT_BRANDING.productPage.pricePanel;
+    const baseOrderButtons = baseProductPage.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
+    const baseOptionSelectors = baseProductPage.optionSelectors || DEFAULT_BRANDING.productPage.optionSelectors;
+    const heroSecondaryOpacity = preset.cardStyle === "glass" ? 0.82 : 1;
+    const getHeroButtonColors = (index: number) => {
+        const isPrimary = index === 0;
+        const bgColor = isPrimary ? primary : card;
+        const bgHoverColor = isPrimary ? hover : secondary;
+        return {
+            bgColor,
+            bgHoverColor,
+            textColor: getReadableTextForSolid(bgColor, isPrimary ? buttonText : heading),
+            hoverTextColor: getReadableTextForSolid(bgHoverColor, isPrimary ? hoverFillText : heading),
+            bgOpacity: isPrimary ? 1 : heroSecondaryOpacity,
+        };
+    };
+
+    return {
+        ...basePatch,
+        themeId: preset.themeId,
+        themeSettings: {
+            ...(draft.themeSettings || {}),
+            visualThemePresetId: preset.id,
+            visualThemePresetName: preset.name,
+            pageTransitionStyle: preset.pageTransitionStyle,
+        },
+        fonts: {
+            ...draft.fonts,
+            ...preset.fonts,
+        },
+        colors: {
+            ...(basePatch.colors || draft.colors),
+            backgroundType: preset.pageBackgroundType,
+            backgroundGradientType: "linear",
+            backgroundGradientStart: background,
+            backgroundGradientEnd: isDark ? "#111827" : secondary,
+            backgroundGradientUseMiddle: preset.id === "glass-studio",
+            backgroundGradientMiddle: preset.id === "glass-studio" ? "#F8FAFC" : card,
+            backgroundGradientAngle: preset.id === "bold-maker" ? 180 : 135,
+            backgroundImageUrl: null,
+        },
+        header: {
+            ...baseHeader,
+            style: preset.headerStyle,
+            bgColor: isDark ? "#0B1120" : card,
+            bgOpacity: preset.headerOpacity,
+            textColor: heading,
+            logoTextColor: heading,
+            logoFont: preset.fonts.heading,
+            fontId: preset.fonts.body,
+            dropdownCategoryFontId: preset.fonts.body,
+            dropdownProductFontId: preset.fonts.body,
+            hoverTextColor: hover,
+            activeTextColor: primary,
+            actionHoverBgColor: softPrimary,
+            actionHoverTextColor: hover,
+            dropdownPreset: preset.dropdownPreset,
+            dropdownBgColor: dropdown,
+            dropdownBgOpacity: preset.headerStyle === "glass" ? 0.86 : 0.98,
+            dropdownShowBorder: true,
+            dropdownHoverColor: preset.id === "bold-maker" ? secondary : softHover,
+            dropdownBorderRadiusPx: preset.dropdownRadiusPx,
+            dropdownImageRadiusPx: preset.dropdownImageRadiusPx,
+            dropdownCategoryColor: body,
+            dropdownProductColor: heading,
+            dropdownMetaColor: body,
+            dropdownMotionStyle: preset.dropdownMotionStyle,
+            cta: {
+                ...baseHeader.cta,
+                    bgColor: primary,
+                    textColor: buttonText,
+                    hoverBgColor: hover,
+                },
+        },
+        footer: {
+            ...(basePatch.footer || draft.footer),
+            background: "solid" as const,
+            bgColor: isDark ? "#030712" : heading,
+        },
+        hero: {
+            ...baseHero,
+            overlay_color: isDark ? "#000000" : heading,
+            overlay_opacity: preset.heroOverlayOpacity,
+            parallax: true,
+            parallaxStyle: preset.parallaxStyle,
+            parallaxIntensity: preset.parallaxIntensity,
+            slideshow: {
+                ...baseHero.slideshow,
+                transition: preset.heroTransition,
+            },
+            transition: preset.heroTransition,
+            overlay: {
+                ...baseHeroOverlay,
+                titleColor: "#FFFFFF",
+                subtitleColor: hexToRgba("#FFFFFF", 0.9),
+                titleFontId: preset.fonts.heading,
+                subtitleFontId: preset.fonts.body,
+                buttons: (baseHeroOverlay.buttons?.length ? baseHeroOverlay.buttons : DEFAULT_BRANDING.hero.overlay.buttons).map((button, index) => {
+                    const colors = getHeroButtonColors(index);
+                    return {
+                        ...button,
+                        bgColor: colors.bgColor,
+                        bgHoverColor: colors.bgHoverColor,
+                        textColor: colors.textColor,
+                        bgOpacity: colors.bgOpacity,
+                    };
+                }),
+            },
+            images: (baseHero.images || []).map((image) => ({
+                ...image,
+                textAnimation: preset.heroTextAnimation,
+                titleFontId: preset.fonts.heading,
+                subtitleFontId: preset.fonts.body,
+                overlayColor: baseHero.usePerBannerOverlay ? (isDark ? "#000000" : heading) : image.overlayColor,
+                overlayOpacity: baseHero.usePerBannerOverlay ? preset.heroOverlayOpacity : image.overlayOpacity,
+                buttons: image.buttons?.map((button, index) => {
+                    const colors = getHeroButtonColors(index);
+                    return {
+                        ...button,
+                        bgColor: colors.bgColor,
+                        bgHoverColor: colors.bgHoverColor,
+                        textColor: colors.textColor,
+                        bgOpacity: colors.bgOpacity,
+                    };
+                }),
+            })),
+        },
+        uspStrip: {
+            ...baseUspStrip,
+            mode: "animated" as const,
+            animation: preset.heroTextAnimation,
+            staggerMs: 90,
+            backgroundColor: primary,
+            useGradient: true,
+            gradientFrom: primary,
+            gradientTo: hover,
+            gradientDirection: preset.id === "bold-maker" ? "to-r" : "to-br",
+            textColor: primaryFillText,
+            iconColor: primaryFillText,
+            titleColor: primaryFillText,
+            descriptionColor: hexToRgba(primaryFillText, 0.88),
+        },
+        forside: {
+            ...baseForside,
+            banner2: {
+                ...baseBanner2,
+                headingColor: primaryFillText,
+                subtitleColor: hexToRgba(primaryFillText, 0.88),
+                headingFont: preset.fonts.heading,
+                subtitleFont: preset.fonts.body,
+                background: {
+                    ...baseBanner2.background,
+                    type: "gradient" as const,
+                    color: primary,
+                    gradientStart: primary,
+                    gradientEnd: isDark ? "#0F172A" : hover,
+                    gradientAngle: preset.id === "premium-press" ? 145 : 135,
+                    animated: preset.id === "glass-studio",
+                    animatedStart: primary,
+                    animatedMiddle: secondary,
+                    animatedEnd: hover,
+                },
+            },
+            productsSection: {
+                ...baseProductsSection,
+                layoutStyle: preset.id === "bold-maker" ? "flat" : "cards",
+                categoryTabs: {
+                    ...baseProductsSection.categoryTabs,
+                    borderRadiusPx: preset.id === "bold-maker" ? preset.tightRadiusPx : 100,
+                    textColor: heading,
+                    hoverTextColor: hover,
+                    activeTextColor: primaryFillText,
+                    bgColor: panelBg,
+                    hoverBgColor: preset.id === "bold-maker" ? secondary : softHover,
+                    activeBgColor: primary,
+                    borderColor: subtleBorder,
+                    activeBorderColor: primary,
+                },
+                card: {
+                    ...baseProductsSection.card,
+                    titleFont: preset.fonts.heading,
+                    titleColor: heading,
+                    bodyFont: preset.fonts.body,
+                    bodyColor: body,
+                    priceFont: preset.fonts.pricing,
+                    priceColor: pricing,
+                },
+                button: {
+                    ...baseProductsSection.button,
+                    bgColor: primary,
+                    hoverBgColor: hover,
+                    textColor: buttonText,
+                    hoverTextColor: buttonHoverText,
+                    font: preset.fonts.heading,
+                    animation: preset.buttonAnimation,
+                    borderRadiusPx: preset.buttonRadiusPx,
+                    shadow: preset.buttonShadow,
+                    hoverShadow: preset.buttonHoverShadow,
+                    hoverScale: preset.buttonHoverScale,
+                    hoverY: preset.buttonHoverY,
+                    tapScale: preset.buttonTapScale,
+                    transitionMs: preset.buttonTransitionMs,
+                    surfaceStyle: preset.buttonSurfaceStyle,
+                    gradientStart: preset.buttonGradientStart,
+                    gradientEnd: preset.buttonGradientEnd,
+                    hoverGradientStart: preset.buttonHoverGradientStart,
+                    hoverGradientEnd: preset.buttonHoverGradientEnd,
+                    innerShadow: preset.buttonInnerShadow,
+                    sheenColor: preset.buttonSheenColor,
+                },
+                background: {
+                    ...baseProductsSection.background,
+                    type: preset.productBackgroundType,
+                    color: background,
+                    gradientStart: background,
+                    gradientEnd: isDark ? "#111827" : secondary,
+                    gradientAngle: 135,
+                    opacity: 1,
+                },
+                featuredProductConfig: {
+                    ...baseFeatured,
+                    cardStyle: preset.cardStyle,
+                    borderRadiusPx: preset.radiusPx,
+                    backgroundColor: panelBg,
+                    ctaColor: primary,
+                    ctaTextColor: buttonText,
+                    ctaBorderRadiusPx: preset.tightRadiusPx,
+                    sidePanel: {
+                        ...baseFeatured.sidePanel,
+                        borderRadiusPx: preset.radiusPx,
+                        textAnimation: preset.heroTextAnimation,
+                        overlayColor: isDark ? "#000000" : heading,
+                        overlayOpacity: preset.heroOverlayOpacity,
+                        titleColor: "#FFFFFF",
+                        subtitleColor: hexToRgba("#FFFFFF", 0.9),
+                        ctaColor: primary,
+                        ctaTextColor: buttonText,
+                    },
+                },
+            },
+        },
+        productPage: {
+            ...baseProductPage,
+            heading: {
+                ...baseProductPage.heading,
+                font: preset.fonts.heading,
+                color: heading,
+                subtext: {
+                    ...baseProductPage.heading.subtext,
+                    font: preset.fonts.body,
+                    color: body,
+                },
+            },
+            infoSection: {
+                ...baseProductPage.infoSection,
+                bgColor: panelBg,
+                bgBorderRadius: preset.radiusPx,
+                borderColor: subtleBorder,
+                borderWidthPx: preset.borderWidthPx,
+                titleFont: preset.fonts.heading,
+                titleColor: heading,
+                textFont: preset.fonts.body,
+                textColor: body,
+                imageBorderRadiusPx: preset.tightRadiusPx,
+                galleryBorderRadiusPx: preset.tightRadiusPx,
+            },
+            matrix: {
+                ...baseMatrix,
+                font: preset.fonts.body,
+                headerBg: isDark ? "#172033" : secondary,
+                headerText: heading,
+                rowHeaderBg: panelBg,
+                rowHeaderText: heading,
+                cellBg: panelBg,
+                cellText: heading,
+                cellHoverBg: preset.id === "bold-maker" ? secondary : softHover,
+                cellHoverText: preset.id === "bold-maker" ? heading : hover,
+                selectedBg: primary,
+                selectedText: primaryFillText,
+                borderColor: subtleBorder,
+                navButtonBg: panelBg,
+                navButtonText: heading,
+                navButtonHoverBg: preset.id === "bold-maker" ? secondary : softHover,
+                navButtonHoverText: hover,
+                navButtonBorder: subtleBorder,
+                navButtonHoverBorder: primary,
+                boxBackgroundColor: panelBg,
+                boxBorderRadiusPx: preset.radiusPx,
+                boxBorderWidthPx: preset.borderWidthPx,
+                boxBorderColor: subtleBorder,
+                boxPaddingPx: preset.matrixPaddingPx,
+                textButtons: {
+                    ...baseMatrix.textButtons,
+                    backgroundColor: panelBg,
+                    hoverBackgroundColor: preset.id === "bold-maker" ? secondary : softHover,
+                    textColor: heading,
+                    hoverTextColor: hover,
+                    selectedBackgroundColor: primary,
+                    selectedTextColor: primaryFillText,
+                    borderRadiusPx: preset.tightRadiusPx,
+                    borderWidthPx: preset.borderWidthPx,
+                    borderColor: subtleBorder,
+                    hoverBorderColor: primary,
+                    paddingPx: preset.optionButtonPaddingPx,
+                    minHeightPx: preset.id === "bold-maker" ? 46 : 44,
+                    fontFamily: preset.fonts.body,
+                },
+                pictureButtons: {
+                    ...baseMatrix.pictureButtons,
+                    imageBorderRadiusPx: preset.tightRadiusPx,
+                    backgroundColor: panelBg,
+                    textColor: heading,
+                    hoverTextColor: hover,
+                    borderWidthPx: preset.borderWidthPx,
+                    borderColor: subtleBorder,
+                    hoverBorderColor: hover,
+                    selectedBorderColor: primary,
+                    selectedRingColor: primary,
+                    hoverEffect: preset.pictureHoverEffect,
+                    selectedEffect: preset.pictureSelectedEffect,
+                    hoverColor: hover,
+                    hoverOpacity: isDark ? 0.2 : 0.14,
+                    selectedColor: primary,
+                    selectedOpacity: isDark ? 0.28 : 0.2,
+                    outlineEnabled: true,
+                    outlineOpacity: 1,
+                    hoverZoomEnabled: true,
+                    hoverZoomScale: preset.pictureHoverScale,
+                    hoverZoomDurationMs: 180,
+                },
+            },
+            pricePanel: {
+                ...basePricePanel,
+                backgroundType: preset.productBackgroundType,
+                backgroundColor: panelBg,
+                gradientStart: isDark ? "#0F172A" : softPrimary,
+                gradientEnd: panelBg,
+                gradientAngle: 135,
+                shadow: preset.buttonShadow,
+                titleColor: heading,
+                textColor: heading,
+                mutedTextColor: body,
+                priceColor: pricing,
+                borderColor: subtleBorder,
+                borderWidth: preset.borderWidthPx,
+                radiusPx: preset.radiusPx,
+                dividerColor: subtleBorder,
+                optionBg: panelBg,
+                optionHoverBg: preset.id === "bold-maker" ? secondary : softHover,
+                optionSelectedBg: softPrimary,
+                optionBorderColor: subtleBorder,
+                optionHoverBorderColor: primary,
+                optionSelectedBorderColor: primary,
+                badgeBg: softPrimary,
+                badgeText: pricing,
+                badgeBorderColor: primary,
+                downloadButtonBg: panelBg,
+                downloadButtonHoverBg: preset.id === "bold-maker" ? secondary : softHover,
+                downloadButtonText: heading,
+                downloadButtonHoverText: hover,
+                downloadButtonBorder: subtleBorder,
+                downloadButtonHoverBorder: primary,
+                downloadButtonSurfaceStyle: preset.buttonSurfaceStyle,
+                downloadButtonGradientStart: panelBg,
+                downloadButtonGradientEnd: isDark ? "#0B1220" : hexToRgba(card, 0.72),
+                downloadButtonHoverGradientStart: preset.id === "glass-studio" ? "rgba(255, 255, 255, 0.92)" : softHover,
+                downloadButtonHoverGradientEnd: preset.id === "bold-maker" ? secondary : panelBg,
+                downloadButtonShadow: "0 6px 16px rgba(15, 23, 42, 0.08)",
+                downloadButtonHoverShadow: preset.buttonShadow,
+            },
+            orderButtons: {
+                ...baseOrderButtons,
+                font: preset.fonts.heading,
+                animation: preset.orderButtonAnimation,
+                radiusPx: preset.buttonRadiusPx,
+                shadow: preset.buttonShadow,
+                hoverShadow: preset.buttonHoverShadow,
+                hoverScale: preset.buttonHoverScale,
+                hoverY: preset.buttonHoverY,
+                tapScale: preset.buttonTapScale,
+                transitionMs: preset.buttonTransitionMs,
+                motionStyle: preset.id === "glass-studio" ? "elastic" : preset.id === "bold-maker" ? "press" : "smooth",
+                surfaceStyle: preset.buttonSurfaceStyle,
+                gradientStart: preset.buttonGradientStart,
+                gradientEnd: preset.buttonGradientEnd,
+                hoverGradientStart: preset.buttonHoverGradientStart,
+                hoverGradientEnd: preset.buttonHoverGradientEnd,
+                innerShadow: preset.buttonInnerShadow,
+                sheenColor: preset.buttonSheenColor,
+                primary: {
+                    ...baseOrderButtons.primary,
+                    bgColor: primary,
+                    hoverBgColor: hover,
+                    gradientStart: preset.buttonGradientStart,
+                    gradientEnd: preset.buttonGradientEnd,
+                    hoverGradientStart: preset.buttonHoverGradientStart,
+                    hoverGradientEnd: preset.buttonHoverGradientEnd,
+                    textColor: buttonText,
+                    hoverTextColor: buttonHoverText,
+                    borderColor: primary,
+                    hoverBorderColor: hover,
+                },
+                secondary: {
+                    ...baseOrderButtons.secondary,
+                    bgColor: panelBg,
+                    hoverBgColor: preset.id === "bold-maker" ? secondary : softHover,
+                    gradientStart: panelBg,
+                    gradientEnd: preset.cardStyle === "glass" ? hexToRgba(card, 0.58) : panelBg,
+                    hoverGradientStart: preset.id === "bold-maker" ? secondary : softHover,
+                    hoverGradientEnd: panelBg,
+                    textColor: heading,
+                    hoverTextColor: hover,
+                    borderColor: subtleBorder,
+                    hoverBorderColor: primary,
+                },
+                selected: {
+                    ...baseOrderButtons.selected,
+                    bgColor: primary,
+                    hoverBgColor: hover,
+                    gradientStart: preset.buttonGradientStart,
+                    gradientEnd: preset.buttonGradientEnd,
+                    hoverGradientStart: preset.buttonHoverGradientStart,
+                    hoverGradientEnd: preset.buttonHoverGradientEnd,
+                    textColor: buttonText,
+                    hoverTextColor: buttonHoverText,
+                    borderColor: primary,
+                    hoverBorderColor: hover,
+                },
+            },
+            optionSelectors: {
+                ...baseOptionSelectors,
+                button: {
+                    ...baseOptionSelectors.button,
+                    bgColor: panelBg,
+                    textColor: heading,
+                    selectedBgColor: primary,
+                    selectedTextColor: primaryFillText,
+                    hoverBgColor: preset.id === "bold-maker" ? secondary : softHover,
+                    hoverTextColor: hover,
+                    borderRadius: preset.tightRadiusPx,
+                    borderColor: subtleBorder,
+                    borderWidth: preset.borderWidthPx,
+                    selectedRingColor: primary,
+                    hoverRingEnabled: true,
+                    paddingPx: preset.optionButtonPaddingPx,
+                    fontSizePx: preset.id === "bold-maker" ? 15 : 14,
+                    shadow: preset.id === "bold-maker" ? preset.buttonShadow : "0 6px 16px rgba(15, 23, 42, 0.08)",
+                    hoverShadow: preset.buttonHoverShadow,
+                    selectedShadow: preset.buttonHoverShadow,
+                    hoverScale: preset.buttonHoverScale,
+                    hoverY: preset.buttonHoverY,
+                    tapScale: preset.buttonTapScale,
+                    transitionMs: preset.buttonTransitionMs,
+                    motionStyle: preset.id === "glass-studio" ? "elastic" : preset.id === "bold-maker" ? "press" : "smooth",
+                    surfaceStyle: preset.buttonSurfaceStyle,
+                    gradientStart: preset.cardStyle === "glass" ? preset.buttonGradientStart : panelBg,
+                    gradientEnd: preset.cardStyle === "glass" ? preset.buttonGradientEnd : panelBg,
+                    hoverGradientStart: preset.id === "bold-maker" ? secondary : softHover,
+                    hoverGradientEnd: panelBg,
+                    innerShadow: preset.cardStyle === "glass" ? preset.buttonInnerShadow : "inset 0 1px 0 rgba(255, 255, 255, 0.18)",
+                    sheenColor: preset.buttonSheenColor,
+                },
+                image: {
+                    ...baseOptionSelectors.image,
+                    sizePx: preset.optionImageSizePx,
+                    borderRadius: preset.tightRadiusPx,
+                    bgColor: panelBg,
+                    selectedBgColor: softPrimary,
+                    hoverBgColor: preset.id === "bold-maker" ? secondary : softHover,
+                    selectedRingColor: primary,
+                    hoverRingEnabled: true,
+                    hoverRingColor: hover,
+                    labelColor: heading,
+                    shadow: preset.id === "bold-maker" ? preset.buttonShadow : "0 8px 20px rgba(15, 23, 42, 0.08)",
+                    hoverShadow: preset.buttonHoverShadow,
+                    selectedShadow: preset.buttonHoverShadow,
+                    hoverScale: preset.pictureHoverScale,
+                    hoverY: preset.buttonHoverY,
+                    tapScale: preset.buttonTapScale,
+                    transitionMs: preset.buttonTransitionMs,
+                    motionStyle: preset.id === "glass-studio" ? "elastic" : preset.id === "bold-maker" ? "press" : "smooth",
+                    surfaceStyle: preset.buttonSurfaceStyle,
+                    innerShadow: preset.buttonInnerShadow,
+                    sheenColor: preset.buttonSheenColor,
+                },
+                dropdown: {
+                    ...baseOptionSelectors.dropdown,
+                    bgColor: panelBg,
+                    textColor: heading,
+                    borderColor: subtleBorder,
+                    borderRadius: preset.tightRadiusPx,
+                },
+                checkbox: {
+                    ...baseOptionSelectors.checkbox,
+                    accentColor: primary,
+                    labelColor: heading,
+                },
+            },
+        },
+    };
+};
+
+const buildFontPresetThemePatch = (
+    draft: typeof DEFAULT_BRANDING,
+    presetFonts: BrandingFontPresetFonts,
+): Partial<typeof DEFAULT_BRANDING> => {
+    const fonts = {
+        ...draft.fonts,
+        ...presetFonts,
+    };
+    const heading = fonts.heading || DEFAULT_BRANDING.fonts.heading;
+    const body = fonts.body || DEFAULT_BRANDING.fonts.body;
+    const pricing = fonts.pricing || DEFAULT_BRANDING.fonts.pricing;
+    const currentHero = draft.hero || DEFAULT_BRANDING.hero;
+    const currentHeroOverlay = currentHero.overlay || DEFAULT_BRANDING.hero.overlay;
+    const currentUspStrip = draft.uspStrip || DEFAULT_BRANDING.uspStrip;
+    const currentForside = draft.forside || DEFAULT_BRANDING.forside;
+    const currentProductsSection = currentForside.productsSection || DEFAULT_BRANDING.forside.productsSection;
+    const currentBanner2 = currentForside.banner2 || DEFAULT_BRANDING.forside.banner2;
+    const currentProductPage = draft.productPage || DEFAULT_BRANDING.productPage;
+    const currentMatrix = currentProductPage.matrix || DEFAULT_BRANDING.productPage.matrix;
+    const currentOrderButtons = currentProductPage.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
+
+    return {
+        fonts,
+        header: {
+            ...draft.header,
+            logoFont: heading,
+            fontId: body,
+            dropdownCategoryFontId: body,
+            dropdownProductFontId: body,
+        },
+        hero: {
+            ...currentHero,
+            overlay: {
+                ...currentHeroOverlay,
+                titleFontId: heading,
+                subtitleFontId: body,
+            } as typeof currentHeroOverlay,
+            images: (currentHero.images || []).map((image) => ({
+                ...image,
+                titleFontId: heading,
+                subtitleFontId: body,
+            })),
+        },
+        uspStrip: {
+            ...currentUspStrip,
+            titleFont: heading,
+            descriptionFont: body,
+        },
+        forside: {
+            ...currentForside,
+            banner2: {
+                ...currentBanner2,
+                headingFont: heading,
+                subtitleFont: body,
+                slides: (currentBanner2.slides || []).map((slide) => ({
+                    ...slide,
+                    items: (slide.items || []).map((item) => ({
+                        ...item,
+                        titleFont: heading,
+                        descriptionFont: body,
+                    })),
+                })),
+            },
+            productsSection: {
+                ...currentProductsSection,
+                card: {
+                    ...currentProductsSection.card,
+                    titleFont: heading,
+                    bodyFont: body,
+                    priceFont: pricing,
+                },
+                button: {
+                    ...currentProductsSection.button,
+                    font: heading,
+                },
+            },
+            contentBlocks: (currentForside.contentBlocks || []).map((block) => ({
+                ...block,
+                headingFont: heading,
+                textFont: body,
+            })),
+        },
+        productPage: {
+            ...currentProductPage,
+            heading: {
+                ...currentProductPage.heading,
+                font: heading,
+                subtext: {
+                    ...currentProductPage.heading.subtext,
+                    font: body,
+                },
+            },
+            infoSection: {
+                ...currentProductPage.infoSection,
+                titleFont: heading,
+                textFont: body,
+            },
+            matrix: {
+                ...currentMatrix,
+                font: body,
+            },
+            orderButtons: {
+                ...currentOrderButtons,
+                font: heading,
+            },
+        },
+    };
+};
 
 interface BrandingColorFieldConfig {
     key: BrandingColorKey;
@@ -143,6 +1511,14 @@ type ContextualEditorState =
         valueName: string;
         rawId: string;
         label: string;
+    }
+    | {
+        kind: "product-option-section-box";
+        productId: string;
+        sectionId: string;
+        sectionName: string;
+        rawId: string;
+        label: string;
     };
 
 type PreviewPageLink = {
@@ -173,6 +1549,24 @@ const hexToRgba = (color: string, alpha: number): string => {
     }
 
     return normalized || `rgba(0, 0, 0, ${a})`;
+};
+
+const getReadableTextForSolid = (background: string, preferred = "#FFFFFF"): string => {
+    const normalized = String(background || "").trim();
+    const shortMatch = normalized.match(/^#([0-9a-f]{3})$/i);
+    const longMatch = normalized.match(/^#([0-9a-f]{6})$/i);
+    const hex = shortMatch
+        ? shortMatch[1].split("").map((part) => `${part}${part}`).join("")
+        : longMatch?.[1];
+
+    if (!hex) return preferred;
+
+    const channels = [0, 2, 4].map((index) => {
+        const value = parseInt(hex.slice(index, index + 2), 16) / 255;
+        return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    });
+    const luminance = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+    return luminance > 0.48 ? "#0F172A" : "#FFFFFF";
 };
 
 const PREVIEW_PAGE_LINKS: PreviewPageLink[] = [
@@ -220,6 +1614,21 @@ function resolveContextualEditor(rawId?: string | null): ContextualEditorState |
             valueName: decodeURIComponent(valueName),
             rawId,
             label: `Knap: ${decodeURIComponent(valueName)}`,
+        };
+    }
+
+    // Product selector box click: product-selector-box.<productId>.<sectionId>.<sectionName>
+    const productSelectorBoxMatch = /^product-selector-box\.([^\.]+)\.([^\.]+)\.(.+)$/.exec(rawId);
+    if (productSelectorBoxMatch) {
+        const [, productId, sectionId, sectionName] = productSelectorBoxMatch;
+        const decodedSectionName = decodeURIComponent(sectionName);
+        return {
+            kind: "product-option-section-box",
+            productId,
+            sectionId,
+            sectionName: decodedSectionName,
+            rawId,
+            label: `Valgboks: ${decodedSectionName}`,
         };
     }
 
@@ -570,7 +1979,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     const [focusedBlockId, setFocusedBlockId] = useState<string | null>(null);
     const [focusedTargetId, setFocusedTargetId] = useState<string | null>(null);
     const [contextualEditor, setContextualEditor] = useState<ContextualEditorState | null>(null);
-    const [focusedProductOption, setFocusedProductOption] = useState<{ productId: string; sectionId: string | null } | null>(null);
+    const [focusedProductOption, setFocusedProductOption] = useState<{ productId: string; sectionId: string | null; valueId?: string | null; valueName?: string | null } | null>(null);
     const [persistedProductPricing, setPersistedProductPricing] = useState<{ productId: string; pricingStructure: unknown } | null>(null);
     const [productPricingPreview, setProductPricingPreview] = useState<{
         productId: string;
@@ -586,6 +1995,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     const [uploadingFeaturedSideImage, setUploadingFeaturedSideImage] = useState(false);
     const [uploadingFeaturedMainImage, setUploadingFeaturedMainImage] = useState(false);
     const [uploadingFeaturedGalleryImage, setUploadingFeaturedGalleryImage] = useState(false);
+    const [colorPresetName, setColorPresetName] = useState("");
 
     // Ref for screenshot capture promise resolution
     const screenshotResolverRef = useRef<{ resolve: (url: string | null) => void; reject: (err: any) => void } | null>(null);
@@ -644,18 +2054,30 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         const contextualSelection = resolveContextualEditor(rawSectionId);
         console.log('[Editor] Resolved selection:', selection, 'contextual:', contextualSelection);
         
-        // For product-option-button clicks, open the sidebar instead of contextual popup
+        // For product option clicks, open the sidebar instead of the floating contextual popup.
         const isProductOptionButton = contextualSelection?.kind === 'product-option-button';
+        const isProductOptionSectionBox = contextualSelection?.kind === 'product-option-section-box';
 
         if (isProductOptionButton && contextualSelection.kind === "product-option-button") {
             setFocusedProductOption({
                 productId: contextualSelection.productId,
                 sectionId: contextualSelection.sectionId,
+                valueId: contextualSelection.valueId,
+                valueName: contextualSelection.valueName,
+            });
+        } else if (isProductOptionSectionBox && contextualSelection.kind === "product-option-section-box") {
+            setFocusedProductOption({
+                productId: contextualSelection.productId,
+                sectionId: contextualSelection.sectionId,
+                valueId: null,
+                valueName: contextualSelection.sectionName,
             });
         } else if (selection?.sectionId === "produktvalgknapper" && currentPreviewProduct?.id) {
             setFocusedProductOption({
                 productId: currentPreviewProduct.id,
                 sectionId: null,
+                valueId: null,
+                valueName: null,
             });
         } else if (selection?.sectionId !== "produktvalgknapper") {
             setFocusedProductOption(null);
@@ -673,21 +2095,21 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
             setFocusedTargetId(null);
         }
 
-        // Only show contextual editor for non-product-option clicks
+        // Product option buttons are handled directly by the Produktvalgknapper sidebar.
         if (!isProductOptionButton) {
             setContextualEditor(contextualSelection);
         } else {
             setContextualEditor(null);
         }
 
-        if (!contextualSelection || isProductOptionButton) {
+        if (!contextualSelection || isProductOptionButton || isProductOptionSectionBox) {
             // Clear any existing selection highlight in preview
             setClearSelectionSignal(prev => prev + 1);
         }
 
         setFocusRequestId((current) => current + 1);
-        // Open sidebar for product-option clicks too
-        if (!contextualSelection || isProductOptionButton) {
+        // Open sidebar for product option clicks too.
+        if (!contextualSelection || isProductOptionButton || isProductOptionSectionBox) {
             setSidebarOpen(true);
         }
     }, [currentPreviewProduct]);
@@ -1028,7 +2450,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         if (currentPreviewPage === "/shop" || currentPreviewPage === "/prisberegner") {
             return "Produkter";
         }
-        return currentPreviewPage;
+        return "Aktuel side";
     }, [currentPreviewPage]);
 
     const currentPreviewPageTypeLabel = isProductPreviewPage
@@ -1260,13 +2682,71 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         }
 
         switch (activeSection) {
-            case 'theme':
+            case 'theme': {
+                const activeVisualThemePresetId = String((editor.draft.themeSettings as Record<string, unknown> | undefined)?.visualThemePresetId || "");
+                const applyVisualThemePreset = (preset: VisualThemePreset) => {
+                    editor.updateDraft(buildVisualThemePresetPatch(editor.draft, preset));
+                    toast.success(`${preset.name} anvendt på hele designet`);
+                };
                 return (
                     <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
                             <h3 className="text-sm font-medium">Tema</h3>
                             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                         </div>
+                        <Card className="overflow-hidden">
+                            <CardHeader className="space-y-1 p-3 pb-0">
+                                <div className="flex items-center gap-2">
+                                    <Sparkles className="h-4 w-4 text-primary" />
+                                    <CardTitle className="text-sm">Komplette visuelle presets</CardTitle>
+                                </div>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    Skifter farver, flader, radius, dropdown, hero-effekter, produktknapper, matrix og prisboks samlet.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-2 p-3 pt-3">
+                                {VISUAL_THEME_PRESETS.map((preset) => {
+                                    const isSelected = activeVisualThemePresetId === preset.id;
+                                    return (
+                                        <button
+                                            key={preset.id}
+                                            type="button"
+                                            className={`w-full rounded-lg border p-3 text-left transition hover:border-primary/60 hover:bg-muted/30 ${isSelected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border/70 bg-background"}`}
+                                            onClick={() => applyVisualThemePreset(preset)}
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="truncate text-xs font-semibold">{preset.name}</span>
+                                                        {isSelected ? <Check className="h-3.5 w-3.5 text-primary" /> : null}
+                                                    </div>
+                                                    <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                                                        {preset.description}
+                                                    </p>
+                                                </div>
+                                                <div className="flex h-7 w-24 shrink-0 overflow-hidden rounded-md border">
+                                                    {BRANDING_COLOR_KEYS.slice(0, 6).map((key) => (
+                                                        <span
+                                                            key={key}
+                                                            className="flex-1"
+                                                            style={{ backgroundColor: preset.colors[key] }}
+                                                            title={`${key}: ${preset.colors[key]}`}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            <div className="mt-2 flex flex-wrap gap-1">
+                                                {preset.tags.map((tag) => (
+                                                    <Badge key={tag} variant="outline" className="h-4 rounded-sm px-1 text-[9px] uppercase">
+                                                        {tag}
+                                                    </Badge>
+                                                ))}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </CardContent>
+                        </Card>
                         <ThemeSelector
                             selectedThemeId={editor.draft.themeId || 'classic'}
                             onThemeChange={(themeId) => {
@@ -1279,6 +2759,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         />
                     </div>
                 );
+            }
             case 'logo':
                 return (
                     <div className="space-y-3 px-3 pb-6">
@@ -4303,23 +5784,87 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         )}
                     </div>
                 );
-            }
-            case 'typography': {
-                const isTypographyFocusMode = Boolean(focusedTargetId?.startsWith("site-design-focus-typography"));
-                return (
-                    <div className="space-y-3 px-3 pb-6">
-                        <div className="flex items-center justify-between">
+	            }
+	            case 'typography': {
+	                const isTypographyFocusMode = Boolean(focusedTargetId?.startsWith("site-design-focus-typography"));
+	                const fontPresets = editor.draft.fontPresets?.length
+	                    ? editor.draft.fontPresets
+	                    : DEFAULT_BRANDING.fontPresets;
+	                const applyFontPreset = (preset: typeof DEFAULT_BRANDING.fontPresets[number]) => {
+	                    editor.updateDraft(buildFontPresetThemePatch(editor.draft, preset.fonts));
+	                    toast.success("Font preset anvendt");
+	                };
+	                return (
+	                    <div className="space-y-3 px-3 pb-6">
+	                        <div className="flex items-center justify-between">
                             <h3 className="text-sm font-medium">Typografi</h3>
                             <div className="flex items-center gap-2">
                                 {isTypographyFocusMode && (
                                     <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFocusedSelection}>Vis alt</Button>
                                 )}
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
-                            </div>
-                        </div>
-                        <div className="space-y-3 pt-2">
-                            {(!isTypographyFocusMode || focusedTargetId === "site-design-focus-typography-heading") && (
-                                <div id="site-design-focus-typography-heading">
+	                            </div>
+	                        </div>
+	                        <div className="space-y-3 pt-2">
+	                            {!isTypographyFocusMode && (
+	                                <Card className="overflow-hidden">
+	                                    <CardHeader className="space-y-1 p-3 pb-0">
+	                                        <CardTitle className="text-sm">Font presets</CardTitle>
+	                                        <CardDescription className="text-xs text-muted-foreground">
+	                                            Vælg en samlet skrifttype-pakke til header, banner, USP strip, produkter, matrix og priser.
+	                                        </CardDescription>
+	                                    </CardHeader>
+	                                    <CardContent className="space-y-2 p-3 pt-3">
+	                                        {fontPresets.map((preset) => (
+	                                            <div key={preset.id} className="rounded-lg border bg-background p-2">
+	                                                <div className="flex items-start justify-between gap-2">
+	                                                    <button
+	                                                        type="button"
+	                                                        className="min-w-0 flex-1 text-left"
+	                                                        onClick={() => applyFontPreset(preset)}
+	                                                    >
+	                                                        <div className="flex items-center gap-2">
+	                                                            <span
+	                                                                className="truncate text-sm font-semibold"
+	                                                                style={{ fontFamily: `'${preset.fonts.heading}', sans-serif` }}
+	                                                            >
+	                                                                {preset.name}
+	                                                            </span>
+	                                                            {preset.isSystem ? (
+	                                                                <Badge variant="outline" className="h-4 rounded-sm px-1 text-[9px] uppercase">Preset</Badge>
+	                                                            ) : null}
+	                                                        </div>
+	                                                        <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+	                                                            {preset.description}
+	                                                        </p>
+	                                                        <div className="mt-2 grid grid-cols-3 gap-1 text-[10px]">
+	                                                            <span className="truncate rounded bg-muted px-1.5 py-1" style={{ fontFamily: `'${preset.fonts.heading}', sans-serif` }}>
+	                                                                {preset.fonts.heading}
+	                                                            </span>
+	                                                            <span className="truncate rounded bg-muted px-1.5 py-1" style={{ fontFamily: `'${preset.fonts.body}', sans-serif` }}>
+	                                                                {preset.fonts.body}
+	                                                            </span>
+	                                                            <span className="truncate rounded bg-muted px-1.5 py-1" style={{ fontFamily: `'${preset.fonts.pricing}', monospace` }}>
+	                                                                {preset.fonts.pricing}
+	                                                            </span>
+	                                                        </div>
+	                                                    </button>
+	                                                    <Button
+	                                                        size="sm"
+	                                                        variant="outline"
+	                                                        className="h-7 shrink-0 px-2 text-[11px]"
+	                                                        onClick={() => applyFontPreset(preset)}
+	                                                    >
+	                                                        Brug
+	                                                    </Button>
+	                                                </div>
+	                                            </div>
+	                                        ))}
+	                                    </CardContent>
+	                                </Card>
+	                            )}
+	                            {(!isTypographyFocusMode || focusedTargetId === "site-design-focus-typography-heading") && (
+	                                <div id="site-design-focus-typography-heading">
                                     <FontSelector
                                         label="Overskrifter"
                                         inline
@@ -4384,6 +5929,41 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
             }
             case 'colors': {
                 const isColorsFocusMode = Boolean(focusedTargetId?.startsWith("site-design-focus-colors"));
+                const colorPresets = editor.draft.colorPresets?.length
+                    ? editor.draft.colorPresets
+                    : DEFAULT_BRANDING.colorPresets;
+	                const presetName = colorPresetName.trim();
+	                const applyColorPreset = (preset: typeof DEFAULT_BRANDING.colorPresets[number]) => {
+	                    editor.updateDraft(buildColorPresetThemePatch(editor.draft, preset.colors));
+	                    toast.success("Farvesæt anvendt på temaet");
+	                };
+                const saveCurrentColorPreset = () => {
+                    const name = presetName || `Farvesæt ${colorPresets.length + 1}`;
+                    const colors = BRANDING_COLOR_KEYS.reduce((acc, key) => {
+                        acc[key] = editor.draft.colors[key] || DEFAULT_BRANDING.colors[key];
+                        return acc;
+                    }, {} as Record<BrandingColorKey, string>);
+
+                    editor.updateDraft({
+                        colorPresets: [
+                            ...colorPresets,
+                            {
+                                id: `custom-${Date.now()}`,
+                                name,
+                                colors,
+                                createdAt: new Date().toISOString(),
+                                isSystem: false,
+                            },
+                        ],
+                    });
+                    setColorPresetName("");
+                    toast.success("Farvesæt gemt");
+                };
+                const removeColorPreset = (presetId: string) => {
+                    editor.updateDraft({
+                        colorPresets: colorPresets.filter((preset) => preset.id !== presetId),
+                    });
+                };
                 return (
                     <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
@@ -4397,9 +5977,95 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         </div>
                         <div className="space-y-4 pt-2">
                             <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                                Disse farver styrer de delte tema-farver på både live forside og live produktsider.
-                                Hero-knapper, header-CTA/dropdowns og forside-produktknapper redigeres stadig i deres egne sektioner.
+	                                Farvesæt opdaterer nu de delte tema-farver samt header, sidebaggrund, produktknapper, matrix, prisboks og hover-tilstande.
                             </div>
+                            {!isColorsFocusMode && (
+                                <Card className="overflow-hidden">
+                                    <CardHeader className="space-y-1 p-3 pb-0">
+                                        <CardTitle className="text-sm">Farvesæt</CardTitle>
+                                        <CardDescription className="text-xs text-muted-foreground">
+                                            Vælg et samlet sæt med sikre tekst/flade-kontraster, eller gem de aktuelle farver som et nyt preset.
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="space-y-3 p-3 pt-3">
+                                        <div className="grid gap-2">
+                                            {colorPresets.map((preset) => (
+                                                <div
+                                                    key={preset.id}
+                                                    className="rounded-lg border bg-background p-2"
+                                                >
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <button
+                                                            type="button"
+                                                            className="min-w-0 flex-1 text-left"
+                                                            onClick={() => applyColorPreset(preset)}
+                                                        >
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="truncate text-xs font-semibold">{preset.name}</span>
+                                                                {preset.isSystem ? (
+                                                                    <Badge variant="outline" className="h-4 rounded-sm px-1 text-[9px] uppercase">Demo</Badge>
+                                                                ) : null}
+                                                            </div>
+                                                            <div className="mt-2 flex h-6 overflow-hidden rounded border">
+                                                                {BRANDING_COLOR_KEYS.map((key) => (
+                                                                    <span
+                                                                        key={key}
+                                                                        className="flex-1"
+                                                                        style={{ backgroundColor: preset.colors[key] }}
+                                                                        title={`${key}: ${preset.colors[key]}`}
+                                                                    />
+                                                                ))}
+                                                            </div>
+                                                        </button>
+                                                        <div className="flex shrink-0 items-center gap-1">
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="h-7 px-2 text-[11px]"
+                                                                onClick={() => applyColorPreset(preset)}
+                                                            >
+                                                                Brug
+                                                            </Button>
+                                                            {!preset.isSystem && (
+                                                                <Button
+                                                                    size="icon"
+                                                                    variant="ghost"
+                                                                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                                                    onClick={() => removeColorPreset(preset.id)}
+                                                                >
+                                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                                </Button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="rounded-lg border border-dashed p-3">
+                                            <div className="space-y-2">
+                                                <Label className="text-xs">Gem aktuelle farver som preset</Label>
+                                                <div className="flex gap-2">
+                                                    <Input
+                                                        value={colorPresetName}
+                                                        onChange={(event) => setColorPresetName(event.target.value)}
+                                                        placeholder="Navn på farvesæt"
+                                                        className="h-8 text-xs"
+                                                    />
+                                                    <Button
+                                                        size="sm"
+                                                        className="h-8 shrink-0 gap-1"
+                                                        onClick={saveCurrentColorPreset}
+                                                    >
+                                                        <Save className="h-3.5 w-3.5" />
+                                                        Gem
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
                             {BRANDING_COLOR_GROUPS.map((group) => {
                                 const visibleFields = group.fields.filter((field) => (
                                     !isColorsFocusMode || focusedTargetId === `site-design-focus-colors-${field.key}`
@@ -4523,6 +6189,36 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         label: "Border og separator",
                         description: "Bruges til borders, skillelinjer og matrixens ydre ramme.",
                     },
+                    {
+                        key: "navButtonBg",
+                        label: "Knap baggrund",
+                        description: "Baggrund på Forrige/Næste-knapperne ved matrixen.",
+                    },
+                    {
+                        key: "navButtonText",
+                        label: "Knap tekst",
+                        description: "Tekst- og ikonfarve på Forrige/Næste-knapperne.",
+                    },
+                    {
+                        key: "navButtonHoverBg",
+                        label: "Knap hover baggrund",
+                        description: "Baggrund når man holder over Forrige/Næste-knapperne.",
+                    },
+                    {
+                        key: "navButtonHoverText",
+                        label: "Knap hover tekst",
+                        description: "Tekst- og ikonfarve ved hover på Forrige/Næste-knapperne.",
+                    },
+                    {
+                        key: "navButtonBorder",
+                        label: "Knap border",
+                        description: "Kantfarve på Forrige/Næste-knapperne.",
+                    },
+                    {
+                        key: "navButtonHoverBorder",
+                        label: "Knap hover border",
+                        description: "Kantfarve ved hover på Forrige/Næste-knapperne.",
+                    },
                 ];
                 const pricePanelColorFields: PricePanelColorFieldConfig[] = [
                     {
@@ -4600,6 +6296,36 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         label: "Deadline-badge border",
                         description: "Kanten rundt om de små deadline-badges.",
                     },
+                    {
+                        key: "downloadButtonBg",
+                        label: "Download-knap baggrund",
+                        description: "Baggrund på “Download tilbud”-knappen.",
+                    },
+                    {
+                        key: "downloadButtonHoverBg",
+                        label: "Download-knap hover",
+                        description: "Baggrund når man holder over “Download tilbud”.",
+                    },
+                    {
+                        key: "downloadButtonText",
+                        label: "Download-knap tekst",
+                        description: "Tekst- og ikonfarve på “Download tilbud”.",
+                    },
+                    {
+                        key: "downloadButtonHoverText",
+                        label: "Download-knap hover tekst",
+                        description: "Tekst- og ikonfarve ved hover.",
+                    },
+                    {
+                        key: "downloadButtonBorder",
+                        label: "Download-knap border",
+                        description: "Kantfarve på “Download tilbud”-knappen.",
+                    },
+                    {
+                        key: "downloadButtonHoverBorder",
+                        label: "Download-knap hover border",
+                        description: "Kantfarve ved hover.",
+                    },
                 ];
                 const pictureButtons = editor.draft.productPage?.matrix?.pictureButtons
                     || DEFAULT_BRANDING.productPage.matrix.pictureButtons;
@@ -4632,6 +6358,12 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     badgeBg: hexToRgba(panelPrimary, 0.1),
                     badgeText: panelPrimary,
                     badgeBorderColor: panelPrimary,
+                    downloadButtonBg: editor.draft.colors.card || "#FFFFFF",
+                    downloadButtonHoverBg: hexToRgba(panelPrimary, 0.04),
+                    downloadButtonText: editor.draft.colors.headingText || "#1F2937",
+                    downloadButtonHoverText: editor.draft.colors.headingText || "#1F2937",
+                    downloadButtonBorder: editor.draft.colors.secondary || "#E2E8F0",
+                    downloadButtonHoverBorder: hexToRgba(panelPrimary, 0.3),
                 };
                 const pricePanel = productPage.pricePanel || DEFAULT_BRANDING.productPage.pricePanel;
                 const pricePanelConfig = {
@@ -4655,6 +6387,12 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     badgeBg: pricePanel.badgeBg || pricePanelDefaults.badgeBg,
                     badgeText: pricePanel.badgeText || pricePanelDefaults.badgeText,
                     badgeBorderColor: pricePanel.badgeBorderColor || pricePanelDefaults.badgeBorderColor,
+                    downloadButtonBg: pricePanel.downloadButtonBg || pricePanelDefaults.downloadButtonBg,
+                    downloadButtonHoverBg: pricePanel.downloadButtonHoverBg || pricePanelDefaults.downloadButtonHoverBg,
+                    downloadButtonText: pricePanel.downloadButtonText || pricePanelDefaults.downloadButtonText,
+                    downloadButtonHoverText: pricePanel.downloadButtonHoverText || pricePanelDefaults.downloadButtonHoverText,
+                    downloadButtonBorder: pricePanel.downloadButtonBorder || pricePanelDefaults.downloadButtonBorder,
+                    downloadButtonHoverBorder: pricePanel.downloadButtonHoverBorder || pricePanelDefaults.downloadButtonHoverBorder,
                     borderWidth: clamp(Number(pricePanel.borderWidth) || 2, 0, 8),
                     radiusPx: clamp(Number(pricePanel.radiusPx) || 12, 0, 40),
                     gradientAngle: clamp(Number(pricePanel.gradientAngle) || 135, 0, 360),
@@ -4807,6 +6545,70 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         </div>
                     );
                 };
+                const renderMatrixField = (field: MatrixColorFieldConfig) => {
+                    const value = matrixConfig[field.key];
+
+                    return (
+                        <div key={field.key} className="space-y-1.5">
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4">
+                                <div className="space-y-1 pr-2">
+                                    <p className="text-sm font-medium leading-5">{field.label}</p>
+                                    <p className="text-xs leading-5 text-muted-foreground">{field.description}</p>
+                                </div>
+                                <div className="flex flex-col items-end gap-1 pt-0.5">
+                                    <ColorPickerWithSwatches
+                                        value={String(value)}
+                                        onChange={(color) => updateMatrix({ [field.key]: color } as Partial<typeof matrixConfig>)}
+                                        compact={true}
+                                        showFullSwatches={false}
+                                        savedSwatches={editor.draft.savedSwatches}
+                                        onSaveSwatch={(color) => {
+                                            const swatches = editor.draft.savedSwatches || [];
+                                            if (!swatches.includes(color) && swatches.length < 20) {
+                                                editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                            }
+                                        }}
+                                        onRemoveSwatch={(color) => {
+                                            editor.updateDraft({
+                                                savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                            });
+                                        }}
+                                    />
+                                    <span className="text-[11px] font-mono uppercase text-muted-foreground">
+                                        {String(value)}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                };
+                const matrixTopRowFields = matrixFields.filter((field) =>
+                    field.key === "headerBg"
+                    || field.key === "headerText"
+                    || field.key === "borderColor"
+                );
+                const matrixVerticalFields = matrixFields.filter((field) =>
+                    field.key === "rowHeaderBg"
+                    || field.key === "rowHeaderText"
+                    || field.key === "borderColor"
+                );
+                const matrixPricingFields = matrixFields.filter((field) =>
+                    field.key === "cellBg"
+                    || field.key === "cellText"
+                    || field.key === "cellHoverBg"
+                    || field.key === "cellHoverText"
+                    || field.key === "selectedBg"
+                    || field.key === "selectedText"
+                    || field.key === "borderColor"
+                );
+                const matrixButtonFields = matrixFields.filter((field) =>
+                    field.key === "navButtonBg"
+                    || field.key === "navButtonText"
+                    || field.key === "navButtonHoverBg"
+                    || field.key === "navButtonHoverText"
+                    || field.key === "navButtonBorder"
+                    || field.key === "navButtonHoverBorder"
+                );
                 const pricePanelTitleField = pricePanelColorFields.find((field) => field.key === "titleColor");
                 const pricePanelPriceField = pricePanelColorFields.find((field) => field.key === "priceColor");
                 const pricePanelTextFields = pricePanelColorFields.filter((field) => field.key === "textColor" || field.key === "mutedTextColor");
@@ -4824,6 +6626,14 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     || field.key === "badgeText"
                     || field.key === "badgeBorderColor"
                 );
+                const pricePanelDownloadButtonFields = pricePanelColorFields.filter((field) =>
+                    field.key === "downloadButtonBg"
+                    || field.key === "downloadButtonHoverBg"
+                    || field.key === "downloadButtonText"
+                    || field.key === "downloadButtonHoverText"
+                    || field.key === "downloadButtonBorder"
+                    || field.key === "downloadButtonHoverBorder"
+                );
 
                 return (
                     <div className="space-y-3 px-3 pb-6">
@@ -4836,6 +6646,138 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
+                        <Card id="site-design-focus-product-page-box">
+                            <CardHeader className="space-y-1">
+                                <CardTitle className="text-sm">Prismatrix-boks</CardTitle>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    Styrer den afrundede boks rundt om selve prismatrixen.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                                    Brug denne sektion til den hvide/afrundede ramme omkring tabellen, ikke cellerne inde i tabellen.
+                                </div>
+                                <div className="grid gap-3 md:grid-cols-2">
+                                    <ColorPickerWithSwatches
+                                        label="Boks baggrund"
+                                        value={matrixConfig.boxBackgroundColor}
+                                        onChange={(color) => updateMatrix({ boxBackgroundColor: color })}
+                                        savedSwatches={editor.draft.savedSwatches}
+                                        onSaveSwatch={(color) => {
+                                            const swatches = editor.draft.savedSwatches || [];
+                                            if (!swatches.includes(color) && swatches.length < 20) {
+                                                editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                            }
+                                        }}
+                                        onRemoveSwatch={(color) => {
+                                            editor.updateDraft({
+                                                savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                            });
+                                        }}
+                                    />
+                                    <ColorPickerWithSwatches
+                                        label="Boks border"
+                                        value={matrixConfig.boxBorderColor}
+                                        onChange={(color) => updateMatrix({ boxBorderColor: color })}
+                                        savedSwatches={editor.draft.savedSwatches}
+                                        onSaveSwatch={(color) => {
+                                            const swatches = editor.draft.savedSwatches || [];
+                                            if (!swatches.includes(color) && swatches.length < 20) {
+                                                editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                            }
+                                        }}
+                                        onRemoveSwatch={(color) => {
+                                            editor.updateDraft({
+                                                savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                            });
+                                        }}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <Label>Runding</Label>
+                                        <span className="text-xs text-muted-foreground">{matrixConfig.boxBorderRadiusPx}px</span>
+                                    </div>
+                                    <Slider
+                                        min={0}
+                                        max={40}
+                                        step={1}
+                                        value={[matrixConfig.boxBorderRadiusPx]}
+                                        onValueChange={([value]) => updateMatrix({ boxBorderRadiusPx: value })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <Label>Border-bredde</Label>
+                                        <span className="text-xs text-muted-foreground">{matrixConfig.boxBorderWidthPx}px</span>
+                                    </div>
+                                    <Slider
+                                        min={0}
+                                        max={8}
+                                        step={1}
+                                        value={[matrixConfig.boxBorderWidthPx]}
+                                        onValueChange={([value]) => updateMatrix({ boxBorderWidthPx: value })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <Label>Indvendig afstand</Label>
+                                        <span className="text-xs text-muted-foreground">{matrixConfig.boxPaddingPx}px</span>
+                                    </div>
+                                    <Slider
+                                        min={0}
+                                        max={40}
+                                        step={1}
+                                        value={[matrixConfig.boxPaddingPx]}
+                                        onValueChange={([value]) => updateMatrix({ boxPaddingPx: value })}
+                                    />
+                                </div>
+                            </CardContent>
+                        </Card>
+                        <Card id="site-design-focus-product-page-matrix-top-row">
+                            <CardHeader className="space-y-1">
+                                <CardTitle className="text-sm">Prismatrix top-række</CardTitle>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    Styrer antal-rækken øverst i matrixen.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                {matrixTopRowFields.map(renderMatrixField)}
+                            </CardContent>
+                        </Card>
+                        <Card id="site-design-focus-product-page-matrix-vertical">
+                            <CardHeader className="space-y-1">
+                                <CardTitle className="text-sm">Prismatrix venstre kolonne</CardTitle>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    Styrer den lodrette kolonne med materialer eller rækkevalg.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                {matrixVerticalFields.map(renderMatrixField)}
+                            </CardContent>
+                        </Card>
+                        <Card id="site-design-focus-product-page-matrix-pricing">
+                            <CardHeader className="space-y-1">
+                                <CardTitle className="text-sm">Prismatrix priser</CardTitle>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    Styrer prisfelterne, hover og valgt prisfelt.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                {matrixPricingFields.map(renderMatrixField)}
+                            </CardContent>
+                        </Card>
+                        <Card id="site-design-focus-product-page-matrix-buttons">
+                            <CardHeader className="space-y-1">
+                                <CardTitle className="text-sm">Prismatrix knapper</CardTitle>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    Styrer Forrige/Næste-knapperne ved matrixen.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                {matrixButtonFields.map(renderMatrixField)}
+                            </CardContent>
+                        </Card>
                         <Card id="site-design-focus-product-page-colors">
                             <CardHeader className="space-y-1">
                                 <CardTitle className="text-sm">Farver for prismatrixen</CardTitle>
@@ -5033,6 +6975,15 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         {renderPricePanelField(pricePanelTitleField)}
                                     </div>
                                 )}
+                                <div id="site-design-focus-product-page-price-panel-download-button" className="space-y-3 rounded-lg border border-border/60 p-4">
+                                    <div>
+                                        <h4 className="text-sm font-medium">“Download tilbud”-knap</h4>
+                                        <p className="text-xs text-muted-foreground">Baggrund, tekst, ikon og border for download-knappen i toppen af prisberegneren.</p>
+                                    </div>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        {pricePanelDownloadButtonFields.map(renderPricePanelField)}
+                                    </div>
+                                </div>
                                 <div id="site-design-focus-product-page-price-panel-text" className="space-y-3 rounded-lg border border-border/60 p-4">
                                     <div>
                                         <h4 className="text-sm font-medium">Informationstekst</h4>
@@ -5484,6 +7435,73 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 );
             }
             case 'produktvalgknapper':
+                if (
+                    contextualEditor?.kind === "product-option-section-box"
+                    && focusedProductOption?.productId
+                    && focusedProductOption.sectionId
+                ) {
+                    return (
+                        <ProductOptionSectionBoxEditor
+                            productId={focusedProductOption.productId}
+                            sectionId={focusedProductOption.sectionId}
+                            sectionName={contextualEditor.sectionName}
+                            savedSwatches={editor.draft.savedSwatches || []}
+                            onSaveSwatch={(color) => {
+                                const swatches = editor.draft.savedSwatches || [];
+                                if (!swatches.includes(color) && swatches.length < 20) {
+                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                }
+                            }}
+                            onRemoveSwatch={(color) => {
+                                editor.updateDraft({
+                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                });
+                            }}
+                            onBack={() => {
+                                setContextualEditor(null);
+                                setFocusedProductOption({
+                                    productId: focusedProductOption.productId,
+                                    sectionId: focusedProductOption.sectionId,
+                                    valueId: null,
+                                    valueName: null,
+                                });
+                            }}
+                        />
+                    );
+                }
+
+                if (focusedProductOption?.productId && focusedProductOption.sectionId && focusedProductOption.valueId) {
+                    return (
+                        <ProductOptionButtonEditor
+                            productId={focusedProductOption.productId}
+                            sectionId={focusedProductOption.sectionId}
+                            valueId={focusedProductOption.valueId}
+                            valueName={focusedProductOption.valueName || "Valg"}
+                            savedSwatches={editor.draft.savedSwatches || []}
+                            onSaveSwatch={(color) => {
+                                const swatches = editor.draft.savedSwatches || [];
+                                if (!swatches.includes(color) && swatches.length < 20) {
+                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                }
+                            }}
+                            onRemoveSwatch={(color) => {
+                                editor.updateDraft({
+                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                });
+                            }}
+                            onBack={() => {
+                                setFocusedProductOption({
+                                    productId: focusedProductOption.productId,
+                                    sectionId: focusedProductOption.sectionId,
+                                    valueId: null,
+                                    valueName: null,
+                                });
+                                setContextualEditor(null);
+                            }}
+                        />
+                    );
+                }
+
                 return (
                     <ProduktvalgknapperSection
                         tenantId={editor.entityId}
@@ -5495,6 +7513,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         persistedPricingStructure={persistedProductPricing}
                         focusedProductId={focusedProductOption?.productId || null}
                         focusedSectionId={focusedProductOption?.sectionId || null}
+                        focusedValueId={focusedProductOption?.valueId || null}
                         onSaveSwatch={(color) => {
                             const swatches = editor.draft.savedSwatches || [];
                             if (!swatches.includes(color) && swatches.length < 20) {
@@ -5765,11 +7784,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                                         Preview side
                                     </div>
-                                    <div className="text-xs font-semibold text-foreground">
+                                    <div className="text-xs font-semibold text-foreground truncate">
                                         {currentPreviewPageLabel}
-                                    </div>
-                                    <div className="text-[11px] text-muted-foreground truncate">
-                                        {currentPreviewPage}
                                     </div>
                                 </div>
                                 <div className="flex flex-col items-end gap-1 shrink-0">

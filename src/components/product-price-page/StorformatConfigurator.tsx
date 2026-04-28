@@ -27,6 +27,7 @@ import {
   getOptionImageUrl,
   resolvePictureButtonsConfig,
   resolvePictureButtonStateStyles,
+  resolveSelectorBoxConfig,
   resolveTextButtonsConfig,
   type SelectorStyling
 } from "@/lib/pricing/selectorStyling";
@@ -65,8 +66,21 @@ type SelectionMode = "required" | "optional" | "free";
 type ValueSettings = {
   showThumbnail?: boolean;
   customImage?: string;
+  hoverImage?: string;
+  imageSizePx?: number;
   displayName?: string;
   linkedTemplateId?: string;
+  backgroundColor?: string;
+  hoverBackgroundColor?: string;
+  borderColor?: string;
+  hoverBorderColor?: string;
+  borderRadiusPx?: number;
+  borderWidthPx?: number;
+  textColor?: string;
+  hoverTextColor?: string;
+  fontSizePx?: number;
+  paddingPx?: number;
+  minHeightPx?: number;
 };
 
 type LayoutSection = {
@@ -859,33 +873,51 @@ export function StorformatConfigurator({
         <div className={cn("space-y-1", !isOptionalEnabled && "opacity-60 pointer-events-none")}>
           {values.map((value) => {
             const isSelected = selectedValue === value.id;
-            const displayName = getDisplayName(value.name, valueSettings[value.id || ""]);
+            const valueSetting = valueSettings[value.id || ""];
+            const displayName = getDisplayName(value.name, valueSetting);
+            const checkboxKey = `${section.id}:${value.id || ""}`;
+            const isHovered = hoveredPictureKey === checkboxKey;
+            const primaryThumbUrl = getOptionImageUrl(valueSetting, value.thumbnail_url);
+            const renderedThumbUrl = isHovered && valueSetting?.hoverImage
+              ? valueSetting.hoverImage
+              : primaryThumbUrl;
+            const imagePx = valueSetting?.imageSizePx ?? thumbnailPx;
+            const contextualId = `product-option.${productId}.${section.id}.${value.id || ""}.${encodeURIComponent(displayName)}`;
             return (
               <label
                 key={value.id}
+                data-site-design-target={contextualId}
                 className={cn(
                   "flex items-center gap-2 p-1.5 rounded border cursor-pointer text-xs transition-all",
                   isSelected ? "bg-primary/10 border-primary" : "bg-background border-muted hover:border-muted-foreground/30"
                 )}
                 onClick={() => {
+                  if (window.parent !== window) {
+                    window.parent.postMessage({
+                      type: "EDIT_SECTION",
+                      sectionId: contextualId,
+                    }, "*");
+                  }
                   if (isOptional && isSelected) {
                     handleSelect(null);
                     return;
                   }
                   handleSelect(value.id || null);
                 }}
+                onMouseEnter={() => setHoveredPictureKey(checkboxKey)}
+                onMouseLeave={() => setHoveredPictureKey((prev) => (prev === checkboxKey ? null : prev))}
               >
                 <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
-                {valueSettings[value.id || ""]?.showThumbnail && getOptionImageUrl(valueSettings[value.id || ""], value.thumbnail_url) && (
+                {valueSetting?.showThumbnail && renderedThumbUrl && (
                   <img
                     src={getHiResThumbnailUrl(
-                      getOptionImageUrl(valueSettings[value.id || ""], value.thumbnail_url)!,
-                      thumbnailPx,
-                      thumbnailPx
+                      renderedThumbUrl,
+                      imagePx,
+                      imagePx
                     )}
                     alt={displayName}
                     className="rounded object-cover shrink-0"
-                    style={{ width: thumbnailPx, height: thumbnailPx }}
+                    style={{ width: imagePx, height: imagePx }}
                   />
                 )}
                 <span className="font-medium flex-1">{displayName}</span>
@@ -906,8 +938,13 @@ export function StorformatConfigurator({
             const pictureKey = `${section.id}:${value.id || ""}`;
             const isHovered = hoveredPictureKey === pictureKey;
             const isSelected = selectedValue === value.id;
-            const thumbnailUrl = getOptionImageUrl(valueSettings[value.id || ""], value.thumbnail_url);
-            const displayName = getDisplayName(value.name, valueSettings[value.id || ""]);
+            const valueSetting = valueSettings[value.id || ""];
+            const primaryThumbnailUrl = getOptionImageUrl(valueSetting, value.thumbnail_url);
+            const displayName = getDisplayName(value.name, valueSetting);
+            const pictureImagePx = valueSetting?.imageSizePx ?? sectionPictureButtonsConfig.sizePx;
+            const thumbnailUrl = isHovered && valueSetting?.hoverImage
+              ? valueSetting.hoverImage
+              : primaryThumbnailUrl;
             const pictureStateStyles = resolvePictureButtonStateStyles(sectionPictureButtonsConfig, {
               isHovered,
               isSelected,
@@ -921,15 +958,28 @@ export function StorformatConfigurator({
             )
               && sectionPictureButtonsConfig.showImage
               && sectionPictureButtonsConfig.showLabel;
-            const buttonWidth = sectionPictureButtonsConfig.showImage ? sectionPictureButtonsConfig.sizePx : 'auto';
+            const buttonWidth = sectionPictureButtonsConfig.showImage ? pictureImagePx : 'auto';
             const buttonHeight = !useDetachedLabel && sectionPictureButtonsConfig.showImage
-              ? sectionPictureButtonsConfig.sizePx + (sectionPictureButtonsConfig.showLabel ? 24 : 0)
+              ? pictureImagePx + (sectionPictureButtonsConfig.showLabel ? 24 : 0)
               : 'auto';
+            const contextualId = `product-option.${productId}.${section.id}.${value.id || ""}.${encodeURIComponent(displayName)}`;
+            const pictureBackgroundColor = valueSetting?.backgroundColor || sectionPictureButtonsConfig.backgroundColor;
+            const pictureTextColor = valueSetting?.textColor || sectionPictureButtonsConfig.textColor;
+            const pictureBorderColor = valueSetting?.borderColor || pictureStateStyles.borderColor;
+            const pictureBorderRadius = valueSetting?.borderRadiusPx ?? sectionPictureButtonsConfig.imageBorderRadiusPx;
+            const pictureBorderWidth = valueSetting?.borderWidthPx ?? sectionPictureButtonsConfig.borderWidthPx;
               
             return (
               <button
                 key={value.id}
+                data-site-design-target={contextualId}
                 onClick={() => {
+                  if (window.parent !== window) {
+                    window.parent.postMessage({
+                      type: "EDIT_SECTION",
+                      sectionId: contextualId,
+                    }, "*");
+                  }
                   if (isOptional && isSelected) {
                     handleSelect(null);
                     return;
@@ -950,10 +1000,10 @@ export function StorformatConfigurator({
                 style={{
                   width: buttonWidth,
                   minHeight: buttonHeight,
-                  backgroundColor: useDetachedLabel ? "transparent" : sectionPictureButtonsConfig.backgroundColor,
-                  borderColor: useDetachedLabel ? "transparent" : pictureStateStyles.borderColor,
-                  borderRadius: useDetachedLabel ? undefined : `${sectionPictureButtonsConfig.imageBorderRadiusPx}px`,
-                  borderWidth: useDetachedLabel ? 0 : `${sectionPictureButtonsConfig.borderWidthPx}px`,
+                  backgroundColor: useDetachedLabel ? "transparent" : pictureBackgroundColor,
+                  borderColor: useDetachedLabel ? "transparent" : pictureBorderColor,
+                  borderRadius: useDetachedLabel ? undefined : `${pictureBorderRadius}px`,
+                  borderWidth: useDetachedLabel ? 0 : `${pictureBorderWidth}px`,
                   borderStyle: useDetachedLabel ? 'none' : 'solid',
                   boxShadow: useDetachedLabel ? undefined : pictureStateStyles.boxShadow,
                   transform: pictureStateStyles.transform,
@@ -966,11 +1016,11 @@ export function StorformatConfigurator({
                       className="relative flex overflow-hidden border-2"
                       style={{
                         width: buttonWidth,
-                        minHeight: sectionPictureButtonsConfig.sizePx,
-                        backgroundColor: sectionPictureButtonsConfig.backgroundColor,
-                        borderColor: pictureStateStyles.borderColor,
-                        borderRadius: `${sectionPictureButtonsConfig.imageBorderRadiusPx}px`,
-                        borderWidth: `${sectionPictureButtonsConfig.borderWidthPx}px`,
+                        minHeight: pictureImagePx,
+                        backgroundColor: pictureBackgroundColor,
+                        borderColor: pictureBorderColor,
+                        borderRadius: `${pictureBorderRadius}px`,
+                        borderWidth: `${pictureBorderWidth}px`,
                         borderStyle: 'solid',
                         boxShadow: pictureStateStyles.boxShadow,
                       }}
@@ -983,18 +1033,18 @@ export function StorformatConfigurator({
                       )}
                       {thumbnailUrl ? (
                         <img
-                          src={getHiResThumbnailUrl(thumbnailUrl, sectionPictureButtonsConfig.sizePx, sectionPictureButtonsConfig.sizePx)}
+                          src={getHiResThumbnailUrl(thumbnailUrl, pictureImagePx, pictureImagePx)}
                           alt={displayName}
                           className="relative z-0 w-full object-cover"
-                          style={{ height: sectionPictureButtonsConfig.sizePx }}
+                          style={{ height: pictureImagePx }}
                         />
                       ) : (
                         <div
                           className="relative z-0 flex w-full items-center justify-center text-xs font-semibold"
                           style={{
-                            height: sectionPictureButtonsConfig.sizePx,
-                            color: sectionPictureButtonsConfig.textColor,
-                            backgroundColor: sectionPictureButtonsConfig.backgroundColor,
+                            height: pictureImagePx,
+                            color: pictureTextColor,
+                            backgroundColor: pictureBackgroundColor,
                           }}
                         >
                           {(displayName || "?").slice(0, 3).toUpperCase()}
@@ -1005,7 +1055,7 @@ export function StorformatConfigurator({
                       className="w-full px-1 text-center leading-tight"
                       style={{
                         color: sectionPictureButtonsConfig.textColor,
-                        fontSize: `${sectionPictureButtonsConfig.labelFontSizePx}px`,
+                        fontSize: `${valueSetting?.fontSizePx ?? sectionPictureButtonsConfig.labelFontSizePx}px`,
                       }}
                     >
                       {displayName}
@@ -1021,11 +1071,11 @@ export function StorformatConfigurator({
                     )}
                     {sectionPictureButtonsConfig.showImage && (thumbnailUrl ? (
                       <img
-                        src={getHiResThumbnailUrl(thumbnailUrl, sectionPictureButtonsConfig.sizePx, sectionPictureButtonsConfig.sizePx)}
+                        src={getHiResThumbnailUrl(thumbnailUrl, pictureImagePx, pictureImagePx)}
                         alt={displayName}
                         className="relative z-0 w-full object-cover"
                         style={{ 
-                          height: sectionPictureButtonsConfig.sizePx,
+                          height: pictureImagePx,
                           borderRadius: sectionPictureButtonsConfig.isTextBelow ? `${sectionPictureButtonsConfig.imageBorderRadiusPx}px ${sectionPictureButtonsConfig.imageBorderRadiusPx}px 0 0` : undefined
                         }}
                       />
@@ -1033,10 +1083,10 @@ export function StorformatConfigurator({
                       <div
                         className="relative z-0 w-full flex items-center justify-center text-xs font-semibold"
                         style={{ 
-                          height: sectionPictureButtonsConfig.sizePx,
-                          color: sectionPictureButtonsConfig.textColor,
-                          backgroundColor: sectionPictureButtonsConfig.backgroundColor,
-                          borderRadius: sectionPictureButtonsConfig.isTextBelow ? `${sectionPictureButtonsConfig.imageBorderRadiusPx}px ${sectionPictureButtonsConfig.imageBorderRadiusPx}px 0 0` : undefined
+                          height: pictureImagePx,
+                          color: pictureTextColor,
+                          backgroundColor: pictureBackgroundColor,
+                          borderRadius: sectionPictureButtonsConfig.isTextBelow ? `${pictureBorderRadius}px ${pictureBorderRadius}px 0 0` : undefined
                         }}
                       >
                         {(displayName || "?").slice(0, 3).toUpperCase()}
@@ -1047,7 +1097,7 @@ export function StorformatConfigurator({
                         className="relative z-20 w-full truncate px-1 py-1 text-center leading-tight"
                         style={{
                           color: sectionPictureButtonsConfig.textColor,
-                          fontSize: `${sectionPictureButtonsConfig.labelFontSizePx}px`,
+                          fontSize: `${valueSetting?.fontSizePx ?? sectionPictureButtonsConfig.labelFontSizePx}px`,
                         }}
                       >
                         {displayName}
@@ -1070,23 +1120,41 @@ export function StorformatConfigurator({
       >
         {values.map((value) => {
           const isSelected = selectedValue === value.id;
-          const displayName = getDisplayName(value.name, valueSettings[value.id || ""]);
+          const valueSetting = valueSettings[value.id || ""];
+          const displayName = getDisplayName(value.name, valueSetting);
+          const buttonKey = `${section.id}:${value.id || ""}`;
+          const isHovered = hoveredPictureKey === buttonKey;
+          const paddingPx = valueSetting?.paddingPx ?? sectionTextButtonsConfig.paddingPx;
+          const borderRadiusPx = valueSetting?.borderRadiusPx ?? sectionTextButtonsConfig.borderRadiusPx;
+          const primaryThumbUrl = getOptionImageUrl(valueSetting, value.thumbnail_url);
+          const renderedThumbUrl = isHovered && valueSetting?.hoverImage
+            ? valueSetting.hoverImage
+            : primaryThumbUrl;
+          const imagePx = valueSetting?.imageSizePx ?? thumbnailPx;
+          const contextualId = `product-option.${productId}.${section.id}.${value.id || ""}.${encodeURIComponent(displayName)}`;
           
           // Determine colors based on state
           const bgColor = isSelected 
             ? sectionTextButtonsConfig.selectedBackgroundColor 
-            : sectionTextButtonsConfig.backgroundColor;
+            : (valueSetting?.backgroundColor || sectionTextButtonsConfig.backgroundColor);
           const textColor = isSelected 
             ? sectionTextButtonsConfig.selectedTextColor 
-            : sectionTextButtonsConfig.textColor;
+            : (valueSetting?.textColor || sectionTextButtonsConfig.textColor);
           const borderColor = isSelected 
             ? sectionTextButtonsConfig.selectedBackgroundColor 
-            : sectionTextButtonsConfig.borderColor;
+            : (valueSetting?.borderColor || sectionTextButtonsConfig.borderColor);
           
           return (
             <button
               key={value.id}
+              data-site-design-target={contextualId}
               onClick={() => {
+                if (window.parent !== window) {
+                  window.parent.postMessage({
+                    type: "EDIT_SECTION",
+                    sectionId: contextualId,
+                  }, "*");
+                }
                 if (isOptional && isSelected) {
                   handleSelect(null);
                   return;
@@ -1101,40 +1169,42 @@ export function StorformatConfigurator({
               style={{
                 backgroundColor: bgColor,
                 color: textColor,
-                borderRadius: `${sectionTextButtonsConfig.borderRadiusPx}px`,
-                borderWidth: `${sectionTextButtonsConfig.borderWidthPx}px`,
+                borderRadius: `${borderRadiusPx}px`,
+                borderWidth: `${valueSetting?.borderWidthPx ?? sectionTextButtonsConfig.borderWidthPx}px`,
                 borderStyle: 'solid',
                 borderColor: borderColor,
-                padding: `${sectionTextButtonsConfig.paddingPx}px ${sectionTextButtonsConfig.paddingPx * 1.33}px`,
-                fontSize: `${sectionTextButtonsConfig.fontSizePx}px`,
-                minHeight: `${sectionTextButtonsConfig.minHeightPx}px`,
+                padding: `${paddingPx}px ${paddingPx * 1.33}px`,
+                fontSize: `${valueSetting?.fontSizePx ?? sectionTextButtonsConfig.fontSizePx}px`,
+                minHeight: `${valueSetting?.minHeightPx ?? sectionTextButtonsConfig.minHeightPx}px`,
               }}
               onMouseEnter={(e) => {
+                setHoveredPictureKey(buttonKey);
                 if (isSelected) return;
-                e.currentTarget.style.backgroundColor = sectionTextButtonsConfig.hoverBackgroundColor;
-                e.currentTarget.style.color = sectionTextButtonsConfig.hoverTextColor;
-                e.currentTarget.style.borderColor = sectionTextButtonsConfig.hoverBorderColor;
+                e.currentTarget.style.backgroundColor = valueSetting?.hoverBackgroundColor || sectionTextButtonsConfig.hoverBackgroundColor;
+                e.currentTarget.style.color = valueSetting?.hoverTextColor || sectionTextButtonsConfig.hoverTextColor;
+                e.currentTarget.style.borderColor = valueSetting?.hoverBorderColor || sectionTextButtonsConfig.hoverBorderColor;
               }}
               onMouseLeave={(e) => {
+                setHoveredPictureKey((prev) => (prev === buttonKey ? null : prev));
                 if (isSelected) return;
-                e.currentTarget.style.backgroundColor = sectionTextButtonsConfig.backgroundColor;
-                e.currentTarget.style.color = sectionTextButtonsConfig.textColor;
-                e.currentTarget.style.borderColor = sectionTextButtonsConfig.borderColor;
+                e.currentTarget.style.backgroundColor = valueSetting?.backgroundColor || sectionTextButtonsConfig.backgroundColor;
+                e.currentTarget.style.color = valueSetting?.textColor || sectionTextButtonsConfig.textColor;
+                e.currentTarget.style.borderColor = valueSetting?.borderColor || sectionTextButtonsConfig.borderColor;
               }}
             >
-              {valueSettings[value.id || ""]?.showThumbnail && getOptionImageUrl(valueSettings[value.id || ""], value.thumbnail_url) && (
+              {valueSetting?.showThumbnail && renderedThumbUrl && (
                 <img
                   src={getHiResThumbnailUrl(
-                    getOptionImageUrl(valueSettings[value.id || ""], value.thumbnail_url)!,
-                    thumbnailPx,
-                    thumbnailPx
+                    renderedThumbUrl,
+                    imagePx,
+                    imagePx
                   )}
                   alt={displayName}
                   className="object-cover shrink-0"
                   style={{ 
-                    width: thumbnailPx, 
-                    height: thumbnailPx,
-                    borderRadius: `${sectionTextButtonsConfig.borderRadiusPx / 2}px`
+                    width: imagePx,
+                    height: imagePx,
+                    borderRadius: `${borderRadiusPx / 2}px`
                   }}
                 />
               )}
@@ -1365,6 +1435,8 @@ export function StorformatConfigurator({
                     const isOptional = isOptionalSelectionMode(selectionModeById[section.id]);
                     const isOptionalEnabled = !isOptional || Boolean(selectedSectionValues[section.id]);
                     const sectionLabel = getSectionLabel(section.sectionType, section.title);
+                    const selectorBoxConfig = resolveSelectorBoxConfig(section.selectorStyling?.selectorBox);
+                    const selectorBoxTarget = `product-selector-box.${productId}.${section.id}.${encodeURIComponent(sectionLabel)}`;
 
                     const handleOptionalToggle = (checked: boolean) => {
                       if (!isOptional) return;
@@ -1385,12 +1457,20 @@ export function StorformatConfigurator({
                     return (
                       <div
                         key={section.id}
+                        data-site-design-target={selectorBoxTarget}
                         className={cn(
-                          "space-y-1.5 p-2 rounded",
-                          section.sectionType === "finishes" ? "bg-transparent" : "bg-muted/20",
-                          isOptionalEnabled && isOptional && "ring-1 ring-primary/20 bg-primary/5",
-                          sectionIndex > 0 && section.sectionType !== "finishes" && "border-l-2 border-primary/20 pl-3"
+                          "space-y-1.5 transition-colors",
+                          isOptionalEnabled && isOptional && "ring-1 ring-primary/20",
+                          sectionIndex > 0 && section.sectionType !== "finishes" && "border-l-2 border-primary/20"
                         )}
+                        style={{
+                          backgroundColor: selectorBoxConfig.backgroundColor,
+                          borderColor: selectorBoxConfig.borderColor,
+                          borderRadius: `${selectorBoxConfig.borderRadiusPx}px`,
+                          borderWidth: `${selectorBoxConfig.borderWidthPx}px`,
+                          borderStyle: "solid",
+                          padding: `${selectorBoxConfig.paddingPx}px`,
+                        }}
                       >
                         <div className="flex items-center gap-2">
                           {isOptional && (

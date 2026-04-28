@@ -1,9 +1,6 @@
 {
   "routes": [
     {
-      "handle": "filesystem"
-    },
-    {
       "src": "^/$",
       "dest": "/api/tenant-shell?pathname=/"
     },
@@ -22,6 +19,9 @@
     {
       "src": "^/(platform|priser|white-label|beregning|order-flow|online-designer|privacy-policy|handelsbetingelser|cookiepolitik|opret-shop)/?$",
       "dest": "/api/tenant-shell?pathname=/$1"
+    },
+    {
+      "handle": "filesystem"
     },
     {
       "src": "/(.*)",

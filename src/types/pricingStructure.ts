@@ -14,8 +14,21 @@ export type UiMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden' | 'small' 
 export interface LayoutValueSetting {
     showThumbnail?: boolean;
     customImage?: string;
+    hoverImage?: string;
+    imageSizePx?: number;
     displayName?: string;
     linkedTemplateId?: string;
+    backgroundColor?: string;
+    hoverBackgroundColor?: string;
+    borderColor?: string;
+    hoverBorderColor?: string;
+    borderRadiusPx?: number;
+    borderWidthPx?: number;
+    textColor?: string;
+    hoverTextColor?: string;
+    fontSizePx?: number;
+    paddingPx?: number;
+    minHeightPx?: number;
 }
 
 export type PictureButtonHoverEffect = 'fill' | 'outline' | 'none';
@@ -77,6 +90,14 @@ export interface PictureButtonStyling {
     hoverZoomDurationMs: number;
 }
 
+export interface SelectorBoxStyling {
+    backgroundColor: string;
+    borderColor: string;
+    borderRadiusPx: number;
+    borderWidthPx: number;
+    paddingPx: number;
+}
+
 export const DEFAULT_TEXT_BUTTON_STYLING: TextButtonStyling = {
     backgroundColor: '#FFFFFF',
     hoverBackgroundColor: '#F1F5F9',
@@ -125,9 +146,18 @@ export const DEFAULT_PICTURE_BUTTON_STYLING: PictureButtonStyling = {
     hoverZoomDurationMs: 140,
 };
 
+export const DEFAULT_SELECTOR_BOX_STYLING: SelectorBoxStyling = {
+    backgroundColor: 'transparent',
+    borderColor: 'transparent',
+    borderRadiusPx: 0,
+    borderWidthPx: 0,
+    paddingPx: 8,
+};
+
 export interface SelectorStyling {
     textButtons?: Partial<TextButtonStyling>;
     pictureButtons?: Partial<PictureButtonStyling>;
+    selectorBox?: Partial<SelectorBoxStyling>;
 }
 
 // ============ Vertical Axis Config ============

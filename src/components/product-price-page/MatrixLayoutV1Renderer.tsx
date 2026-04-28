@@ -23,19 +23,40 @@ import {
     getOptionImageUrl,
     resolvePictureButtonsConfig,
     resolvePictureButtonStateStyles,
+    resolveSelectorBoxConfig,
     resolveTextButtonsConfig,
 } from "@/lib/pricing/selectorStyling";
 
 // Types from pricing structure
+type ValueSetting = {
+    showThumbnail?: boolean;
+    customImage?: string;
+    hoverImage?: string;
+    imageSizePx?: number;
+    displayName?: string;
+    backgroundColor?: string;
+    hoverBackgroundColor?: string;
+    borderColor?: string;
+    hoverBorderColor?: string;
+    borderRadiusPx?: number;
+    borderWidthPx?: number;
+    textColor?: string;
+    hoverTextColor?: string;
+    fontSizePx?: number;
+    paddingPx?: number;
+    minHeightPx?: number;
+};
+
 interface VerticalAxisConfig {
     sectionId: string;
     sectionType: string;
     groupId: string;
     valueIds: string[];
-    valueSettings?: Record<string, { showThumbnail?: boolean; customImage?: string; displayName?: string }>;
+    valueSettings?: Record<string, ValueSetting>;
     selectorStyling?: {
         textButtons?: Record<string, unknown>;
         pictureButtons?: Record<string, unknown>;
+        selectorBox?: Record<string, unknown>;
     };
     ui_mode?: string;
     labelOverride?: string;
@@ -52,10 +73,11 @@ interface LayoutColumn {
     valueIds: string[];
     ui_mode: string;
     selection_mode?: 'required' | 'optional' | 'free';
-    valueSettings?: Record<string, { showThumbnail?: boolean; customImage?: string; displayName?: string }>;
+    valueSettings?: Record<string, ValueSetting>;
     selectorStyling?: {
         textButtons?: Record<string, unknown>;
         pictureButtons?: Record<string, unknown>;
+        selectorBox?: Record<string, unknown>;
     };
     labelOverride?: string;
     title?: string;
@@ -2027,7 +2049,15 @@ export function MatrixLayoutV1Renderer({
                     {visibleValues.map(v => {
                         const isSelected = selectedValue === v.id;
                         const isAvailable = isValueCurrentlyAvailable(sectionId, v.id);
+                        const valueSetting = valueSettings[v.id];
                         const displayName = getDisplayValueName(v.id, sectionId);
+                        const checkboxKey = `${sectionId}:${v.id}`;
+                        const isHovered = hoveredPictureKey === checkboxKey;
+                        const thumbUrl = getOptionImageUrl(valueSetting);
+                        const renderedThumbUrl = isHovered && valueSetting?.hoverImage
+                            ? valueSetting.hoverImage
+                            : thumbUrl;
+                        const imagePx = valueSetting?.imageSizePx ?? thumbnailPx;
                         return (
                             <label
                                 key={v.id}
@@ -2040,18 +2070,20 @@ export function MatrixLayoutV1Renderer({
                                     if (!isAvailable) return;
                                     handleSectionSelect(sectionId, v.id);
                                 }}
+                                onMouseEnter={() => setHoveredPictureKey(checkboxKey)}
+                                onMouseLeave={() => setHoveredPictureKey((prev) => prev === checkboxKey ? null : prev)}
                             >
                                 <Checkbox checked={isSelected} className="h-3.5 w-3.5" />
-                                {valueSettings[v.id]?.showThumbnail && getOptionImageUrl(valueSettings[v.id]) && (
+                                {valueSetting?.showThumbnail && renderedThumbUrl && (
                                     <img
                                         src={getHiResThumbnailUrl(
-                                            getOptionImageUrl(valueSettings[v.id])!,
-                                            thumbnailPx,
-                                            thumbnailPx
+                                            renderedThumbUrl,
+                                            imagePx,
+                                            imagePx
                                         )}
                                         alt={displayName}
                                         className="rounded object-cover shrink-0"
-                                        style={{ width: thumbnailPx, height: thumbnailPx }}
+                                        style={{ width: imagePx, height: imagePx }}
                                     />
                                 )}
                                 <span className="font-medium">{displayName}</span>
@@ -2073,9 +2105,14 @@ export function MatrixLayoutV1Renderer({
                         const pictureKey = `${sectionId}:${v.id}`;
                         const isHovered = hoveredPictureKey === pictureKey;
                         const isSelected = selectedValue === v.id;
-                        const thumbUrl = getOptionImageUrl(valueSettings[v.id]);
+                        const valueSetting = valueSettings[v.id];
+                        const primaryThumbUrl = getOptionImageUrl(valueSetting);
                         const displayName = getDisplayValueName(v.id, sectionId);
                         const isAvailable = isValueCurrentlyAvailable(sectionId, v.id);
+                        const pictureImagePx = valueSetting?.imageSizePx ?? sectionPictureButtonsConfig.sizePx;
+                        const thumbUrl = isHovered && valueSetting?.hoverImage
+                            ? valueSetting.hoverImage
+                            : primaryThumbUrl;
                         const pictureStateStyles = resolvePictureButtonStateStyles(sectionPictureButtonsConfig, {
                             isHovered,
                             isSelected,
@@ -2090,10 +2127,15 @@ export function MatrixLayoutV1Renderer({
                             && sectionPictureButtonsConfig.showImage
                             && sectionPictureButtonsConfig.showLabel;
 
-                        const buttonWidth = sectionPictureButtonsConfig.showImage ? sectionPictureButtonsConfig.sizePx : 'auto';
+                        const buttonWidth = sectionPictureButtonsConfig.showImage ? pictureImagePx : 'auto';
                         const buttonHeight = !useDetachedLabel && sectionPictureButtonsConfig.showImage
-                            ? sectionPictureButtonsConfig.sizePx + (sectionPictureButtonsConfig.showLabel ? 24 : 0)
+                            ? pictureImagePx + (sectionPictureButtonsConfig.showLabel ? 24 : 0)
                             : 'auto';
+                        const pictureBackgroundColor = valueSetting?.backgroundColor || sectionPictureButtonsConfig.backgroundColor;
+                        const pictureTextColor = valueSetting?.textColor || sectionPictureButtonsConfig.textColor;
+                        const pictureBorderColor = valueSetting?.borderColor || pictureStateStyles.borderColor;
+                        const pictureBorderRadius = valueSetting?.borderRadiusPx ?? sectionPictureButtonsConfig.imageBorderRadiusPx;
+                        const pictureBorderWidth = valueSetting?.borderWidthPx ?? sectionPictureButtonsConfig.borderWidthPx;
                         
                         // Build contextual editor ID for click-to-edit
                         const contextualId = `product-option.${productId}.${sectionId}.${v.id}.${encodeURIComponent(displayName)}`;
@@ -2127,10 +2169,10 @@ export function MatrixLayoutV1Renderer({
                                 style={{
                                     width: buttonWidth,
                                     minHeight: buttonHeight,
-                                    backgroundColor: useDetachedLabel ? "transparent" : sectionPictureButtonsConfig.backgroundColor,
-                                    borderColor: useDetachedLabel ? "transparent" : pictureStateStyles.borderColor,
-                                    borderRadius: useDetachedLabel ? undefined : `${sectionPictureButtonsConfig.imageBorderRadiusPx}px`,
-                                    borderWidth: useDetachedLabel ? 0 : `${sectionPictureButtonsConfig.borderWidthPx}px`,
+                                    backgroundColor: useDetachedLabel ? "transparent" : pictureBackgroundColor,
+                                    borderColor: useDetachedLabel ? "transparent" : pictureBorderColor,
+                                    borderRadius: useDetachedLabel ? undefined : `${pictureBorderRadius}px`,
+                                    borderWidth: useDetachedLabel ? 0 : `${pictureBorderWidth}px`,
                                     borderStyle: useDetachedLabel ? 'none' : 'solid',
                                     boxShadow: useDetachedLabel ? undefined : pictureStateStyles.boxShadow,
                                     transform: pictureStateStyles.transform,
@@ -2143,11 +2185,11 @@ export function MatrixLayoutV1Renderer({
                                             className="relative flex overflow-hidden border-2"
                                             style={{
                                                 width: buttonWidth,
-                                                minHeight: sectionPictureButtonsConfig.sizePx,
-                                                backgroundColor: sectionPictureButtonsConfig.backgroundColor,
-                                                borderColor: pictureStateStyles.borderColor,
-                                                borderRadius: `${sectionPictureButtonsConfig.imageBorderRadiusPx}px`,
-                                                borderWidth: `${sectionPictureButtonsConfig.borderWidthPx}px`,
+                                                minHeight: pictureImagePx,
+                                                backgroundColor: pictureBackgroundColor,
+                                                borderColor: pictureBorderColor,
+                                                borderRadius: `${pictureBorderRadius}px`,
+                                                borderWidth: `${pictureBorderWidth}px`,
                                                 borderStyle: 'solid',
                                                 boxShadow: pictureStateStyles.boxShadow,
                                             }}
@@ -2160,18 +2202,18 @@ export function MatrixLayoutV1Renderer({
                                             )}
                                             {thumbUrl ? (
                                                 <img
-                                                    src={getHiResThumbnailUrl(thumbUrl, sectionPictureButtonsConfig.sizePx, sectionPictureButtonsConfig.sizePx)}
+                                                    src={getHiResThumbnailUrl(thumbUrl, pictureImagePx, pictureImagePx)}
                                                     alt={displayName}
                                                     className="relative z-0 w-full object-cover"
-                                                    style={{ height: sectionPictureButtonsConfig.sizePx }}
+                                                    style={{ height: pictureImagePx }}
                                                 />
                                             ) : (
                                                 <div
                                                     className="relative z-0 flex w-full items-center justify-center text-xs font-semibold"
                                                     style={{
-                                                        height: sectionPictureButtonsConfig.sizePx,
-                                                        color: sectionPictureButtonsConfig.textColor,
-                                                        backgroundColor: sectionPictureButtonsConfig.backgroundColor,
+                                                        height: pictureImagePx,
+                                                        color: pictureTextColor,
+                                                        backgroundColor: pictureBackgroundColor,
                                                     }}
                                                 >
                                                     {(displayName || '?').slice(0, 3).toUpperCase()}
@@ -2182,7 +2224,7 @@ export function MatrixLayoutV1Renderer({
                                             className="w-full px-1 text-center leading-tight"
                                             style={{
                                                 color: sectionPictureButtonsConfig.textColor,
-                                                fontSize: `${sectionPictureButtonsConfig.labelFontSizePx}px`,
+                                                fontSize: `${valueSetting?.fontSizePx ?? sectionPictureButtonsConfig.labelFontSizePx}px`,
                                             }}
                                         >
                                             {displayName}
@@ -2199,11 +2241,11 @@ export function MatrixLayoutV1Renderer({
                                         {sectionPictureButtonsConfig.showImage && (
                                             thumbUrl ? (
                                                 <img
-                                                    src={getHiResThumbnailUrl(thumbUrl, sectionPictureButtonsConfig.sizePx, sectionPictureButtonsConfig.sizePx)}
+                                                    src={getHiResThumbnailUrl(thumbUrl, pictureImagePx, pictureImagePx)}
                                                     alt={displayName}
                                                     className="relative z-0 w-full object-cover"
                                                     style={{ 
-                                                        height: sectionPictureButtonsConfig.sizePx,
+                                                        height: pictureImagePx,
                                                         borderRadius: sectionPictureButtonsConfig.isTextBelow ? `${sectionPictureButtonsConfig.imageBorderRadiusPx}px ${sectionPictureButtonsConfig.imageBorderRadiusPx}px 0 0` : undefined
                                                     }}
                                                 />
@@ -2211,10 +2253,10 @@ export function MatrixLayoutV1Renderer({
                                                 <div
                                                     className="relative z-0 w-full flex items-center justify-center text-xs font-semibold"
                                                     style={{ 
-                                                        height: sectionPictureButtonsConfig.sizePx,
-                                                        color: sectionPictureButtonsConfig.textColor,
-                                                        backgroundColor: sectionPictureButtonsConfig.backgroundColor,
-                                                        borderRadius: sectionPictureButtonsConfig.isTextBelow ? `${sectionPictureButtonsConfig.imageBorderRadiusPx}px ${sectionPictureButtonsConfig.imageBorderRadiusPx}px 0 0` : undefined
+                                                        height: pictureImagePx,
+                                                        color: pictureTextColor,
+                                                        backgroundColor: pictureBackgroundColor,
+                                                        borderRadius: sectionPictureButtonsConfig.isTextBelow ? `${pictureBorderRadius}px ${pictureBorderRadius}px 0 0` : undefined
                                                     }}
                                                 >
                                                     {(displayName || '?').slice(0, 3).toUpperCase()}
@@ -2226,7 +2268,7 @@ export function MatrixLayoutV1Renderer({
                                                 className="relative z-20 w-full truncate px-1 py-1 text-center leading-tight"
                                                 style={{
                                                     color: sectionPictureButtonsConfig.textColor,
-                                                    fontSize: `${sectionPictureButtonsConfig.labelFontSizePx}px`,
+                                                    fontSize: `${valueSetting?.fontSizePx ?? sectionPictureButtonsConfig.labelFontSizePx}px`,
                                                 }}
                                             >
                                                 {displayName}
@@ -2250,18 +2292,28 @@ export function MatrixLayoutV1Renderer({
                 {visibleValues.map(v => {
                     const isSelected = selectedValue === v.id;
                     const isAvailable = isValueCurrentlyAvailable(sectionId, v.id);
+                    const valueSetting = valueSettings[v.id];
                     const displayName = getDisplayValueName(v.id, sectionId);
+                    const buttonKey = `${sectionId}:${v.id}`;
+                    const isHovered = hoveredPictureKey === buttonKey;
+                    const paddingPx = valueSetting?.paddingPx ?? sectionTextButtonsConfig.paddingPx;
+                    const borderRadiusPx = valueSetting?.borderRadiusPx ?? sectionTextButtonsConfig.borderRadiusPx;
+                    const primaryThumbUrl = getOptionImageUrl(valueSetting);
+                    const renderedThumbUrl = isHovered && valueSetting?.hoverImage
+                        ? valueSetting.hoverImage
+                        : primaryThumbUrl;
+                    const imagePx = valueSetting?.imageSizePx ?? thumbnailPx;
                     
                     // Determine colors based on state
                     const bgColor = isSelected 
                         ? sectionTextButtonsConfig.selectedBackgroundColor 
-                        : sectionTextButtonsConfig.backgroundColor;
+                        : (valueSetting?.backgroundColor || sectionTextButtonsConfig.backgroundColor);
                     const textColor = isSelected 
                         ? sectionTextButtonsConfig.selectedTextColor 
-                        : sectionTextButtonsConfig.textColor;
+                        : (valueSetting?.textColor || sectionTextButtonsConfig.textColor);
                     const borderColor = isSelected 
                         ? sectionTextButtonsConfig.selectedBackgroundColor 
-                        : sectionTextButtonsConfig.borderColor;
+                        : (valueSetting?.borderColor || sectionTextButtonsConfig.borderColor);
                     
                     // Build contextual editor ID for click-to-edit
                     const contextualId = `product-option.${productId}.${sectionId}.${v.id}.${encodeURIComponent(displayName)}`;
@@ -2289,41 +2341,43 @@ export function MatrixLayoutV1Renderer({
                             style={{
                                 backgroundColor: bgColor,
                                 color: textColor,
-                                borderRadius: `${sectionTextButtonsConfig.borderRadiusPx}px`,
-                                borderWidth: `${sectionTextButtonsConfig.borderWidthPx}px`,
+                                borderRadius: `${borderRadiusPx}px`,
+                                borderWidth: `${valueSetting?.borderWidthPx ?? sectionTextButtonsConfig.borderWidthPx}px`,
                                 borderStyle: 'solid',
                                 borderColor: borderColor,
-                                padding: `${sectionTextButtonsConfig.paddingPx}px ${sectionTextButtonsConfig.paddingPx * 1.33}px`,
-                                fontSize: `${sectionTextButtonsConfig.fontSizePx}px`,
-                                minHeight: `${sectionTextButtonsConfig.minHeightPx}px`,
+                                padding: `${paddingPx}px ${paddingPx * 1.33}px`,
+                                fontSize: `${valueSetting?.fontSizePx ?? sectionTextButtonsConfig.fontSizePx}px`,
+                                minHeight: `${valueSetting?.minHeightPx ?? sectionTextButtonsConfig.minHeightPx}px`,
                                 fontFamily: sectionTextButtonsConfig.fontFamily || 'inherit',
                             }}
                             onMouseEnter={(e) => {
+                                setHoveredPictureKey(buttonKey);
                                 if (isSelected) return;
-                                e.currentTarget.style.backgroundColor = sectionTextButtonsConfig.hoverBackgroundColor;
-                                e.currentTarget.style.color = sectionTextButtonsConfig.hoverTextColor;
-                                e.currentTarget.style.borderColor = sectionTextButtonsConfig.hoverBorderColor;
+                                e.currentTarget.style.backgroundColor = valueSetting?.hoverBackgroundColor || sectionTextButtonsConfig.hoverBackgroundColor;
+                                e.currentTarget.style.color = valueSetting?.hoverTextColor || sectionTextButtonsConfig.hoverTextColor;
+                                e.currentTarget.style.borderColor = valueSetting?.hoverBorderColor || sectionTextButtonsConfig.hoverBorderColor;
                             }}
                             onMouseLeave={(e) => {
+                                setHoveredPictureKey((prev) => prev === buttonKey ? null : prev);
                                 if (isSelected) return;
-                                e.currentTarget.style.backgroundColor = sectionTextButtonsConfig.backgroundColor;
-                                e.currentTarget.style.color = sectionTextButtonsConfig.textColor;
-                                e.currentTarget.style.borderColor = sectionTextButtonsConfig.borderColor;
+                                e.currentTarget.style.backgroundColor = valueSetting?.backgroundColor || sectionTextButtonsConfig.backgroundColor;
+                                e.currentTarget.style.color = valueSetting?.textColor || sectionTextButtonsConfig.textColor;
+                                e.currentTarget.style.borderColor = valueSetting?.borderColor || sectionTextButtonsConfig.borderColor;
                             }}
                         >
-                            {valueSettings[v.id]?.showThumbnail && getOptionImageUrl(valueSettings[v.id]) && (
+                            {valueSetting?.showThumbnail && renderedThumbUrl && (
                                 <img
                                     src={getHiResThumbnailUrl(
-                                        getOptionImageUrl(valueSettings[v.id])!,
-                                        thumbnailPx,
-                                        thumbnailPx
+                                        renderedThumbUrl,
+                                        imagePx,
+                                        imagePx
                                     )}
                                     alt={displayName}
                                     className="object-cover shrink-0"
                                     style={{ 
-                                        width: thumbnailPx, 
-                                        height: thumbnailPx,
-                                        borderRadius: `${sectionTextButtonsConfig.borderRadiusPx / 2}px`
+                                        width: imagePx,
+                                        height: imagePx,
+                                        borderRadius: `${borderRadiusPx / 2}px`
                                     }}
                                 />
                             )}
@@ -2405,6 +2459,8 @@ export function MatrixLayoutV1Renderer({
                                     const uiMode = col.ui_mode || 'buttons';
                                     const isOptional = isOptionalSectionId(col.id);
                                     const isOptionalEnabled = isOptional && !!selectedSectionValues[col.id];
+                                    const selectorBoxConfig = resolveSelectorBoxConfig(col.selectorStyling?.selectorBox as any);
+                                    const selectorBoxTarget = `product-selector-box.${productId}.${col.id}.${encodeURIComponent(sectionLabel)}`;
 
                                     const handleOptionalToggle = (checked: boolean) => {
                                         if (!isOptional) return;
@@ -2423,12 +2479,20 @@ export function MatrixLayoutV1Renderer({
                                     return (
                                         <div
                                             key={col.id}
+                                            data-site-design-target={selectorBoxTarget}
                                             className={cn(
-                                                "space-y-1.5 p-2 rounded",
-                                                col.sectionType === "finishes" ? "bg-transparent" : "bg-muted/20",
-                                                isOptionalEnabled && "ring-1 ring-primary/20 bg-primary/5",
-                                                colIndex > 0 && col.sectionType !== "finishes" && "border-l-2 border-primary/20 pl-3"
+                                                "space-y-1.5 transition-colors",
+                                                isOptionalEnabled && "ring-1 ring-primary/20",
+                                                colIndex > 0 && col.sectionType !== "finishes" && "border-l-2 border-primary/20"
                                             )}
+                                            style={{
+                                                backgroundColor: selectorBoxConfig.backgroundColor,
+                                                borderColor: selectorBoxConfig.borderColor,
+                                                borderRadius: `${selectorBoxConfig.borderRadiusPx}px`,
+                                                borderWidth: `${selectorBoxConfig.borderWidthPx}px`,
+                                                borderStyle: 'solid',
+                                                padding: `${selectorBoxConfig.paddingPx}px`,
+                                            }}
                                         >
                                             <div className="flex items-center gap-2">
                                                 {isOptional && (

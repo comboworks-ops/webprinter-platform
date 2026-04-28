@@ -47,13 +47,14 @@ export const PreviewInteractionManager = () => {
 
         const handleMouseOver = (e: MouseEvent) => {
             const target = e.target as HTMLElement;
-            // Check both data-branding-id and data-site-design-target
-            const brandingElement = target.closest('[data-branding-id], [data-site-design-target]');
+            // Prefer explicit Site Design hotspots over legacy branding ids.
+            const siteDesignElement = target.closest('[data-site-design-target]');
+            const brandingElement = siteDesignElement || target.closest('[data-branding-id]');
 
             if (brandingElement) {
                 const rect = brandingElement.getBoundingClientRect();
-                const id = brandingElement.getAttribute('data-branding-id') 
-                    || brandingElement.getAttribute('data-site-design-target') 
+                const id = brandingElement.getAttribute('data-site-design-target')
+                    || brandingElement.getAttribute('data-branding-id')
                     || '';
 
                 setHighlight({
@@ -72,12 +73,13 @@ export const PreviewInteractionManager = () => {
 
         const handleClick = (e: MouseEvent) => {
             const target = e.target as HTMLElement;
-            // Check both data-branding-id and data-site-design-target
-            const brandingElement = target.closest('[data-branding-id], [data-site-design-target]');
+            // Prefer explicit Site Design hotspots over legacy branding ids.
+            const siteDesignElement = target.closest('[data-site-design-target]');
+            const brandingElement = siteDesignElement || target.closest('[data-branding-id]');
 
             if (brandingElement) {
-                const id = brandingElement.getAttribute('data-branding-id') 
-                    || brandingElement.getAttribute('data-site-design-target');
+                const id = brandingElement.getAttribute('data-site-design-target')
+                    || brandingElement.getAttribute('data-branding-id');
                 console.log("🖱️ Preview Clicked:", id);
 
                 // Send message to parent (Admin Editor)

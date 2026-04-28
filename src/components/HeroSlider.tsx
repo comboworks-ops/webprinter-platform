@@ -11,6 +11,8 @@ import {
   type HeroVideo,
   type HeroButton,
   type HeroTextAnimation,
+  type HeroSlideTransition,
+  type HeroParallaxStyle,
   DEFAULT_HERO
 } from "@/hooks/useBrandingDraft";
 
@@ -63,6 +65,8 @@ const DEFAULT_SLIDES = [
   },
 ];
 
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
 // Helper to get button link
 function getButtonLink(button: BannerButton): string {
   switch (button.linkType) {
@@ -83,13 +87,46 @@ function getButtonLink(button: BannerButton): string {
 
 // Helper to convert hex color to rgba
 function hexToRgba(hex: string, opacity: number): string {
-  if (!hex || !hex.startsWith('#')) return `rgba(0, 0, 0, ${opacity})`;
+  if (!hex || !hex.startsWith('#')) return hex;
 
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
 
   return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+}
+
+function getColorLuminance(color?: string | null): number | null {
+  const normalized = String(color || "").trim();
+  const shortMatch = normalized.match(/^#([0-9a-f]{3})$/i);
+  const longMatch = normalized.match(/^#([0-9a-f]{6})$/i);
+  const rgbMatch = normalized.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
+  const channels = shortMatch || longMatch
+    ? [0, 2, 4].map((index) => {
+        const hex = shortMatch
+          ? shortMatch[1].split("").map((part) => `${part}${part}`).join("")
+          : longMatch![1];
+        return parseInt(hex.slice(index, index + 2), 16);
+      })
+    : rgbMatch
+      ? [Number(rgbMatch[1]), Number(rgbMatch[2]), Number(rgbMatch[3])]
+      : null;
+
+  if (!channels) return null;
+  const linear = channels.map((channel) => {
+    const value = Math.max(0, Math.min(255, channel)) / 255;
+    return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+}
+
+function ensureReadableTextColor(background: string, preferred = "#FFFFFF"): string {
+  const bg = getColorLuminance(background);
+  const text = getColorLuminance(preferred);
+  if (bg === null || text === null) return preferred;
+  const contrast = (Math.max(bg, text) + 0.05) / (Math.min(bg, text) + 0.05);
+  if (contrast >= 4.5) return preferred;
+  return bg > 0.48 ? "#0F172A" : "#FFFFFF";
 }
 
 // Helper to darken a hex color by a percentage
@@ -116,16 +153,30 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
     : shopSettings.data?.branding;
   const [currentSlide, setCurrentSlide] = useState(0);
   const [scrollY, setScrollY] = useState(0);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setPrefersReducedMotion(media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, []);
 
   // Check if banner should be shown (from forside settings)
   const showBanner = branding?.forside?.showBanner ?? true;
 
   // Helper to get text animation classes
   const getTextAnimationClass = (animation: HeroTextAnimation | string, isActive: boolean) => {
-    const baseClasses = "transition-all duration-700";
+    if (prefersReducedMotion) {
+      return isActive ? "opacity-100" : "opacity-0";
+    }
+
+    const baseClasses = "transition-all duration-700 ease-out";
 
     if (animation === 'none') {
       return ""; // No transition classes
@@ -146,6 +197,14 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
         return `${baseClasses} opacity-0 scale-90`;
       case 'blur':
         return `${baseClasses} opacity-0 blur-sm`;
+      case 'reveal-up':
+        return `${baseClasses} opacity-0 translate-y-10 scale-[0.98]`;
+      case 'soft-mask':
+        return `${baseClasses} opacity-0 translate-y-4 blur-[1px]`;
+      case 'stagger-rise':
+        return `${baseClasses} opacity-0 translate-y-7 scale-[0.99]`;
+      case 'cinematic':
+        return `${baseClasses} opacity-0 scale-95 blur-[2px]`;
       case 'slide-up':
       default:
         return `${baseClasses} opacity-0 translate-y-8`;
@@ -164,6 +223,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
 
   // Get extended overlay settings
   const extendedOverlay = (hero.overlay || {}) as ExtendedOverlay;
+  const primaryHeroButton = (extendedOverlay.buttons || []).find((button) => button.variant === 'primary') || (extendedOverlay.buttons || [])[0];
 
   // Important: We only use defaults if the configuration is missing (undefined).
   // An empty array [] is treated as an intentional empty state.
@@ -183,20 +243,20 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
 
   // Parallax scroll handler
   useEffect(() => {
-    if (!hero.parallax && !hero.videoSettings?.parallaxEnabled) return;
+    if (prefersReducedMotion || (!hero.parallax && !hero.videoSettings?.parallaxEnabled)) return;
 
     const handleScroll = () => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
         const scrollProgress = -rect.top / (rect.height + window.innerHeight);
-        // Smooth parallax: move image up by 30% of scroll progress
-        setScrollY(scrollProgress * 0.3 * rect.height);
+        const intensity = clamp((hero.parallaxIntensity ?? 30) / 100, 0.1, 0.6);
+        setScrollY(scrollProgress * intensity * rect.height);
       }
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [hero.parallax, hero.videoSettings?.parallaxEnabled]);
+  }, [hero.parallax, hero.videoSettings?.parallaxEnabled, hero.parallaxIntensity, prefersReducedMotion]);
 
   // Slideshow autoplay
   useEffect(() => {
@@ -229,19 +289,64 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
   const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % totalSlides);
   const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + totalSlides) % totalSlides);
 
-  // Transition classes
   const getTransitionClass = (index: number) => {
     const isActive = index === currentSlide;
-    // Force fade transition if parallax is enabled to prevent conflicts
-    const isParallaxActive = hero.parallax || (isVideoMode && hero.videoSettings?.parallaxEnabled);
-    const transition = isParallaxActive ? 'fade' : (hero.slideshow?.transition || 'fade');
+    return isActive ? 'z-10 pointer-events-auto' : 'z-0 pointer-events-none';
+  };
 
-    if (transition === 'fade') {
-      return `transition-opacity duration-700 ${isActive ? 'opacity-100' : 'opacity-0'}`;
-    } else {
-      // Slide transition
-      return `transition-transform duration-700 ${isActive ? 'translate-x-0' : index < currentSlide ? '-translate-x-full' : 'translate-x-full'
-        }`;
+  const getSlideTransitionStyle = (index: number): React.CSSProperties => {
+    const isActive = index === currentSlide;
+    const direction = index < currentSlide ? -1 : 1;
+    const transition = (hero.slideshow?.transition || 'fade') as HeroSlideTransition;
+
+    if (prefersReducedMotion) {
+      return {
+        opacity: isActive ? 1 : 0,
+        transition: 'opacity 120ms ease-out',
+      };
+    }
+
+    const baseTransition = 'opacity 900ms cubic-bezier(0.16, 1, 0.3, 1), transform 950ms cubic-bezier(0.16, 1, 0.3, 1), clip-path 950ms cubic-bezier(0.16, 1, 0.3, 1), filter 700ms ease-out';
+    const common: React.CSSProperties = {
+      opacity: isActive ? 1 : 0,
+      transition: baseTransition,
+      willChange: 'opacity, transform, clip-path, filter',
+    };
+
+    switch (transition) {
+      case 'slide':
+        return {
+          ...common,
+          transform: isActive ? 'translate3d(0,0,0)' : `translate3d(${direction * 100}%,0,0)`,
+        };
+      case 'zoom-fade':
+        return {
+          ...common,
+          transform: isActive ? 'scale(1)' : 'scale(1.055)',
+        };
+      case 'cross-zoom':
+        return {
+          ...common,
+          transform: isActive ? 'scale(1)' : `scale(${direction < 0 ? 0.985 : 1.045})`,
+          filter: isActive ? 'blur(0px)' : 'blur(1.5px)',
+        };
+      case 'soft-wipe':
+        return {
+          ...common,
+          clipPath: isActive
+            ? 'inset(0 0 0 0)'
+            : direction < 0
+              ? 'inset(0 0 0 100%)'
+              : 'inset(0 100% 0 0)',
+        };
+      case 'ken-burns':
+        return {
+          ...common,
+          transform: isActive ? 'scale(1.035)' : 'scale(1)',
+        };
+      case 'fade':
+      default:
+        return common;
     }
   };
 
@@ -280,19 +385,47 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
 
   // Parallax style for images
   const getParallaxStyle = () => {
-    if (!hero.parallax) return {};
+    if (!hero.parallax || prefersReducedMotion) return {};
+    const style = (hero.parallaxStyle || 'classic') as HeroParallaxStyle;
+    const scaleByStyle: Record<HeroParallaxStyle, number> = {
+      'classic': 1.18,
+      'soft-depth': 1.12,
+      'slow-zoom': 1.08 + Math.min(Math.abs(scrollY) / 6000, 0.035),
+      'fixed-focus': 1.06,
+    };
+    const movementByStyle: Record<HeroParallaxStyle, number> = {
+      'classic': 1,
+      'soft-depth': 0.62,
+      'slow-zoom': 0.36,
+      'fixed-focus': 0.18,
+    };
     return {
-      transform: `translateY(${scrollY}px) scale(1.2)`, // Scale to prevent gaps
+      transform: `translate3d(0, ${scrollY * movementByStyle[style]}px, 0) scale(${scaleByStyle[style]})`,
       willChange: 'transform',
+      transition: 'transform 120ms ease-out',
     };
   };
 
   // Video parallax style
   const getVideoParallaxStyle = () => {
-    if (!hero.videoSettings?.parallaxEnabled) return {};
+    if (!hero.videoSettings?.parallaxEnabled || prefersReducedMotion) return {};
+    const style = (hero.parallaxStyle || 'classic') as HeroParallaxStyle;
+    const scaleByStyle: Record<HeroParallaxStyle, number> = {
+      'classic': 1.16,
+      'soft-depth': 1.1,
+      'slow-zoom': 1.06 + Math.min(Math.abs(scrollY) / 7000, 0.03),
+      'fixed-focus': 1.04,
+    };
+    const movementByStyle: Record<HeroParallaxStyle, number> = {
+      'classic': 0.9,
+      'soft-depth': 0.55,
+      'slow-zoom': 0.28,
+      'fixed-focus': 0.14,
+    };
     return {
-      transform: `translateY(${scrollY}px) scale(1.2)`,
+      transform: `translate3d(0, ${scrollY * movementByStyle[style]}px, 0) scale(${scaleByStyle[style]})`,
       willChange: 'transform',
+      transition: 'transform 120ms ease-out',
     };
   };
 
@@ -300,17 +433,20 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
   const renderButton = (btn: BannerButton, isDefault = false, defaultCta?: string, defaultLink?: string) => {
     const bgColor = btn.bgColor || '#0EA5E9';
     const bgHoverColor = btn.bgHoverColor || (btn.bgColor ? darkenColor(btn.bgColor, 15) : '#0284C7');
+    const readableTextColor = btn.bgColor
+      ? ensureReadableTextColor(bgColor, btn.textColor || '#FFFFFF')
+      : (btn.textColor || '#FFFFFF');
+    const readableHoverTextColor = btn.bgColor
+      ? ensureReadableTextColor(bgHoverColor, readableTextColor)
+      : readableTextColor;
 
     const buttonStyle: React.CSSProperties = {
-      '--btn-bg': !isDefault && btn.bgColor ? hexToRgba(btn.bgColor, btn.bgOpacity ?? 1) : undefined,
-      '--btn-hover-bg': !isDefault ? bgHoverColor : undefined,
+      '--btn-bg': btn.bgColor ? hexToRgba(btn.bgColor, btn.bgOpacity ?? 1) : undefined,
+      '--btn-hover-bg': bgHoverColor,
+      color: readableTextColor,
     } as React.CSSProperties;
 
-    if (!isDefault && btn.textColor) {
-      buttonStyle.color = btn.textColor;
-    }
-
-    if (!isDefault && btn.bgColor) {
+    if (btn.bgColor) {
       buttonStyle.backgroundColor = hexToRgba(btn.bgColor, btn.bgOpacity ?? 1);
       buttonStyle.borderColor = btn.bgColor;
     }
@@ -323,14 +459,16 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
     }
 
     const handleMouseEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
-      if (!isDefault && btn.bgColor) {
+      if (btn.bgColor) {
         e.currentTarget.style.backgroundColor = bgHoverColor;
+        e.currentTarget.style.color = readableHoverTextColor;
       }
     };
 
     const handleMouseLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
-      if (!isDefault && btn.bgColor) {
+      if (btn.bgColor) {
         e.currentTarget.style.backgroundColor = hexToRgba(btn.bgColor, btn.bgOpacity ?? 1);
+        e.currentTarget.style.color = readableTextColor;
       }
     };
 
@@ -412,6 +550,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
         <div
           key={`default-${index}`}
           className={`absolute inset-0 ${getTransitionClass(index)}`}
+          style={getSlideTransitionStyle(index)}
         >
           <div
             data-branding-id="forside.hero.overlay"
@@ -498,6 +637,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
         <div
           key={image.id}
           className={`absolute inset-0 ${getTransitionClass(index)}`}
+          style={getSlideTransitionStyle(index)}
         >
           <div
             data-branding-id="forside.hero.overlay"
@@ -565,17 +705,27 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                       style={{ transitionDelay: index === currentSlide ? '600ms' : '0ms' }}
                     >
                       {/* Render buttons array if it exists (even if empty, don't fallback) */}
-                      {image.buttons !== undefined ? (
-                        image.buttons.map(btn => renderButton(btn))
-                      ) : image.ctaText ? (
-                        /* Legacy fallback only if buttons array is undefined */
-                        renderButton(
-                          { id: 'default', label: image.ctaText, variant: 'primary', linkType: 'INTERNAL_PAGE', target: {} } as any,
-                          true,
-                          image.ctaText,
-                          image.ctaLink
-                        )
-                      ) : null}
+	                      {image.buttons !== undefined ? (
+	                        image.buttons.map(btn => renderButton(btn))
+	                      ) : image.ctaText ? (
+	                        /* Legacy fallback only if buttons array is undefined */
+	                        renderButton(
+	                          {
+	                            id: 'default',
+	                            label: image.ctaText,
+	                            variant: 'primary',
+	                            linkType: 'INTERNAL_PAGE',
+	                            target: {},
+	                            textColor: primaryHeroButton?.textColor,
+	                            bgColor: primaryHeroButton?.bgColor,
+	                            bgHoverColor: primaryHeroButton?.bgHoverColor,
+	                            bgOpacity: primaryHeroButton?.bgOpacity,
+	                          } as any,
+	                          true,
+	                          image.ctaText,
+	                          image.ctaLink
+	                        )
+	                      ) : null}
                     </div>
                   )}
                 </div>
@@ -590,6 +740,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
         <div
           key={video.id}
           className={`absolute inset-0 ${getTransitionClass(index)}`}
+          style={getSlideTransitionStyle(index)}
         >
           <div
             className="absolute inset-0 z-10"

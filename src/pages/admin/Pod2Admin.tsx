@@ -31,6 +31,7 @@ import {
 } from "@/lib/pod2/hooks";
 import { POD_DEFAULT_QUANTITIES } from "@/lib/pod2/types";
 import type { PodExplorerRequest } from "@/lib/pod2/types";
+import { toDanish } from "@/lib/pod2/danishTerms";
 import { Pod2Katalog } from "@/pages/admin/Pod2Katalog";
 
 // Default presets for Print.com API exploration
@@ -643,6 +644,10 @@ function BrowseTab() {
     const PRESET_STORAGE_KEY = "pod2_import_presets_v1";
     const DEFAULT_MAX_VARIANTS = 24;
     const DEFAULT_MAX_REQUESTS = 120;
+    const PRICE_MATRIX_INSERT_CHUNK_SIZE = 500;
+    const PRICE_BATCH_REQUEST_CHUNK_SIZE = 80;
+    const INDIVIDUAL_PRICE_FALLBACK_LIMIT = 24;
+    const MIN_PROBE_QUANTITY = 2;
     const createDefaultMatrixRows = (): MatrixRow[] => ([
         { id: "row-1", title: "Række 1", groupKeys: [] },
         { id: "row-2", title: "Række 2", groupKeys: [] },
@@ -858,8 +863,9 @@ function BrowseTab() {
             const copyValues = copiesProperty.options
                 .map((option: any) => normalizeOptionValue(option?.slug))
                 .filter((value: any) => typeof value === "number" && Number.isFinite(value));
-            if (copyValues.length > 0) {
-                quantities = Array.from(new Set(copyValues)).sort((a, b) => a - b);
+            const usableCopyValues = filterUsablePrintQuantities(copyValues);
+            if (usableCopyValues.length > 0) {
+                quantities = usableCopyValues;
             }
         }
 
@@ -881,6 +887,11 @@ function BrowseTab() {
             .map((value) => Number(value))
             .filter((value) => Number.isFinite(value) && value > 0);
         return Array.from(new Set(values)).sort((a, b) => a - b);
+    };
+
+    const filterUsablePrintQuantities = (values: number[]) => {
+        const filtered = values.filter((value) => Number.isFinite(value) && value >= MIN_PROBE_QUANTITY);
+        return Array.from(new Set(filtered)).sort((a, b) => a - b);
     };
 
     const formatQuantities = (values: number[]) => values.join(", ");
@@ -1077,6 +1088,18 @@ function BrowseTab() {
         return null;
     };
 
+    const extractPrintComError = (payload: any) => {
+        const data = payload?.data ?? payload;
+        const message = data?.errorMessage || data?.message || data?.error;
+        if (typeof message === "string" && message.trim()) {
+            return message.replace(/^\[400\]\s*/, "").trim();
+        }
+        if (payload?.error?.message) {
+            return String(payload.error.message);
+        }
+        return null;
+    };
+
     const isLargeSizeSlug = (slug: string) => {
         const value = slug.toLowerCase();
         if (value.startsWith("a2") || value.startsWith("a3") || value.startsWith("a4")) return true;
@@ -1098,9 +1121,9 @@ function BrowseTab() {
     };
 
     const resolveProbeQuantity = () => {
-        const quantities = parseQuantities(wizardQuantities);
+        const quantities = filterUsablePrintQuantities(parseQuantities(wizardQuantities));
         if (quantities.length > 0) return quantities[0];
-        return POD_DEFAULT_QUANTITIES[0] || 1;
+        return filterUsablePrintQuantities(POD_DEFAULT_QUANTITIES)[0] || POD_DEFAULT_QUANTITIES[0] || 1;
     };
 
     const resolveBundleOption = (properties: any[], quantity: number) => {
@@ -1426,6 +1449,7 @@ function BrowseTab() {
         setWizardProbeLoading(true);
         try {
             let selected: { printingmethod?: string; delivery?: string } | null = null;
+            let lastProbeError: string | null = null;
             for (const candidate of candidates) {
                 const requestOptions = { ...baseOptions };
                 if (candidate.printingmethod) {
@@ -1447,19 +1471,26 @@ function BrowseTab() {
                         },
                     });
 
+                    const responseError = extractPrintComError(priceResponse);
+                    if (responseError) {
+                        lastProbeError = responseError;
+                    }
+
                     const prices = priceResponse?.data?.prices;
                     const cost = typeof prices?.productPrice === "number" ? prices.productPrice : null;
                     if (typeof cost === "number") {
                         selected = candidate;
                         break;
                     }
-                } catch (e) {
-                    // Try next candidate
+                } catch (e: any) {
+                    lastProbeError = e?.message || lastProbeError;
                 }
             }
 
             if (!selected) {
-                toast.error("Ingen gyldig kombination fundet. Prøv at justere valg.");
+                toast.error(lastProbeError
+                    ? `Ingen gyldig kombination fundet: ${lastProbeError}`
+                    : "Ingen gyldig kombination fundet. Prøv at justere valg.");
                 return;
             }
 
@@ -1566,7 +1597,7 @@ function BrowseTab() {
         setWizardLoading(true);
         setWizardProduct(product);
         setWizardDetails(null);
-        setWizardTitle(product?.titleSingle || product?.title || product?.name || product?.titlePlural || sku);
+        setWizardTitle(toDanish(product?.titleSingle || product?.title || product?.name || product?.titlePlural || sku));
         setWizardDescription(product?.description || "");
         setWizardQuantities(POD_DEFAULT_QUANTITIES.join(", "));
         setWizardDeliveryPromise("0");
@@ -1605,12 +1636,13 @@ function BrowseTab() {
                 if (!property?.slug || property?.locked) continue;
                 if (!Array.isArray(property?.options) || property.options.length === 0) continue;
                 if (property.slug === "copies" || property.slug === "bundle") continue;
-                defaultGroups[property.slug] = property.title || property.slug;
+                defaultGroups[property.slug] = toDanish(property.title || property.slug);
                 const optionSlug = pickOptionSlug(property);
                 if (optionSlug !== undefined) {
                     const value = String(optionSlug);
                     defaults[property.slug] = [value];
-                    defaultLabels[property.slug] = { [value]: String(property.options.find((option: any) => String(option?.slug) === value)?.name || value) };
+                    const rawOptionName = String(property.options.find((option: any) => String(option?.slug) === value)?.name || value);
+                    defaultLabels[property.slug] = { [value]: toDanish(rawOptionName) };
                 }
             }
             setWizardSelections(defaults);
@@ -1622,7 +1654,7 @@ function BrowseTab() {
             const detailTitle = details?.titleSingle || details?.title || details?.name || details?.titlePlural;
             const detailDescription = details?.description || "";
             if (detailTitle) {
-                setWizardTitle(detailTitle);
+                setWizardTitle(toDanish(detailTitle));
             }
             if (detailDescription) {
                 setWizardDescription(detailDescription);
@@ -1642,7 +1674,7 @@ function BrowseTab() {
                 ...prev,
                 [propertySlug]: {
                     ...propertyLabels,
-                    [value]: fallbackLabel,
+                    [value]: toDanish(fallbackLabel),
                 },
             };
         });
@@ -2162,6 +2194,21 @@ function BrowseTab() {
         });
 
         try {
+            const supplierProductData = {
+                list: wizardProduct,
+                details: wizardDetails,
+                price_template: variantEntries[0]?.options || {},
+                selection_map: selectionMap,
+                matrix_mapping: matrixMapping,
+                pricing_type: wizardPricingType,
+                delivery_promise: deliveryPromise,
+                quantities,
+                markup: { mode: wizardMarkupMode, value: safeMarkupValue },
+                region,
+                currency,
+                batch_pricing: wizardUseBatch,
+            };
+
             const { data: catalogInsert, error: catalogError } = await supabase
                 .from("pod2_catalog_products" as any)
                 .insert({
@@ -2169,21 +2216,8 @@ function BrowseTab() {
                     public_description: { da: description, en: description },
                     public_images: images,
                     supplier_product_ref: sku,
-                    status: wizardAutoPublish ? "published" : "draft",
-                    supplier_product_data: {
-                        list: wizardProduct,
-                        details: wizardDetails,
-                        price_template: variantEntries[0]?.options || {},
-                        selection_map: selectionMap,
-                        matrix_mapping: matrixMapping,
-                        pricing_type: wizardPricingType,
-                        delivery_promise: deliveryPromise,
-                        quantities,
-                        markup: { mode: wizardMarkupMode, value: safeMarkupValue },
-                        region,
-                        currency,
-                        batch_pricing: wizardUseBatch,
-                    },
+                    status: "draft",
+                    supplier_product_data: supplierProductData,
                 })
                 .select("id")
                 .single();
@@ -2267,29 +2301,34 @@ function BrowseTab() {
             );
 
             let usedBatch = false;
+            let batchFailureMessage: string | null = null;
             if (wizardUseBatch && priceRequests.length > 0) {
                 try {
-                    const batchResponse = await execute({
-                        method: "POST",
-                        path: "/products/batch/prices",
-                        query: {},
-                        requestBody: {
-                            requests: priceRequests.map((request) => ({
-                                sku,
-                                options: request.options,
-                                region,
-                                currency,
-                                delivery_promise: deliveryPromise,
-                            })),
-                        },
-                        baseUrlOverride: "https://platform.print.com",
-                    });
+                    for (let index = 0; index < priceRequests.length; index += PRICE_BATCH_REQUEST_CHUNK_SIZE) {
+                        const requestChunk = priceRequests.slice(index, index + PRICE_BATCH_REQUEST_CHUNK_SIZE);
+                        const batchResponse = await execute({
+                            method: "POST",
+                            path: "/products/batch/prices",
+                            query: {},
+                            requestBody: {
+                                requests: requestChunk.map((request) => ({
+                                    sku,
+                                    options: request.options,
+                                    region,
+                                    currency,
+                                    delivery_promise: deliveryPromise,
+                                })),
+                            },
+                            baseUrlOverride: "https://platform.print.com",
+                        });
 
-                    const responses = batchResponse?.data?.responses;
-                    if (Array.isArray(responses) && responses.length === priceRequests.length) {
-                        usedBatch = true;
-                        responses.forEach((item: any, index: number) => {
-                            const request = priceRequests[index];
+                        const responses = batchResponse?.data?.responses;
+                        if (!Array.isArray(responses) || responses.length !== requestChunk.length) {
+                            throw new Error("Batch-priser returnerede ikke et komplet svar.");
+                        }
+
+                        responses.forEach((item: any, responseIndex: number) => {
+                            const request = requestChunk[responseIndex];
                             const variant = variantEntries[request.variantIndex];
                             const matrix = matrices.get(variant.signature);
                             if (!matrix) return;
@@ -2297,9 +2336,17 @@ function BrowseTab() {
                             matrix.baseCosts[request.quantityIndex] = typeof cost === "number" ? cost : null;
                         });
                     }
-                } catch (e) {
+                    usedBatch = true;
+                } catch (e: any) {
+                    batchFailureMessage = extractPrintComError(e) || e?.message || "Batch-prisopslag fejlede.";
                     usedBatch = false;
                 }
+            }
+
+            if (!usedBatch && wizardUseBatch && priceRequests.length > INDIVIDUAL_PRICE_FALLBACK_LIMIT) {
+                throw new Error(
+                    `${batchFailureMessage || "Batch-prisopslag fejlede."} Importen blev stoppet, så vi ikke sender ${priceRequests.length} enkeltstående prisopslag gennem Edge Function. Prøv færre varianter/mængder eller kør batch igen.`,
+                );
             }
 
             if (!usedBatch) {
@@ -2339,7 +2386,7 @@ function BrowseTab() {
                 });
             }
 
-            const matrixPayload = variantEntries.map((variant) => {
+            const allMatrixRows = variantEntries.map((variant) => {
                 const matrix = matrices.get(variant.signature);
                 const baseCosts = matrix?.baseCosts || Array(quantities.length).fill(null);
                 const recommended = matrix?.recommended || Array(quantities.length).fill(null);
@@ -2354,14 +2401,85 @@ function BrowseTab() {
                     needs_quote: needsQuote,
                 };
             });
+            const hasFinitePrice = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value > 0;
+            const matrixPayload = allMatrixRows.filter((row) =>
+                row.base_costs.some(hasFinitePrice) || row.recommended_retail.some(hasFinitePrice),
+            );
+            const skippedMatrixRows = allMatrixRows.length - matrixPayload.length;
+            const pricedCells = matrixPayload.reduce((sum, row) => (
+                sum + row.recommended_retail.filter(hasFinitePrice).length
+            ), 0);
+            const missingPriceCells = matrixPayload.reduce((sum, row) => (
+                sum + row.recommended_retail.filter((price) => !hasFinitePrice(price)).length
+            ), 0);
 
-            if (matrixPayload.length > 0) {
-                await supabase
-                    .from("pod2_catalog_price_matrix" as any)
-                    .insert(matrixPayload);
+            if (matrixPayload.length === 0) {
+                throw new Error("Print.com returnerede ingen gyldige priser for de valgte kombinationer.");
             }
 
-            toast.success("Produkt importeret med priser");
+            if (matrixPayload.length > 0) {
+                const hasAnyPrice = matrixPayload.some((row) => {
+                    const prices = Array.isArray(row.recommended_retail) && row.recommended_retail.length > 0
+                        ? row.recommended_retail
+                        : row.base_costs;
+                    return prices.some(hasFinitePrice);
+                });
+
+                if (!hasAnyPrice) {
+                    throw new Error("Print.com returnerede ingen gyldige priser for de valgte kombinationer.");
+                }
+
+                for (let index = 0; index < matrixPayload.length; index += PRICE_MATRIX_INSERT_CHUNK_SIZE) {
+                    const chunk = matrixPayload.slice(index, index + PRICE_MATRIX_INSERT_CHUNK_SIZE);
+                    const { error: matrixError } = await supabase
+                        .from("pod2_catalog_price_matrix" as any)
+                        .insert(chunk);
+
+                    if (matrixError) {
+                        throw new Error(`Kunne ikke gemme prisrækker: ${matrixError.message}`);
+                    }
+                }
+            }
+
+            const pricingDiagnostics = {
+                requestedPriceCells: priceRequests.length,
+                savedVariantRows: matrixPayload.length,
+                skippedVariantRows: skippedMatrixRows,
+                pricedCells,
+                missingPriceCells,
+                usedBatch,
+                batchChunkSize: usedBatch ? PRICE_BATCH_REQUEST_CHUNK_SIZE : null,
+                batchFailureMessage,
+            };
+
+            await supabase
+                .from("pod2_catalog_products" as any)
+                .update({
+                    supplier_product_data: {
+                        ...supplierProductData,
+                        pricing_diagnostics: pricingDiagnostics,
+                    },
+                })
+                .eq("id", catalogProductId);
+
+            const hasIncompletePrices = skippedMatrixRows > 0 || missingPriceCells > 0;
+
+            if (wizardAutoPublish && hasIncompletePrices) {
+                toast.warning(
+                    `Produktet blev gemt som kladde: ${pricedCells}/${priceRequests.length} prisfelter fik pris, og ${skippedMatrixRows} variant-rækker blev sprunget over.`,
+                );
+            } else if (wizardAutoPublish) {
+                const { error: publishError } = await supabase
+                    .from("pod2_catalog_products" as any)
+                    .update({ status: "published" })
+                    .eq("id", catalogProductId);
+
+                if (publishError) {
+                    throw new Error(`Priser blev gemt, men produktet kunne ikke publiceres: ${publishError.message}`);
+                }
+            }
+
+            toast.success(hasIncompletePrices ? "Produkt importeret med delvise priser" : "Produkt importeret med priser");
             refetchCatalog();
             handleWizardOpenChange(false);
         } catch (e: any) {
