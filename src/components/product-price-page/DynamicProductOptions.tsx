@@ -49,8 +49,24 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
+  const hasEnhancedEffects = (cfg: Record<string, any>) => Boolean(
+    cfg.surfaceStyle ||
+    cfg.gradientStart ||
+    cfg.gradientEnd ||
+    cfg.innerShadow ||
+    cfg.sheenColor ||
+    cfg.shadow ||
+    cfg.hoverShadow ||
+    cfg.selectedShadow ||
+    cfg.hoverScale ||
+    cfg.hoverY ||
+    cfg.tapScale ||
+    cfg.transitionMs ||
+    cfg.motionStyle
+  );
+
   const resolveMotionProps = (cfg: Record<string, any>, selected = false) => {
-    if (shouldReduceMotion) return {};
+    if (shouldReduceMotion || !hasEnhancedEffects(cfg)) return {};
     const hoverScale = Math.max(1, Math.min(1.08, Number(cfg.hoverScale) || 1.015));
     const hoverY = Math.max(-10, Math.min(0, Number(cfg.hoverY) || -1));
     const tapScale = Math.max(0.92, Math.min(1, Number(cfg.tapScale) || 0.98));
@@ -200,7 +216,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
             backgroundColor: isSelected
               ? (btnCfg.selectedBgColor || primaryColor)
               : (btnCfg.bgColor || undefined),
-            backgroundImage: btnCfg.surfaceStyle && !isSelected
+            backgroundImage: hasEnhancedEffects(btnCfg) && btnCfg.surfaceStyle && !isSelected
               ? `linear-gradient(180deg, ${btnCfg.gradientStart || btnCfg.bgColor || "transparent"}, ${btnCfg.gradientEnd || btnCfg.bgColor || "transparent"})`
               : undefined,
             color: isSelected
@@ -211,9 +227,11 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
               : (btnCfg.hoverRingEnabled ? undefined : "none"),
             outlineOffset: "2px",
             transition: "all 150ms ease",
-            boxShadow: isSelected
-              ? [btnCfg.innerShadow, btnCfg.selectedShadow || btnCfg.hoverShadow || btnCfg.shadow].filter(Boolean).join(", ")
-              : [btnCfg.innerShadow, btnCfg.shadow].filter(Boolean).join(", "),
+            boxShadow: hasEnhancedEffects(btnCfg)
+              ? (isSelected
+                ? [btnCfg.innerShadow, btnCfg.selectedShadow || btnCfg.hoverShadow || btnCfg.shadow].filter(Boolean).join(", ")
+                : [btnCfg.innerShadow, btnCfg.shadow].filter(Boolean).join(", "))
+              : undefined,
           };
 
           const btn = (
@@ -266,14 +284,16 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
             backgroundColor: isSelected
               ? (imgCfg.selectedBgColor || undefined)
               : (imgCfg.bgColor || undefined),
-            backgroundImage: imgCfg.surfaceStyle && !isSelected
+            backgroundImage: hasEnhancedEffects(imgCfg) && imgCfg.surfaceStyle && !isSelected
               ? `linear-gradient(180deg, ${imgCfg.gradientStart || imgCfg.bgColor || "transparent"}, ${imgCfg.gradientEnd || imgCfg.bgColor || "transparent"})`
               : undefined,
             outline: isSelected ? `2px solid ${selectedRing}` : undefined,
             outlineOffset: "2px",
-            boxShadow: isSelected
-              ? [imgCfg.innerShadow, imgCfg.selectedShadow || imgCfg.hoverShadow || imgCfg.shadow].filter(Boolean).join(", ")
-              : [imgCfg.innerShadow, imgCfg.shadow].filter(Boolean).join(", "),
+            boxShadow: hasEnhancedEffects(imgCfg)
+              ? (isSelected
+                ? [imgCfg.innerShadow, imgCfg.selectedShadow || imgCfg.hoverShadow || imgCfg.shadow].filter(Boolean).join(", ")
+                : [imgCfg.innerShadow, imgCfg.shadow].filter(Boolean).join(", "))
+              : undefined,
           };
 
           const inner = (

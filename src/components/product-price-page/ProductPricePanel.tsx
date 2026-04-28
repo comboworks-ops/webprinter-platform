@@ -285,19 +285,36 @@ export function ProductPricePanel({
 
   const orderButtonMotion = useMemo(() => {
     const configured = (activeBranding.productPage?.orderButtons || DEFAULT_BRANDING.productPage.orderButtons) as any;
+    const enhanced = Boolean(
+      configured.surfaceStyle ||
+      configured.gradientStart ||
+      configured.gradientEnd ||
+      configured.hoverGradientStart ||
+      configured.hoverGradientEnd ||
+      configured.innerShadow ||
+      configured.sheenColor ||
+      configured.shadow ||
+      configured.hoverShadow ||
+      configured.hoverScale ||
+      configured.hoverY ||
+      configured.tapScale ||
+      configured.transitionMs ||
+      configured.motionStyle
+    );
     const transitionMs = clamp(Number(configured.transitionMs) || 170, 80, 420);
     return {
+      enhanced,
       radiusPx: clamp(Number(configured.radiusPx) || 10, 0, 999),
-      shadow: configured.shadow || "0 8px 18px rgba(15, 23, 42, 0.10)",
-      hoverShadow: configured.hoverShadow || "0 14px 28px rgba(15, 23, 42, 0.16)",
-      hoverScale: clamp(Number(configured.hoverScale) || 1.015, 1, 1.08),
-      hoverY: clamp(Number(configured.hoverY) || -1, -10, 0),
-      tapScale: clamp(Number(configured.tapScale) || 0.98, 0.92, 1),
+      shadow: enhanced ? configured.shadow || "0 8px 18px rgba(15, 23, 42, 0.10)" : undefined,
+      hoverShadow: enhanced ? configured.hoverShadow || "0 14px 28px rgba(15, 23, 42, 0.16)" : undefined,
+      hoverScale: enhanced ? clamp(Number(configured.hoverScale) || 1.015, 1, 1.08) : 1,
+      hoverY: enhanced ? clamp(Number(configured.hoverY) || -1, -10, 0) : 0,
+      tapScale: enhanced ? clamp(Number(configured.tapScale) || 0.98, 0.92, 1) : 1,
       transitionMs,
       motionStyle: String(configured.motionStyle || "smooth"),
-      surfaceStyle: String(configured.surfaceStyle || "matte"),
-      innerShadow: configured.innerShadow || "inset 0 1px 0 rgba(255, 255, 255, 0.18)",
-      sheenColor: configured.sheenColor || "rgba(255, 255, 255, 0.28)",
+      surfaceStyle: enhanced ? String(configured.surfaceStyle || "matte") : "plain",
+      innerShadow: enhanced ? configured.innerShadow || "inset 0 1px 0 rgba(255, 255, 255, 0.18)" : undefined,
+      sheenColor: enhanced ? configured.sheenColor || "rgba(255, 255, 255, 0.28)" : "transparent",
     };
   }, [activeBranding.productPage?.orderButtons]);
 
@@ -654,9 +671,9 @@ export function ProductPricePanel({
     ["--order-primary-hover-text" as any]: orderButtonStyles.primary.hoverTextColor,
     ["--order-primary-border" as any]: orderButtonStyles.primary.borderColor,
     ["--order-primary-hover-border" as any]: orderButtonStyles.primary.hoverBorderColor,
-    ["--order-inner-shadow" as any]: orderButtonMotion.innerShadow,
+    ["--order-inner-shadow" as any]: orderButtonMotion.innerShadow || "none",
     ["--order-sheen-color" as any]: orderButtonMotion.sheenColor,
-    ["--order-button-shadow" as any]: orderButtonMotion.shadow,
+    ["--order-button-shadow" as any]: orderButtonMotion.shadow || "none",
     borderRadius: `${orderButtonMotion.radiusPx}px`,
     boxShadow: orderButtonMotion.shadow,
   } as any;
@@ -669,9 +686,9 @@ export function ProductPricePanel({
     ["--order-secondary-hover-text" as any]: orderButtonStyles.secondary.hoverTextColor,
     ["--order-secondary-border" as any]: orderButtonStyles.secondary.borderColor,
     ["--order-secondary-hover-border" as any]: orderButtonStyles.secondary.hoverBorderColor,
-    ["--order-inner-shadow" as any]: orderButtonMotion.innerShadow,
+    ["--order-inner-shadow" as any]: orderButtonMotion.innerShadow || "none",
     ["--order-sheen-color" as any]: orderButtonMotion.sheenColor,
-    ["--order-button-shadow" as any]: orderButtonMotion.shadow,
+    ["--order-button-shadow" as any]: orderButtonMotion.shadow || "none",
     borderRadius: `${orderButtonMotion.radiusPx}px`,
     boxShadow: orderButtonMotion.shadow,
   } as any;
@@ -684,14 +701,14 @@ export function ProductPricePanel({
     ["--order-selected-hover-text" as any]: orderButtonStyles.selected.hoverTextColor,
     ["--order-selected-border" as any]: orderButtonStyles.selected.borderColor,
     ["--order-selected-hover-border" as any]: orderButtonStyles.selected.hoverBorderColor,
-    ["--order-inner-shadow" as any]: orderButtonMotion.innerShadow,
+    ["--order-inner-shadow" as any]: orderButtonMotion.innerShadow || "none",
     ["--order-sheen-color" as any]: orderButtonMotion.sheenColor,
-    ["--order-button-shadow" as any]: orderButtonMotion.shadow,
+    ["--order-button-shadow" as any]: orderButtonMotion.shadow || "none",
     borderRadius: `${orderButtonMotion.radiusPx}px`,
     boxShadow: orderButtonMotion.shadow,
   } as any;
 
-  const orderButtonMotionProps = shouldReduceMotion ? {} : {
+  const orderButtonMotionProps = shouldReduceMotion || !orderButtonMotion.enhanced ? {} : {
     whileHover: {
       scale: orderButtonMotion.hoverScale,
       y: orderButtonMotion.hoverY,
@@ -1063,6 +1080,11 @@ export function ProductPricePanel({
             radial-gradient(circle at 50% -20%, rgba(255,255,255,0.7), transparent 35%),
             linear-gradient(100deg, transparent 0%, rgba(255,255,255,0.38) 45%, transparent 62%);
           opacity: 0.5;
+        }
+        .order-primary-button[data-surface="plain"]::before,
+        .order-secondary-button[data-surface="plain"]::before,
+        .order-selected-button[data-surface="plain"]::before {
+          display: none;
         }
       `}</style>
       <div className="flex items-center justify-between">

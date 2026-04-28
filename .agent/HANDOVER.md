@@ -1,273 +1,60 @@
-# Webprinter Print Designer - Agent Handover Document
+# Agent Handover
+
+Last updated: 2026-04-28
+
+Read these first:
+1. `AGENTS.md`
+2. `HANDOVER.md`
+3. `AI_CONTINUITY.md`
+4. `POD2_README.md`
+5. `SYSTEM_OVERVIEW.md`
+
+The root `HANDOVER.md` is now the current human-readable handover. The root
+`AI_CONTINUITY.md` is the condensed AI startup file.
+
+## Current Snapshot
+
+Branch: `ui-cleanup`
+Latest commit: `7932644 feat: polish tenant site design controls`
+GitHub branch: `https://github.com/comboworks-ops/webprinter-platform/tree/ui-cleanup`
+Live Vercel alias: `https://www.webprinter.dk`
+
+The latest session was deployed to Vercel production successfully.
+
+## What Changed Recently
+
+Major Site Design V2 and tenant storefront work:
+- Complete visual theme presets.
+- Ten color presets and five font presets.
+- Advanced per-theme button effects.
+- Contrast safeguards for generated buttons.
+- Hero/banner transitions, text effects and parallax controls.
+- Header dropdown layout/motion presets.
+- Product option and matrix hotspots that open the right side-panel editors.
+- Download Tilbud button styling target.
+- SEO/tenant-shell fixes.
+- POD v2 admin updates and Danish Print.com term mapping.
+
+Important files:
+- `src/components/admin/SiteDesignEditorV2.tsx`
+- `src/hooks/useBrandingDraft.ts`
+- `src/components/Header.tsx`
+- `src/components/HeroSlider.tsx`
+- `src/components/ProductGrid.tsx`
+- `src/components/product-price-page/ProductPricePanel.tsx`
+- `src/components/product-price-page/DynamicProductOptions.tsx`
+- `src/components/admin/ProductOptionButtonEditor.tsx`
+- `src/components/admin/ProductOptionSectionBoxEditor.tsx`
+- `src/components/preview/PreviewInteractionManager.tsx`
+- `src/lib/siteDesignTargets.ts`
+- `src/pages/admin/Pod2Admin.tsx`
+- `src/lib/pod2/danishTerms.ts`
+
+## Safety Notes
+
+- Local admin may write to production Supabase data.
+- Do not change POD v1 or core pricing unless explicitly asked.
+- Read `POD2_README.md` before touching POD v2.
+- Preserve tenant-specific settings. Code is shared, settings are per tenant.
+- Run `npm run build` before any deploy.
 
-## Current Pricing Handover
-
-For current pricing/import work, read this after the repo entry docs:
-- `docs/PRICING_HANDOFF_2026-04-16.md`
-
-That document contains the current matrix pricing/import status, the `new-folders` source-mapping fixes, and the safe workflow for manual final pricing versus future re-imports.
-
-**Last Updated**: 2026-01-06  
-**Project Path**: `/Users/cookabelly/Documents/Antigravity stuff/printmaker-web-craft-main`
-
----
-
-## Project Overview
-
-This is a **print-ready design editor** for a Danish print shop (Webprinter.dk). Users can create designs for business cards, flyers, banners, etc., with proper CMYK color management and print specifications.
-
-**Tech Stack**:
-- React + TypeScript + Vite
-- Fabric.js (canvas manipulation)
-- lcms-wasm (ICC color transformations in Web Worker)
-- Supabase (backend/database)
-- Tailwind CSS + shadcn/ui
-
----
-
-## Recently Completed Features
-
-### 1. Soft Proofing (CMYK Simulation) ✅
-
-**Purpose**: Simulate how RGB colors will look when printed in CMYK.
-
-**Key Files**:
-| File | Purpose |
-|------|---------|
-| `src/hooks/useColorProofing.ts` | Main hook - manages worker, settings, overlay rendering |
-| `src/workers/colorProofing.worker.ts` | Web Worker with lcms-wasm for ICC transforms |
-| `src/lib/color/iccProofing.ts` | ICC profile configuration |
-| `public/icc/*.icc` | ICC profile files (sRGB, FOGRA39) |
-
-**How it works**:
-1. User enables soft proofing from the "Farver" tab
-2. Hook captures canvas pixels, sends to Web Worker
-3. Worker transforms RGB → CMYK → RGB using ICC profiles
-4. Transformed image is drawn on overlay canvas
-5. Optional gamut warning shows out-of-gamut colors in green
-
-**Fixes applied**:
-- Chunked pixel processing to prevent "offset is out of bounds" errors
-- Cache-busting on ICC profile fetches
-- Proper worker lifecycle management for toggle stability
-- Adaptive DPI for large format products (2m+ = 100 DPI, 1m+ = 150 DPI)
-
-**Known limitations**:
-- PSO Coated v3 and US Web Coated SWOP profiles disabled (bad download sources)
-- Preview limited to 1000px max dimension for performance
-
----
-
-### 2. Physical Scaling on Import ⚠️ PROTECTED
-
-**Purpose**: Imported files maintain their physical size based on DPI metadata.
-
-**⚠️ THIS CODE IS PROTECTED AND MUST NOT BE MODIFIED**  
-See: `.agent/workflows/physical-scaling-import.md`
-
-**Key Files**:
-| File | Purpose |
-|------|---------|
-| `src/utils/imageMetadata.ts` | Extracts DPI from PNG/JPEG metadata |
-| `src/components/designer/EditorCanvas.tsx` | `addImage()` and `importSVG()` methods |
-| `src/pages/Designer.tsx` | `handleImageUpload()` and `handlePDFImport()` |
-
-**Behavior**:
-- Image with DPI metadata: Scaled to `DISPLAY_DPI / sourceDpi`
-- Image without DPI: Uses document DPI (typically 300)
-- SVG: Assumes 96 DPI (web standard)
-- PDF: Uses physical mm dimensions from viewport
-
-**Example**: A5 image (300 DPI) imported into A3 layout = 1/4 of document area
-
----
-
-### 3. Live Dimension Labels ✅
-
-**Purpose**: Show width × height in mm below selected objects, updating in real-time.
-
-**Location**: `src/pages/Designer.tsx` (lines ~1073-1090)
-
-**How it works**:
-- `EditorCanvas` emits `boundingRect` in `SelectedObjectProps`
-- Designer renders floating label positioned below object
-- Updates on `object:scaling`, `object:moving`, `object:rotating` events
-
----
-
-### 4. PDF Export with CMYK Colors ✅
-
-**Purpose**: Exported PDFs use color-transformed pixels matching soft proof.
-
-**Location**: `src/pages/Designer.tsx` → `handleExport()`
-
-**How it works**:
-1. Calls `colorProofing.exportCMYK()` with profile URLs
-2. Worker transforms RGB → CMYK and RGB → proofed RGB
-3. Returns `proofedRgbDataUrl` which is embedded in PDF via jsPDF
-
----
-
-### 5. Company Hub (B2B Reorder Portal) ✅
-
-**Purpose**: Provide a dedicated portal for business clients to reorder previously designed products.
-
-**Key Files**:
-| File | Purpose |
-|------|---------|
-| `src/hooks/useCompanyHub.ts` | Main hook for CRUD and portal fetching |
-| `src/pages/CompanyHub.tsx` | User-facing portal page (`/company`) |
-| `src/components/companyhub/AdminCompanyHubManager.tsx` | Admin management UI |
-| `supabase/migrations/20260130000000_company_hub.sql` | DB Schema |
-
-**Highlights**:
-- **Member Management**: Whitelist users by email or name.
-- **Product Pinning**: Admins can pin specific products with default options and linked designs.
-- **Direct Portal Link**: Admin panel includes a "Besøg Portal" link for quick access.
-- **Email Sync**: Database trigger syncs `auth.users.email` to `public.profiles.email` for easy member identification.
-
----
-
-## Important Constants
-
-| Constant | Value | Location |
-|----------|-------|----------|
-| `DISPLAY_DPI` | 50.8 | EditorCanvas.tsx, Designer.tsx |
-| `MM_TO_PX` | ~2.0 | Designer.tsx |
-| `MAX_PREVIEW_DIMENSION` | 1000 | useColorProofing.ts |
-| `DEBOUNCE_MS` | 200 | useColorProofing.ts |
-| `PASTEBOARD_PADDING` | 100 | EditorCanvas.tsx, Designer.tsx |
-
----
-
-## File Structure (Key Files)
-
-```
-src/
-├── pages/
-│   └── Designer.tsx           # Main designer page
-├── components/designer/
-│   ├── EditorCanvas.tsx       # Fabric.js canvas wrapper
-│   ├── ColorProofingPanel.tsx # Soft proofing UI
-│   ├── PropertiesPanel.tsx    # Object properties
-│   └── LayerPanel.tsx         # Layer management
-├── hooks/
-│   └── useColorProofing.ts    # Soft proofing hook
-├── workers/
-│   └── colorProofing.worker.ts # ICC transformation worker
-├── lib/color/
-│   └── iccProofing.ts         # Profile configuration
-├── utils/
-│   ├── imageMetadata.ts       # DPI extraction (PROTECTED)
-│   └── unitConversions.ts     # mm/px/pt conversions
-public/
-└── icc/
-    ├── sRGB_IEC61966-2-1.icc
-    └── ISOcoated_v2_300_eci.icc
-```
-
----
-
-## Running the Project
-
-```bash
-cd /Users/cookabelly/Documents/Antigravity\ stuff/printmaker-web-craft-main
-npm run dev
-```
-
-The dev server is typically running on `http://localhost:5173`
-
----
-
-## Workflows
-
-| Command | Description |
-|---------|-------------|
-| `/physical-scaling-import` | PROTECTED - Physical scaling on import (DO NOT MODIFY) |
-| `/color-picker` | How to add color pickers in branding/admin UI |
-| `$pixart` | Pixart wide-format extraction/import skill for storformat |
-
----
-
-## Pixart Wide-Format Import (Current)
-
-Use this path for flat-surface adhesive imports:
-- Skill: `.agent/skills/pixart/SKILL.md`
-- Script: `scripts/fetch-pixart-flat-surface-adhesive-import.mjs`
-
-Current expected import setup:
-- Quantities: `1..20`
-- Area anchors (m²): `1,2,3,4,5,10,12,15,20`
-- Laminations/finishes:
-  - `None`
-  - `Standard Matt` -> `Standard matte`
-  - `Standard Gloss` -> `Standard gloss`
-  - `UV Filter 5 Matt` -> `UV matte`
-  - `UV Filter 5 Gloss` -> `UV gloss`
-- Price source in Pixart matrix: right column (cheapest / slowest delivery).
-- Conversion defaults in script: `EUR * 7.6`, then `+80%` markup (factor `13.68`).
-
-Import sequence:
-1. `extract` to `pricing_raw/*.json`
-2. `import --dry-run`
-3. `import` live with tenant/product args
-
-Do not fork a new Pixart import script unless this one is blocked by a structural source-site change.
-
----
-
-## Books / Softbooks Import Notes (2026-03-02)
-
-Use `docs/BOOKS_FETCH_LOG.md` before importing the next similar book product.
-
-Important constraints now verified:
-- Dense page selectors should be `dropdown`, not buttons.
-- Page count must be treated as the final dependent selector in preview logic.
-- Admin preview and storefront must filter selector options from real published rows, not just the configured whitelist.
-- Different spine/binding families may start at different minimum page counts.
-
-Current concrete example:
-- `Bøger`
-  - `Klassisk ryg` starts at `48 pages`
-  - `Rund ryg` starts at `80 pages`
-
-Relevant runtime files:
-- `src/components/admin/ProductAttributeBuilder.tsx`
-- `src/components/product-price-page/MatrixLayoutV1Renderer.tsx`
-
-Relevant importer:
-- `scripts/fetch-boeger-import.js`
-
-If a future similar product looks like it has "missing prices" in preview, check selector dependency order and published-row filtering before changing the imported price data.
-
----
-
-## Pending/Future Work
-
-1. **Re-enable ICC profiles**: Find reliable sources for PSO Coated v3 and US Web Coated SWOP
-2. **True CMYK PDF export**: Current solution embeds proofed RGB; true CMYK requires server-side processing or advanced PDF library
-3. **Preflight DPI warning**: Alert if imported images are below minimum print DPI
-4. **Save/load with ICC profile selection**: Persist user's profile choice with saved designs
-
----
-
-## Important Notes for New Agent
-
-1. **PROTECTED CODE**: The physical scaling import feature is locked. Check `/physical-scaling-import` workflow before modifying any DPI/scaling logic.
-
-2. **Web Worker lifecycle**: The `colorProofing.worker.ts` has careful initialization/disposal logic. Changes require understanding the message flow:
-   - `init` → loads profiles, creates transform → sends `ready`
-   - `transform` → processes pixels → sends `transformed`
-   - `transform-to-cmyk` → export path → sends `cmyk-transformed`
-
-3. **Fabric.js canvas**: The internal canvas is at `DISPLAY_DPI` (50.8), not screen DPI (96) or print DPI (300). All scaling calculations must account for this.
-
-4. **Company Hub RLS**: The Company Hub uses strict RLS. Ensure you are testing with a user that has been added as a member of a company, or is a `master_admin` to see cross-tenant data.
-
-5. **Danish UI**: All user-facing strings are in Danish (Gem = Save, Eksporter = Export, etc.)
-
----
-
-## Contact / Context
-
-This project is for **Webprinter.dk**, a Danish print shop. The designer allows customers to create print-ready designs with proper color management for commercial printing.

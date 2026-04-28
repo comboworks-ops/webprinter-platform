@@ -1,232 +1,210 @@
-# Webprinter Platform - AI Continuity Document
+# Webprinter AI Continuity
 
-> Last Updated: December 18, 2024
-> Backup Tag: `backup-2024-12-18`
-> Status: Major site designer upgrades completed (V2, Colors, Hover states)
-> Commit: `Latest`
+Last updated: 2026-04-28
+Purpose: give future AI/Codex instances immediate context before they edit code.
 
-This document is designed for AI assistants (chatbots, codex machines) to understand the project state and continue development.
+Start here, then read `HANDOVER.md`, `POD2_README.md` and
+`SYSTEM_OVERVIEW.md`.
 
----
+## One-Minute Summary
 
-## 🎯 Project Overview
+Webprinter is a multi-tenant SaaS platform for print shops. It has tenant
+storefronts, an admin panel, a Site Design V2 visual editor, a product price
+calculator/matrix system, a print designer, SEO tooling and a POD v2 Print.com
+integration.
 
-**Webprinter Platform** is a multi-tenant SaaS printing shop application built with:
-- **Frontend**: React 18 + TypeScript + Vite
-- **UI**: shadcn/ui components + Tailwind CSS
-- **Backend**: Supabase (PostgreSQL + Auth + Storage)
-- **State**: React Context + Custom Hooks
+The newest work was a large Site Design V2 and storefront polish pass:
+- Complete visual theme presets.
+- Stronger color and font presets.
+- Different advanced button effects per theme.
+- Contrast safeguards for buttons and hero CTAs.
+- Hero/banner animation controls.
+- Header dropdown layout/motion presets.
+- Product option and matrix hotspots for side-panel editing.
+- SEO/tenant-shell updates.
+- POD v2 admin improvements and Danish Print.com label mapping.
 
-### Core Purpose
-Allow shop owners (tenants) to customize their storefront branding (colors, fonts, logo, header, footer, hero banners) via an admin panel with live preview.
+The current branch `ui-cleanup` was committed, pushed and deployed to Vercel
+production:
+- Commit: `7932644 feat: polish tenant site design controls`
+- Live: `https://www.webprinter.dk`
 
----
+## Architecture Snapshot
 
-## 🏗️ Architecture
+Frontend:
+- React 18
+- TypeScript
+- Vite
+- Tailwind CSS
+- shadcn/ui
+- Framer Motion
+- TanStack Query
+- React Router
 
-### Key Directories
-```
-src/
-├── components/
-│   ├── admin/           # Admin panel components
-│   │   ├── UnifiedBrandingEditor.tsx  # Main branding editor (4 tabs)
-│   │   ├── ForsideSection.tsx         # "Forside" tab (Logo, Header, Footer, Banner)
-│   │   ├── HeaderSection.tsx          # Header settings UI
-│   │   ├── BrandingSettings.tsx       # Alt branding editor
-│   │   └── FontSelector.tsx           # Font picker (32 fonts)
-│   ├── Header.tsx       # Storefront header component
-│   ├── Footer.tsx       # Storefront footer component
-│   └── HeroSlider.tsx   # Hero banner slider
-├── hooks/
-│   └── useBrandingDraft.ts  # ⭐ CRITICAL: All branding types, defaults, and state
-├── contexts/
-│   └── PreviewBrandingContext.tsx  # Live preview state management
-└── pages/
-    ├── PreviewShop.tsx   # Preview storefront (used by admin)
-    └── Shop.tsx          # Live storefront
-```
+Backend:
+- Supabase PostgreSQL
+- Supabase Auth
+- Supabase Storage
+- Supabase Edge Functions
+- RLS policies
 
----
+Deployment:
+- Vercel production alias: `https://www.webprinter.dk`
 
-## 📊 Current Status (December 16, 2024)
+Important multi-tenant behavior:
+- Storefront code is shared.
+- Tenant-specific branding/SEO/product data is stored in Supabase.
+- Code changes deploy globally, but saved tenant settings remain per tenant.
+- Localhost often points at the same Supabase data as production.
 
-### ✅ Completed Features
+## Current Priority Areas
 
-#### Branding System
-- [x] **Draft persistence** - Changes survive page refresh (localStorage)
-- [x] **Live preview** - Real-time updates via postMessage/BroadcastChannel
-- [x] **4-tab editor** - Forside, Typography, Colors, Icons
+### Site Design V2
 
-#### Header Settings
-- [x] Height selector (Lille/Medium/Stor → 56/72/96px)
-- [x] Menu alignment (Left/Center/Right)
-- [x] Background color + transparency slider
-- [x] Font selector for menu text
-- [x] Text color (skriftfarve)
-- [x] **Transparent over Hero toggle** - ON: overlays hero, OFF: stacks above hero
-- [x] CTA button (enable/disable, text, link)
-- [x] Logo options (Image or Text with font/color)
-- [x] Dropdown background color + transparency
+Main goal: admins should click storefront areas in preview and edit those areas
+in the side panel.
 
-#### Hero/Banner
-- [x] Image slideshow with media library
-- [x] Overlay settings (title, subtitle, colors)
-- [x] Parallax effect
-- [x] Auto-play configuration
+Recent work:
+- Added/expanded visual presets in `SiteDesignEditorV2.tsx`.
+- Added theme-wide button surface controls and motion parameters.
+- Added option/matrix box controls and hotspots.
+- Connected price panel Download Tilbud styling target.
+- Added page transitions and dropdown motion presets.
 
-#### Footer
-- [x] Social links (Facebook, Instagram, LinkedIn)
-- [x] Footer text and copyright
-- [x] Background/text colors
+Key files:
+- `src/components/admin/SiteDesignEditorV2.tsx`
+- `src/components/preview/PreviewInteractionManager.tsx`
+- `src/lib/siteDesignTargets.ts`
+- `src/hooks/useBrandingDraft.ts`
+- `src/components/admin/ProductOptionButtonEditor.tsx`
+- `src/components/admin/ProductOptionSectionBoxEditor.tsx`
+- `src/components/admin/ProduktvalgknapperSection.tsx`
 
-#### Preview System
-- [x] Virtual navigation (doesn't unmount branding context)
-- [x] sessionStorage persistence for preview branding
-- [x] Dynamic font loading for selected fonts
+### Storefront Header, Dropdowns and Hero
 
-### 🚧 Known Issues / Pending
+Recent work:
+- Header dropdown presets and motion.
+- Split-preview dropdown can use current campaign/framed product.
+- Removed unnecessary image frames around PNG product images.
+- Stabilized dropdown product hover so it zooms smoothly without lateral shift.
+- Hero banner gained text animations, slide transitions and parallax controls.
+- Hero buttons now protect against unreadable text and support `rgba(...)`.
 
-1. **Dropdown font/color** - User removed these settings (reverted in latest commit)
-2. **Mobile responsive** - Header may need testing on small screens
-3. **Publishing workflow** - Draft → Published flow exists but needs verification
+Key files:
+- `src/components/Header.tsx`
+- `src/components/HeroSlider.tsx`
+- `src/components/admin/HeaderSection.tsx`
+- `src/components/admin/BannerEditor.tsx`
 
----
+### Product Price Page
 
-## 📁 Critical Files
+Recent work:
+- Dynamic option buttons now have richer hover/selected styling.
+- Matrix option buttons and white-format option buttons share more styling
+  logic.
+- Product grid CTAs and order buttons use theme-specific surfaces.
+- Download Tilbud is style-targetable.
+- Contrast helpers prevent unreadable text on theme-generated buttons.
 
-### Type Definitions & Defaults
-**File**: `src/hooks/useBrandingDraft.ts`
+Key files:
+- `src/components/product-price-page/ProductPricePanel.tsx`
+- `src/components/product-price-page/DynamicProductOptions.tsx`
+- `src/components/product-price-page/MatrixLayoutV1Renderer.tsx`
+- `src/components/product-price-page/PriceMatrix.tsx`
+- `src/components/product-price-page/StorformatConfigurator.tsx`
+- `src/components/ProductGrid.tsx`
+- `src/lib/pricing/selectorStyling.ts`
 
-Contains ALL branding interfaces:
-- `BrandingData` - Root branding object
-- `HeaderSettings` - Header configuration
-- `FooterSettings` - Footer configuration
-- `HeroSettings` - Banner settings
-- `DEFAULT_BRANDING` - Default values
+### SEO and Tenant Shell
 
-### Header Component
-**File**: `src/components/Header.tsx`
+Recent work:
+- Storefront SEO metadata path was adjusted for tenant shops.
+- Migration added for public page SEO metadata reads.
+- Tenant shell was adjusted as part of making SEO visible on tenant storefronts.
 
-Key sections:
-- Lines 56-95: `headerSettings` merge with defaults
-- Lines 60-66: Height mapping (sm/md/lg → px)
-- Lines 145-167: Position logic for "Transparent over Hero"
-- Lines 208-224: `getDropdownStyles()` for dropdown styling
+Key files:
+- `api/tenant-shell.ts`
+- `src/components/SEO.tsx`
+- `src/components/storefront/StorefrontSeo.tsx`
+- `supabase/migrations/20260427130500_public_read_page_seo_metadata.sql`
 
-### Preview Context
-**File**: `src/contexts/PreviewBrandingContext.tsx`
+### POD v2
 
-- Receives branding updates via `postMessage`
-- Stores in `sessionStorage` for persistence
+POD v2 is a Print.com integration for master-admin curation and tenant imports.
+It feeds data into the existing product system. It must not replace or alter
+core pricing logic unless explicitly approved.
 
----
+Recent work:
+- Danish term mapping for Print.com import wizard labels.
+- Admin UI/catalog/order improvements.
+- Minor request function adjustment.
 
-## Designer Sizing Guard (Do Not Remove)
-**File**: `src/pages/Designer.tsx`
+Key files:
+- `POD2_README.md`
+- `src/pages/admin/Pod2Admin.tsx`
+- `src/pages/admin/Pod2Katalog.tsx`
+- `src/pages/admin/Pod2Ordrer.tsx`
+- `src/lib/pod2/danishTerms.ts`
+- `supabase/functions/pod2-explorer-request/index.ts`
 
-- `documentSpec` is initialized from URL params (`widthMm/heightMm/format`) before async loads.
-- This prevents the A4 → target size flicker and keeps the designer smooth.
-- Provides `branding` and `tenantName` to preview components
+## Safety Rules for Future AI Agents
 
----
+Do:
+- Prefer additive changes.
+- Preserve tenant data and tenant-specific settings.
+- Run `npm run build` after frontend changes.
+- Use existing branding and pricing types instead of inventing parallel config.
+- Keep theme changes in the branding model and storefront renderers.
+- Respect reduced-motion settings for Framer Motion work.
 
-## ⚠️ Strict Rules
+Do not:
+- Reset the branch or revert user changes without explicit instruction.
+- Change core pricing calculations casually.
+- Merge POD v2 into POD v1.
+- Hard-delete POD v2 catalog/import data manually.
+- Assume localhost is safe test data.
 
-### 1. Color Pickers
-**ALWAYS** use `ColorPickerWithSwatches` component:
-```tsx
-<ColorPickerWithSwatches
-    label="Label"
-    value={color}
-    onChange={(c) => update(c)}
-    savedSwatches={savedSwatches}
-    onSaveSwatch={onSaveSwatch}
-    onRemoveSwatch={onRemoveSwatch}
-/>
-```
-See: `.agent/workflows/color-picker.md`
+## Last Known Validation
 
-### 2. Adding New Settings
-1. Add type to interface in `useBrandingDraft.ts`
-2. Add default value in `DEFAULT_*` constant
-3. Add UI control in appropriate Section component
-4. Apply setting in target component (Header.tsx, Footer.tsx, etc.)
+Local:
+- `npm run build` passed.
 
-### 3. Preview Updates
-When adding new branding fields, ensure they're passed through:
-1. `updateDraft()` in useBrandingDraft
-2. `BrandingPreviewFrame.tsx` sends via postMessage
-3. `PreviewBrandingContext.tsx` receives and applies
+Vercel:
+- Production build passed.
+- Deployment completed.
+- Alias applied to `https://www.webprinter.dk`.
 
----
+Known warnings:
+- Large Vite chunks.
+- Supabase client mixed dynamic/static imports.
+- `pdfjs-dist` eval warning.
+- `lcms-wasm` browser externalization warning.
 
-## 🔧 Development Commands
+These warnings existed during successful deployment.
+
+## If Continuing Visual Theme Work
+
+Check these first:
+- Are the generated colors readable in normal, hover and selected states?
+- Does the theme affect header, hero, USP, products, matrix, price panel and
+  option buttons consistently?
+- Does a tenant's saved branding override still work?
+- Does preview click-to-edit open the correct side panel section?
+- Does mobile still fit without overlap?
+
+Run:
 
 ```bash
-# Start dev server
-npm run dev
-
-# Build for production
 npm run build
-
-# Run linting
-npm run lint
 ```
 
----
+If deploying:
 
-## 🗂️ Recent Session Summary
+```bash
+git status --short --branch
+git add -A
+git commit -m "..."
+git push -u origin ui-cleanup
+vercel deploy . --prod -y
+```
 
-### Dec 16, 2024 Session Goals (Completed)
-1. ✅ Branding draft persistence (localStorage)
-2. ✅ Header height setting working in preview
-3. ✅ Menu alignment working in preview
-4. ✅ Header text color option added
-5. ✅ Removed auto-white text at low opacity
-6. ✅ "Transparent over Hero" toggle working properly
-7. ✅ Fixed hero alignment when toggle is OFF
-8. ✅ Fixed dropdown spelling (Baggrundsfarve)
-9. ✅ Added dropdown transparency slider
-
-### User Reverted
-- Dropdown font selector
-- Dropdown text color picker
-- These were removed manually by the user
-
-### Dec 18, 2024 Session Summary
-
-#### 🚀 Major Upgrades
-1. ✅ **Branding Editor V2** - Implemented a new "click-to-edit" visual editor that coexists with V1. Includes side-by-side preview and categorized tools.
-2. ✅ **CTA Button Customization** - Added full color control for the header CTA button:
-   - `bgColor`: Background color
-   - `textColor`: Text color
-   - `hoverBgColor`: Hover background color with smooth transition and lift effect
-3. ✅ **Element Hover Effects** - Added granular hover control for header action items (Search, Language, User/Account):
-   - `actionHoverBgColor`: Circular background color on hover (renamed from "Hover over element")
-   - `actionHoverTextColor`: Icon/Text color on hover (renamed from "Hover over element tekst")
-4. ✅ **UI Polish** - Added visual separators in the site designer UI for better grouping of color settings.
-5. ✅ **Stability Fixes** - Fixed an issue where the preview screen would turn blank due to missing default initialization for new branding fields.
-
-#### 🔧 Implementation Details
-- **Header.tsx**: Now uses CSS Variables (`--header-cta-bg`, `--header-action-hover-bg`, etc.) linked to the branding state for real-time reactivity.
-- **HeaderSection.tsx**: Added `ColorPickerWithSwatches` components with the new labels and separators.
-- **useBrandingDraft.ts**: Updated `BrandingData` schema and `mergeBrandingWithDefaults` to handle the new nested properties safely.
-
----
-
-## 🔗 Related Documents
-
-- `PROJECT_STATUS.md` - Detailed architecture notes
-- `BRANDING_QUICK_REFERENCE.md` - Quick lookup for branding fields
-- `.agent/workflows/color-picker.md` - Color picker usage rules
-
----
-
-## 💡 Tips for Continuing Development
-
-1. **Always check useBrandingDraft.ts first** - it defines all types
-2. **Test in preview** - Changes should reflect immediately
-3. **Build before committing** - `npm run build` catches type errors
-4. **Use git tags for backups** - `git tag backup-YYYY-MM-DD`
-5. **Danish labels in UI** - The UI is in Danish (e.g., "Baggrundsfarve" = Background color)
-6. **CSS Variables** - Use CSS variables in `Header.tsx` for hover states to avoid JS-in-CSS performance issues and ensure clean transitions.

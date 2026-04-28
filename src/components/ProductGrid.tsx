@@ -178,6 +178,19 @@ const ProductGrid = ({
       : buttonStyles.animation === "pulse"
         ? "hover:scale-[1.02]"
         : "";
+  const hasEnhancedButtonSurface = Boolean(
+    buttonStyles.surfaceStyle ||
+    buttonStyles.gradientStart ||
+    buttonStyles.gradientEnd ||
+    buttonStyles.hoverGradientStart ||
+    buttonStyles.hoverGradientEnd ||
+    buttonStyles.innerShadow ||
+    buttonStyles.sheenColor ||
+    buttonStyles.shadow ||
+    buttonStyles.hoverShadow ||
+    buttonStyles.hoverScale ||
+    buttonStyles.hoverY
+  );
   const buttonMotionStyle = {
     borderRadius: buttonStyles.borderRadiusPx ? `${buttonStyles.borderRadiusPx}px` : undefined,
     boxShadow: buttonStyles.innerShadow
@@ -425,14 +438,14 @@ const ProductGrid = ({
                       >
                         <Button
                           data-branding-id="forside.products.button"
-                          data-surface={buttonStyles.surfaceStyle || "matte"}
+                          data-surface={hasEnhancedButtonSurface ? buttonStyles.surfaceStyle || "matte" : "plain"}
                           size={effectiveButtonStyle === "center" ? "lg" : "sm"}
                           variant="ghost"
                           className={cn(
                             "transition-all font-semibold",
-                            "relative overflow-hidden before:pointer-events-none before:absolute before:inset-0 before:bg-[linear-gradient(180deg,var(--product-button-sheen),transparent_42%),linear-gradient(100deg,transparent_0%,rgba(255,255,255,0.28)_45%,transparent_60%)] before:opacity-35 before:transition-transform before:duration-500 before:ease-out before:-translate-x-1/3 hover:before:translate-x-1/4 hover:before:opacity-60",
-                            "hover:shadow-[var(--product-button-hover-shadow)] hover:[transform:translateY(var(--product-button-hover-y))_scale(var(--product-button-hover-scale))]",
-                            "bg-[image:var(--product-button-surface)] text-[var(--btn-text)] hover:bg-[image:var(--product-button-hover-surface)] hover:text-[var(--btn-hover-text)]",
+                            hasEnhancedButtonSurface
+                              ? "relative overflow-hidden before:pointer-events-none before:absolute before:inset-0 before:bg-[linear-gradient(180deg,var(--product-button-sheen),transparent_42%),linear-gradient(100deg,transparent_0%,rgba(255,255,255,0.28)_45%,transparent_60%)] before:opacity-35 before:transition-transform before:duration-500 before:ease-out before:-translate-x-1/3 hover:before:translate-x-1/4 hover:before:opacity-60 hover:shadow-[var(--product-button-hover-shadow)] hover:[transform:translateY(var(--product-button-hover-y))_scale(var(--product-button-hover-scale))] bg-[image:var(--product-button-surface)] text-[var(--btn-text)] hover:bg-[image:var(--product-button-hover-surface)] hover:text-[var(--btn-hover-text)]"
+                              : "bg-[var(--btn-bg)] text-[var(--btn-text)] hover:bg-[var(--btn-hover-bg)] hover:text-[var(--btn-hover-text)]",
                             effectiveButtonStyle === "bar" ? "w-full rounded-none py-5" : "px-4",
                             effectiveButtonStyle === "center" ? "min-w-[220px] py-5" : "",
                             isSlimLayout ? "h-8 px-3 text-xs" : "",

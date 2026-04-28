@@ -1,27 +1,30 @@
 /**
- * PlatformSlider - Image slider for the Platform landing page
- * 
- * Uses local PNG images from /public/platform/slider/ via the PLATFORM_SLIDES config.
- * Features Mac Dock-style magnifying effect on hover.
- * 
- * Features:
- * - NO LINKS - purely visual/decorative (for now)
- * - PNG images with labels derived from filename
- * - Smooth marquee animation (pauses on hover)
- * - Mac Dock magnifying effect - items scale based on mouse proximity
- * - Clean floating design - no borders, shadows, or containers
+ * PlatformSlider - image dock for the platform landing page.
+ *
+ * Uses local PNG images from /public/platform/slider/ via PLATFORM_SLIDES.
+ * The track is decorative, but the motion is intentionally polished: a measured
+ * Framer Motion loop prevents the visible reset that happens with fixed CSS
+ * marquee distances, and MotionValues keep the dock magnification off the
+ * React render path.
  */
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import {
+    animate,
+    motion,
+    useAnimationFrame,
+    useMotionValue,
+    useReducedMotion,
+    useSpring,
+    useTransform,
+    type MotionValue,
+} from "framer-motion";
 import { PLATFORM_SLIDES, getSlideLabel, type PlatformSlide } from "@/lib/platform/sliderImages";
 
 interface SlideImageProps {
     slide: PlatformSlide;
 }
 
-/**
- * Individual slide image
- */
 function SlideImage({ slide }: SlideImageProps) {
     return (
         <img
@@ -29,155 +32,200 @@ function SlideImage({ slide }: SlideImageProps) {
             alt={slide.alt}
             loading="lazy"
             decoding="async"
-            className="w-full h-full object-contain"
-            style={{
-                display: 'block',
-                imageRendering: 'auto',
-            }}
+            draggable={false}
+            className="h-full w-full select-none object-contain"
+            style={{ display: "block", imageRendering: "auto" }}
         />
     );
 }
 
-// Configuration for the dock magnification effect
 const DOCK_CONFIG = {
-    baseSize: 120,       // Bigger base size of icons in pixels
-    maxScale: 1.5,       // Maximum scale when hovered
-    effectRadius: 180,   // Pixel radius of the magnification effect
-    spacing: 48,         // Spacing between items in pixels
+    baseSize: 122,
+    imageSize: 112,
+    maxScale: 1.52,
+    effectRadius: 210,
+    spacing: 38,
+    loopSeconds: 34,
 };
 
-/**
- * Calculate scale based on distance from mouse
- */
-function calculateScale(distance: number): number {
+const calculateScale = (distance: number): number => {
     if (distance > DOCK_CONFIG.effectRadius) return 1;
-
-    // Smooth cosine interpolation for natural dock feel
     const normalizedDistance = distance / DOCK_CONFIG.effectRadius;
-    const scale = 1 + (DOCK_CONFIG.maxScale - 1) * Math.cos(normalizedDistance * Math.PI / 2);
-
-    return scale;
-}
+    const eased = (1 + Math.cos(normalizedDistance * Math.PI)) / 2;
+    return 1 + (DOCK_CONFIG.maxScale - 1) * eased;
+};
 
 interface SlideItemProps {
     slide: PlatformSlide;
-    index: number;
-    mouseX: number | null;
-    containerRef: React.RefObject<HTMLDivElement>;
+    mouseX: MotionValue<number>;
+    hoverTick: MotionValue<number>;
 }
 
-function SlideItem({ slide, index, mouseX, containerRef }: SlideItemProps) {
+function SlideItem({ slide, mouseX, hoverTick }: SlideItemProps) {
     const itemRef = useRef<HTMLDivElement>(null);
-    const [scale, setScale] = useState(1);
-
-    useEffect(() => {
-        if (mouseX === null || !itemRef.current || !containerRef.current) {
-            setScale(1);
-            return;
-        }
-
+    const rawScale = useTransform([mouseX, hoverTick], ([latestMouseX]) => {
+        if (latestMouseX < 0 || !itemRef.current) return 1;
         const itemRect = itemRef.current.getBoundingClientRect();
-
-        // Calculate center of item relative to viewport
         const itemCenterX = itemRect.left + itemRect.width / 2;
-
-        // Distance from mouse to item center
-        const distance = Math.abs(mouseX - itemCenterX);
-
-        const newScale = calculateScale(distance);
-        setScale(newScale);
-    }, [mouseX, containerRef]);
-
+        return calculateScale(Math.abs(latestMouseX - itemCenterX));
+    });
+    const scale = useSpring(rawScale, { stiffness: 360, damping: 34, mass: 0.5 });
+    const labelOpacity = useTransform(scale, [1, 1.16], [0.68, 1]);
+    const labelY = useTransform(scale, [1, DOCK_CONFIG.maxScale], [0, -4]);
+    const imageY = useTransform(scale, [1, DOCK_CONFIG.maxScale], [0, -10]);
+    const labelScale = useTransform(scale, (value) => 1 / Math.max(value, 1));
     const label = getSlideLabel(slide);
 
     return (
-        <div
+        <motion.div
             ref={itemRef}
-            className="flex flex-col items-center justify-end flex-shrink-0"
+            className="group flex shrink-0 cursor-default flex-col items-center justify-end"
             style={{
-                width: `${DOCK_CONFIG.baseSize}px`,
-                marginLeft: `${DOCK_CONFIG.spacing / 2}px`,
-                marginRight: `${DOCK_CONFIG.spacing / 2}px`,
-                transition: 'transform 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-                transform: `scale(${scale})`,
-                transformOrigin: 'bottom center',
+                width: DOCK_CONFIG.baseSize,
+                marginLeft: DOCK_CONFIG.spacing / 2,
+                marginRight: DOCK_CONFIG.spacing / 2,
+                scale,
+                transformOrigin: "bottom center",
+                willChange: "transform",
             }}
         >
-            {/* Image - clean, no background or shadow */}
-            <div
-                className="w-28 h-28 mb-3 flex items-center justify-center"
+            <motion.div
+                className="mb-3 flex items-center justify-center"
                 style={{
-                    transform: 'translateZ(0)',
+                    width: DOCK_CONFIG.imageSize,
+                    height: DOCK_CONFIG.imageSize,
+                    y: imageY,
+                    filter: "drop-shadow(0 16px 24px rgba(15, 23, 42, 0.10))",
+                    willChange: "transform",
                 }}
             >
                 <SlideImage slide={slide} />
-            </div>
-            {/* Label */}
-            <span
-                className="text-sm font-medium text-muted-foreground whitespace-nowrap transition-all duration-200"
+            </motion.div>
+            <motion.span
+                className="whitespace-nowrap text-sm font-medium text-slate-600"
                 style={{
-                    opacity: scale > 1.1 ? 1 : 0.7,
-                    transform: `scale(${1 / scale})`, // Counter-scale to keep text readable
+                    opacity: labelOpacity,
+                    y: labelY,
+                    scale: labelScale,
+                    transformOrigin: "top center",
                 }}
             >
                 {label}
-            </span>
-        </div>
+            </motion.span>
+        </motion.div>
     );
 }
 
-/**
- * Platform slider component - renders a marquee of platform feature images
- * with Mac Dock magnifying effect - clean floating design
- */
 export function PlatformSlider() {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const [mouseX, setMouseX] = useState<number | null>(null);
+    const groupRef = useRef<HTMLDivElement>(null);
+    const [loopWidth, setLoopWidth] = useState(0);
+    const [isHovering, setIsHovering] = useState(false);
+    const shouldReduceMotion = useReducedMotion();
+    const x = useMotionValue(0);
+    const mouseX = useMotionValue(-1);
+    const hoverTick = useMotionValue(0);
 
-    // Duplicate slides for seamless infinite loop
-    const displaySlides = [...PLATFORM_SLIDES, ...PLATFORM_SLIDES, ...PLATFORM_SLIDES];
+    useEffect(() => {
+        const group = groupRef.current;
+        if (!group) return;
 
-    const handleMouseMove = useCallback((e: React.MouseEvent) => {
-        setMouseX(e.clientX);
+        const updateWidth = () => setLoopWidth(group.scrollWidth);
+        updateWidth();
+
+        const observer = new ResizeObserver(updateWidth);
+        observer.observe(group);
+        return () => observer.disconnect();
     }, []);
 
-    const handleMouseLeave = useCallback(() => {
-        setMouseX(null);
-    }, []);
+    useEffect(() => {
+        if (!loopWidth || shouldReduceMotion) {
+            x.set(0);
+            return;
+        }
+
+        const controls = animate(x, -loopWidth, {
+            duration: DOCK_CONFIG.loopSeconds,
+            ease: "linear",
+            repeat: Infinity,
+            repeatType: "loop",
+        });
+
+        return () => controls.stop();
+    }, [loopWidth, shouldReduceMotion, x]);
+
+    useAnimationFrame((time) => {
+        if (!isHovering) return;
+        hoverTick.set(time);
+    });
+
+    const handleMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+        mouseX.set(event.clientX);
+        if (!isHovering) setIsHovering(true);
+    };
+
+    const handleMouseLeave = () => {
+        setIsHovering(false);
+        mouseX.set(-1);
+    };
 
     return (
         <div
-            className="w-full overflow-hidden py-6 mb-12"
+            className="relative mb-12 w-full overflow-hidden py-8"
             style={{
-                WebkitBackfaceVisibility: 'hidden',
-                backfaceVisibility: 'hidden',
+                ["--platform-slider-fade-left" as any]: "color-mix(in srgb, hsl(var(--primary)) 5%, hsl(var(--background)))",
+                ["--platform-slider-fade-right" as any]: "color-mix(in srgb, hsl(var(--secondary)) 10%, hsl(var(--background)))",
             }}
         >
-            {/* Clean container - no background, no border, no shadow */}
             <div
-                ref={containerRef}
-                className="w-full"
+                className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24"
+                style={{
+                    backgroundImage:
+                        "linear-gradient(to right, var(--platform-slider-fade-left), color-mix(in srgb, var(--platform-slider-fade-left) 82%, transparent), transparent)",
+                }}
+            />
+            <div
+                className="pointer-events-none absolute inset-y-0 right-0 z-10 w-24"
+                style={{
+                    backgroundImage:
+                        "linear-gradient(to left, var(--platform-slider-fade-right), color-mix(in srgb, var(--platform-slider-fade-right) 82%, transparent), transparent)",
+                }}
+            />
+
+            <div
+                className="w-full overflow-visible"
                 onMouseMove={handleMouseMove}
                 onMouseLeave={handleMouseLeave}
             >
-                <div
-                    className="flex items-end animate-marquee"
+                <motion.div
+                    className="flex w-max items-end"
                     style={{
-                        willChange: 'transform',
-                        minHeight: `${DOCK_CONFIG.baseSize * DOCK_CONFIG.maxScale + 50}px`,
-                        alignItems: 'flex-end',
+                        x,
+                        minHeight: DOCK_CONFIG.baseSize * DOCK_CONFIG.maxScale + 52,
+                        willChange: shouldReduceMotion ? "auto" : "transform",
+                        transform: "translateZ(0)",
                     }}
                 >
-                    {displaySlides.map((slide, index) => (
-                        <SlideItem
-                            key={`${slide.key}-${index}`}
-                            slide={slide}
-                            index={index}
-                            mouseX={mouseX}
-                            containerRef={containerRef}
-                        />
-                    ))}
-                </div>
+                    <div ref={groupRef} className="flex items-end">
+                        {PLATFORM_SLIDES.map((slide) => (
+                            <SlideItem
+                                key={`a-${slide.key}`}
+                                slide={slide}
+                                mouseX={mouseX}
+                                hoverTick={hoverTick}
+                            />
+                        ))}
+                    </div>
+                    <div className="flex items-end" aria-hidden="true">
+                        {PLATFORM_SLIDES.map((slide) => (
+                            <SlideItem
+                                key={`b-${slide.key}`}
+                                slide={slide}
+                                mouseX={mouseX}
+                                hoverTick={hoverTick}
+                            />
+                        ))}
+                    </div>
+                </motion.div>
             </div>
         </div>
     );
