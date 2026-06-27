@@ -113,25 +113,28 @@ Definition of done:
 - Edge Function computes amount or validates a signed quote/order token.
 - Tests prove a tampered amount cannot create an underpriced PaymentIntent.
 
-### 2. PDF Services Are Not Deployment-Ready
+### 2. PDF Services Need One More Contract Step
 
 Files:
 
 - `supabase/functions/designer-pdf-service/index.ts`
 - `supabase/functions/pod2-pdf-preflight/index.ts`
 
-Current issue:
+Status:
 
-- `designer-pdf-service` can fetch caller-provided `pdfUrl`.
-- `pod2-pdf-preflight` accepts `pdfUrl`, optional `filePath`, and can overwrite
-  files in storage after fetching fixed PDF bytes.
-- These are powerful file-processing boundaries.
+- Initial hardening is implemented: both services require an authenticated user,
+  reject non-HTTPS/private hosts, enforce PDF header checks, and apply file size
+  limits.
+- `pod2-pdf-preflight` also verifies product tenant access before service-role
+  supplier calls or storage overwrites.
+- Remaining gap: both services should eventually prefer server-resolved storage
+  objects or signed URLs over caller-provided remote URLs.
 
 What is needed:
 
-- Require verified user.
-- Resolve tenant and file ownership server-side.
-- Prefer Supabase storage paths over arbitrary URLs.
+- Replace caller-provided remote URL inputs with storage-path or signed-upload
+  contracts where possible.
+- Add rate limits before enabling heavier OCR/compress/PDF-A providers.
 - Add strict max file size.
 - Add allowed MIME/content-type checks.
 - Block private/internal network URLs.
@@ -718,4 +721,3 @@ Do not start with UI polish or new product features.
 Start with checkout authority and file/PDF boundaries. Those are the areas
 where a production mistake can directly affect money, customer files, supplier
 workflow, or tenant trust.
-

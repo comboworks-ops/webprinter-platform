@@ -3,11 +3,8 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { jsonResponse, methodNotAllowed, optionsResponse } from "../_shared/http.ts";
+import { requireUser } from "../_shared/auth.ts";
 
 type PreflightRequest = {
   productId: string;
@@ -22,29 +19,118 @@ type PreflightRequest = {
 };
 
 const DEFAULT_PROFILE = "GWG_SheetCmyk_2015 CMYK + RGB";
+const MAX_FIXED_PDF_BYTES = 50 * 1024 * 1024;
+
+class RequestError extends Error {
+  constructor(message: string, public status = 400) {
+    super(message);
+  }
+}
+
+const isPrivateIpv4 = (host: string) => {
+  const match = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return false;
+  const [a, b] = match.slice(1).map(Number);
+  return (
+    a === 10 ||
+    a === 127 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    a === 0
+  );
+};
+
+const assertSafeRemoteUrl = (rawUrl: string, label: string) => {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new RequestError(`Invalid ${label}`);
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  if (url.protocol !== "https:") {
+    throw new RequestError(`${label} must use HTTPS`);
+  }
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local") ||
+    hostname === "::1" ||
+    hostname === "[::1]" ||
+    isPrivateIpv4(hostname)
+  ) {
+    throw new RequestError(`${label} cannot point to a private or local host`);
+  }
+};
+
+const assertSafeStoragePath = (path: string) => {
+  if (
+    path.startsWith("/") ||
+    path.includes("..") ||
+    path.includes("\\") ||
+    !path.toLowerCase().endsWith(".pdf")
+  ) {
+    throw new RequestError("Invalid filePath for PDF auto-fix upload");
+  }
+};
+
+const userCanAccessTenant = async (
+  serviceClient: ReturnType<typeof createClient>,
+  userId: string,
+  tenantId: string | null,
+) => {
+  const { data: roles, error: rolesError } = await serviceClient
+    .from("user_roles")
+    .select("role, tenant_id")
+    .eq("user_id", userId);
+
+  if (rolesError) throw new Error("Could not verify tenant access");
+
+  const normalizedRoles = (roles || []) as Array<{ role: string; tenant_id: string | null }>;
+  if (normalizedRoles.some((entry) => entry.role === "master_admin")) return true;
+
+  const isMasterTenant = tenantId === "00000000-0000-0000-0000-000000000000";
+  if (isMasterTenant && normalizedRoles.some((entry) => entry.role === "admin")) return true;
+  if (tenantId && normalizedRoles.some((entry) => entry.tenant_id === tenantId)) return true;
+
+  if (tenantId) {
+    const { data: ownedTenant, error: ownerError } = await serviceClient
+      .from("tenants")
+      .select("id")
+      .eq("id", tenantId)
+      .eq("owner_id", userId)
+      .maybeSingle();
+    if (ownerError) throw new Error("Could not verify tenant ownership");
+    if (ownedTenant) return true;
+  }
+
+  return false;
+};
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return optionsResponse();
   }
 
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return methodNotAllowed();
   }
 
   try {
+    const auth = await requireUser(req);
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as PreflightRequest;
     const { productId, pdfUrl, filePath, specs, autoFix } = body;
 
     if (!productId || !pdfUrl) {
-      return new Response(JSON.stringify({ error: "Missing productId or pdfUrl" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Missing productId or pdfUrl" }, 400);
     }
+
+    assertSafeRemoteUrl(pdfUrl, "pdfUrl");
+    if (filePath) assertSafeStoragePath(filePath);
 
     const serviceClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -53,31 +139,28 @@ serve(async (req) => {
 
     const { data: product, error: productError } = await serviceClient
       .from("products")
-      .select("id, technical_specs")
+      .select("id, tenant_id, technical_specs")
       .eq("id", productId)
       .single();
 
     if (productError || !product) {
-      return new Response(JSON.stringify({ error: "Product not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Product not found" }, 404);
+    }
+
+    const tenantId = ((product as any).tenant_id || null) as string | null;
+    const canAccessTenant = await userCanAccessTenant(serviceClient, auth.user.id, tenantId);
+    if (!canAccessTenant) {
+      return jsonResponse({ error: "Forbidden" }, 403);
     }
 
     const technicalSpecs = (product as any).technical_specs || {};
     const isPodProduct = Boolean(technicalSpecs.is_pod || technicalSpecs.is_pod_v2);
     if (!isPodProduct) {
-      return new Response(JSON.stringify({ error: "Preflight is only available for POD products" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Preflight is only available for POD products" }, 403);
     }
 
     if (!technicalSpecs.pod_preflight_enabled) {
-      return new Response(JSON.stringify({ status: "SKIPPED" }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ status: "SKIPPED" });
     }
 
     const widthMm = specs?.width_mm ?? technicalSpecs.width_mm;
@@ -85,10 +168,7 @@ serve(async (req) => {
     const bleedMm = specs?.bleed_mm ?? technicalSpecs.bleed_mm ?? 3;
 
     if (!widthMm || !heightMm) {
-      return new Response(JSON.stringify({ error: "Missing width/height for preflight template" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Missing width/height for preflight template" }, 400);
     }
 
     const platformBaseUrl = Deno.env.get("PRINTCOM_PLATFORM_BASE_URL") ?? "https://platform.print.com";
@@ -126,10 +206,7 @@ serve(async (req) => {
     }
 
     if (!apiKey) {
-      return new Response(JSON.stringify({ error: "Platform API key not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Platform API key not configured" }, 500);
     }
 
     const headers: Record<string, string> = {
@@ -178,13 +255,10 @@ serve(async (req) => {
 
     const preflightData = await preflightResponse.json().catch(() => ({}));
     if (!preflightResponse.ok || !preflightData?.id) {
-      return new Response(JSON.stringify({
+      return jsonResponse({
         error: "Preflight request failed",
         details: preflightData,
-      }), {
-        status: preflightResponse.status,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      }, preflightResponse.status);
     }
 
     const jobId = preflightData.id as string;
@@ -211,9 +285,22 @@ serve(async (req) => {
     const downloadUrl = result?.["download-url"];
 
     if (shouldAutoFix && downloadUrl && filePath) {
+      assertSafeRemoteUrl(downloadUrl, "downloadUrl");
       const pdfRes = await fetch(downloadUrl);
       if (pdfRes.ok) {
+        const contentLength = pdfRes.headers.get("content-length");
+        if (contentLength && Number(contentLength) > MAX_FIXED_PDF_BYTES) {
+          throw new RequestError(`Fixed PDF exceeds the ${MAX_FIXED_PDF_BYTES / 1024 / 1024} MB limit`, 413);
+        }
         const pdfBytes = new Uint8Array(await pdfRes.arrayBuffer());
+        if (pdfBytes.byteLength > MAX_FIXED_PDF_BYTES) {
+          throw new RequestError(`Fixed PDF exceeds the ${MAX_FIXED_PDF_BYTES / 1024 / 1024} MB limit`, 413);
+        }
+        const pdfHeader = new TextDecoder().decode(pdfBytes.slice(0, 5));
+        if (pdfHeader !== "%PDF-") {
+          throw new RequestError("Auto-fix download did not return a PDF");
+        }
+
         const { error: uploadError } = await serviceClient.storage
           .from("order-files")
           .upload(filePath, pdfBytes, { contentType: "application/pdf", upsert: true });
@@ -227,21 +314,18 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       status,
       jobId,
       errors,
       warnings,
       fixes,
       updatedFileUrl,
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error?.message || "Unexpected error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(
+      { error: error?.message || "Unexpected error" },
+      error instanceof RequestError ? error.status : 500,
+    );
   }
 });

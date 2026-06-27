@@ -157,30 +157,30 @@ Relevant lines:
 - `src/hooks/useUserRole.tsx:66`
 - `src/hooks/useUserRole.tsx:70`
 
-### 5. PDF service endpoints need hardening before deployment
+### 5. PDF service endpoints need storage-contract hardening before broad use
 
 Files:
 
 - `supabase/functions/pod2-pdf-preflight/index.ts`
 - `supabase/functions/designer-pdf-service/index.ts`
 
-The POD v2 preflight function accepts a `pdfUrl` and optional `filePath`, then
-can upload auto-fixed PDFs into storage using a service-role client. The
-designer PDF service accepts `pdfUrl` or base64 and fetches arbitrary URLs.
+The POD v2 preflight and designer PDF functions now require authenticated
+callers, reject non-HTTPS/private-host URLs, apply PDF header checks, and enforce
+file size limits. POD v2 preflight also verifies product tenant access before
+supplier calls or service-role storage overwrites.
 
 Risk:
 
 - These functions are powerful file-processing boundaries.
-- If deployed broadly, they need size limits, auth, tenant/file ownership checks,
-  URL allowlists or storage-path-only inputs, and stricter CORS.
+- If deployed broadly with heavier PDF providers, they still need rate limits and
+  a tighter storage-object or signed-URL contract instead of caller-provided
+  remote URLs.
 
 Recommended fix:
 
-- Keep the current browser-only designer PDF fallback until edge auth and size
-  limits are in place.
-- For server-side processing, require authenticated users, resolve tenant
-  ownership server-side, and process only Supabase storage objects the caller
-  owns or is allowed to edit.
+- Continue from the current authenticated/size-limited implementation.
+- For the next server-side processing step, resolve Supabase storage objects on
+  the server and process only files the caller owns or is allowed to edit.
 
 Relevant lines:
 
@@ -434,7 +434,7 @@ The near-term business value is reducing buyer risk:
 - Do not modify POD v1 behavior.
 - Keep POD v2 additive and separate from POD v1.
 - Keep the PDF designer service separate from POD v2 preflight.
-- Do not deploy the new `designer-pdf-service` until auth, size limits, and
-  ownership checks are added.
+- Do not broaden `designer-pdf-service` beyond inspect/preflight-style work until
+  rate limits and server-resolved storage inputs are added.
 - Do not delete tracked duplicate files or backup folders without a cleanup
   branch and explicit confirmation.

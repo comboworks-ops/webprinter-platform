@@ -43,7 +43,7 @@ Remaining:
 | `calculate-machine-price` | Pricing/server calculation | Uses service role; pricing-sensitive. | Keep authenticated or server-only. Add explicit config and typed input validation before production reliance. |
 | `catalog-read` | Public read | Uses service role for tenant/catalog reads. | Keep public/read-only if needed, but validate tenant inputs and keep response shape stable. |
 | `create-admin-user` | Local/dev-only admin tool | Uses service role and Auth admin APIs. Phase 1 added local-only and master-admin gates. | Keep guarded; do not deploy as a normal production endpoint. |
-| `designer-pdf-service` | Future PDF service | Fetches caller-provided `pdfUrl`; no auth/ownership limits in code. | Keep undeployed/browser-fallback only until auth, size limits, and storage ownership checks exist. |
+| `designer-pdf-service` | Future PDF service | Hardened with auth, HTTPS/private-host rejection, PDF header checks, and 25 MB limit. Still accepts remote URLs. | Prefer Supabase storage-object inputs before broad production reliance. Add rate limits before heavy OCR/compress providers. |
 | `icon-studio-generate` | Authenticated AI generation | Checks auth and role/module access; uses AI keys and service role. | Good candidate for shared auth helper. Add request size/rate limits if not already covered. |
 | `platform-pagespeed` | External public utility | Calls PageSpeed API from caller-provided URL. | Add allowed host/tenant checks before exposing broadly. |
 | `platform-sitemap` | Public read | Likely public platform output. | Keep public if read-only; document intended public status. |
@@ -59,7 +59,7 @@ Remaining:
 | `pod2-explorer-request` | Authenticated supplier proxy | Checks user/roles; proxies supplier API. | Keep admin-gated. Validate paths and provider response shape. |
 | `pod2-master-forward` | Authenticated master/admin POD v2 | Checks user/roles; updates fulfillment jobs. | Keep admin-gated. Add explicit config. |
 | `pod2-order-submit` | Authenticated POD v2 submit | Checks user/roles; submits to Print.com and mutates jobs. | Keep master/admin-gated. Validate supplier responses. |
-| `pod2-pdf-preflight` | File processing/POD v2 | Uses service role; fetches external URLs; can upload fixed PDF. | Add auth, tenant ownership, storage-path-only mode, URL restrictions, and file size limits before deployment. |
+| `pod2-pdf-preflight` | File processing/POD v2 | Hardened with auth, product tenant access checks, HTTPS/private-host rejection, storage path validation, and 50 MB auto-fix limit. Still depends on public PDF URLs for Print.com. | Move toward storage-path-only inputs and signed URLs so caller-provided URLs are not part of the contract. |
 | `pod2-printcom-sync-status` | Authenticated supplier sync | Checks user/roles; updates jobs. | Keep admin-gated. Add explicit config. |
 | `pod2-submit-to-printcom` | Authenticated supplier submit | Checks user/roles; uploads files/logos to Print.com. | Keep admin-gated. Verify file ownership and URL restrictions. |
 | `pod2-tenant-approve-charge` | Authenticated billing/POD v2 | Checks user/roles; uses Stripe and service role. | Keep admin/tenant-gated. Add explicit config. |
@@ -95,8 +95,8 @@ Remaining:
 
 1. Replace `stripe-create-payment-intent` with a server-calculated amount
    contract.
-2. Harden `designer-pdf-service` and `pod2-pdf-preflight` before deploying or
-   relying on server-side PDF processing.
+2. Continue PDF hardening by replacing caller-provided URLs with server-resolved
+   storage objects or signed URLs.
 3. Add a shared auth/role helper for Edge Functions, then migrate admin/service
    functions gradually.
 4. Keep local/dev-only functions guarded and consider moving them out of
