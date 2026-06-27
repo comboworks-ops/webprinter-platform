@@ -93,11 +93,12 @@ Remaining:
 
 ## Highest-Value Safe Next Steps
 
-1. Replace `stripe-create-payment-intent` with a server-calculated amount
-   contract.
-2. Continue PDF hardening by replacing caller-provided URLs with server-resolved
-   storage objects or signed URLs.
-3. Add a shared auth/role helper for Edge Functions, then migrate admin/service
+1. Add focused Edge Function tests for tampered checkout quotes, invalid option
+   IDs, invalid delivery IDs, unauthorized PDF storage paths, and oversized PDF
+   files.
+2. Replace the current in-memory per-instance rate limiter with a persistent
+   distributed limiter if production traffic or abuse patterns require it.
+3. Continue migrating admin/service
    functions gradually.
 4. Keep local/dev-only functions guarded and consider moving them out of
    `supabase/functions` later.

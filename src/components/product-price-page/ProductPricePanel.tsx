@@ -22,6 +22,7 @@ type ProductPricePanelProps = {
   onShippingChange?: (type: string | null, cost: number) => void;
   summary?: string;
   optionSelections?: Record<string, { optionId: string; name: string; extraPrice: number; priceMode: "fixed" | "per_quantity" | "per_area" }>;
+  pricingQuote?: SiteCheckoutState["pricingQuote"];
   selectedVariant?: string;
   productName?: string;
   productSlug: string;
@@ -188,6 +189,7 @@ export function ProductPricePanel({
   onShippingChange,
   summary,
   optionSelections,
+  pricingQuote,
   selectedVariant,
   productName,
   productSlug,
@@ -904,6 +906,16 @@ export function ProductPricePanel({
       designSafeAreaMm: designSafeAreaMm ?? null,
       shippingSelected: activeDeliveryMethod?.id || null,
       shippingCost: activeShippingCost,
+      pricingQuote: pricingQuote
+        ? {
+          ...pricingQuote,
+          quantity,
+          optionIds: Object.values(optionSelections || {})
+            .map((option) => option.optionId)
+            .filter((optionId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(optionId || ""))),
+          shippingSelected: activeDeliveryMethod?.id || null,
+        }
+        : null,
       createdAt: new Date().toISOString(),
   });
 
@@ -929,7 +941,7 @@ export function ProductPricePanel({
   return (
     <div
       data-branding-id="productPage.pricePanel.box"
-      className="sticky top-24 space-y-4 overflow-hidden border p-6"
+      className="space-y-4 overflow-hidden border p-4 sm:p-6 lg:sticky lg:top-24"
       style={pricePanelStyles.containerStyle}
     >
       <style>{`
@@ -1087,10 +1099,10 @@ export function ProductPricePanel({
           display: none;
         }
       `}</style>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3
           data-branding-id="productPage.pricePanel.titleColor"
-          className="price-panel-title text-2xl font-heading font-bold"
+          className="price-panel-title text-xl font-heading font-bold sm:text-2xl"
         >
           Prisberegning
         </h3>
@@ -1105,7 +1117,7 @@ export function ProductPricePanel({
               variant="outline"
               size="sm"
               onClick={generatePDF}
-              className="price-panel-download-button gap-2"
+              className="price-panel-download-button min-h-11 w-full touch-manipulation gap-2 sm:w-auto"
               disabled={!canDownloadOffer}
             >
               <Download className="h-4 w-4" />
@@ -1139,18 +1151,18 @@ export function ProductPricePanel({
 
       {/* Product price */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-4">
-          <div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
             <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-sm">Pris ex. moms</p>
             <p
               data-branding-id="productPage.pricePanel.price"
-              className="price-panel-price min-w-[170px] text-4xl font-heading font-bold tabular-nums"
+              className="price-panel-price min-w-0 text-3xl font-heading font-bold tabular-nums sm:text-4xl"
             >
               {baseTotal > 0 ? `${baseTotal} kr` : "-"}
             </p>
           </div>
           {hasStableSelection && (
-            <div className="flex flex-col items-stretch gap-2">
+            <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto">
               <MotionButton
                 {...orderButtonMotionProps}
                 data-surface={orderButtonMotion.surfaceStyle}
@@ -1158,7 +1170,7 @@ export function ProductPricePanel({
                 variant="outline"
                 size="lg"
                 className={cn(
-                  "gap-2 py-5 border-2",
+                  "min-h-12 w-full touch-manipulation gap-2 py-5 border-2",
                   designReady
                     ? "order-selected-button"
                     : "order-secondary-button border-dashed border-2"
@@ -1202,7 +1214,7 @@ export function ProductPricePanel({
                     data-surface={orderButtonMotion.surfaceStyle}
                     variant="outline"
                     size="lg"
-                    className="gap-2 border-dashed py-5"
+                    className="min-h-12 w-full touch-manipulation gap-2 border-dashed py-5"
                     style={secondaryButtonCssVars}
                     onClick={() => {
                       persistCheckoutState({ crossTab: true });
@@ -1225,7 +1237,7 @@ export function ProductPricePanel({
                 data-surface={orderButtonMotion.surfaceStyle}
                 data-branding-id="productPage.orderButtons.primary"
                 size="lg"
-                className="order-primary-button px-6 py-6 text-lg font-semibold"
+                className="order-primary-button min-h-12 w-full touch-manipulation px-6 py-6 text-base font-semibold sm:text-lg"
                 style={primaryButtonCssVars}
                 onClick={handleOrderClick}
                 disabled={!canOrder}
@@ -1308,7 +1320,7 @@ export function ProductPricePanel({
                   key={method.id}
                   data-branding-id="productPage.pricePanel.optionCard"
                   className={cn(
-                    "price-panel-option flex items-start space-x-2 rounded-md border p-3 transition-colors",
+                    "price-panel-option flex min-h-11 items-start space-x-2 rounded-md border p-3 transition-colors",
                     isSelected && "price-panel-option--selected"
                   )}
                 >
@@ -1323,8 +1335,8 @@ export function ProductPricePanel({
                     }}
                   />
                   <Label htmlFor={`delivery-${method.id}`} className="cursor-pointer flex-1">
-                    <div className="flex justify-between items-start gap-2">
-                      <div>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
                         <div className="flex flex-wrap items-baseline gap-2">
                           {carrierLogo && (
                             <span className="inline-flex items-center justify-center rounded border bg-background px-1.5 py-1">
@@ -1362,7 +1374,7 @@ export function ProductPricePanel({
                           <div data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted mt-1 text-xs">{deliveryDateLabel}</div>
                         )}
                       </div>
-                      <span data-branding-id="productPage.pricePanel.price" className="price-panel-price min-w-[88px] text-right text-sm font-semibold tabular-nums">{cost} kr</span>
+                      <span data-branding-id="productPage.pricePanel.price" className="price-panel-price text-left text-sm font-semibold tabular-nums sm:min-w-[88px] sm:text-right">{cost} kr</span>
                     </div>
                   </Label>
                 </div>
@@ -1370,11 +1382,11 @@ export function ProductPricePanel({
             })}
           </RadioGroup>
 
-          <div className="price-panel-divider flex items-end justify-between border-t pt-4">
+          <div className="price-panel-divider flex flex-col gap-1 border-t pt-4 sm:flex-row sm:items-end sm:justify-between">
             <span data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-sm">Samlet pris ex. moms:</span>
             <span
               data-branding-id="productPage.pricePanel.price"
-              className="price-panel-price min-w-[170px] text-right text-4xl font-heading font-bold tabular-nums"
+              className="price-panel-price min-w-0 text-left text-3xl font-heading font-bold tabular-nums sm:min-w-[170px] sm:text-right sm:text-4xl"
             >
               {totalPrice} kr
             </span>

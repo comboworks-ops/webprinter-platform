@@ -100,12 +100,14 @@ Current issue:
 
 What is needed:
 
-- A server-calculated checkout contract.
-- The frontend should send selected product/options/quantity/file references.
-- The server should resolve product, tenant, options, quantity, delivery, VAT,
-  discount/fee rules, and calculate the final amount.
-- Stripe metadata should store a calculated order snapshot, not arbitrary
-  browser-provided pricing.
+- Implemented: the frontend sends a structured `checkout_quote`.
+- Implemented: `stripe-create-payment-intent` recalculates product price through
+  `pricing-read`, verifies selected option IDs against assigned product option
+  groups, resolves delivery, and rejects client/server amount mismatches.
+- Implemented: Stripe metadata records the server-calculated product, option,
+  delivery, pricing source, and matched price-row values.
+- Remaining: add dedicated tests for tampered quantities, options, and delivery
+  IDs when an Edge Function test harness is available.
 
 Definition of done:
 
@@ -127,14 +129,21 @@ Status:
   limits.
 - `pod2-pdf-preflight` also verifies product tenant access before service-role
   supplier calls or storage overwrites.
-- Remaining gap: both services should eventually prefer server-resolved storage
-  objects or signed URLs over caller-provided remote URLs.
+- Implemented: `pod2-pdf-preflight` now accepts storage path input and creates a
+  short-lived signed URL server-side for Print.com preflight.
+- Implemented: `designer-pdf-service` can read PDFs from allowed Supabase
+  storage buckets server-side.
+- Implemented: lightweight per-instance Edge Function rate limits are applied to
+  Stripe checkout and both PDF services.
+- Remaining: replace the in-memory limiter with a persistent distributed limit
+  if traffic grows or abuse appears.
 
 What is needed:
 
-- Replace caller-provided remote URL inputs with storage-path or signed-upload
-  contracts where possible.
-- Add rate limits before enabling heavier OCR/compress/PDF-A providers.
+- Prefer the storage-path contracts in new callers; keep remote URL support only
+  for controlled compatibility paths.
+- Add persistent rate limits before enabling heavier OCR/compress/PDF-A
+  providers.
 - Add strict max file size.
 - Add allowed MIME/content-type checks.
 - Block private/internal network URLs.

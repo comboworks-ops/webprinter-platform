@@ -118,10 +118,13 @@ Risk:
 
 Recommended fix:
 
-- Recalculate the payable amount server-side from product, quantity, selected
-  options, tenant, and any signed quote/order token.
-- Treat browser totals as display-only.
-- Store the calculated order snapshot with the PaymentIntent metadata.
+- Implemented: `stripe-create-payment-intent` requires a structured
+  `checkout_quote`, recalculates product price through `pricing-read`, verifies
+  selected option IDs against product option groups, resolves delivery, and
+  rejects mismatched client totals.
+- Browser totals should continue to be treated as display-only.
+- Remaining: add focused Edge Function tests for tampered quantity, option, and
+  delivery inputs.
 
 Relevant lines:
 
@@ -165,22 +168,23 @@ Files:
 - `supabase/functions/designer-pdf-service/index.ts`
 
 The POD v2 preflight and designer PDF functions now require authenticated
-callers, reject non-HTTPS/private-host URLs, apply PDF header checks, and enforce
-file size limits. POD v2 preflight also verifies product tenant access before
-supplier calls or service-role storage overwrites.
+callers, reject non-HTTPS/private-host URLs, apply PDF header checks, enforce
+file size limits, and apply lightweight per-instance rate limits. POD v2
+preflight also verifies product tenant access before supplier calls or
+service-role storage overwrites, and now creates short-lived signed URLs from
+storage paths for Print.com preflight.
 
 Risk:
 
 - These functions are powerful file-processing boundaries.
-- If deployed broadly with heavier PDF providers, they still need rate limits and
-  a tighter storage-object or signed-URL contract instead of caller-provided
-  remote URLs.
+- If deployed broadly with heavier PDF providers, replace the in-memory limiter
+  with a persistent distributed limiter.
 
 Recommended fix:
 
-- Continue from the current authenticated/size-limited implementation.
-- For the next server-side processing step, resolve Supabase storage objects on
-  the server and process only files the caller owns or is allowed to edit.
+- Prefer the new storage-path contracts in callers.
+- Keep remote URL support only for controlled compatibility paths.
+- Add focused tests for unauthorized storage paths and oversized PDF files.
 
 Relevant lines:
 

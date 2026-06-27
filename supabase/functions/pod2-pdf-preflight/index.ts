@@ -5,10 +5,12 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { jsonResponse, methodNotAllowed, optionsResponse } from "../_shared/http.ts";
 import { requireUser } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/rateLimit.ts";
 
 type PreflightRequest = {
   productId: string;
-  pdfUrl: string;
+  pdfUrl?: string;
+  storageBucket?: string;
   filePath?: string;
   specs?: {
     width_mm?: number;
@@ -20,6 +22,7 @@ type PreflightRequest = {
 
 const DEFAULT_PROFILE = "GWG_SheetCmyk_2015 CMYK + RGB";
 const MAX_FIXED_PDF_BYTES = 50 * 1024 * 1024;
+const ORDER_FILES_BUCKET = "order-files";
 
 class RequestError extends Error {
   constructor(message: string, public status = 400) {
@@ -118,6 +121,13 @@ serve(async (req) => {
     return methodNotAllowed();
   }
 
+  const rateLimited = checkRateLimit(req, {
+    keyPrefix: "pod2-pdf-preflight",
+    limit: 20,
+    windowMs: 60_000,
+  });
+  if (rateLimited) return rateLimited;
+
   try {
     const auth = await requireUser(req);
     if (!auth.ok) return auth.response;
@@ -125,11 +135,11 @@ serve(async (req) => {
     const body = (await req.json()) as PreflightRequest;
     const { productId, pdfUrl, filePath, specs, autoFix } = body;
 
-    if (!productId || !pdfUrl) {
-      return jsonResponse({ error: "Missing productId or pdfUrl" }, 400);
+    if (!productId || (!pdfUrl && !filePath)) {
+      return jsonResponse({ error: "Missing productId and PDF storage path" }, 400);
     }
 
-    assertSafeRemoteUrl(pdfUrl, "pdfUrl");
+    if (pdfUrl) assertSafeRemoteUrl(pdfUrl, "pdfUrl");
     if (filePath) assertSafeStoragePath(filePath);
 
     const serviceClient = createClient(
@@ -235,8 +245,25 @@ serve(async (req) => {
         break;
     }
 
+    let preflightPdfUrl = pdfUrl || "";
+    if (!preflightPdfUrl && filePath) {
+      const bucket = body.storageBucket || ORDER_FILES_BUCKET;
+      if (bucket !== ORDER_FILES_BUCKET) {
+        throw new RequestError("Unsupported storageBucket for POD2 preflight");
+      }
+      const { data: signedUrlData, error: signedUrlError } = await serviceClient.storage
+        .from(bucket)
+        .createSignedUrl(filePath, 10 * 60);
+      if (signedUrlError || !signedUrlData?.signedUrl) {
+        throw new RequestError("Could not create signed PDF URL for preflight", 500);
+      }
+      preflightPdfUrl = signedUrlData.signedUrl;
+    }
+
+    assertSafeRemoteUrl(preflightPdfUrl, "preflightPdfUrl");
+
     const preflightBody = {
-      url: pdfUrl,
+      url: preflightPdfUrl,
       profile: technicalSpecs.pod_preflight_profile || DEFAULT_PROFILE,
       template: [{ width: widthMm, height: heightMm }],
       bleed: {

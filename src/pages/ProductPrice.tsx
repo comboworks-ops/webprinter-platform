@@ -29,6 +29,7 @@ import { fetchProductDetailRead } from "@/lib/api/productDetailRead";
 import { resolveCanvaOffer } from "@/lib/canva/launch";
 import { resolveMatrixLinkedTemplateId } from "@/lib/designer/linkedTemplates";
 import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
+import type { SiteCheckoutState } from "@/lib/checkout/siteCheckoutSession";
 
 // Legacy product configurations removed on user request (2025-01-30)
 // specificPricingProducts and productConfigs were deleted to unify on the generic pricing system.
@@ -108,6 +109,12 @@ const ProductPrice = () => {
   // State
   const [selectedFormat, setSelectedFormat] = useState<string>("");
   const [matrixSelectedSectionValues, setMatrixSelectedSectionValues] = useState<Record<string, string | null>>({});
+  const [matrixPricingMeta, setMatrixPricingMeta] = useState<{
+    formatId?: string;
+    materialId?: string;
+    variantKey?: string;
+    verticalValueId?: string;
+  }>({});
   const [selectedExtraOption, setSelectedExtraOption] = useState<string>("");
   const [matrixData, setMatrixData] = useState<MatrixData>({ rows: [], columns: [], cells: {} });
   const [selectedCell, setSelectedCell] = useState<{ row: string; column: number } | null>(null);
@@ -794,7 +801,7 @@ const ProductPrice = () => {
   const handleMatrixSelectionChange = useCallback((
     selections: Record<string, string | null>,
     formatId?: string,
-    _materialId?: string,
+    materialId?: string,
     meta?: { variantKey?: string; verticalValueId?: string },
   ) => {
     setMatrixSelectedSectionValues((prev) => {
@@ -811,6 +818,20 @@ const ProductPrice = () => {
     if (formatId) {
       setSelectedFormat(prev => (prev === formatId ? prev : formatId));
     }
+    setMatrixPricingMeta((prev) => {
+      const next = {
+        formatId,
+        materialId,
+        variantKey: meta?.variantKey,
+        verticalValueId: meta?.verticalValueId,
+      };
+      return (
+        prev.formatId === next.formatId
+        && prev.materialId === next.materialId
+        && prev.variantKey === next.variantKey
+        && prev.verticalValueId === next.verticalValueId
+      ) ? prev : next;
+    });
     if (meta?.variantKey || meta?.verticalValueId) {
       const nextVariantKey = meta?.variantKey;
       const nextVerticalValueId = meta?.verticalValueId;
@@ -821,6 +842,46 @@ const ProductPrice = () => {
       ));
     }
   }, []);
+
+  const pricingQuote = useMemo<SiteCheckoutState["pricingQuote"]>(() => {
+    if (!dbProductId) return null;
+    const quantity = isStorformat ? (storformatSelection?.quantity || 0) : (selectedCell?.column || 0);
+    if (!quantity || quantity <= 0) return null;
+    const selectedValues = Object.values(matrixSelectedSectionValues || {})
+      .map((value) => String(value || ""))
+      .filter((value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value));
+
+    return {
+      productId: dbProductId,
+      productSlug: slug || null,
+      quantity,
+      formatId: matrixPricingMeta.formatId || selectedFormat || null,
+      materialId: matrixPricingMeta.materialId || null,
+      verticalValueId: matrixPricingMeta.verticalValueId || null,
+      variantKey: matrixPricingMeta.variantKey || selectedCell?.row || null,
+      variantValueIds: selectedValues,
+      variantDisplayLabels: matrixSelectionSummary,
+      selectedSectionValues: matrixSelectedSectionValues,
+      optionIds: Object.values(optionSelections)
+        .map((option) => option.optionId)
+        .filter((optionId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(optionId || ""))),
+      shippingSelected: null,
+      areaM2: isStorformat ? (storformatSelection?.areaM2 || null) : (customArea || null),
+    };
+  }, [
+    customArea,
+    dbProductId,
+    isStorformat,
+    matrixPricingMeta,
+    matrixSelectedSectionValues,
+    matrixSelectionSummary,
+    optionSelections,
+    selectedCell?.column,
+    selectedFormat,
+    slug,
+    storformatSelection?.areaM2,
+    storformatSelection?.quantity,
+  ]);
 
 
   useEffect(() => {
@@ -1166,8 +1227,8 @@ const ProductPrice = () => {
       ].filter(Boolean);
 
       return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
+          <div className="min-w-0 space-y-6 lg:col-span-2">
             <StorformatConfigurator
               productId={dbProductId}
               onSelectionChange={handleStorformatSelection}
@@ -1182,7 +1243,7 @@ const ProductPrice = () => {
             )}
             {sizeDistributionBlock}
           </div>
-          <div className="lg:col-span-1 lg:self-start">
+          <div className="min-w-0 lg:col-span-1 lg:self-start">
             <ProductPricePanel
               productId={dbProductId}
               quantity={storformatSelection?.quantity || 0}
@@ -1193,6 +1254,7 @@ const ProductPrice = () => {
               orderValidationError={orderValidationError}
               onShippingChange={handleShippingChange}
               optionSelections={combinedOptionSelections}
+              pricingQuote={pricingQuote}
               selectedVariant={storformatSelection?.materialName}
               productName={product?.name || ''}
               productSlug={slug || ''}
@@ -1213,8 +1275,8 @@ const ProductPrice = () => {
 
     if (pricingStructure?.mode === 'matrix_layout_v1' && dbProductId) {
       return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
+          <div className="min-w-0 space-y-6 lg:col-span-2">
             <MatrixLayoutV1Renderer
               productId={dbProductId}
               pricingStructure={pricingStructure}
@@ -1228,7 +1290,7 @@ const ProductPrice = () => {
             />
             {sizeDistributionBlock}
           </div>
-          <div className="lg:col-span-1 lg:self-start">
+          <div className="min-w-0 lg:col-span-1 lg:self-start">
             <ProductPricePanel
               productId={dbProductId}
               quantity={selectedCell?.column || 0}
@@ -1238,6 +1300,7 @@ const ProductPrice = () => {
               orderValidationError={orderValidationError}
               onShippingChange={handleShippingChange}
               optionSelections={combinedOptionSelections}
+              pricingQuote={pricingQuote}
               selectedVariant={selectedCell?.row}
               productName={product?.name || ''}
               productSlug={slug || ''}
@@ -1279,8 +1342,8 @@ const ProductPrice = () => {
 
     return (
       <>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
+          <div className="min-w-0 space-y-6 lg:col-span-2">
             {/* For non-area products, keep options above */}
             {!isAreaBased && optionsBlock}
 
@@ -1354,7 +1417,7 @@ const ProductPrice = () => {
             )}
           </div>
 
-          <div className="lg:col-span-1 space-y-6">
+          <div className="min-w-0 space-y-6 lg:col-span-1">
             <div>
               <ProductPricePanel
                 productId={dbProductId || ""}
@@ -1365,6 +1428,7 @@ const ProductPrice = () => {
                 orderValidationError={orderValidationError}
                 onShippingChange={handleShippingChange}
                 optionSelections={combinedOptionSelections}
+                pricingQuote={pricingQuote}
                 selectedVariant={selectedCell?.row}
                 productName={product.name}
                 productSlug={slug || ""}
@@ -1416,12 +1480,14 @@ const ProductPrice = () => {
               const headingSize = ph?.sizePx ? `${ph.sizePx}px` : undefined;
               const headingColor = ph?.color || undefined;
               const subtext = ph?.subtext;
+              const bodyFont = (branding as any)?.fonts?.body || 'inherit';
+              const bodyColor = (branding as any)?.colors?.bodyText || undefined;
               return (
                 <>
                   <h1
                     className="font-bold mb-2 leading-tight"
                     style={{
-                      fontFamily: headingFont !== 'inherit' ? headingFont : undefined,
+                      fontFamily: headingFont !== 'inherit' ? `'${headingFont}', sans-serif` : undefined,
                       fontSize: headingSize,
                       color: headingColor,
                     }}
@@ -1432,7 +1498,7 @@ const ProductPrice = () => {
                     <p
                       className="font-bold mb-2"
                       style={{
-                        fontFamily: subtext.font && subtext.font !== 'inherit' ? subtext.font : undefined,
+                        fontFamily: subtext.font && subtext.font !== 'inherit' ? `'${subtext.font}', sans-serif` : undefined,
                         fontSize: subtext.sizePx ? `${subtext.sizePx}px` : undefined,
                         color: subtext.color || undefined,
                       }}
@@ -1440,10 +1506,20 @@ const ProductPrice = () => {
                       {subtext.text}
                     </p>
                   )}
+                  {product.description && (
+                    <p
+                      className="text-muted-foreground"
+                      style={{
+                        fontFamily: bodyFont !== 'inherit' ? `'${bodyFont}', sans-serif` : undefined,
+                        color: bodyColor,
+                      }}
+                    >
+                      {product.description}
+                    </p>
+                  )}
                 </>
               );
             })()}
-            <p className="text-muted-foreground">{product.description}</p>
           </div>
           {product && (
             <div className="w-full md:w-48 h-48 flex-shrink-0">

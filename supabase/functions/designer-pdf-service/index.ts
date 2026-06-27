@@ -4,8 +4,10 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { jsonResponse, methodNotAllowed, optionsResponse } from "../_shared/http.ts";
 import { requireUser } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/rateLimit.ts";
 
 type DesignerPdfServiceOperation =
   | "inspect"
@@ -21,6 +23,8 @@ type DesignerPdfServiceRequest = {
   operation?: DesignerPdfServiceOperation;
   pdfUrl?: string;
   pdfBase64?: string;
+  storageBucket?: string;
+  storagePath?: string;
   fileName?: string;
   expected?: {
     widthMm?: number;
@@ -40,6 +44,7 @@ const ALLOWED_OPERATIONS: DesignerPdfServiceOperation[] = [
   "flatten-forms",
 ];
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
+const ALLOWED_STORAGE_BUCKETS = new Set(["order-files", "product-images", "tenant-assets"]);
 
 const mmFromPt = (pt: number) => (pt / 72) * 25.4;
 
@@ -99,6 +104,21 @@ const assertPdfBytes = (bytes: Uint8Array) => {
   }
 };
 
+const assertSafeStorageObject = (bucket?: string, path?: string) => {
+  if (!bucket || !ALLOWED_STORAGE_BUCKETS.has(bucket)) {
+    throw new RequestError("Unsupported storage bucket");
+  }
+  if (
+    !path ||
+    path.startsWith("/") ||
+    path.includes("..") ||
+    path.includes("\\") ||
+    !path.toLowerCase().endsWith(".pdf")
+  ) {
+    throw new RequestError("Invalid storagePath");
+  }
+};
+
 const bytesFromBase64 = (base64: string): Uint8Array => {
   const cleanBase64 = base64.includes(",") ? base64.split(",").pop() || "" : base64;
   if (Math.ceil((cleanBase64.length * 3) / 4) > MAX_PDF_BYTES) {
@@ -113,6 +133,21 @@ const bytesFromBase64 = (base64: string): Uint8Array => {
 };
 
 const getPdfBytes = async (body: DesignerPdfServiceRequest): Promise<Uint8Array> => {
+  if (body.storageBucket || body.storagePath) {
+    assertSafeStorageObject(body.storageBucket, body.storagePath);
+    const serviceClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    );
+    const { data, error } = await serviceClient.storage
+      .from(body.storageBucket!)
+      .download(body.storagePath!);
+    if (error || !data) throw new RequestError("Could not read PDF from storage", 404);
+    const bytes = new Uint8Array(await data.arrayBuffer());
+    assertPdfBytes(bytes);
+    return bytes;
+  }
+
   if (body.pdfBase64) {
     const bytes = bytesFromBase64(body.pdfBase64);
     assertPdfBytes(bytes);
@@ -143,6 +178,13 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return methodNotAllowed();
   }
+
+  const rateLimited = checkRateLimit(req, {
+    keyPrefix: "designer-pdf-service",
+    limit: 30,
+    windowMs: 60_000,
+  });
+  if (rateLimited) return rateLimited;
 
   try {
     const auth = await requireUser(req);
