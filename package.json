@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
+    "check:supabase-functions": "node scripts/check-supabase-function-exposure.js",
     "fetch:standard-rollup:import": "node scripts/fetch-standard-rollup-import.js import",
     "fetch:premium-rollups:import": "node scripts/fetch-premium-rollups-import.js import",
     "fetch:komplet-color-rollup:import": "node scripts/fetch-komplet-color-rollup-import.js import",

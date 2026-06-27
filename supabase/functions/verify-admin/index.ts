@@ -1,65 +1,37 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-}
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders, jsonResponse, optionsResponse } from "../_shared/http.ts";
+import { requireUser } from "../_shared/auth.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders })
-  }
+  if (req.method === "OPTIONS") return optionsResponse();
 
   try {
-    const authHeader = req.headers.get("authorization")
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ isAdmin: false, error: "No authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      )
-    }
+    const auth = await requireUser(req);
+    if (!auth.ok) return auth.response;
 
-    const token = authHeader.replace("Bearer ", "")
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-
-    // 1. Verify User (Standard Auth)
-    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey)
-    const { data: { user }, error: userError } = await supabaseAuth.auth.getUser(token)
-
-    if (userError || !user) {
-      console.error("Auth error:", userError)
-      return new Response(
-        JSON.stringify({ isAdmin: false, error: "User not authenticated" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      )
-    }
-
-    // 2. Check Admin Role (Bypass RLS with Service Key)
-    // We check the table directly instead of relying on a potentially missing RPC function
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
-    const { data } = await supabaseAdmin
+    const { data: roles, error } = await serviceClient
       .from("user_roles")
       .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .maybeSingle()
+      .eq("user_id", auth.user.id);
 
-    const isAdmin = !!data
-    console.log(`Admin check for ${user.email} (${user.id}): ${isAdmin}`)
+    if (error) {
+      return jsonResponse({ isAdmin: false, isMasterAdmin: false, error: "Could not verify role" }, 500);
+    }
+
+    const roleNames = (roles || []).map((entry: any) => entry.role);
+    const isMasterAdmin = roleNames.includes("master_admin");
+    const isAdmin = isMasterAdmin || roleNames.includes("admin");
 
     return new Response(
-      JSON.stringify({ isAdmin, userId: user.id }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    )
-
+      JSON.stringify({ isAdmin, isMasterAdmin, userId: auth.user.id }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   } catch (error) {
-    console.error("Verify Admin Error:", error)
-    return new Response(
-      JSON.stringify({ isAdmin: false, error: error.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    )
+    const message = error instanceof Error ? error.message : "Verify admin failed";
+    return jsonResponse({ isAdmin: false, isMasterAdmin: false, error: message }, 500);
   }
-})
+});
