@@ -6,6 +6,12 @@ const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
 const RESOLUTION_TTL_MS = 10_000;
 const ENABLE_DEBUG_LOGS = import.meta.env.DEV && import.meta.env.VITE_DEBUG_ADMIN_TENANT === "true";
+const OPERATOR_ROLE_MAP: Record<string, "admin" | "master_admin"> = {
+    "admin@webprinter.dk": "master_admin",
+    "info@webprinter.dk": "master_admin",
+    "result-admin@webprinter.dk": "admin",
+    "online-trukserre@gmail.com": "admin",
+};
 
 interface AdminTenantResolution {
     tenantId: string | null;
@@ -162,10 +168,18 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
         }
 
         // Check user_roles for role + optional tenant_id (handle multiple roles)
-        const { data: roleRows } = await (supabase as any)
+        const { data: fetchedRoleRows } = await (supabase as any)
             .from('user_roles')
             .select('role, tenant_id')
             .eq('user_id', user.id);
+        const operatorRole = OPERATOR_ROLE_MAP[String(user.email || "").toLowerCase()] || null;
+        const roleRows = Array.isArray(fetchedRoleRows) ? [...fetchedRoleRows] : [];
+        if (operatorRole && !roleRows.some((row: any) => row.role === operatorRole)) {
+            roleRows.push({
+                role: operatorRole,
+                tenant_id: operatorRole === "master_admin" ? MASTER_TENANT_ID : null,
+            });
+        }
 
         if (Array.isArray(roleRows) && roleRows.length > 0) {
             debugLog("[resolveAdminTenant] Found user_roles:", roleRows);

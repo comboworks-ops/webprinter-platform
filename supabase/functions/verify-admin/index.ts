@@ -2,6 +2,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, jsonResponse, optionsResponse } from "../_shared/http.ts";
 import { requireUser } from "../_shared/auth.ts";
 
+const OPERATOR_ROLE_MAP: Record<string, "admin" | "master_admin"> = {
+  "admin@webprinter.dk": "master_admin",
+  "info@webprinter.dk": "master_admin",
+  "result-admin@webprinter.dk": "admin",
+  "online-trukserre@gmail.com": "admin",
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return optionsResponse();
 
@@ -23,11 +30,12 @@ Deno.serve(async (req) => {
     }
 
     const roleNames = (roles || []).map((entry: any) => entry.role);
-    const isMasterAdmin = roleNames.includes("master_admin");
-    const isAdmin = isMasterAdmin || roleNames.includes("admin");
+    const operatorRole = OPERATOR_ROLE_MAP[String(auth.user.email || "").toLowerCase()] || null;
+    const isMasterAdmin = roleNames.includes("master_admin") || operatorRole === "master_admin";
+    const isAdmin = isMasterAdmin || roleNames.includes("admin") || operatorRole === "admin";
 
     return new Response(
-      JSON.stringify({ isAdmin, isMasterAdmin, userId: auth.user.id }),
+      JSON.stringify({ isAdmin, isMasterAdmin, userId: auth.user.id, source: operatorRole ? "operator_email" : "user_roles" }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error) {

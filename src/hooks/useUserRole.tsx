@@ -13,6 +13,12 @@ const EMAIL_ROLE_MAP: Record<string, UserRole> = {
   'online-trukserre@gmail.com': 'admin',
 };
 
+const isLocalDevelopmentHost = () => {
+  if (import.meta.env.DEV) return true;
+  if (typeof window === 'undefined') return false;
+  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+};
+
 const isAbortLikeError = (error: unknown) => {
   const name = (error as any)?.name;
   const message = String((error as any)?.message || '');
@@ -67,8 +73,38 @@ export const useUserRole = () => {
         if (fallbackRole) {
           setIfActive(() => {
             setRole(fallbackRole);
-            setServerVerified(false);
+            setServerVerified(isLocalDevelopmentHost());
           });
+        }
+
+        try {
+          const { data: verified } = await supabase.functions.invoke('verify-admin');
+          if (verified?.isAdmin) {
+            const verifiedRole: UserRole = verified.isMasterAdmin ? 'master_admin' : 'admin';
+
+            if (verifiedRole === 'master_admin') {
+              const { tenantId } = await resolveAdminTenant();
+              if (tenantId && tenantId !== MASTER_TENANT_ID) {
+                setIfActive(() => {
+                  setRole('admin');
+                  setServerVerified(true);
+                });
+                return;
+              }
+            }
+
+            setIfActive(() => {
+              setRole(verifiedRole);
+              setServerVerified(true);
+            });
+            return;
+          }
+        } catch (verifyError) {
+          console.warn('Server admin verification unavailable, falling back to direct role lookup:', verifyError);
+        }
+
+        if (fallbackRole && isLocalDevelopmentHost()) {
+          return;
         }
 
         // Fetch all roles (a user may have multiple; pick highest priority)
