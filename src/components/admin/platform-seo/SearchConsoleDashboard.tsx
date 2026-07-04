@@ -52,7 +52,7 @@ export function SearchConsoleDashboard() {
     const getAuthUrl = useSearchConsoleAuthUrl();
     const disconnect = useSearchConsoleDisconnect();
 
-    const [selectedSite, setSelectedSite] = useState<string>('https://webprinter.dk/');
+    const [selectedSite, setSelectedSite] = useState<string>('https://www.webprinter.dk/');
     const { data: metrics, isLoading: metricsLoading, error: metricsError } = useSearchConsoleMetrics(selectedSite);
 
     const handleConnect = async () => {

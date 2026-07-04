@@ -50,7 +50,7 @@ export function generatePlatformSitemapUrls(
 /**
  * Generate default platform sitemap
  */
-export function generateDefaultPlatformSitemap(baseUrl: string = 'https://webprinter.dk'): string {
+export function generateDefaultPlatformSitemap(baseUrl: string = 'https://www.webprinter.dk'): string {
     const urls = generatePlatformSitemapUrls(
         baseUrl,
         PLATFORM_PAGES.map(p => ({ path: p.path }))
@@ -61,7 +61,7 @@ export function generateDefaultPlatformSitemap(baseUrl: string = 'https://webpri
 /**
  * Generate robots.txt content
  */
-export function generateRobotsTxt(canonicalUrl: string = 'https://webprinter.dk'): string {
+export function generateRobotsTxt(canonicalUrl: string = 'https://www.webprinter.dk'): string {
     return `# Webprinter.dk Robots.txt
 User-agent: *
 Allow: /

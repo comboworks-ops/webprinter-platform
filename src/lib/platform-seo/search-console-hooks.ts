@@ -124,7 +124,7 @@ export function useSearchConsoleQuery(options: {
             const tenantId = await getTenantId();
             return callSearchConsole<SearchConsoleResponse>('query', {
                 tenantId,
-                siteUrl: options.siteUrl || 'https://webprinter.dk/',
+                siteUrl: options.siteUrl || 'https://www.webprinter.dk/',
                 startDate: options.startDate || getDateDaysAgo(28),
                 endDate: options.endDate || getDateDaysAgo(0),
                 dimensions: options.dimensions || ['query'],

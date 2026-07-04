@@ -88,7 +88,7 @@ export function PlatformSeoInternational() {
     };
 
     const generateHreflangPreview = () => {
-        const baseUrl = settings?.canonical_base_url || 'https://webprinter.dk';
+        const baseUrl = settings?.canonical_base_url || 'https://www.webprinter.dk';
         return locales.map(loc => ({
             lang: loc.locale,
             href: `${baseUrl}${loc.pathPrefix}${previewPath}`,

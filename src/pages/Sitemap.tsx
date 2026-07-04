@@ -15,7 +15,7 @@ export default function Sitemap() {
 
     useEffect(() => {
         const generateSitemap = async () => {
-            const baseUrl = 'https://webprinter.dk';
+            const baseUrl = 'https://www.webprinter.dk';
             const today = new Date().toISOString().split('T')[0];
 
             // Static pages

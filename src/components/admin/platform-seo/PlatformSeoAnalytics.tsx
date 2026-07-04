@@ -66,7 +66,7 @@ export function PlatformSeoAnalytics() {
         setLatestResult(null);
 
         try {
-            const fullUrl = `https://webprinter.dk${selectedUrl}`;
+            const fullUrl = `https://www.webprinter.dk${selectedUrl}`;
 
             // Note: In production, this should call a server-side function
             // that has the API key. For MVP, we'll simulate the response structure.

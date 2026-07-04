@@ -22,8 +22,8 @@ export function PlatformSeoDefaults() {
     const updateSettings = useUpdatePlatformSeoSettings();
 
     const [formData, setFormData] = useState({
-        primary_domain: 'webprinter.dk',
-        canonical_base_url: 'https://webprinter.dk',
+        primary_domain: 'www.webprinter.dk',
+        canonical_base_url: 'https://www.webprinter.dk',
         default_title_template: '{pageTitle} | Webprinter Platform',
         default_description: 'Webprinter Platform - Den komplette løsning til moderne trykkerier.',
         default_robots: 'index,follow',
@@ -36,8 +36,8 @@ export function PlatformSeoDefaults() {
     useEffect(() => {
         if (settings) {
             setFormData({
-                primary_domain: settings.primary_domain || 'webprinter.dk',
-                canonical_base_url: settings.canonical_base_url || 'https://webprinter.dk',
+                primary_domain: settings.primary_domain || 'www.webprinter.dk',
+                canonical_base_url: settings.canonical_base_url || 'https://www.webprinter.dk',
                 default_title_template: settings.default_title_template || '{pageTitle} | Webprinter Platform',
                 default_description: settings.default_description || '',
                 default_robots: settings.default_robots || 'index,follow',
@@ -116,14 +116,14 @@ export function PlatformSeoDefaults() {
                                 Primært domæne
                                 <FieldTooltip
                                     content="Dit hoveddomæne uden 'https://'. Dette er det domæne, Google vil vise i søgeresultater. Brug kun ét domæne (enten med eller uden www)."
-                                    example="webprinter.dk"
+                                    example="www.webprinter.dk"
                                 />
                             </Label>
                             <Input
                                 id="primary_domain"
                                 value={formData.primary_domain}
                                 onChange={(e) => setFormData(prev => ({ ...prev, primary_domain: e.target.value }))}
-                                placeholder="webprinter.dk"
+                                placeholder="www.webprinter.dk"
                             />
                         </div>
                         <div className="space-y-2">
@@ -131,14 +131,14 @@ export function PlatformSeoDefaults() {
                                 Kanonisk base-URL
                                 <FieldTooltip
                                     content="Den fulde URL med 'https://' som danner grundlag for alle kanoniske links. Kanoniske links fortæller søgemaskiner, hvilken version af en side der er den 'rigtige' original."
-                                    example="https://webprinter.dk"
+                                    example="https://www.webprinter.dk"
                                 />
                             </Label>
                             <Input
                                 id="canonical_base_url"
                                 value={formData.canonical_base_url}
                                 onChange={(e) => setFormData(prev => ({ ...prev, canonical_base_url: e.target.value }))}
-                                placeholder="https://webprinter.dk"
+                                placeholder="https://www.webprinter.dk"
                             />
                             <p className="text-xs text-muted-foreground">
                                 💡 Tip: Hvis du senere skifter domæne (fx til webprinter.com), kan du ændre dette felt.
@@ -218,7 +218,7 @@ export function PlatformSeoDefaults() {
                                 Standard OG-billede URL
                                 <FieldTooltip
                                     content="Billedet der vises når nogen deler din side på Facebook, LinkedIn, Twitter osv. Brug et professionelt billede i 1200x630 pixels. Hvis feltet er tomt, kan sociale medier vise et tilfældigt billede fra siden."
-                                    example="https://webprinter.dk/images/social-preview.jpg"
+                                    example="https://www.webprinter.dk/images/social-preview.jpg"
                                 />
                             </Label>
                             <Input
@@ -272,8 +272,8 @@ export function PlatformSeoDefaults() {
   "@context": "https://schema.org",
   "@type": "Organization",
   "name": "Webprinter",
-  "url": "https://webprinter.dk",
-  "logo": "https://webprinter.dk/logo.png",
+  "url": "https://www.webprinter.dk",
+  "logo": "https://www.webprinter.dk/logo.png",
   "contactPoint": {
     "@type": "ContactPoint",
     "telephone": "+45-71-99-11-10",
@@ -306,7 +306,7 @@ export function PlatformSeoDefaults() {
   "@context": "https://schema.org",
   "@type": "WebSite",
   "name": "Webprinter Platform",
-  "url": "https://webprinter.dk"
+  "url": "https://www.webprinter.dk"
 }`}
                             </pre>
                         </details>
