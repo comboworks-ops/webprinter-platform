@@ -1,5 +1,5 @@
 # Webprinter.dk Robots.txt
-# https://webprinter.dk
+# https://www.webprinter.dk
 
 User-agent: *
 Allow: /
@@ -11,7 +11,7 @@ Disallow: /auth
 Disallow: /profil
 
 # Sitemap location
-Sitemap: https://webprinter.dk/sitemap.xml
+Sitemap: https://www.webprinter.dk/sitemap.xml
 
 # Crawl-delay for polite bots
 Crawl-delay: 1

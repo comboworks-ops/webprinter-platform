@@ -287,7 +287,7 @@ export function PlatformSeoPages() {
                                 Kanonisk URL (avanceret)
                                 <FieldTooltip
                                     content="Normalt behøver du ikke udfylde dette. Bruges kun hvis denne side er en kopi af en anden side, og du vil fortælle Google hvilken der er originalen."
-                                    example="https://webprinter.dk/priser (hvis denne side duplikerer prissiden)"
+                                    example="https://www.webprinter.dk/priser (hvis denne side duplikerer prissiden)"
                                 />
                             </Label>
                             <Input
@@ -327,7 +327,7 @@ export function PlatformSeoPages() {
                                         OG Billede URL
                                         <FieldTooltip
                                             content="Billedet der vises ved deling på sociale medier. Brug et flot, relevant billede i 1200x630 pixels. Lad tom for at bruge standardbilledet."
-                                            example="https://webprinter.dk/images/priser-social.jpg"
+                                            example="https://www.webprinter.dk/images/priser-social.jpg"
                                         />
                                     </Label>
                                     <Input
@@ -424,7 +424,7 @@ export function PlatformSeoPages() {
                         <div>&lt;title&gt;{selectedPage?.title || 'Standard titel'} | Webprinter Platform&lt;/title&gt;</div>
                         <div>&lt;meta name="description" content="{selectedPage?.description || 'Standard beskrivelse...'}"/&gt;</div>
                         <div>&lt;meta name="robots" content="{selectedPage?.robots || 'index,follow'}"/&gt;</div>
-                        <div>&lt;link rel="canonical" href="{selectedPage?.canonical_url || `https://webprinter.dk${selectedPath}`}"/&gt;</div>
+                        <div>&lt;link rel="canonical" href="{selectedPage?.canonical_url || `https://www.webprinter.dk${selectedPath}`}"/&gt;</div>
                         {selectedPage?.og_title && (
                             <div>&lt;meta property="og:title" content="{selectedPage.og_title}"/&gt;</div>
                         )}
