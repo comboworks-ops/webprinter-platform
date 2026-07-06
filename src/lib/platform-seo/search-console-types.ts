@@ -49,3 +49,11 @@ export interface SearchConsoleMetrics {
     topPages: SearchConsoleRow[];
     clicksByDate: { date: string; clicks: number; impressions: number }[];
 }
+
+export interface SearchConsoleSiteSummary {
+    siteUrl: string;
+    clicks: number;
+    impressions: number;
+    ctr: number;
+    position: number;
+}
