@@ -6,9 +6,16 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import type { SearchConsoleResponse, SearchConsoleMetrics } from './search-console-types';
+import type { SearchConsoleResponse, SearchConsoleMetrics, SearchConsoleSiteSummary } from './search-console-types';
 
 const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/search-console`;
+export const SEARCH_CONSOLE_MASTER_TENANT_ID = '00000000-0000-0000-0000-000000000000';
+
+const PREFERRED_SITE_ORDER = [
+    'https://www.webprinter.dk/',
+    'https://www.salgsmapper.dk/',
+    'https://www.onlinetryksager.dk/',
+];
 
 // Helper to call edge function
 async function callSearchConsole<T>(action: string, body: Record<string, unknown>): Promise<T> {
@@ -36,8 +43,8 @@ async function getTenantId(): Promise<string> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // For master admin, use a fixed tenant ID for platform SEO
-    return 'platform_master';
+    // Platform SEO is stored under the master tenant.
+    return SEARCH_CONSOLE_MASTER_TENANT_ID;
 }
 
 // Hook: Check connection status
@@ -102,7 +109,11 @@ export function useSearchConsoleSites() {
         queryKey: ['search-console-sites'],
         queryFn: async () => {
             const tenantId = await getTenantId();
-            return callSearchConsole<{ siteEntry?: { siteUrl: string; permissionLevel: string }[] }>('sites', { tenantId });
+            const result = await callSearchConsole<{ siteEntry?: { siteUrl: string; permissionLevel: string }[] }>('sites', { tenantId });
+            return {
+                ...result,
+                siteEntry: sortSearchConsoleSites(result.siteEntry || []),
+            };
         },
         enabled: status?.connected === true,
     });
@@ -137,19 +148,21 @@ export function useSearchConsoleQuery(options: {
 }
 
 // Hook: Get aggregated metrics for dashboard
-export function useSearchConsoleMetrics(siteUrl: string) {
+export function useSearchConsoleMetrics(siteUrl: string, rangeDays = 28) {
     const { data: status } = useSearchConsoleStatus();
+    const startDate = getDateDaysAgo(rangeDays);
+    const endDate = getDateDaysAgo(0);
 
     // Fetch queries data
     const queriesQuery = useQuery({
-        queryKey: ['search-console-queries', siteUrl],
+        queryKey: ['search-console-queries', siteUrl, rangeDays],
         queryFn: async () => {
             const tenantId = await getTenantId();
             return callSearchConsole<SearchConsoleResponse>('query', {
                 tenantId,
                 siteUrl,
-                startDate: getDateDaysAgo(28),
-                endDate: getDateDaysAgo(0),
+                startDate,
+                endDate,
                 dimensions: ['query'],
                 rowLimit: 10,
             });
@@ -159,14 +172,14 @@ export function useSearchConsoleMetrics(siteUrl: string) {
 
     // Fetch pages data
     const pagesQuery = useQuery({
-        queryKey: ['search-console-pages', siteUrl],
+        queryKey: ['search-console-pages', siteUrl, rangeDays],
         queryFn: async () => {
             const tenantId = await getTenantId();
             return callSearchConsole<SearchConsoleResponse>('query', {
                 tenantId,
                 siteUrl,
-                startDate: getDateDaysAgo(28),
-                endDate: getDateDaysAgo(0),
+                startDate,
+                endDate,
                 dimensions: ['page'],
                 rowLimit: 10,
             });
@@ -176,16 +189,16 @@ export function useSearchConsoleMetrics(siteUrl: string) {
 
     // Fetch date data for chart
     const dateQuery = useQuery({
-        queryKey: ['search-console-dates', siteUrl],
+        queryKey: ['search-console-dates', siteUrl, rangeDays],
         queryFn: async () => {
             const tenantId = await getTenantId();
             return callSearchConsole<SearchConsoleResponse>('query', {
                 tenantId,
                 siteUrl,
-                startDate: getDateDaysAgo(28),
-                endDate: getDateDaysAgo(0),
+                startDate,
+                endDate,
                 dimensions: ['date'],
-                rowLimit: 30,
+                rowLimit: rangeDays + 2,
             });
         },
         enabled: status?.connected === true && !!siteUrl,
@@ -212,7 +225,52 @@ export function useSearchConsoleMetrics(siteUrl: string) {
             }
             : undefined;
 
-    return { data: metrics, isLoading, error };
+    const refetch = async () => {
+        await Promise.all([
+            queriesQuery.refetch(),
+            pagesQuery.refetch(),
+            dateQuery.refetch(),
+        ]);
+    };
+
+    return { data: metrics, isLoading, error, refetch, isFetching: queriesQuery.isFetching || pagesQuery.isFetching || dateQuery.isFetching };
+}
+
+export function useSearchConsoleSiteOverview(siteUrls: string[], rangeDays = 28) {
+    const { data: status } = useSearchConsoleStatus();
+    const normalizedSiteUrls = Array.from(new Set(siteUrls.filter(Boolean)));
+
+    return useQuery({
+        queryKey: ['search-console-site-overview', normalizedSiteUrls, rangeDays],
+        queryFn: async () => {
+            const tenantId = await getTenantId();
+            const startDate = getDateDaysAgo(rangeDays);
+            const endDate = getDateDaysAgo(0);
+
+            const summaries = await Promise.all(normalizedSiteUrls.map(async (siteUrl) => {
+                const response = await callSearchConsole<SearchConsoleResponse>('query', {
+                    tenantId,
+                    siteUrl,
+                    startDate,
+                    endDate,
+                    dimensions: ['date'],
+                    rowLimit: rangeDays + 2,
+                });
+                const rows = response.rows || [];
+                return {
+                    siteUrl,
+                    clicks: rows.reduce((sum, row) => sum + row.clicks, 0),
+                    impressions: rows.reduce((sum, row) => sum + row.impressions, 0),
+                    ctr: calculateAverageCtr(rows),
+                    position: calculateAveragePosition(rows),
+                } satisfies SearchConsoleSiteSummary;
+            }));
+
+            return summaries;
+        },
+        enabled: status?.connected === true && normalizedSiteUrls.length > 0,
+        staleTime: 5 * 60 * 1000,
+    });
 }
 
 // Helpers
@@ -234,4 +292,17 @@ function calculateAveragePosition(rows: { position: number; impressions: number 
     if (totalImpressions === 0) return 0;
     const weightedPosition = rows.reduce((sum, r) => sum + (r.position * r.impressions), 0);
     return weightedPosition / totalImpressions;
+}
+
+function sortSearchConsoleSites(sites: { siteUrl: string; permissionLevel: string }[]) {
+    return [...sites].sort((a, b) => {
+        const preferredA = PREFERRED_SITE_ORDER.indexOf(a.siteUrl);
+        const preferredB = PREFERRED_SITE_ORDER.indexOf(b.siteUrl);
+
+        if (preferredA !== -1 || preferredB !== -1) {
+            return (preferredA === -1 ? 999 : preferredA) - (preferredB === -1 ? 999 : preferredB);
+        }
+
+        return a.siteUrl.localeCompare(b.siteUrl);
+    });
 }

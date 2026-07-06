@@ -13,6 +13,69 @@ const corsHeaders = {
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SEARCH_CONSOLE_API = 'https://searchconsole.googleapis.com/webmasters/v3';
+const MASTER_TENANT_ID = '00000000-0000-0000-0000-000000000000';
+const MASTER_ADMIN_EMAILS = new Set(['admin@webprinter.dk', 'info@webprinter.dk']);
+
+class HttpError extends Error {
+    status: number;
+
+    constructor(status: number, message: string) {
+        super(message);
+        this.status = status;
+    }
+}
+
+function jsonResponse(payload: Record<string, unknown>, status = 200): Response {
+    return new Response(
+        JSON.stringify(payload),
+        { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
+}
+
+function resolvePlatformTenantId(input: unknown): string {
+    const value = String(input || '').trim();
+    if (!value || value === MASTER_TENANT_ID || value === 'platform_master') {
+        return MASTER_TENANT_ID;
+    }
+    throw new HttpError(403, 'Invalid Search Console tenant scope');
+}
+
+async function requireMasterAdmin(req: Request, supabase: any) {
+    const authHeader = req.headers.get('Authorization') || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+    if (!token) {
+        throw new HttpError(401, 'Authentication required');
+    }
+
+    const { data: userData, error: userError } = await supabase.auth.getUser(token);
+    const user = userData?.user;
+    if (userError || !user) {
+        throw new HttpError(401, 'Invalid session');
+    }
+
+    if (user.email && MASTER_ADMIN_EMAILS.has(user.email.toLowerCase())) {
+        return user;
+    }
+
+    const { data: roleRows, error: roleError } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('role', 'master_admin')
+        .limit(1);
+
+    if (roleError) {
+        console.error('Role check failed:', roleError);
+        throw new HttpError(500, 'Could not verify admin access');
+    }
+
+    if (!roleRows || roleRows.length === 0) {
+        throw new HttpError(403, 'Master admin access required');
+    }
+
+    return user;
+}
 
 serve(async (req) => {
     // Handle CORS preflight
@@ -31,16 +94,14 @@ serve(async (req) => {
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
         if (!clientId || !clientSecret) {
-            return new Response(
-                JSON.stringify({
-                    error: 'Google OAuth not configured',
-                    message: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in Supabase secrets.'
-                }),
-                { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
+            return jsonResponse({
+                error: 'Google OAuth not configured',
+                message: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in Supabase secrets.'
+            }, 500);
         }
 
         const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
+        await requireMasterAdmin(req, supabase);
 
         switch (action) {
             case 'auth-url': {
@@ -56,15 +117,13 @@ serve(async (req) => {
                     prompt: 'consent',
                 });
 
-                return new Response(
-                    JSON.stringify({ authUrl: `${GOOGLE_AUTH_URL}?${params}` }),
-                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                );
+                return jsonResponse({ authUrl: `${GOOGLE_AUTH_URL}?${params}` });
             }
 
             case 'exchange-code': {
                 // Exchange authorization code for tokens
                 const { code, redirectUri, tenantId } = await req.json();
+                const platformTenantId = resolvePlatformTenantId(tenantId);
 
                 const tokenResponse = await fetch(GOOGLE_TOKEN_URL, {
                     method: 'POST',
@@ -84,12 +143,23 @@ serve(async (req) => {
                     throw new Error(tokens.error_description || tokens.error);
                 }
 
+                const { data: existingIntegration } = await supabase
+                    .from('platform_seo_google_integrations')
+                    .select('refresh_token')
+                    .eq('tenant_id', platformTenantId)
+                    .maybeSingle();
+
+                const refreshToken = tokens.refresh_token || existingIntegration?.refresh_token;
+                if (!refreshToken) {
+                    throw new Error('Google did not return a refresh token. Disconnect and connect again with consent.');
+                }
+
                 // Store refresh token in database
                 const { error: dbError } = await supabase
                     .from('platform_seo_google_integrations')
                     .upsert({
-                        tenant_id: tenantId,
-                        refresh_token: tokens.refresh_token,
+                        tenant_id: platformTenantId,
+                        refresh_token: refreshToken,
                         connected_at: new Date().toISOString(),
                         updated_at: new Date().toISOString(),
                     }, { onConflict: 'tenant_id' });
@@ -99,68 +169,56 @@ serve(async (req) => {
                     throw new Error('Failed to store tokens');
                 }
 
-                return new Response(
-                    JSON.stringify({ success: true }),
-                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                );
+                return jsonResponse({ success: true });
             }
 
             case 'disconnect': {
                 // Remove stored tokens
                 const { tenantId } = await req.json();
+                const platformTenantId = resolvePlatformTenantId(tenantId);
 
                 const { error: dbError } = await supabase
                     .from('platform_seo_google_integrations')
                     .update({ refresh_token: null, updated_at: new Date().toISOString() })
-                    .eq('tenant_id', tenantId);
+                    .eq('tenant_id', platformTenantId);
 
                 if (dbError) throw new Error('Failed to disconnect');
 
-                return new Response(
-                    JSON.stringify({ success: true }),
-                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                );
+                return jsonResponse({ success: true });
             }
 
             case 'status': {
                 // Check connection status
                 const { tenantId } = await req.json();
+                const platformTenantId = resolvePlatformTenantId(tenantId);
 
                 const { data, error } = await supabase
                     .from('platform_seo_google_integrations')
                     .select('connected_at, refresh_token')
-                    .eq('tenant_id', tenantId)
-                    .single();
+                    .eq('tenant_id', platformTenantId)
+                    .maybeSingle();
 
                 if (error || !data?.refresh_token) {
-                    return new Response(
-                        JSON.stringify({ connected: false }),
-                        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                    );
+                    return jsonResponse({ connected: false });
                 }
 
-                return new Response(
-                    JSON.stringify({ connected: true, connectedAt: data.connected_at }),
-                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                );
+                return jsonResponse({ connected: true, connectedAt: data.connected_at });
             }
 
             case 'query': {
                 // Query Search Console API
                 const { tenantId, siteUrl, startDate, endDate, dimensions, rowLimit } = await req.json();
+                const platformTenantId = resolvePlatformTenantId(tenantId);
 
                 // Get refresh token
                 const { data: integration } = await supabase
                     .from('platform_seo_google_integrations')
                     .select('refresh_token')
-                    .eq('tenant_id', tenantId)
-                    .single();
+                    .eq('tenant_id', platformTenantId)
+                    .maybeSingle();
 
                 if (!integration?.refresh_token) {
-                    return new Response(
-                        JSON.stringify({ error: 'Not connected to Search Console' }),
-                        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                    );
+                    return jsonResponse({ error: 'Not connected to Search Console' }, 401);
                 }
 
                 // Get fresh access token
@@ -179,10 +237,7 @@ serve(async (req) => {
 
                 if (tokens.error) {
                     // Token might be revoked
-                    return new Response(
-                        JSON.stringify({ error: 'Token expired. Please reconnect.' }),
-                        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                    );
+                    return jsonResponse({ error: 'Token expired. Please reconnect.' }, 401);
                 }
 
                 // Query Search Console API
@@ -208,28 +263,23 @@ serve(async (req) => {
                     throw new Error(data.error?.message || 'API request failed');
                 }
 
-                return new Response(
-                    JSON.stringify(data),
-                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                );
+                return jsonResponse(data);
             }
 
             case 'sites': {
                 // Get list of verified sites
                 const { tenantId } = await req.json();
+                const platformTenantId = resolvePlatformTenantId(tenantId);
 
                 // Get refresh token
                 const { data: integration } = await supabase
                     .from('platform_seo_google_integrations')
                     .select('refresh_token')
-                    .eq('tenant_id', tenantId)
-                    .single();
+                    .eq('tenant_id', platformTenantId)
+                    .maybeSingle();
 
                 if (!integration?.refresh_token) {
-                    return new Response(
-                        JSON.stringify({ error: 'Not connected' }),
-                        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                    );
+                    return jsonResponse({ error: 'Not connected' }, 401);
                 }
 
                 // Get fresh access token
@@ -247,10 +297,7 @@ serve(async (req) => {
                 const tokens = await tokenResponse.json();
 
                 if (tokens.error) {
-                    return new Response(
-                        JSON.stringify({ error: 'Token expired' }),
-                        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                    );
+                    return jsonResponse({ error: 'Token expired' }, 401);
                 }
 
                 // Get sites list
@@ -260,23 +307,16 @@ serve(async (req) => {
 
                 const data = await apiResponse.json();
 
-                return new Response(
-                    JSON.stringify(data),
-                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                );
+                return jsonResponse(data);
             }
 
             default:
-                return new Response(
-                    JSON.stringify({ error: 'Unknown action' }),
-                    { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                );
+                return jsonResponse({ error: 'Unknown action' }, 400);
         }
     } catch (error) {
         console.error('Search Console error:', error);
-        return new Response(
-            JSON.stringify({ error: error.message }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        const status = error instanceof HttpError ? error.status : 500;
+        const message = error instanceof Error ? error.message : 'Unexpected Search Console error';
+        return jsonResponse({ error: message }, status);
     }
 });

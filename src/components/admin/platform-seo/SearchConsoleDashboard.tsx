@@ -4,7 +4,7 @@
  * Displays Search Console metrics and data visualization.
  */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -39,12 +39,36 @@ import {
 import {
     useSearchConsoleStatus,
     useSearchConsoleAuthUrl,
-    useSearchConsoleConnect,
     useSearchConsoleDisconnect,
     useSearchConsoleSites,
     useSearchConsoleMetrics,
+    useSearchConsoleSiteOverview,
 } from '@/lib/platform-seo/search-console-hooks';
 import { FieldTooltip } from './FieldTooltip';
+
+const FOCUS_SITES = [
+    'https://www.webprinter.dk/',
+    'https://www.salgsmapper.dk/',
+    'https://www.onlinetryksager.dk/',
+];
+
+function formatSiteLabel(siteUrl: string): string {
+    if (siteUrl.startsWith('sc-domain:')) return siteUrl.replace('sc-domain:', '');
+    try {
+        return new URL(siteUrl).hostname.replace(/^www\./, '');
+    } catch {
+        return siteUrl;
+    }
+}
+
+function safePathFromUrl(value: string): string {
+    try {
+        const url = new URL(value);
+        return url.pathname || '/';
+    } catch {
+        return value;
+    }
+}
 
 export function SearchConsoleDashboard() {
     const { data: status, isLoading: statusLoading } = useSearchConsoleStatus();
@@ -53,7 +77,29 @@ export function SearchConsoleDashboard() {
     const disconnect = useSearchConsoleDisconnect();
 
     const [selectedSite, setSelectedSite] = useState<string>('https://www.webprinter.dk/');
-    const { data: metrics, isLoading: metricsLoading, error: metricsError } = useSearchConsoleMetrics(selectedSite);
+    const [rangeDays, setRangeDays] = useState(28);
+    const verifiedSites = useMemo(() => sites?.siteEntry || [], [sites?.siteEntry]);
+    const focusSiteUrls = useMemo(() => {
+        const verifiedUrls = verifiedSites.map((site) => site.siteUrl);
+        const preferred = FOCUS_SITES.filter((siteUrl) => verifiedUrls.includes(siteUrl));
+        return preferred.length > 0 ? preferred : verifiedUrls.slice(0, 6);
+    }, [verifiedSites]);
+    const {
+        data: metrics,
+        isLoading: metricsLoading,
+        error: metricsError,
+        refetch: refetchMetrics,
+        isFetching: metricsFetching,
+    } = useSearchConsoleMetrics(selectedSite, rangeDays);
+    const { data: siteOverview, isLoading: overviewLoading } = useSearchConsoleSiteOverview(focusSiteUrls, rangeDays);
+
+    useEffect(() => {
+        if (!verifiedSites.length) return;
+        if (verifiedSites.some((site) => site.siteUrl === selectedSite)) return;
+
+        const preferredSite = FOCUS_SITES.find((siteUrl) => verifiedSites.some((site) => site.siteUrl === siteUrl));
+        setSelectedSite(preferredSite || verifiedSites[0].siteUrl);
+    }, [selectedSite, verifiedSites]);
 
     const handleConnect = async () => {
         try {
@@ -87,7 +133,7 @@ export function SearchConsoleDashboard() {
                         Google Search Console
                     </CardTitle>
                     <CardDescription>
-                        Forbind til Google Search Console for at se søgeperformance.
+                        Forbind til Google Search Console for at se synlighed, klik og søgeord for dine domæner.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -115,7 +161,7 @@ export function SearchConsoleDashboard() {
                         <div className="text-amber-800">
                             <p className="font-medium">Før du forbinder:</p>
                             <ul className="list-disc list-inside mt-1 space-y-1">
-                                <li>Sørg for, at webprinter.dk er verificeret i din Search Console</li>
+                                <li>Sørg for, at webprinter.dk, salgsmapper.dk og onlinetryksager.dk er verificeret i Search Console</li>
                                 <li>Du skal logge ind med den Google-konto, der ejer Search Console</li>
                                 <li>Vi anmoder kun om læseadgang - vi ændrer ikke noget</li>
                             </ul>
@@ -137,21 +183,34 @@ export function SearchConsoleDashboard() {
                             <CheckCircle2 className="h-5 w-5 text-green-500" />
                             <CardTitle className="text-lg">Forbundet til Search Console</CardTitle>
                         </div>
-                        <div className="flex items-center gap-2">
-                            {sites?.siteEntry && sites.siteEntry.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Select value={String(rangeDays)} onValueChange={(value) => setRangeDays(Number(value))}>
+                                <SelectTrigger className="w-[130px]">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="28">28 dage</SelectItem>
+                                    <SelectItem value="90">90 dage</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            {verifiedSites.length > 0 && (
                                 <Select value={selectedSite} onValueChange={setSelectedSite}>
                                     <SelectTrigger className="w-[250px]">
                                         <SelectValue placeholder="Vælg site" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {sites.siteEntry.map((site) => (
+                                        {verifiedSites.map((site) => (
                                             <SelectItem key={site.siteUrl} value={site.siteUrl}>
-                                                {site.siteUrl}
+                                                {formatSiteLabel(site.siteUrl)}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
                             )}
+                            <Button variant="outline" size="sm" onClick={() => refetchMetrics()} disabled={metricsFetching}>
+                                <RefreshCw className={`mr-2 h-4 w-4 ${metricsFetching ? 'animate-spin' : ''}`} />
+                                Opdater
+                            </Button>
                             <Button variant="outline" size="sm" onClick={handleDisconnect}>
                                 <Unlink className="mr-2 h-4 w-4" />
                                 Afbryd
@@ -159,10 +218,73 @@ export function SearchConsoleDashboard() {
                         </div>
                     </div>
                     <CardDescription>
-                        Data fra de seneste 28 dage. Forbundet: {status?.connectedAt ? new Date(status.connectedAt).toLocaleDateString('da-DK') : 'Ukendt'}
+                        Search Console viser Google-søgeklik og visninger. Det er ikke alle besøgende fra alle kanaler.
+                        Forbundet: {status?.connectedAt ? new Date(status.connectedAt).toLocaleDateString('da-DK') : 'Ukendt'}
                     </CardDescription>
                 </CardHeader>
             </Card>
+
+            {verifiedSites.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            Domæneoverblik
+                            <FieldTooltip content="Hurtigt overblik over de verificerede Search Console-sites. Klik på et domæne for at se søgeord og sider nedenfor." />
+                        </CardTitle>
+                        <CardDescription>
+                            Google-søgetrafik for de seneste {rangeDays} dage.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        {overviewLoading ? (
+                            <div className="flex items-center justify-center py-8">
+                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            </div>
+                        ) : siteOverview && siteOverview.length > 0 ? (
+                            <div className="grid gap-3 md:grid-cols-3">
+                                {siteOverview.map((site) => {
+                                    const selected = site.siteUrl === selectedSite;
+                                    return (
+                                        <button
+                                            key={site.siteUrl}
+                                            type="button"
+                                            onClick={() => setSelectedSite(site.siteUrl)}
+                                            className={`rounded-md border p-4 text-left transition-colors hover:bg-muted/60 ${selected ? 'border-primary bg-primary/5' : 'border-border bg-background'}`}
+                                        >
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div className="font-medium">{formatSiteLabel(site.siteUrl)}</div>
+                                                {selected && <CheckCircle2 className="h-4 w-4 text-primary" />}
+                                            </div>
+                                            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                                                <div>
+                                                    <div className="text-muted-foreground">Google klik</div>
+                                                    <div className="text-xl font-semibold">{site.clicks.toLocaleString('da-DK')}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-muted-foreground">Visninger</div>
+                                                    <div className="text-xl font-semibold">{site.impressions.toLocaleString('da-DK')}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-muted-foreground">CTR</div>
+                                                    <div className="font-medium">{(site.ctr * 100).toFixed(1)}%</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-muted-foreground">Position</div>
+                                                    <div className="font-medium">{site.position ? site.position.toFixed(1) : '-'}</div>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+                                Der er ingen Search Console-data endnu for de valgte domæner. Det kan tage nogle dage efter verificering.
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
 
             {metricsLoading ? (
                 <div className="flex items-center justify-center py-12">
@@ -186,8 +308,8 @@ export function SearchConsoleDashboard() {
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <p className="text-sm text-muted-foreground flex items-center gap-1">
-                                            Klik
-                                            <FieldTooltip content="Antal gange nogen klikkede på dit søgeresultat i Google." />
+                                            Google klik
+                                            <FieldTooltip content="Antal gange nogen klikkede på dit organiske søgeresultat i Google. Dette er ikke det samme som alle besøgende på websitet." />
                                         </p>
                                         <p className="text-2xl font-bold">{metrics.totalClicks.toLocaleString('da-DK')}</p>
                                     </div>
@@ -250,7 +372,7 @@ export function SearchConsoleDashboard() {
                                 <FieldTooltip content="De ord og sætninger folk søger på, når dit site vises i Google. Brug disse til at optimere dit indhold!" />
                             </CardTitle>
                             <CardDescription>
-                                Hvilke søgninger bringer folk til dit site?
+                                Hvilke søgninger giver synlighed og klik til {formatSiteLabel(selectedSite)}?
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -265,7 +387,7 @@ export function SearchConsoleDashboard() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {metrics.topQueries.map((row, i) => (
+                                    {metrics.topQueries.length > 0 ? metrics.topQueries.map((row, i) => (
                                         <TableRow key={i}>
                                             <TableCell className="font-medium">{row.keys[0]}</TableCell>
                                             <TableCell className="text-right">{row.clicks}</TableCell>
@@ -273,7 +395,13 @@ export function SearchConsoleDashboard() {
                                             <TableCell className="text-right">{(row.ctr * 100).toFixed(1)}%</TableCell>
                                             <TableCell className="text-right">{row.position.toFixed(1)}</TableCell>
                                         </TableRow>
-                                    ))}
+                                    )) : (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
+                                                Ingen søgeordsdata i perioden.
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
                                 </TableBody>
                             </Table>
                         </CardContent>
@@ -302,7 +430,7 @@ export function SearchConsoleDashboard() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {metrics.topPages.map((row, i) => (
+                                    {metrics.topPages.length > 0 ? metrics.topPages.map((row, i) => (
                                         <TableRow key={i}>
                                             <TableCell className="font-medium max-w-[300px] truncate">
                                                 <a
@@ -311,7 +439,7 @@ export function SearchConsoleDashboard() {
                                                     rel="noopener noreferrer"
                                                     className="flex items-center gap-1 hover:underline"
                                                 >
-                                                    {new URL(row.keys[0]).pathname || '/'}
+                                                    {safePathFromUrl(row.keys[0])}
                                                     <ExternalLink className="h-3 w-3" />
                                                 </a>
                                             </TableCell>
@@ -320,7 +448,13 @@ export function SearchConsoleDashboard() {
                                             <TableCell className="text-right">{(row.ctr * 100).toFixed(1)}%</TableCell>
                                             <TableCell className="text-right">{row.position.toFixed(1)}</TableCell>
                                         </TableRow>
-                                    ))}
+                                    )) : (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
+                                                Ingen sidedata i perioden.
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
                                 </TableBody>
                             </Table>
                         </CardContent>
