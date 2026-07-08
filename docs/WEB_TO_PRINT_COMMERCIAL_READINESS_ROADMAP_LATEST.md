@@ -672,6 +672,11 @@ Implemented first read-only version:
   without losing localhost tenant context, and `Driftsklarhed` must keep
   `Jura/cookie signaler` read-only without changing cookies, tracking,
   legal text or tenant settings.
+  It also guards the executive cockpit layers: Måleksekvering, adminmail
+  access readiness, Supplier Bank staging-runbook, print-house meeting pack,
+  critical path, pilot intake, launch board, commercial-ready scorecard,
+  sales evidence binder, decision queue and decision option cards must remain
+  visible, linked from the cockpit navigation and read-only.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported
