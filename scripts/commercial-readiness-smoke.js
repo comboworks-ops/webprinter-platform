@@ -838,7 +838,7 @@ const sourceContractChecks = [
           "function getCriticalPathItems(",
           "function getPilotPrintHouseIntake(",
           "function getCommercialDecisionOptionCards(",
-          "const commercialDecisionsQueue = commercialDecisions;",
+          "const commercialDecisionsQueue = useMemo(() => commercialDecisions, []);",
           "Måleksekvering",
           "Automatisering og menneskelig bevisførelse",
           "Releasebevis og accept",
@@ -1015,6 +1015,31 @@ const sourceContractChecks = [
           "latest kickoff layer",
           "latest agreement-check layer",
           "customers, offers, prices, orders, emails",
+        ],
+      },
+    ],
+  },
+];
+
+const orderedSourceChecks = [
+  {
+    name: "Commercial readiness cockpit decision queue binding order",
+    detail: "verified the decision queue is declared before dependent cockpit sections render",
+    path: "src/pages/admin/CommercialReadiness.tsx",
+    componentMarker: "export default function CommercialReadiness()",
+    bindings: [
+      {
+        identifier: "commercialDecisionsQueue",
+        declaration: "const commercialDecisionsQueue = useMemo(() => commercialDecisions, []);",
+        mustFollowDeclaration: [
+          "() => getCommercialAutomationMap(",
+          "() => getCommercialFocusItems(",
+          "() => getCommercialPilotAcceptanceGate(",
+          "() => getPaidPilotPackage(",
+          "() => getProductionReleaseReadiness(",
+          "() => getSupplierBankStagingRunbook(",
+          "() => getCommercialDecisionOptionCards(",
+          "{commercialDecisionsQueue.map((item) => (",
         ],
       },
     ],
@@ -1280,6 +1305,10 @@ for (const check of sourceContractChecks) {
   results.push(await runSourceContractCheck(check));
 }
 
+for (const check of orderedSourceChecks) {
+  results.push(await runOrderedSourceCheck(check));
+}
+
 if (runBrowserSmoke) {
   results.push(...(await runBrowserChecks()));
 }
@@ -1416,6 +1445,55 @@ async function runSourceContractCheck(check) {
     ok: missing.length === 0,
     detail: missing.length ? missing.slice(0, 8).join("; ") : check.detail,
   };
+}
+
+async function runOrderedSourceCheck(check) {
+  try {
+    const content = await readFile(check.path, "utf8");
+    const componentIndex = content.indexOf(check.componentMarker);
+    const issues = [];
+
+    if (componentIndex === -1) {
+      issues.push(`missing component marker ${check.componentMarker}`);
+    }
+
+    for (const binding of check.bindings) {
+      const declarationIndex = componentIndex >= 0
+        ? content.indexOf(binding.declaration, componentIndex)
+        : -1;
+
+      if (declarationIndex === -1) {
+        issues.push(`missing declaration ${binding.declaration}`);
+        continue;
+      }
+
+      const componentBeforeDeclaration = content.slice(componentIndex, declarationIndex);
+      if (componentBeforeDeclaration.includes(binding.identifier)) {
+        issues.push(`${binding.identifier} is referenced before its declaration`);
+      }
+
+      for (const marker of binding.mustFollowDeclaration || []) {
+        const markerIndex = content.indexOf(marker, componentIndex);
+        if (markerIndex === -1) {
+          issues.push(`missing dependent marker ${marker}`);
+        } else if (markerIndex < declarationIndex) {
+          issues.push(`${marker} appears before ${binding.identifier} declaration`);
+        }
+      }
+    }
+
+    return {
+      name: check.name,
+      ok: issues.length === 0,
+      detail: issues.length ? issues.slice(0, 8).join("; ") : check.detail,
+    };
+  } catch (error) {
+    return {
+      name: check.name,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function runBrowserChecks() {
