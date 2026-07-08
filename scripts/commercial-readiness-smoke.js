@@ -277,6 +277,38 @@ const sourceContractChecks = [
       },
     ],
   },
+  {
+    name: "Customer order portal source contract",
+    detail: "verified Mine ordrer keeps order recovery, tracking, invoice, reupload and message handoff",
+    files: [
+      {
+        path: "src/pages/MyOrders.tsx",
+        markers: [
+          "export default function MyOrders()",
+          "navigate('/auth?redirect=/mine-ordrer')",
+          ".from('orders' as any)",
+          ".eq('user_id', userId)",
+          ".from('order_messages' as any)",
+          ".from('delivery_tracking' as any)",
+          ".from('order_invoices' as any)",
+          ".update({ is_read: true })",
+          "sender_type: 'customer'",
+          "const handleFileUpload = async (orderId: string, file: File)",
+          ".from('order-files')",
+          ".upload(fileName, file)",
+          ".from('order_files' as any)",
+          ".update({ is_current: false })",
+          ".update({ requires_file_reupload: false })",
+          "tracking_number",
+          "estimated_delivery",
+          "Upload ny fil",
+          "Beskeder ({orderMessages.length})",
+          "Download PDF",
+          "Leveringssporing",
+        ],
+      },
+    ],
+  },
 ];
 
 const renderedChecks = [
