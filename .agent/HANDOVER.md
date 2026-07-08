@@ -400,6 +400,13 @@ Current active direction:
   must still validate, rate-limit, send Resend emails and log platform leads in
   `platform_messages`, and admin `Beskeder` must still surface the
   `Platform henvendelser` read-only follow-up thread.
+  It also guards legal/cookie readiness: public platform and tenant legal
+  routes must still respond, cookie banner/settings must keep Danish consent
+  categories and accept/reject/custom controls, cookie settings must route
+  tenant terms to `/betingelser` and platform terms to `/handelsbetingelser`
+  without losing localhost tenant context, and `Driftsklarhed` must keep
+  `Jura/cookie signaler` read-only without changing cookies, tracking,
+  legal text or tenant settings.
   `Supplier Bank staging-runbook` is the read-only operating sequence for
   supplier-bank products: external source only, report candidate, explicit
   approval, draft import, price-row QA, separate publishing decision and tenant

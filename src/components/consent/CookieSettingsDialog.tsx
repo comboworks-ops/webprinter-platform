@@ -18,6 +18,8 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useCookieConsent } from './CookieConsentProvider';
 import { Cookie, Shield, BarChart3, Megaphone, Settings2 } from 'lucide-react';
+import { isPlatformContext, platformNavLink } from '@/lib/platform/context';
+import { appendStorefrontTenantContext } from '@/lib/storefrontTenantContext';
 
 interface CategoryToggle {
     id: 'preferences' | 'statistics' | 'marketing';
@@ -49,6 +51,13 @@ const CATEGORIES: CategoryToggle[] = [
 
 export function CookieSettingsDialog() {
     const { isSettingsOpen, closeSettings, consent, setCategories, acceptAll, rejectAll } = useCookieConsent();
+    const platformContext = isPlatformContext();
+    const cookiePolicyHref = platformContext
+        ? platformNavLink('/cookiepolitik')
+        : appendStorefrontTenantContext('/cookiepolitik');
+    const termsHref = platformContext
+        ? platformNavLink('/handelsbetingelser')
+        : appendStorefrontTenantContext('/betingelser');
 
     const [preferences, setPreferences] = useState(false);
     const [statistics, setStatistics] = useState(false);
@@ -173,11 +182,11 @@ export function CookieSettingsDialog() {
                     </div>
 
                     <div className="text-xs text-gray-500 text-center pt-2">
-                        <Link to="/cookiepolitik" className="hover:text-blue-600 hover:underline" onClick={closeSettings}>
+                        <Link to={cookiePolicyHref} className="hover:text-blue-600 hover:underline" onClick={closeSettings}>
                             Cookiepolitik
                         </Link>
                         {' · '}
-                        <Link to="/handelsbetingelser" className="hover:text-blue-600 hover:underline" onClick={closeSettings}>
+                        <Link to={termsHref} className="hover:text-blue-600 hover:underline" onClick={closeSettings}>
                             Handelsbetingelser
                         </Link>
                     </div>

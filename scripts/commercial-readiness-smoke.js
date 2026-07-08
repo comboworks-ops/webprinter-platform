@@ -107,6 +107,42 @@ const checks = [
     expectedText: ["root"],
   },
   {
+    name: "Webprinter privatlivspolitik",
+    kind: "html",
+    path: "/privacy-policy?force_domain=webprinter.dk",
+    expectedText: ["root"],
+  },
+  {
+    name: "Webprinter platformvilkår",
+    kind: "html",
+    path: "/handelsbetingelser?force_domain=webprinter.dk",
+    expectedText: ["root"],
+  },
+  {
+    name: "Webprinter cookiepolitik",
+    kind: "html",
+    path: "/cookiepolitik?force_domain=webprinter.dk",
+    expectedText: ["root"],
+  },
+  {
+    name: "Salgsmapper privatlivspolitik",
+    kind: "html",
+    path: "/privatliv?force_domain=www.salgsmapper.dk",
+    expectedText: ["root"],
+  },
+  {
+    name: "Salgsmapper cookiepolitik",
+    kind: "html",
+    path: "/cookiepolitik?force_domain=www.salgsmapper.dk",
+    expectedText: ["root"],
+  },
+  {
+    name: "Salgsmapper handelsbetingelser",
+    kind: "html",
+    path: "/betingelser?force_domain=www.salgsmapper.dk",
+    expectedText: ["root"],
+  },
+  {
     name: "Salgsmapper PDF-skabelon",
     kind: "pdf",
     path: "/designer-templates/salgsmapper/salgsmappe-a5-5mm-ryg.pdf",
@@ -644,6 +680,136 @@ const sourceContractChecks = [
       },
     ],
   },
+  {
+    name: "Legal cookie consent source contract",
+    detail: "verified legal routes, cookie controls, tenant context links and read-only legal cockpit evidence",
+    files: [
+      {
+        path: "src/App.tsx",
+        markers: [
+          "<CookieConsentProvider>",
+          "<CookieBanner />",
+          "<CookieSettingsDialog />",
+          "<Route path=\"/privacy-policy\" element={<PlatformPrivacyPolicy />} />",
+          "<Route path=\"/handelsbetingelser\" element={<PlatformHandelsbetingelser />} />",
+          "<Route path=\"/cookiepolitik\" element={<CookiePolicyRouter />} />",
+          "<Route path=\"/betingelser\" element={<Terms />} />",
+          "<Route path=\"/privatliv\" element={<PrivacyPolicy />} />",
+        ],
+      },
+      {
+        path: "src/components/consent/CookieConsentProvider.tsx",
+        markers: [
+          "wp_consent_v1",
+          "preferences: boolean",
+          "statistics: boolean",
+          "marketing: boolean",
+          "hasConsented",
+          "acceptAll",
+          "rejectAll",
+          "setCategories",
+        ],
+      },
+      {
+        path: "src/components/consent/CookieBanner.tsx",
+        markers: [
+          "Cookieindstillinger",
+          "Accepter alle",
+          "Kun nødvendige",
+          "Tilpas",
+          "acceptAll",
+          "rejectAll",
+          "openSettings",
+        ],
+      },
+      {
+        path: "src/components/consent/CookieSettingsDialog.tsx",
+        markers: [
+          "isPlatformContext",
+          "platformNavLink('/cookiepolitik')",
+          "appendStorefrontTenantContext('/cookiepolitik')",
+          "platformNavLink('/handelsbetingelser')",
+          "appendStorefrontTenantContext('/betingelser')",
+          "Nødvendige",
+          "Præferencer",
+          "Statistik",
+          "Marketing",
+          "Gem valg",
+          "Accepter alle",
+          "Kun nødvendige",
+        ],
+      },
+      {
+        path: "src/components/content/PrivacyPolicyContent.tsx",
+        markers: [
+          "variant = \"storefront\"",
+          "variant === \"platform\"",
+          "resolvedCompanyName",
+          "resolvedEmail",
+          "samtykke",
+          "Datatilsynet",
+          "mailto:${resolvedEmail}",
+        ],
+      },
+      {
+        path: "src/components/content/CookiePolicyContent.tsx",
+        markers: [
+          "useCookieConsent",
+          "Nødvendige",
+          "Præferencer",
+          "Statistik",
+          "Marketing",
+          "samtykke",
+          "Åbn cookieindstillinger",
+        ],
+      },
+      {
+        path: "src/components/content/TermsContent.tsx",
+        markers: [
+          "useShopSettings",
+          "settings?.company",
+          "contactEmail",
+          "contactPhone",
+          "CVR nr",
+          "Handelsbetingelser",
+          "mailto:${contactEmail}",
+        ],
+      },
+      {
+        path: "src/components/content/PlatformTermsContent.tsx",
+        markers: [
+          "PLATFORM_TERMS_VERSION",
+          "Platformvilkår",
+          "Webprinter.dk",
+          "trykkerier",
+          "info@webprinter.dk",
+          "tel:+4571991110",
+        ],
+      },
+      {
+        path: "src/lib/storefrontTenantContext.ts",
+        markers: [
+          "force_domain",
+          "tenant_subdomain",
+          "mailto:",
+          "tel:",
+          "appendStorefrontTenantContext",
+        ],
+      },
+      {
+        path: "src/pages/admin/CommercialReadiness.tsx",
+        markers: [
+          "legalConsentRows",
+          "Jura/cookie signaler",
+          "Kontakt-samtykke",
+          "cookieConsentReady",
+          "contactConsentReady",
+          "Offentlige routes: /kontakt, /privatliv, /cookiepolitik, /betingelser",
+          "Det ændrer ikke cookies, tracking, kontaktformular, tenantindstillinger eller juridisk tekst.",
+        ],
+      },
+    ],
+  },
 ];
 
 const renderedChecks = [
@@ -683,6 +849,50 @@ const contactPrivacyLinkChecks = [
     expectedSearchParams: {
       force_domain: "webprinter.dk",
     },
+  },
+];
+
+const cookieSettingsLinkChecks = [
+  {
+    name: "Webprinter cookie settings keeps platform legal links",
+    path: "/?force_domain=webprinter.dk",
+    expectedLinks: [
+      {
+        label: "Cookiepolitik",
+        expectedPath: "/cookiepolitik",
+        expectedSearchParams: {
+          force_domain: "webprinter.dk",
+        },
+      },
+      {
+        label: "Handelsbetingelser",
+        expectedPath: "/handelsbetingelser",
+        expectedSearchParams: {
+          force_domain: "webprinter.dk",
+        },
+      },
+    ],
+  },
+  {
+    name: "Salgsmapper cookie settings keeps tenant legal links",
+    path: "/?force_domain=www.salgsmapper.dk",
+    localOnly: true,
+    expectedLinks: [
+      {
+        label: "Cookiepolitik",
+        expectedPath: "/cookiepolitik",
+        expectedSearchParams: {
+          force_domain: "www.salgsmapper.dk",
+        },
+      },
+      {
+        label: "Handelsbetingelser",
+        expectedPath: "/betingelser",
+        expectedSearchParams: {
+          force_domain: "www.salgsmapper.dk",
+        },
+      },
+    ],
   },
 ];
 
@@ -1042,9 +1252,7 @@ async function runBrowserChecks() {
         const text = normalizeVisibleText(await page.locator("body").innerText({ timeout: timeoutMs }));
         const missing = check.expectedText.filter((marker) => !text.includes(marker));
         const runtimeError = text.includes("MIDLERTIDIG FEJL") || text.includes("Siden kunne ikke vises korrekt");
-        const newConsoleErrors = consoleMessages
-          .slice(startMessageCount)
-          .filter((message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"));
+        const newConsoleErrors = consoleMessages.slice(startMessageCount).filter(isMeaningfulConsoleMessage);
 
         renderedResults.push({
           name: check.name,
@@ -1066,6 +1274,10 @@ async function runBrowserChecks() {
 
     for (const check of contactPrivacyLinkChecks) {
       renderedResults.push(await runContactPrivacyLinkCheck(browser, check));
+    }
+
+    for (const check of cookieSettingsLinkChecks) {
+      renderedResults.push(await runCookieSettingsLinkCheck(browser, check));
     }
 
     for (const check of designLaunchChecks) {
@@ -1096,6 +1308,73 @@ async function runBrowserChecks() {
   }
 
   return renderedResults;
+}
+
+async function runCookieSettingsLinkCheck(browser, check) {
+  const baseHost = new URL(baseUrl).hostname;
+  const isLocalBase = baseHost === "localhost" || baseHost === "127.0.0.1";
+  if (check.localOnly && !isLocalBase) {
+    return {
+      name: check.name,
+      ok: true,
+      detail: "Skipped on production host because real hostname decides tenant/platform context.",
+    };
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    const url = new URL(check.path, baseUrl);
+    await page.goto(url.href, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+    await page.getByRole("button", { name: /^Tilpas$/i }).click({ timeout: timeoutMs });
+    await page.getByRole("dialog", { name: /Cookieindstillinger/i }).waitFor({ timeout: timeoutMs });
+
+    const mismatches = [];
+    const hrefDetails = [];
+    for (const expectedLink of check.expectedLinks) {
+      const href = await page.getByRole("link", { name: new RegExp(`^${escapeRegex(expectedLink.label)}$`, "i") }).first().getAttribute("href", {
+        timeout: timeoutMs,
+      });
+      if (!href) {
+        mismatches.push(`${expectedLink.label} link missing`);
+        continue;
+      }
+
+      const hrefUrl = new URL(href, url.origin);
+      hrefDetails.push(`${expectedLink.label}=${hrefUrl.pathname}${hrefUrl.search}`);
+      if (hrefUrl.pathname !== expectedLink.expectedPath) {
+        mismatches.push(`${expectedLink.label} path=${hrefUrl.pathname} expected ${expectedLink.expectedPath}`);
+      }
+
+      if (isLocalBase) {
+        for (const [key, value] of Object.entries(expectedLink.expectedSearchParams || {})) {
+          if (hrefUrl.searchParams.get(key) !== value) {
+            mismatches.push(`${expectedLink.label} missing local context ${key}=${value}`);
+          }
+        }
+      }
+    }
+
+    return {
+      name: check.name,
+      ok: mismatches.length === 0,
+      detail: [
+        mismatches.length ? "cookie settings legal link mismatch" : "cookie settings legal links are routed",
+        hrefDetails.join(", "),
+        mismatches.length ? mismatches.join("; ") : null,
+        !isLocalBase ? "production host does not stamp force_domain on links" : null,
+      ].filter(Boolean).join("; "),
+    };
+  } catch (error) {
+    return {
+      name: check.name,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    await page.close();
+  }
 }
 
 async function runContactPrivacyLinkCheck(browser, check) {
@@ -1178,9 +1457,7 @@ async function runDesignLaunchCheck(browser, check) {
     const missingParams = expectedParamFailures(currentUrl.searchParams, check.expectedSearchParams);
     const sessionFailures = expectedSessionFailures(session, check.expectedSession);
     const runtimeError = text.includes("MIDLERTIDIG FEJL") || text.includes("Siden kunne ikke vises korrekt");
-    const meaningfulConsole = consoleMessages.filter(
-      (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
-    );
+    const meaningfulConsole = consoleMessages.filter(isMeaningfulConsoleMessage);
     const ok = !runtimeError && missingText.length === 0 && missingParams.length === 0 && sessionFailures.length === 0;
 
     return {
@@ -1254,9 +1531,7 @@ async function runTemplateDownloadCheck(browser, check) {
     }
 
     const hrefPath = href ? new URL(href, page.url()).pathname : null;
-    const meaningfulConsole = consoleMessages.filter(
-      (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
-    );
+    const meaningfulConsole = consoleMessages.filter(isMeaningfulConsoleMessage);
     const mismatches = [
       runtimeError ? "rendered the temporary error screen" : null,
       linkCount === 0 ? "download link missing" : null,
@@ -1320,9 +1595,7 @@ async function runCheckoutLaunchCheck(browser, check) {
     const missingParams = expectedParamFailures(currentUrl.searchParams, check.expectedSearchParams);
     const sessionFailures = expectedSessionFailures(session, check.expectedSession);
     const runtimeError = text.includes("MIDLERTIDIG FEJL") || text.includes("Siden kunne ikke vises korrekt");
-    const meaningfulConsole = consoleMessages.filter(
-      (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
-    );
+    const meaningfulConsole = consoleMessages.filter(isMeaningfulConsoleMessage);
     const ok = !runtimeError && currentUrl.pathname === "/checkout/konfigurer" && missingText.length === 0 && missingParams.length === 0 && sessionFailures.length === 0;
 
     return {
@@ -1385,9 +1658,7 @@ async function runUploadReadinessCheck(browser, check) {
     const missingText = check.expectedUploadText.filter((marker) => !text.includes(marker));
     const missingAccepts = check.expectedFileAccept.filter((marker) => !String(fileAccept || "").includes(marker));
     const sessionFailures = expectedSessionFailures(session, check.expectedSession);
-    const meaningfulConsole = consoleMessages.filter(
-      (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
-    );
+    const meaningfulConsole = consoleMessages.filter(isMeaningfulConsoleMessage);
     const mismatches = [
       runtimeError ? "rendered the temporary error screen" : null,
       missingText.length ? `missing text: ${missingText.join(", ")}` : null,
@@ -1476,9 +1747,7 @@ async function runCheckoutValidationCheck(browser, check) {
     const runtimeError = text.includes("MIDLERTIDIG FEJL") || text.includes("Siden kunne ikke vises korrekt");
     const sessionFailures = expectedSessionFailures(session, check.expectedSession);
     const uploadPath = session?.siteUpload?.filePath ?? null;
-    const meaningfulConsole = consoleMessages.filter(
-      (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
-    );
+    const meaningfulConsole = consoleMessages.filter(isMeaningfulConsoleMessage);
     const mismatches = [
       runtimeError ? "rendered the temporary error screen" : null,
       !hasSyntheticUpload ? "synthetic upload not rendered" : null,
@@ -1591,9 +1860,7 @@ async function runPaymentSetupInterceptCheck(browser, check) {
     const quoteLabels = Array.isArray(checkoutQuote.variantDisplayLabels)
       ? checkoutQuote.variantDisplayLabels.map((label) => String(label || ""))
       : [];
-    const meaningfulConsole = consoleMessages.filter(
-      (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
-    );
+    const meaningfulConsole = consoleMessages.filter(isMeaningfulConsoleMessage);
     const missingVariantLabels = (check.expectedVariantDisplayLabels || []).filter((label) => !quoteLabels.includes(label));
     const mismatches = [
       paymentRequests.length !== 1 ? `payment setup requests=${paymentRequests.length}` : null,
@@ -1738,6 +2005,18 @@ function normalizeBaseUrl(value) {
 
 function normalizeVisibleText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function isMeaningfulConsoleMessage(message) {
+  return ![
+    "A preload for",
+    "was not used within a few seconds",
+    "motion() is deprecated. Use motion.create() instead.",
+  ].some((ignored) => String(message || "").includes(ignored));
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isUuid(value) {

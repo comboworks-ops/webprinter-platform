@@ -665,6 +665,13 @@ Implemented first read-only version:
   must still validate, rate-limit, send Resend emails and log platform leads in
   `platform_messages`, and admin `Beskeder` must still surface the
   `Platform henvendelser` read-only follow-up thread.
+  It also guards legal/cookie readiness: public platform and tenant legal
+  routes must still respond, cookie banner/settings must keep Danish consent
+  categories and accept/reject/custom controls, cookie settings must route
+  tenant terms to `/betingelser` and platform terms to `/handelsbetingelser`
+  without losing localhost tenant context, and `Driftsklarhed` must keep
+  `Jura/cookie signaler` read-only without changing cookies, tracking,
+  legal text or tenant settings.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported
