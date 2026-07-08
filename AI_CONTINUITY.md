@@ -437,7 +437,12 @@ Implemented read-only admin route:
   synthetic in-session upload for both products, approves it in the UI, clicks
   `Gå til betaling`, and verifies the Danish customer/delivery validation
   blocks payment before any Stripe payment intent, order-file storage write or
-  order insert request is sent.
+  order insert request is sent. With valid smoke customer and delivery details,
+  the same browser smoke intercepts `stripe-create-payment-intent` before it
+  reaches Supabase and verifies the outgoing quote, amount, upload path and
+  customer metadata for both products. The stubbed response intentionally
+  returns no Stripe secret, so no real payment form, payment intent, storage
+  write or order insert can be created.
 - It now includes `Supplier Bank staging-runbook`, a read-only operating
   sequence for supplier-bank products: external source only, report candidate,
   explicit approval, draft import, price-row QA, separate publishing decision

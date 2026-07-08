@@ -257,6 +257,25 @@ const checkoutValidationChecks = [
   },
 ];
 
+const paymentSetupChecks = [
+  {
+    name: "Aluminium checkout reaches payment setup with valid details",
+    path: "/produkt/aluminium?force_domain=webprinter.dk",
+    syntheticUploadName: "smoke-aluminium-payment-upload.png",
+    expectedAmountOre: 56500,
+    expectedProductSlug: "aluminium",
+    expectedQuantity: 1,
+  },
+  {
+    name: "Salgsmapper checkout reaches payment setup with valid details",
+    path: "/produkt/standard-sales-mapper-kopi-2?force_domain=www.salgsmapper.dk",
+    syntheticUploadName: "smoke-salgsmapper-payment-upload.png",
+    expectedAmountOre: 62200,
+    expectedProductSlug: "standard-sales-mapper-kopi-2",
+    expectedQuantity: 50,
+  },
+];
+
 const results = [];
 
 console.log(`\nCommercial readiness smoke for ${baseUrl}`);
@@ -465,6 +484,10 @@ async function runBrowserChecks() {
 
     for (const check of checkoutValidationChecks) {
       renderedResults.push(await runCheckoutValidationCheck(browser, check));
+    }
+
+    for (const check of paymentSetupChecks) {
+      renderedResults.push(await runPaymentSetupInterceptCheck(browser, check));
     }
   } finally {
     await browser.close();
@@ -835,6 +858,136 @@ async function runCheckoutValidationCheck(browser, check) {
   } finally {
     await page.close();
   }
+}
+
+async function runPaymentSetupInterceptCheck(browser, check) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  const consoleMessages = [];
+  const paymentRequests = [];
+  const blockedWriteRequests = [];
+
+  await page.route("**/functions/v1/stripe-create-payment-intent", async (route, request) => {
+    let body = null;
+    try {
+      body = JSON.parse(request.postData() || "{}");
+    } catch {
+      body = null;
+    }
+
+    paymentRequests.push({
+      method: request.method().toUpperCase(),
+      url: request.url(),
+      body,
+    });
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: {
+        "access-control-allow-origin": "*",
+      },
+      body: JSON.stringify({}),
+    });
+  });
+
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleMessages.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+
+  page.on("pageerror", (error) => {
+    consoleMessages.push(`pageerror: ${error.message}`);
+  });
+
+  page.on("request", (request) => {
+    const url = request.url();
+    const method = request.method().toUpperCase();
+    const isOrderFileWrite = url.includes("/storage/v1/object/order-files") && !["GET", "HEAD", "OPTIONS"].includes(method);
+    const isOrderInsert = url.includes("/rest/v1/orders") && method !== "GET";
+    if (isOrderFileWrite || isOrderInsert) {
+      blockedWriteRequests.push(`${method} ${url}`);
+    }
+  });
+
+  try {
+    const url = new URL(check.path, baseUrl);
+    await page.goto(url.href, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+    await page.getByRole("button", { name: /Bestil nu/i }).click({ timeout: timeoutMs });
+    await page.waitForURL(/\/checkout\/konfigurer/, { timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+
+    await installSyntheticCheckoutUpload(page, check.syntheticUploadName);
+    await page.reload({ waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1500);
+
+    await page.getByRole("button", { name: /^Godkend fil$/i }).first().click({ timeout: timeoutMs });
+    await page.waitForTimeout(750);
+    await fillCheckoutCustomerDetails(page);
+    await page.getByRole("button", { name: /Gå til betaling/i }).click({ timeout: timeoutMs });
+    await page.waitForTimeout(3000);
+
+    const text = normalizeVisibleText(await page.locator("body").innerText({ timeout: timeoutMs }));
+    const request = paymentRequests[0] || null;
+    const body = request?.body || {};
+    const checkoutQuote = body.checkout_quote || {};
+    const metadata = body.metadata || {};
+    const meaningfulConsole = consoleMessages.filter(
+      (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
+    );
+    const mismatches = [
+      paymentRequests.length !== 1 ? `payment setup requests=${paymentRequests.length}` : null,
+      request?.method !== "POST" ? `payment setup method=${request?.method || "missing"}` : null,
+      body.amount_ore !== check.expectedAmountOre ? `amount_ore=${JSON.stringify(body.amount_ore)} expected ${check.expectedAmountOre}` : null,
+      body.currency !== "dkk" ? `currency=${JSON.stringify(body.currency)} expected "dkk"` : null,
+      checkoutQuote.productSlug !== check.expectedProductSlug ? `quote.productSlug=${JSON.stringify(checkoutQuote.productSlug)}` : null,
+      checkoutQuote.quantity !== check.expectedQuantity ? `quote.quantity=${JSON.stringify(checkoutQuote.quantity)} expected ${check.expectedQuantity}` : null,
+      metadata.product_slug !== check.expectedProductSlug ? `metadata.product_slug=${JSON.stringify(metadata.product_slug)}` : null,
+      metadata.uploaded_file !== "smoke-readonly/no-storage-write.png" ? `metadata.uploaded_file=${JSON.stringify(metadata.uploaded_file)}` : null,
+      metadata.customer_email !== "smoke-test@example.com" ? `metadata.customer_email=${JSON.stringify(metadata.customer_email)}` : null,
+      metadata.customer_name !== "Smoke Test Kunde" ? `metadata.customer_name=${JSON.stringify(metadata.customer_name)}` : null,
+      metadata.recipient_name !== "Smoke Modtager" ? `metadata.recipient_name=${JSON.stringify(metadata.recipient_name)}` : null,
+      metadata.delivery_city !== "Aarhus C" ? `metadata.delivery_city=${JSON.stringify(metadata.delivery_city)}` : null,
+      text.includes("Udfyld kunde- og leveringsoplysninger før betaling.") ? "validation still blocked complete details" : null,
+      blockedWriteRequests.length ? `unexpected order/storage write: ${blockedWriteRequests[0]}` : null,
+      meaningfulConsole.length ? `console: ${meaningfulConsole.slice(0, 2).join(" | ")}` : null,
+    ].filter(Boolean);
+    const ok = mismatches.length === 0;
+
+    return {
+      name: check.name,
+      ok,
+      detail: [
+        ok ? "intercepted payment setup request with quote and customer metadata" : "payment setup mismatch",
+        mismatches.length ? mismatches.join("; ") : null,
+      ].filter(Boolean).join("; "),
+    };
+  } catch (error) {
+    return {
+      name: check.name,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function fillCheckoutCustomerDetails(page) {
+  await page.getByRole("button", { name: /Dine oplysninger/i }).click({ timeout: timeoutMs });
+  await page.locator("#customer-name").fill("Smoke Test Kunde", { timeout: timeoutMs });
+  await page.locator("#customer-email").fill("smoke-test@example.com", { timeout: timeoutMs });
+  await page.locator("#customer-phone").fill("12345678", { timeout: timeoutMs });
+  await page.locator("#customer-company").fill("Smoke Test ApS", { timeout: timeoutMs });
+  await page.locator("#delivery-recipient-name").fill("Smoke Modtager", { timeout: timeoutMs });
+  await page.locator("#delivery-company").fill("Smoke Test ApS", { timeout: timeoutMs });
+  await page.locator("#delivery-address").fill("Testvej 1", { timeout: timeoutMs });
+  await page.locator("#delivery-zip").fill("8000", { timeout: timeoutMs });
+  await page.locator("#delivery-city").fill("Aarhus C", { timeout: timeoutMs });
 }
 
 async function installSyntheticCheckoutUpload(page, name) {
