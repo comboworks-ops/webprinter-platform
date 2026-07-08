@@ -382,6 +382,12 @@ Current active direction:
   tracking/estimated delivery, support customer replies, handle requested file
   reupload through `order-files` and `order_files`, and clear the reupload flag
   after a replacement file is accepted.
+  It also guards the SEO/Search Console visibility layer: Platform SEO must
+  still expose the Search Console admin route, use master-scoped Google
+  `webmasters.readonly` access, keep verified sites, 28-day clicks,
+  impressions, CTR and average position in read-only hooks, and surface those
+  signals in `Driftsklarhed` without changing Google, SEO rows, products,
+  prices or orders.
   It also guards the contact/lead handoff: Webprinter's public contact page must
   still render with privacy-policy consent, the tenant contact form must keep a
   real `/privatliv` link with storefront tenant context, `send-contact-message`
