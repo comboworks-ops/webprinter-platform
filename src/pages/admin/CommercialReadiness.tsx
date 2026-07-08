@@ -7147,6 +7147,7 @@ export default function CommercialReadiness() {
   );
   const commercialReadyCount = commercialReadyCriteria.filter((item) => item.status === "klar").length;
   const commercialReadyBlockers = commercialReadyCriteria.filter((item) => item.status === "blokeret").length;
+  const commercialDecisionsQueue = useMemo(() => commercialDecisions, []);
   const thirtyDayPlan = useMemo(
     () => getThirtyDayPlanItems(readinessRows, pilotOrderPlan, flowIssues, commercialReadyCriteria, seoVisibilityRows),
     [readinessRows, pilotOrderPlan, flowIssues, commercialReadyCriteria, seoVisibilityRows],
@@ -7235,19 +7236,19 @@ export default function CommercialReadiness() {
     () => getCommercialAutomationMap(
       goalExecutionPlan,
       executivePriorityQueue,
-      commercialDecisions,
+      commercialDecisionsQueue,
       pilotProofRuns,
       adminAccessReadiness,
       commercialReadyCriteria,
     ),
-    [goalExecutionPlan, executivePriorityQueue, commercialDecisions, pilotProofRuns, adminAccessReadiness, commercialReadyCriteria],
+    [goalExecutionPlan, executivePriorityQueue, commercialDecisionsQueue, pilotProofRuns, adminAccessReadiness, commercialReadyCriteria],
   );
   const automationAutoCount = automationMap.filter((item) => item.mode === "auto").length;
   const automationManualCount = automationMap.filter((item) => item.mode === "manual").length;
   const automationDecisionCount = automationMap.filter((item) => item.mode === "decision").length;
   const commercialFocusItems = useMemo(
-    () => getCommercialFocusItems(automationMap, commercialDecisions),
-    [automationMap, commercialDecisions],
+    () => getCommercialFocusItems(automationMap, commercialDecisionsQueue),
+    [automationMap, commercialDecisionsQueue],
   );
   const externalDemoBoundary = useMemo(
     () => getExternalDemoBoundary(launchBoard, salesEvidenceBinder, printHouseMeetingPack, commercialGates),
@@ -7262,9 +7263,9 @@ export default function CommercialReadiness() {
       pilotOperationsRunbook,
       adminAccessReadiness,
       offerModel,
-      commercialDecisions,
+      commercialDecisionsQueue,
     ),
-    [commercialReadyCriteria, externalDemoBoundary, pilotOperationsRunbook, adminAccessReadiness, offerModel, commercialDecisions],
+    [commercialReadyCriteria, externalDemoBoundary, pilotOperationsRunbook, adminAccessReadiness, offerModel, commercialDecisionsQueue],
   );
   const commercialPilotAcceptanceBlockers = commercialPilotAcceptance.filter((item) => item.status === "blokeret").length;
   const commercialPilotAcceptanceReadyCount = commercialPilotAcceptance.filter((item) => item.status === "klar").length;
@@ -7492,7 +7493,7 @@ export default function CommercialReadiness() {
       paymentCheckoutRows,
       legalConsentRows,
       deliveryFulfillmentRows,
-      commercialDecisions,
+      commercialDecisionsQueue,
     ),
     [
       pilotConversionReadiness,
@@ -7501,6 +7502,7 @@ export default function CommercialReadiness() {
       paymentCheckoutRows,
       legalConsentRows,
       deliveryFulfillmentRows,
+      commercialDecisionsQueue,
     ],
   );
   const paidPilotBlockers = paidPilotPackage.filter((item) => item.status === "blokeret").length;
@@ -7620,8 +7622,8 @@ export default function CommercialReadiness() {
   const supplierBankStagingBlockers = supplierBankStagingRunbook.filter((item) => item.status === "blokeret").length;
   const supplierBankStagingReadyCount = supplierBankStagingRunbook.filter((item) => item.status === "klar" || item.status === "qa").length;
   const commercialDecisionOptionCards = useMemo(
-    () => getCommercialDecisionOptionCards(commercialDecisions),
-    [],
+    () => getCommercialDecisionOptionCards(commercialDecisionsQueue),
+    [commercialDecisionsQueue],
   );
   const decisionOptionBlockers = commercialDecisionOptionCards.filter((item) => item.status === "blokeret").length;
   const decisionOptionReadyCount = commercialDecisionOptionCards.filter((item) => item.status === "klar" || item.status === "qa").length;
@@ -10486,7 +10488,7 @@ export default function CommercialReadiness() {
           <h2 className="text-xl font-semibold">Beslutningskø før salg</h2>
         </div>
         <div className="grid gap-3">
-          {commercialDecisions.map((item) => (
+          {commercialDecisionsQueue.map((item) => (
             <Card key={item.title}>
               <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0 space-y-2">
