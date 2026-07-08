@@ -634,6 +634,10 @@ Implemented first read-only version:
   and admin order notifications, preserve POD v2 job creation, save optional
   customer addresses, surface persistence/notification warnings, clear Stripe
   return params, and show the customer an order number.
+  The smoke also guards the order email source chain: checkout wrappers must
+  still call `send-order-email` for customer confirmations and admin new-order
+  notifications, and the edge function must still render delivery, billing,
+  blind-shipping, sender, customer/admin links and Resend handoff details.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported

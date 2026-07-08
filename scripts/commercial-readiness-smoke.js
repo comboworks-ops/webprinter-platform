@@ -205,6 +205,47 @@ const sourceContractChecks = [
       },
     ],
   },
+  {
+    name: "Order email notification source contract",
+    detail: "verified customer/admin order emails keep delivery, billing, blind-shipping and Resend handoff",
+    files: [
+      {
+        path: "src/lib/emailService.ts",
+        markers: [
+          "supabase.functions.invoke('send-order-email'",
+          "type: 'order_confirmation'",
+          "type: 'admin_new_order'",
+          "sendOrderConfirmation",
+          "sendAdminNewOrderNotification",
+          "customer_email",
+          "admin_email",
+          "delivery_summary",
+          "billing_summary",
+          "blind_shipping",
+          "sender_summary",
+        ],
+      },
+      {
+        path: "supabase/functions/send-order-email/index.ts",
+        markers: [
+          "RESEND_API_KEY",
+          "CONTACT_EMAIL_FROM",
+          "order_confirmation",
+          "admin_new_order",
+          "Ordrebekræftelse",
+          "Ny ordre modtaget",
+          "Levering til:",
+          "Fakturering:",
+          "Blind forsendelse:",
+          "Afsender på pakken:",
+          "Åbn ordreoversigt",
+          "Se din ordre",
+          "reply_to: supportEmail",
+          "fetch(\"https://api.resend.com/emails\"",
+        ],
+      },
+    ],
+  },
 ];
 
 const renderedChecks = [
