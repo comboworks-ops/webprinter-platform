@@ -629,6 +629,11 @@ Implemented first read-only version:
   `checkout_quote`, recalculates the amount through server-side `pricing-read`,
   rejects client/server amount mismatches, includes delivery/option components,
   and writes server-quote metadata to Stripe.
+  It also guards the post-payment completion source path: successful payments
+  must still persist `orders`, attach current `order_files`, trigger customer
+  and admin order notifications, preserve POD v2 job creation, save optional
+  customer addresses, surface persistence/notification warnings, clear Stripe
+  return params, and show the customer an order number.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported

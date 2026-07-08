@@ -177,6 +177,34 @@ const sourceContractChecks = [
       },
     ],
   },
+  {
+    name: "Post-payment order completion source contract",
+    detail: "verified successful payment persists order, file, notifications and customer success evidence",
+    files: [
+      {
+        path: "src/pages/FileUploadConfiguration.tsx",
+        markers: [
+          "const handlePaymentSuccess = async (paymentIntentId: string)",
+          "setOrderSuccessMessage(\"Vi har modtaget din betaling og begynder at behandle din ordre.",
+          "setCreatedOrderNumber(insertedOrder.order_number)",
+          ".from(\"orders\" as any)",
+          ".from(\"order_files\" as any)",
+          "pod2-create-jobs",
+          "sendOrderConfirmation",
+          "sendAdminNewOrderNotification",
+          "customerOrderConfirmationsEnabled",
+          "adminNewOrderNotificationsEnabled",
+          "customer_addresses",
+          "setOrderPersistWarning(`Betaling gennemført, men ordren kunne ikke gemmes automatisk.",
+          "setOrderNotificationWarning",
+          "clearStripeReturnParams()",
+          "setPaymentSuccess(true)",
+          "returnedRedirectStatus === \"succeeded\"",
+          "Ordrenummer: {createdOrderNumber}",
+        ],
+      },
+    ],
+  },
 ];
 
 const renderedChecks = [

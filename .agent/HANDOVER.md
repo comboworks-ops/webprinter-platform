@@ -364,6 +364,11 @@ Current active direction:
   `checkout_quote`, recalculates the amount through server-side `pricing-read`,
   rejects client/server amount mismatches, includes delivery/option components,
   and writes server-quote metadata to Stripe.
+  It also guards the post-payment completion source path: successful payments
+  must still persist `orders`, attach current `order_files`, trigger customer
+  and admin order notifications, preserve POD v2 job creation, save optional
+  customer addresses, surface persistence/notification warnings, clear Stripe
+  return params, and show the customer an order number.
   `Supplier Bank staging-runbook` is the read-only operating sequence for
   supplier-bank products: external source only, report candidate, explicit
   approval, draft import, price-row QA, separate publishing decision and tenant
