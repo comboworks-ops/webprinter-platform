@@ -421,8 +421,11 @@ Implemented read-only admin route:
   and from the first Salgsmapper template product, then verifies `/designer`
   receives `order=1`, product context, return path, checkout session state, and
   for Salgsmapper the correct `templatePdfUrl`. This proves product-to-designer
-  handoff without creating orders or writing database state. It also clicks
-  `Bestil nu` from the same two product pages and verifies
+  handoff without creating orders or writing database state. It also verifies
+  the Salgsmapper `Download skabelon` link on the product page, including the
+  expected PDF path, Danish download filename, `application/pdf` response and
+  `%PDF` file header. It also clicks `Bestil nu` from the same two product pages
+  and verifies
   `/checkout/konfigurer` receives the current product, selected format,
   quantity, price totals, tenant context, and Salgsmapper template PDF context
   in session storage. That checkout check stops before upload, payment or order

@@ -156,6 +156,16 @@ const designLaunchChecks = [
   },
 ];
 
+const templateDownloadChecks = [
+  {
+    name: "Salgsmapper product exposes template download",
+    path: "/produkt/standard-sales-mapper-kopi-2?force_domain=www.salgsmapper.dk",
+    linkName: /^Download skabelon$/i,
+    expectedHrefPath: "/designer-templates/salgsmapper/salgsmappe-a5-5mm-ryg.pdf",
+    expectedDownloadName: "Salgsmappe A5 5 mm ryg.pdf",
+  },
+];
+
 const checkoutLaunchChecks = [
   {
     name: "Aluminium product opens checkout",
@@ -387,6 +397,10 @@ async function runBrowserChecks() {
       renderedResults.push(await runDesignLaunchCheck(browser, check));
     }
 
+    for (const check of templateDownloadChecks) {
+      renderedResults.push(await runTemplateDownloadCheck(browser, check));
+    }
+
     for (const check of checkoutLaunchChecks) {
       renderedResults.push(await runCheckoutLaunchCheck(browser, check));
     }
@@ -443,6 +457,89 @@ async function runDesignLaunchCheck(browser, check) {
         missingParams.length ? `params: ${missingParams.join(", ")}` : null,
         sessionFailures.length ? `session: ${sessionFailures.join(", ")}` : null,
         meaningfulConsole.length ? `console: ${meaningfulConsole.slice(0, 2).join(" | ")}` : null,
+      ].filter(Boolean).join("; "),
+    };
+  } catch (error) {
+    return {
+      name: check.name,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function runTemplateDownloadCheck(browser, check) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  const consoleMessages = [];
+
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleMessages.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+
+  page.on("pageerror", (error) => {
+    consoleMessages.push(`pageerror: ${error.message}`);
+  });
+
+  try {
+    const url = new URL(check.path, baseUrl);
+    await page.goto(url.href, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+
+    const text = normalizeVisibleText(await page.locator("body").innerText({ timeout: timeoutMs }));
+    const runtimeError = text.includes("MIDLERTIDIG FEJL") || text.includes("Siden kunne ikke vises korrekt");
+    const link = page.getByRole("link", { name: check.linkName }).first();
+    const linkCount = await link.count();
+
+    let href = null;
+    let downloadName = null;
+    let responseOk = false;
+    let contentType = "";
+    let byteCount = 0;
+    let looksLikePdf = false;
+
+    if (linkCount > 0) {
+      href = await link.getAttribute("href");
+      downloadName = await link.getAttribute("download");
+
+      if (href) {
+        const templateUrl = new URL(href, page.url());
+        const response = await page.request.get(templateUrl.href, { timeout: timeoutMs });
+        responseOk = response.ok();
+        contentType = response.headers()["content-type"] || "";
+        const bytes = await response.body();
+        byteCount = bytes.length;
+        looksLikePdf = bytes.subarray(0, 4).toString("utf8") === "%PDF";
+      }
+    }
+
+    const hrefPath = href ? new URL(href, page.url()).pathname : null;
+    const meaningfulConsole = consoleMessages.filter(
+      (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
+    );
+    const mismatches = [
+      runtimeError ? "rendered the temporary error screen" : null,
+      linkCount === 0 ? "download link missing" : null,
+      hrefPath !== check.expectedHrefPath ? `href=${JSON.stringify(hrefPath)} expected ${JSON.stringify(check.expectedHrefPath)}` : null,
+      downloadName !== check.expectedDownloadName ? `download=${JSON.stringify(downloadName)} expected ${JSON.stringify(check.expectedDownloadName)}` : null,
+      !responseOk ? "template request failed" : null,
+      !contentType.includes("application/pdf") ? `content-type=${contentType || "missing"}` : null,
+      !looksLikePdf ? "template response is not a PDF" : null,
+    ].filter(Boolean);
+    const ok = mismatches.length === 0;
+
+    return {
+      name: check.name,
+      ok,
+      detail: [
+        ok ? "download link resolves to template PDF" : "template download mismatch",
+        byteCount ? `${byteCount} bytes` : null,
+        meaningfulConsole.length ? `console: ${meaningfulConsole.slice(0, 2).join(" | ")}` : null,
+        mismatches.length ? mismatches.join("; ") : null,
       ].filter(Boolean).join("; "),
     };
   } catch (error) {

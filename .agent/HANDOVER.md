@@ -335,10 +335,13 @@ Current active direction:
   Salgsmapper template product. It verifies `/designer` receives `order=1`,
   product context, return path, checkout session state, and the Salgsmapper
   `templatePdfUrl`, while remaining read-only and creating no orders or
-  database writes. It also clicks `Bestil nu` on those same product pages and
-  verifies `/checkout/konfigurer` receives the active product, selected format,
-  quantity, price totals, tenant context, and Salgsmapper template PDF context
-  from session storage, stopping before upload, payment or order creation.
+  database writes. It also verifies the Salgsmapper `Download skabelon` link on
+  the product page, including the expected PDF path, Danish download filename,
+  `application/pdf` response and `%PDF` file header. It also clicks `Bestil nu`
+  on those same product pages and verifies `/checkout/konfigurer` receives the
+  active product, selected format, quantity, price totals, tenant context, and
+  Salgsmapper template PDF context from session storage, stopping before upload,
+  payment or order creation.
   `Supplier Bank staging-runbook` is the read-only operating sequence for
   supplier-bank products: external source only, report candidate, explicit
   approval, draft import, price-row QA, separate publishing decision and tenant

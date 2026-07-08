@@ -600,11 +600,13 @@ Implemented first read-only version:
   check confirms `/designer` receives `order=1`, product context, return path,
   checkout session state, and the Salgsmapper `templatePdfUrl`, without
   creating an order or writing live product/pricing/Supplier Bank data. It also
-  verifies product-to-checkout handoff by clicking `Bestil nu` from the same
-  two products and checking `/checkout/konfigurer` for current product,
-  selected format, quantity, price totals, tenant context, and Salgsmapper
-  template PDF context. That check stops before upload, payment or order
-  creation.
+  verifies the Salgsmapper product-page `Download skabelon` link by checking
+  the expected PDF path, Danish download filename, `application/pdf` response
+  and `%PDF` file header. It also verifies product-to-checkout handoff by
+  clicking `Bestil nu` from the same two products and checking
+  `/checkout/konfigurer` for current product, selected format, quantity, price
+  totals, tenant context, and Salgsmapper template PDF context. That check stops
+  before upload, payment or order creation.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported
