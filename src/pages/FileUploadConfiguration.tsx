@@ -14,7 +14,12 @@ import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { StripePaymentForm } from "@/components/checkout/StripePaymentForm";
 import { cloneStandardDeliveryMethods, resolveDeliveryMethodCost } from "@/lib/delivery/defaults";
-import { readSiteCheckoutSession, writeSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
+import {
+    clearSiteCheckoutDesignReady,
+    isSiteCheckoutDesignReady,
+    readSiteCheckoutSession,
+    writeSiteCheckoutSession,
+} from "@/lib/checkout/siteCheckoutSession";
 import { deleteCheckoutCustomerProfile, readCheckoutCustomerProfiles, upsertCheckoutCustomerProfile, type CheckoutCustomerProfile } from "@/lib/checkout/customerProfiles";
 import { ptToMm } from "@/utils/unitConversions";
 import {
@@ -1246,6 +1251,22 @@ const FileUploadConfiguration = () => {
                 : senderMode === "custom"
                     ? (senderName.trim() || customerCompany.trim() || resolvedCustomerName)
                     : "Standard WebPrinter-afsender";
+            const latestCheckoutSession = readSiteCheckoutSession();
+            const productionFlow = latestCheckoutSession?.designerExport?.fileUrl
+                ? "Designer online"
+                : uploadedFile
+                    ? "Uploadet fil"
+                    : latestCheckoutSession?.templateDownloadedAt
+                        ? "Downloadet skabelon til eget design"
+                        : "Ingen produktionsfil ved ordreoprettelse";
+            const templatePdfName = latestCheckoutSession?.templatePdfName || null;
+            const templatePdfUrl = latestCheckoutSession?.templatePdfUrl || null;
+            const templateSummary = templatePdfName || templatePdfUrl
+                ? [
+                    templatePdfName || "Produktskabelon",
+                    templatePdfUrl ? `(${templatePdfUrl})` : null,
+                  ].filter(Boolean).join(" ")
+                : null;
             const supplementalOrderNotes = [
                 customerPhone.trim() ? `[TELEFON] ${customerPhone.trim()}` : null,
                 customerCompany.trim() ? `[FIRMA] ${customerCompany.trim()}` : null,
@@ -1256,6 +1277,9 @@ const FileUploadConfiguration = () => {
                 selectedDeliveryLabel ? `[LEVERINGSMETODE] ${selectedDeliveryLabel}` : null,
                 senderMode === "blind" ? "[BLIND_SHIPPING] Ja" : null,
                 senderSummary ? `[AFSENDER] ${senderSummary}` : null,
+                `[PRODUKTIONSFLOW] ${productionFlow}`,
+                templateSummary ? `[SKABELON] ${templateSummary}` : null,
+                latestCheckoutSession?.templateDownloadedAt ? `[SKABELON-DOWNLOAD] ${latestCheckoutSession.templateDownloadedAt}` : null,
             ].filter(Boolean).join("\n");
 
             let includeProductConfigurationColumn = !!productConfigurationText;
@@ -1329,7 +1353,6 @@ const FileUploadConfiguration = () => {
 
             setCreatedOrderNumber(insertedOrder.order_number);
 
-            const latestCheckoutSession = readSiteCheckoutSession();
             const finalOrderFile = latestCheckoutSession?.designerExport?.fileUrl
                 ? {
                     name: String(latestCheckoutSession.designerExport.name || "designer-production.pdf"),
@@ -1363,6 +1386,8 @@ const FileUploadConfiguration = () => {
                         notes: [
                             productConfigurationText ? `Konfiguration: ${productConfigurationText}` : null,
                             latestCheckoutSession?.designerExport?.fileUrl ? "Kilde: designer production export" : null,
+                            !latestCheckoutSession?.designerExport?.fileUrl && uploadedFile ? "Kilde: kundeupload" : null,
+                            templateSummary ? `Skabelon: ${templateSummary}` : null,
                         ].filter(Boolean).join(" | ") || null,
                     });
 
@@ -2032,11 +2057,10 @@ const FileUploadConfiguration = () => {
     useEffect(() => {
         const productKey = state?.productId;
         if (!productKey) return;
-        const readyFlag = sessionStorage.getItem(`order-design:${productKey}`);
-        if (!readyFlag) return;
+        if (!isSiteCheckoutDesignReady(productKey, state)) return;
         setProofingApproved(true);
         setProofingOpen(false);
-    }, [state?.productId]);
+    }, [state]);
 
     useEffect(() => {
         const tenantId = shopSettings.data?.id;
@@ -2244,7 +2268,7 @@ const FileUploadConfiguration = () => {
         setPdfContourScan(null);
         resetProofingAdjustments();
         if (state?.productId) {
-            sessionStorage.removeItem(`order-design:${state.productId}`);
+            clearSiteCheckoutDesignReady(state.productId);
         }
 
         try {
@@ -3331,7 +3355,7 @@ const FileUploadConfiguration = () => {
                                                         size="sm"
                                                         onClick={() => {
                                                             if (state?.productId) {
-                                                                sessionStorage.removeItem(`order-design:${state.productId}`);
+                                                                clearSiteCheckoutDesignReady(state.productId);
                                                             }
                                                             const existingSession = readSiteCheckoutSession();
                                                             if (existingSession?.designerExport) {

@@ -49,7 +49,7 @@ import { runPreflightChecks, PreflightWarning } from "@/utils/preflightChecks";
 import { useColorProofing } from "@/hooks/useColorProofing";
 import { useProductColorProfile } from "@/hooks/useProductColorProfile";
 import { getImageDpi } from "@/utils/imageMetadata";
-import { readSiteCheckoutSession, writeSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
+import { markSiteCheckoutDesignReady, readSiteCheckoutSession, writeSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
 import { ptToMm } from "@/utils/unitConversions";
 import {
     Loader2,
@@ -142,6 +142,8 @@ export function Designer() {
     const queryTenantId = queryTenantIdRaw && UUID_REGEX.test(queryTenantIdRaw) ? queryTenantIdRaw : null;
     const format = searchParams.get("format");
     const variant = searchParams.get("variant");
+    const directTemplatePdfUrl = searchParams.get("templatePdfUrl") || searchParams.get("templatePdf");
+    const directTemplatePdfName = searchParams.get("templatePdfName");
     const orderMode = searchParams.get("order") === "1" || searchParams.get("mode") === "order";
     const returnTo = searchParams.get("returnTo");
     const safeReturnTo = returnTo && returnTo.startsWith("/") ? returnTo : null;
@@ -173,7 +175,7 @@ export function Designer() {
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
     const [zoomLevel, setZoomLevel] = useState(1);
     const [pendingCutContour, setPendingCutContour] = useState<string | null>(null);
-    const [pendingTemplatePdf, setPendingTemplatePdf] = useState<string | null>(null);
+    const [pendingTemplatePdf, setPendingTemplatePdf] = useState<string | null>(directTemplatePdfUrl);
     const [pendingTemplateEditorJson, setPendingTemplateEditorJson] = useState<any | null>(null);
     const [linkedTemplateFetchComplete, setLinkedTemplateFetchComplete] = useState(() => !templateId);
     const [checkoutUploadImported, setCheckoutUploadImported] = useState(false);
@@ -181,7 +183,7 @@ export function Designer() {
     // Keep URL-first initialization to avoid A4 flash before async spec loads.
     const [documentSpec, setDocumentSpec] = useState(() => {
         const defaultSpec = {
-            name: "Uden titel",
+            name: directTemplatePdfName || "Uden titel",
             width_mm: 210,
             height_mm: 297,
             bleed_mm: 3,
@@ -242,7 +244,8 @@ export function Designer() {
     const [isLibraryOpen, setIsLibraryOpen] = useState(false);
 
     // Show landing page when no parameters are provided
-    const showLanding = !variantId && !productId && !templateId && !designId && !format;
+    const hasCustomFormat = customWidthMm !== null && customHeightMm !== null;
+    const showLanding = !variantId && !productId && !templateId && !designId && !format && !hasCustomFormat && !directTemplatePdfUrl;
 
     // Unsaved changes navigation guard
     const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
@@ -414,7 +417,7 @@ export function Designer() {
                     const widthMm = customWidthMm;
                     const heightMm = customHeightMm;
                     let resolvedProductId = productId || variantId || null;
-                    let productName = "Design: Tilpasset format";
+                    let productName = directTemplatePdfName || "Design: Tilpasset format";
                     let specs: any = null;
 
                     if (resolvedProductId) {
@@ -817,7 +820,7 @@ export function Designer() {
 
     const markDesignReady = useCallback(() => {
         if (!documentSpec.product_id) return;
-        sessionStorage.setItem(`order-design:${documentSpec.product_id}`, "1");
+        markSiteCheckoutDesignReady(documentSpec.product_id, readSiteCheckoutSession());
     }, [documentSpec.product_id]);
 
     const handleReturnToOrder = useCallback(() => {

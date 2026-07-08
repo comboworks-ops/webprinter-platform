@@ -28,6 +28,12 @@ import { readTransientString, writeTransientString } from "@/lib/storage/transie
 import { fetchProductDetailRead } from "@/lib/api/productDetailRead";
 import { resolveCanvaOffer } from "@/lib/canva/launch";
 import { resolveMatrixLinkedTemplateId } from "@/lib/designer/linkedTemplates";
+import {
+  getSalgsmapperFallbackTemplates,
+  mergeProductTemplates,
+  resolveSelectedDesignerTemplateLaunch,
+  type ProductTemplateFile,
+} from "@/lib/designer/productTemplateLinks";
 import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
 import type { SiteCheckoutState } from "@/lib/checkout/siteCheckoutSession";
 
@@ -153,6 +159,8 @@ const ProductPrice = () => {
     technical_specs?: any;
     pricing_type?: string;
     banner_config?: any;
+    template_files?: ProductTemplateFile[] | null;
+    slug?: string | null;
   } | null>(null);
   const [mpaConfig, setMpaConfig] = useState<any>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
@@ -315,7 +323,7 @@ const ProductPrice = () => {
       setFallbackNotice(null);
       setMpaConfig(null);
       console.log('[ProductPrice] Fetching product with slug:', slug);
-      const productSelect = 'id, name, description, image_url, technical_specs, pricing_structure, pricing_type, banner_config' as any;
+      const productSelect = 'id, slug, name, description, image_url, technical_specs, pricing_structure, pricing_type, banner_config, template_files' as any;
       const tenantId = shopSettings.data?.id || MASTER_TENANT_ID;
       const applyProductData = (data: any) => {
         setDbProductId(data.id);
@@ -351,6 +359,8 @@ const ProductPrice = () => {
           pricing_structure: apiProduct.pricing_structure ?? null,
           pricing_type: typeof apiProduct.pricing_type === "string" ? apiProduct.pricing_type : null,
           banner_config: (apiProduct.banner_config && typeof apiProduct.banner_config === "object") ? apiProduct.banner_config : null,
+          template_files: Array.isArray(apiProduct.template_files) ? apiProduct.template_files : [],
+          slug: typeof apiProduct.slug === "string" ? apiProduct.slug : null,
         };
       };
 
@@ -977,6 +987,25 @@ const ProductPrice = () => {
     }
     return "";
   }, [selectedFormat, selectedVariantName, valueMetaById, isUuid]);
+  const selectedFormatLabel = useMemo(() => {
+    if (selectedFormatId && valueNameById[selectedFormatId]) return valueNameById[selectedFormatId];
+    return selectedFormat || selectedVariantName || "";
+  }, [selectedFormat, selectedFormatId, selectedVariantName, valueNameById]);
+  const availableProductTemplates = useMemo(() => {
+    const fallbackTemplates = getSalgsmapperFallbackTemplates({
+      productId: dbProductId || product?.id,
+      productName: dbProduct?.name || product?.name,
+      productSlug: dbProduct?.slug || slug,
+    });
+    return mergeProductTemplates(dbProduct?.template_files, fallbackTemplates);
+  }, [dbProduct?.name, dbProduct?.slug, dbProduct?.template_files, dbProductId, product?.id, product?.name, slug]);
+  const designerTemplateLaunch = useMemo(() => {
+    return resolveSelectedDesignerTemplateLaunch({
+      templates: availableProductTemplates,
+      selectedFormat,
+      selectedFormatLabel,
+    });
+  }, [availableProductTemplates, selectedFormat, selectedFormatLabel]);
   const currentDimensions = useMemo(() => {
     const techSpecs = dbProduct?.technical_specs;
     if (selectedFormatId) {
@@ -1258,8 +1287,14 @@ const ProductPrice = () => {
               selectedVariant={storformatSelection?.materialName}
               productName={product?.name || ''}
               productSlug={slug || ''}
+              selectedFormat={storformatSelection ? `${storformatSelection.widthCm} x ${storformatSelection.heightCm} cm` : undefined}
               linkedTemplateId={linkedTemplateId}
               orderDeliveryConfig={orderDeliveryConfig}
+              designWidthMm={designDimensions.width}
+              designHeightMm={designDimensions.height}
+              designBleedMm={designDimensions.bleed}
+              designSafeAreaMm={designSafeAreaMm}
+              designerTemplateLaunch={designerTemplateLaunch}
               externalDeliveryEnabled={podShippingEnabled}
               externalDeliveryMethods={podShippingMethods}
               externalDeliveryLoading={podShippingLoading}
@@ -1311,6 +1346,7 @@ const ProductPrice = () => {
               designHeightMm={designDimensions.height}
               designBleedMm={designDimensions.bleed}
               designSafeAreaMm={designSafeAreaMm}
+              designerTemplateLaunch={designerTemplateLaunch}
               externalDeliveryEnabled={podShippingEnabled}
               externalDeliveryMethods={podShippingMethods}
               externalDeliveryLoading={podShippingLoading}
@@ -1439,6 +1475,7 @@ const ProductPrice = () => {
                 designHeightMm={designDimensions.height}
                 designBleedMm={designDimensions.bleed}
                 designSafeAreaMm={designSafeAreaMm}
+                designerTemplateLaunch={designerTemplateLaunch}
                 externalDeliveryEnabled={podShippingEnabled}
                 externalDeliveryMethods={podShippingMethods}
                 externalDeliveryLoading={podShippingLoading}
@@ -1535,7 +1572,11 @@ const ProductPrice = () => {
 
         {renderPricingInterface()}
 
-        <StaticProductInfo productId={dbProductId || product.slug || product.id} selectedFormat={selectedFormat} />
+        <StaticProductInfo
+          productId={dbProductId || product.slug || product.id}
+          selectedFormat={selectedFormat}
+          selectedFormatLabel={selectedFormatLabel}
+        />
 
         {/* Debug Overlay */}
         {searchParams.get('debug') === 'true' && (

@@ -49,7 +49,7 @@ export const getSalgsmapperFallbackTemplates = ({
   productSlug?: string | null;
 }): ProductTemplateFile[] => {
   const productKey = `${productSlug || ""} ${productName || ""} ${productId || ""}`.toLowerCase();
-  if (!productKey.includes("salgsmap")) return [];
+  if (!productKey.includes("salgsmap") && !productKey.includes("sales-mapper") && !productKey.includes("sales mapper")) return [];
 
   return [{
     name: "Salgsmappe A5 5 mm ryg",

@@ -10,7 +10,14 @@ import jsPDF from "jspdf";
 import { cn } from "@/lib/utils";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { DEFAULT_BRANDING, mergeBrandingWithDefaults, type BrandingData } from "@/lib/branding";
-import { stageSiteCheckoutTransfer, writeSiteCheckoutSession, type SiteCheckoutState } from "@/lib/checkout/siteCheckoutSession";
+import {
+  isSiteCheckoutDesignReady,
+  readSiteCheckoutSession,
+  stageSiteCheckoutTransfer,
+  writeSiteCheckoutSession,
+  type SiteCheckoutState,
+} from "@/lib/checkout/siteCheckoutSession";
+import type { DesignerTemplateLaunch } from "@/lib/designer/productTemplateLinks";
 
 type ProductPricePanelProps = {
   productId: string;
@@ -34,6 +41,7 @@ type ProductPricePanelProps = {
   designHeightMm?: number;
   designBleedMm?: number;
   designSafeAreaMm?: number;
+  designerTemplateLaunch?: DesignerTemplateLaunch | null;
   externalDeliveryEnabled?: boolean;
   externalDeliveryMethods?: DeliveryMethod[];
   externalDeliveryLoading?: boolean;
@@ -201,6 +209,7 @@ export function ProductPricePanel({
   designHeightMm,
   designBleedMm,
   designSafeAreaMm,
+  designerTemplateLaunch,
   externalDeliveryEnabled,
   externalDeliveryMethods,
   externalDeliveryLoading,
@@ -214,6 +223,12 @@ export function ProductPricePanel({
   const [shippingSelected, setShippingSelected] = useState<string>("standard");
   const [designReady, setDesignReady] = useState(false);
   const [now, setNow] = useState<Date>(() => new Date());
+  const templateDownloadName = useMemo(() => {
+    if (!designerTemplateLaunch?.name) return "produkt-skabelon.pdf";
+    return designerTemplateLaunch.name.toLowerCase().endsWith(".pdf")
+      ? designerTemplateLaunch.name
+      : `${designerTemplateLaunch.name}.pdf`;
+  }, [designerTemplateLaunch?.name]);
   const activeBranding = useMemo(() => {
     if (isPreviewMode && previewBranding) {
       return mergeBrandingWithDefaults(previewBranding);
@@ -641,12 +656,6 @@ export function ProductPricePanel({
   }, [baseTotal, shippingSelected, activeDeliveryMethod, onShippingChange]);
 
   useEffect(() => {
-    if (!productId) return;
-    const key = `order-design:${productId}`;
-    setDesignReady(sessionStorage.getItem(key) === "1");
-  }, [productId]);
-
-  useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(interval);
   }, []);
@@ -900,6 +909,14 @@ export function ProductPricePanel({
       productSlug,
       selectedFormat,
       linkedTemplateId: linkedTemplateId ?? null,
+      templatePdfName: designerTemplateLaunch?.name || null,
+      templatePdfUrl: designerTemplateLaunch?.pdfUrl || null,
+      templateDownloadedAt: (() => {
+        const existingSession = readSiteCheckoutSession();
+        return existingSession?.templatePdfUrl === designerTemplateLaunch?.pdfUrl
+          ? existingSession.templateDownloadedAt || null
+          : null;
+      })(),
       designWidthMm: designWidthMm ?? null,
       designHeightMm: designHeightMm ?? null,
       designBleedMm: designBleedMm ?? null,
@@ -918,6 +935,33 @@ export function ProductPricePanel({
         : null,
       createdAt: new Date().toISOString(),
   });
+
+  useEffect(() => {
+    if (!productId) return;
+    setDesignReady(isSiteCheckoutDesignReady(productId, buildCheckoutState()));
+  }, [
+    productId,
+    quantity,
+    productPrice,
+    extraPrice,
+    totalPrice,
+    summary,
+    optionSelections,
+    selectedVariant,
+    productName,
+    productSlug,
+    selectedFormat,
+    linkedTemplateId,
+    designerTemplateLaunch?.name,
+    designerTemplateLaunch?.pdfUrl,
+    designWidthMm,
+    designHeightMm,
+    designBleedMm,
+    designSafeAreaMm,
+    activeDeliveryMethod?.id,
+    activeShippingCost,
+    pricingQuote,
+  ]);
 
   const handleOrderClick = () => {
     if (orderValidationError) return;
@@ -1177,20 +1221,35 @@ export function ProductPricePanel({
                 )}
                 style={designReady ? selectedButtonCssVars : secondaryButtonCssVars}
                 onClick={() => {
+                  persistCheckoutState({ crossTab: true });
                   const params = new URLSearchParams();
                   params.set('productId', productId);
                   if (selectedFormat) params.set('format', selectedFormat);
                   if (linkedTemplateId) params.set('templateId', linkedTemplateId);
                   if (selectedVariant) params.set('variant', selectedVariant);
-                  if (typeof designWidthMm === "number" && designWidthMm > 0 && typeof designHeightMm === "number" && designHeightMm > 0) {
-                    params.set('widthMm', String(designWidthMm));
-                    params.set('heightMm', String(designHeightMm));
+                  const launchWidthMm = designerTemplateLaunch?.widthMm;
+                  const launchHeightMm = designerTemplateLaunch?.heightMm;
+                  const launchBleedMm = designerTemplateLaunch?.bleedMm;
+                  const launchSafeMm = designerTemplateLaunch?.safeMm;
+
+                  const resolvedWidthMm = typeof launchWidthMm === "number" && launchWidthMm > 0 ? launchWidthMm : designWidthMm;
+                  const resolvedHeightMm = typeof launchHeightMm === "number" && launchHeightMm > 0 ? launchHeightMm : designHeightMm;
+                  const resolvedBleedMm = typeof launchBleedMm === "number" && launchBleedMm >= 0 ? launchBleedMm : designBleedMm;
+                  const resolvedSafeMm = typeof launchSafeMm === "number" && launchSafeMm >= 0 ? launchSafeMm : designSafeAreaMm;
+
+                  if (designerTemplateLaunch?.pdfUrl) {
+                    params.set('templatePdfUrl', designerTemplateLaunch.pdfUrl);
+                    params.set('templatePdfName', designerTemplateLaunch.name);
                   }
-                  if (typeof designBleedMm === "number" && designBleedMm >= 0) {
-                    params.set('bleedMm', String(designBleedMm));
+                  if (typeof resolvedWidthMm === "number" && resolvedWidthMm > 0 && typeof resolvedHeightMm === "number" && resolvedHeightMm > 0) {
+                    params.set('widthMm', String(resolvedWidthMm));
+                    params.set('heightMm', String(resolvedHeightMm));
                   }
-                  if (typeof designSafeAreaMm === "number" && designSafeAreaMm >= 0) {
-                    params.set('safeMm', String(designSafeAreaMm));
+                  if (typeof resolvedBleedMm === "number" && resolvedBleedMm >= 0) {
+                    params.set('bleedMm', String(resolvedBleedMm));
+                  }
+                  if (typeof resolvedSafeMm === "number" && resolvedSafeMm >= 0) {
+                    params.set('safeMm', String(resolvedSafeMm));
                   }
                   params.set('order', '1');
                   params.set('returnTo', `/produkt/${productSlug}`);
@@ -1207,6 +1266,33 @@ export function ProductPricePanel({
                 )}
                 {designReady ? "Design klar" : "Design online"}
               </MotionButton>
+              {designerTemplateLaunch?.pdfUrl && (
+                <Button
+                  asChild
+                  variant="outline"
+                  size="lg"
+                  className="min-h-12 w-full touch-manipulation gap-2 border-dashed py-5"
+                  style={secondaryButtonCssVars}
+                >
+                  <a
+                    href={designerTemplateLaunch.pdfUrl}
+                    download={templateDownloadName}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      const checkoutState = {
+                        ...buildCheckoutState(),
+                        templateDownloadedAt: new Date().toISOString(),
+                      };
+                      writeSiteCheckoutSession(checkoutState);
+                      stageSiteCheckoutTransfer(checkoutState);
+                    }}
+                  >
+                    <Download className="h-5 w-5" />
+                    Download skabelon
+                  </a>
+                </Button>
+              )}
               {canvaOffer?.enabled && canvaOffer.launchUrl ? (
                 <>
                   <MotionButton
