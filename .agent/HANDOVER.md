@@ -340,8 +340,12 @@ Current active direction:
   `application/pdf` response and `%PDF` file header. It also clicks `Bestil nu`
   on those same product pages and verifies `/checkout/konfigurer` receives the
   active product, selected format, quantity, price totals, tenant context, and
-  Salgsmapper template PDF context from session storage, stopping before upload,
-  payment or order creation.
+  Salgsmapper template PDF context from session storage. The same smoke now
+  verifies that checkout shows `Fil Upload` for both products, exposes an input
+  accepting PDF/JPG/JPEG/PNG/TIFF, keeps `siteUpload` empty before any file is
+  chosen, and keeps payment disabled before upload/customer details. It
+  deliberately does not select a file because that would write to storage, and
+  stops before upload, payment or order creation.
   `Supplier Bank staging-runbook` is the read-only operating sequence for
   supplier-bank products: external source only, report candidate, explicit
   approval, draft import, price-row QA, separate publishing decision and tenant

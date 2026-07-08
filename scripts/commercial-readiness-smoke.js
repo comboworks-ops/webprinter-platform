@@ -203,6 +203,34 @@ const checkoutLaunchChecks = [
   },
 ];
 
+const uploadReadinessChecks = [
+  {
+    name: "Aluminium checkout shows upload path",
+    path: "/produkt/aluminium?force_domain=webprinter.dk",
+    expectedUploadText: ["Fil Upload", "Klik eller træk fil hertil", "PDF", "JPG", "TIFF"],
+    expectedFileAccept: [".pdf", ".jpg", ".jpeg", ".png", ".tiff"],
+    expectedSession: {
+      productSlug: "aluminium",
+      productName: "Aluminium Skilte",
+      selectedFormat: "100 x 100 cm",
+      siteUpload: null,
+    },
+  },
+  {
+    name: "Salgsmapper checkout shows upload path",
+    path: "/produkt/standard-sales-mapper-kopi-2?force_domain=www.salgsmapper.dk",
+    expectedUploadText: ["Fil Upload", "Klik eller træk fil hertil", "PDF", "JPG", "TIFF"],
+    expectedFileAccept: [".pdf", ".jpg", ".jpeg", ".png", ".tiff"],
+    expectedSession: {
+      productSlug: "standard-sales-mapper-kopi-2",
+      productName: "Standard Salgsmapper",
+      selectedFormat: "A4",
+      templatePdfUrl: "/designer-templates/salgsmapper/salgsmappe-a5-5mm-ryg.pdf",
+      siteUpload: null,
+    },
+  },
+];
+
 const results = [];
 
 console.log(`\nCommercial readiness smoke for ${baseUrl}`);
@@ -404,6 +432,10 @@ async function runBrowserChecks() {
     for (const check of checkoutLaunchChecks) {
       renderedResults.push(await runCheckoutLaunchCheck(browser, check));
     }
+
+    for (const check of uploadReadinessChecks) {
+      renderedResults.push(await runUploadReadinessCheck(browser, check));
+    }
   } finally {
     await browser.close();
   }
@@ -600,6 +632,77 @@ async function runCheckoutLaunchCheck(browser, check) {
         missingParams.length ? `params: ${missingParams.join(", ")}` : null,
         sessionFailures.length ? `session: ${sessionFailures.join(", ")}` : null,
         meaningfulConsole.length ? `console: ${meaningfulConsole.slice(0, 2).join(" | ")}` : null,
+      ].filter(Boolean).join("; "),
+    };
+  } catch (error) {
+    return {
+      name: check.name,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function runUploadReadinessCheck(browser, check) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  const consoleMessages = [];
+
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleMessages.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+
+  page.on("pageerror", (error) => {
+    consoleMessages.push(`pageerror: ${error.message}`);
+  });
+
+  try {
+    const url = new URL(check.path, baseUrl);
+    await page.goto(url.href, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+    await page.getByRole("button", { name: /Bestil nu/i }).click({ timeout: timeoutMs });
+    await page.waitForURL(/\/checkout\/konfigurer/, { timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+
+    const text = normalizeVisibleText(await page.locator("body").innerText({ timeout: timeoutMs }));
+    const session = await readCheckoutSession(page);
+    const fileInput = page.locator('input[type="file"]').first();
+    const fileInputCount = await fileInput.count();
+    const fileAccept = fileInputCount > 0 ? await fileInput.getAttribute("accept") : null;
+    const paymentButton = page.getByRole("button", { name: /Gå til betaling/i }).first();
+    const paymentButtonCount = await paymentButton.count();
+    const paymentButtonDisabled = paymentButtonCount > 0 ? await paymentButton.isDisabled() : false;
+    const runtimeError = text.includes("MIDLERTIDIG FEJL") || text.includes("Siden kunne ikke vises korrekt");
+    const missingText = check.expectedUploadText.filter((marker) => !text.includes(marker));
+    const missingAccepts = check.expectedFileAccept.filter((marker) => !String(fileAccept || "").includes(marker));
+    const sessionFailures = expectedSessionFailures(session, check.expectedSession);
+    const meaningfulConsole = consoleMessages.filter(
+      (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
+    );
+    const mismatches = [
+      runtimeError ? "rendered the temporary error screen" : null,
+      missingText.length ? `missing text: ${missingText.join(", ")}` : null,
+      fileInputCount === 0 ? "file input missing" : null,
+      missingAccepts.length ? `missing accepted types: ${missingAccepts.join(", ")}` : null,
+      paymentButtonCount === 0 ? "payment button missing" : null,
+      !paymentButtonDisabled ? "payment button enabled before upload/customer details" : null,
+      sessionFailures.length ? `session: ${sessionFailures.join(", ")}` : null,
+      meaningfulConsole.length ? `console: ${meaningfulConsole.slice(0, 2).join(" | ")}` : null,
+    ].filter(Boolean);
+    const ok = mismatches.length === 0;
+
+    return {
+      name: check.name,
+      ok,
+      detail: [
+        ok ? "upload panel ready without writing a file" : "upload readiness mismatch",
+        fileAccept ? `accept=${fileAccept}` : null,
+        mismatches.length ? mismatches.join("; ") : null,
       ].filter(Boolean).join("; "),
     };
   } catch (error) {

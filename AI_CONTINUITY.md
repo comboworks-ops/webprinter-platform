@@ -428,8 +428,12 @@ Implemented read-only admin route:
   and verifies
   `/checkout/konfigurer` receives the current product, selected format,
   quantity, price totals, tenant context, and Salgsmapper template PDF context
-  in session storage. That checkout check stops before upload, payment or order
-  creation.
+  in session storage. It now also verifies that checkout shows the `Fil Upload`
+  panel for both products, exposes an input accepting PDF/JPG/JPEG/PNG/TIFF,
+  keeps `siteUpload` empty before any file is chosen, and keeps payment disabled
+  before upload/customer details. That upload check deliberately does not select
+  a real file, because doing so would write to storage; all checkout checks stop
+  before upload, payment or order creation.
 - It now includes `Supplier Bank staging-runbook`, a read-only operating
   sequence for supplier-bank products: external source only, report candidate,
   explicit approval, draft import, price-row QA, separate publishing decision

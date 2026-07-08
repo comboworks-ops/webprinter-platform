@@ -605,8 +605,12 @@ Implemented first read-only version:
   and `%PDF` file header. It also verifies product-to-checkout handoff by
   clicking `Bestil nu` from the same two products and checking
   `/checkout/konfigurer` for current product, selected format, quantity, price
-  totals, tenant context, and Salgsmapper template PDF context. That check stops
-  before upload, payment or order creation.
+  totals, tenant context, and Salgsmapper template PDF context. The browser
+  smoke now also verifies that checkout shows `Fil Upload` for both products,
+  exposes an input accepting PDF/JPG/JPEG/PNG/TIFF, keeps `siteUpload` empty
+  before any file is chosen, and keeps payment disabled before upload/customer
+  details. It deliberately does not select a real file because that would write
+  to storage, and stops before upload, payment or order creation.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported
