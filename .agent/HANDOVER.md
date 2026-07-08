@@ -382,6 +382,12 @@ Current active direction:
   tracking/estimated delivery, support customer replies, handle requested file
   reupload through `order-files` and `order_files`, and clear the reupload flag
   after a replacement file is accepted.
+  It also guards the contact/lead handoff: Webprinter's public contact page must
+  still render with privacy-policy consent, the tenant contact form must keep a
+  real `/privatliv` link with storefront tenant context, `send-contact-message`
+  must still validate, rate-limit, send Resend emails and log platform leads in
+  `platform_messages`, and admin `Beskeder` must still surface the
+  `Platform henvendelser` read-only follow-up thread.
   `Supplier Bank staging-runbook` is the read-only operating sequence for
   supplier-bank products: external source only, report candidate, explicit
   approval, draft import, price-row QA, separate publishing decision and tenant

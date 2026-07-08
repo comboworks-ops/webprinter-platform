@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Phone, Mail, MapPin, Building2 } from "lucide-react";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { sendContactMessage } from "@/lib/contact/sendContactMessage";
+import { appendStorefrontTenantContext } from "@/lib/storefrontTenantContext";
 
 export const ContactContent = () => {
     const [formData, setFormData] = useState({
@@ -240,8 +241,16 @@ export const ContactContent = () => {
                                     onCheckedChange={(checked) => setFormData({ ...formData, consent: checked as boolean })}
                                 />
                                 <Label htmlFor="consent" className="text-sm font-normal cursor-pointer leading-relaxed">
-                                    Jeg accepterer at mine oplysninger bruges til at behandle min henvendelse i henhold til
-                                    privatlivspolitikken.
+                                    Jeg accepterer at mine oplysninger bruges til at behandle min henvendelse i henhold til{" "}
+                                    <a
+                                        href={appendStorefrontTenantContext("/privatliv")}
+                                        data-branding-id="colors.linkText"
+                                        className="text-primary underline-offset-4 hover:underline"
+                                        onClick={(event) => event.stopPropagation()}
+                                    >
+                                        privatlivspolitikken
+                                    </a>
+                                    .
                                 </Label>
                             </div>
 

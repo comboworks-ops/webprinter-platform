@@ -89,6 +89,12 @@ const checks = [
     expectedText: ["root"],
   },
   {
+    name: "Webprinter kontakt",
+    kind: "html",
+    path: "/kontakt?force_domain=webprinter.dk",
+    expectedText: ["root"],
+  },
+  {
     name: "Salgsmapper PDF-skabelon",
     kind: "pdf",
     path: "/designer-templates/salgsmapper/salgsmappe-a5-5mm-ryg.pdf",
@@ -309,6 +315,95 @@ const sourceContractChecks = [
       },
     ],
   },
+  {
+    name: "Contact lead handoff source contract",
+    detail: "verified platform and tenant contact forms keep consent, email, platform lead log and admin follow-up handoff",
+    files: [
+      {
+        path: "src/pages/ContactRouter.tsx",
+        markers: [
+          "isPlatformContext",
+          "return <PlatformKontakt />",
+          "return <ShopContact />",
+        ],
+      },
+      {
+        path: "src/pages/platform/PlatformKontakt.tsx",
+        markers: [
+          "platformNavLink(\"/privacy-policy\")",
+          "Samtykke mangler",
+          "mode: \"platform\"",
+          "company: formData.company",
+          "subject: \"Platform henvendelse\"",
+          "id=\"platform-consent\"",
+          "privatlivspolitikken",
+        ],
+      },
+      {
+        path: "src/components/content/ContactContent.tsx",
+        markers: [
+          "appendStorefrontTenantContext(\"/privatliv\")",
+          "if (!formData.consent)",
+          "mode: \"tenant\"",
+          "tenantId: settings.id",
+          "Shop-kontekst mangler",
+          "privatlivspolitikken",
+        ],
+      },
+      {
+        path: "src/lib/contact/sendContactMessage.ts",
+        markers: [
+          "supabase.functions.invoke(\"send-contact-message\"",
+          "mode: input.mode",
+          "tenantId: input.tenantId || null",
+          "hostname: typeof window !== \"undefined\" ? window.location.hostname : null",
+          "pathname: typeof window !== \"undefined\" ? window.location.pathname : null",
+        ],
+      },
+      {
+        path: "supabase/functions/send-contact-message/index.ts",
+        markers: [
+          "RESEND_API_KEY",
+          "PLATFORM_CONTACT_EMAIL",
+          "MASTER_TENANT_ID",
+          "checkRateLimit",
+          "tenantId is required for tenant contact messages",
+          "Shop contact email is not configured",
+          "[PLATFORM LEAD]",
+          "[KONTAKT]",
+          "replyTo: senderEmail",
+          "replyTo: recipient.email",
+          ".from(\"platform_messages\")",
+          "messageLogCreated",
+          "fetch(\"https://api.resend.com/emails\"",
+        ],
+      },
+      {
+        path: "src/components/admin/AdminMessages.tsx",
+        markers: [
+          "PLATFORM_LEAD_PREFIX",
+          "isPlatformLeadMessage",
+          "parsePlatformLeadMessage",
+          "Platform henvendelser",
+          "latestPlatformLeadMailto",
+          "selectedPlatformThreadHasLeads",
+          "opening the thread must not clear lead evidence.",
+          "Platformhenvendelser er en read-only log fra kontaktsiden.",
+        ],
+      },
+      {
+        path: "src/pages/admin/CommercialReadiness.tsx",
+        markers: [
+          "getPlatformLeadReadiness",
+          "Platform henvendelser",
+          "platformLeadSummary.totalCount",
+          "Kontakt-samtykke",
+          "sender ikke testmails",
+          "platform-lead-readiness",
+        ],
+      },
+    ],
+  },
 ];
 
 const renderedChecks = [
@@ -332,6 +427,22 @@ const renderedChecks = [
     path:
       "/designer?force_domain=www.salgsmapper.dk&templatePdfName=salgsmappe-a5-5mm-ryg.pdf&templatePdfUrl=%2Fdesigner-templates%2Fsalgsmapper%2Fsalgsmappe-a5-5mm-ryg.pdf",
     expectedText: ["Format-skabelon indlæst", "salgsmappe-a5-5mm-ryg.pdf"],
+  },
+  {
+    name: "Rendered Webprinter contact",
+    path: "/kontakt?force_domain=webprinter.dk",
+    expectedText: ["Kontakt os", "Send os en besked", "privatlivspolitikken"],
+  },
+];
+
+const contactPrivacyLinkChecks = [
+  {
+    name: "Webprinter contact keeps platform privacy link",
+    path: "/kontakt?force_domain=webprinter.dk",
+    expectedPath: "/privacy-policy",
+    expectedSearchParams: {
+      force_domain: "webprinter.dk",
+    },
   },
 ];
 
@@ -713,6 +824,10 @@ async function runBrowserChecks() {
       }
     }
 
+    for (const check of contactPrivacyLinkChecks) {
+      renderedResults.push(await runContactPrivacyLinkCheck(browser, check));
+    }
+
     for (const check of designLaunchChecks) {
       renderedResults.push(await runDesignLaunchCheck(browser, check));
     }
@@ -741,6 +856,55 @@ async function runBrowserChecks() {
   }
 
   return renderedResults;
+}
+
+async function runContactPrivacyLinkCheck(browser, check) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    const url = new URL(check.path, baseUrl);
+    await page.goto(url.href, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+
+    const href = await page.getByRole("link", { name: /privatlivspolitikken/i }).first().getAttribute("href", {
+      timeout: timeoutMs,
+    });
+    if (!href) {
+      return {
+        name: check.name,
+        ok: false,
+        detail: "privacy link missing",
+      };
+    }
+
+    const hrefUrl = new URL(href, url.origin);
+    const baseHost = new URL(baseUrl).hostname;
+    const isLocalBase = baseHost === "localhost" || baseHost === "127.0.0.1";
+    const missingParams = isLocalBase
+      ? Object.entries(check.expectedSearchParams || {})
+        .filter(([key, value]) => hrefUrl.searchParams.get(key) !== value)
+        .map(([key, value]) => `${key}=${value}`)
+      : [];
+
+    return {
+      name: check.name,
+      ok: hrefUrl.pathname === check.expectedPath && missingParams.length === 0,
+      detail: [
+        `href=${hrefUrl.pathname}${hrefUrl.search}`,
+        hrefUrl.pathname !== check.expectedPath ? `expected path ${check.expectedPath}` : null,
+        missingParams.length ? `missing local context: ${missingParams.join(", ")}` : null,
+        !isLocalBase ? "production host does not stamp force_domain on platform links" : null,
+      ].filter(Boolean).join("; "),
+    };
+  } catch (error) {
+    return {
+      name: check.name,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    await page.close();
+  }
 }
 
 async function runDesignLaunchCheck(browser, check) {
