@@ -404,6 +404,14 @@ Implemented read-only admin route:
   counts as accepted and when to stop. It does not save files, write notes,
   create commits, deploy, or mutate orders, prices, products or Supplier Bank
   data.
+- It now has a read-only commercial smoke command:
+  `npm run smoke:commercial-readiness`. By default it checks
+  `https://www.webprinter.dk`; pass
+  `-- --base-url http://127.0.0.1:8083` for localhost. It verifies the owned
+  tenant proof routes, the Salgsmapper PDF template, admin cockpit routes, and
+  shipped bundle markers for `Download skabelon`, `Produktionsklarhed`,
+  `templatePdfUrl`, and `sales-mapper`. It does not create orders, write
+  products, touch prices, scrape suppliers, or call Supabase write paths.
 - It now includes `Supplier Bank staging-runbook`, a read-only operating
   sequence for supplier-bank products: external source only, report candidate,
   explicit approval, draft import, price-row QA, separate publishing decision

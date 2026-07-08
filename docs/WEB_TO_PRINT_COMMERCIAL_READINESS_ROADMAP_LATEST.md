@@ -582,6 +582,13 @@ Implemented first read-only version:
   adminmail, data boundaries, deploy/rollback and live smoke tests. It remains
   read-only and saves no files, writes no notes, creates no commits or
   deployments, and mutates no orders, prices, products or Supplier Bank data.
+- latest automation layer: `npm run smoke:commercial-readiness` is a read-only
+  route and asset smoke check for the owned tenant proof paths. It checks
+  Webprinter, `/produkt/aluminium`, Salgsmapper, the Salgsmapper template PDF,
+  admin cockpit routes, and the shipped bundle markers for template/order-flow
+  support. It can target production or localhost with
+  `-- --base-url http://127.0.0.1:8083`, and it does not write products,
+  prices, orders, Supplier Bank rows, POD data, or Supabase state.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported

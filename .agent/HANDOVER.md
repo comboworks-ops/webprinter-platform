@@ -318,6 +318,13 @@ Current active direction:
   data boundaries, deploy/rollback and live smoke tests, plus what counts as
   accepted and when to stop. It does not save files, write notes, create
   commits, deploy, or mutate orders, prices, products or Supplier Bank data.
+  `npm run smoke:commercial-readiness` is now a read-only commercial smoke
+  command for the owned tenant proof paths. It checks production by default,
+  or localhost with `-- --base-url http://127.0.0.1:8083`. It verifies
+  Webprinter, `/produkt/aluminium`, Salgsmapper, the Salgsmapper template PDF,
+  admin cockpit routes, and shipped bundle markers without creating orders,
+  writing products, touching prices, scraping suppliers, or using Supabase
+  write paths.
   `Supplier Bank staging-runbook` is the read-only operating sequence for
   supplier-bank products: external source only, report candidate, explicit
   approval, draft import, price-row QA, separate publishing decision and tenant

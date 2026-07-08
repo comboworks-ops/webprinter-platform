@@ -54,6 +54,7 @@ dist-ssr
 !src/**/*.js
 !src/**/*.jsx
 !scripts/log-push-ready.mjs
+!scripts/commercial-readiness-smoke.js
 !scripts/sql/
 !scripts/sql/supabase-db-health.sql
 !scripts/sql/wmd-latest-delta-review-state.sql

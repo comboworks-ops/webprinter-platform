@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
+    "smoke:commercial-readiness": "node scripts/commercial-readiness-smoke.js",
     "supabase:cli": "node scripts/supabase-cli.mjs",
     "check:supabase-grants": "node scripts/check-supabase-migration-grants.js",
     "check:supabase-functions": "node scripts/check-supabase-function-exposure.js",
