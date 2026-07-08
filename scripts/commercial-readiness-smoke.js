@@ -262,17 +262,23 @@ const paymentSetupChecks = [
     name: "Aluminium checkout reaches payment setup with valid details",
     path: "/produkt/aluminium?force_domain=webprinter.dk",
     syntheticUploadName: "smoke-aluminium-payment-upload.png",
+    expectedTenantId: "00000000-0000-0000-0000-000000000000",
     expectedAmountOre: 56500,
     expectedProductSlug: "aluminium",
     expectedQuantity: 1,
+    expectedDeliveryType: "Standard",
+    expectedVariantDisplayLabels: [],
   },
   {
     name: "Salgsmapper checkout reaches payment setup with valid details",
     path: "/produkt/standard-sales-mapper-kopi-2?force_domain=www.salgsmapper.dk",
     syntheticUploadName: "smoke-salgsmapper-payment-upload.png",
+    expectedTenantId: "7bbbba1c-dd82-4fd7-a280-ddaafbbdd8ba",
     expectedAmountOre: 62200,
     expectedProductSlug: "standard-sales-mapper-kopi-2",
     expectedQuantity: 50,
+    expectedDeliveryType: "Standard levering",
+    expectedVariantDisplayLabels: ["A4 salgsmappe", "1 mm ryg", "4+0 Print på front"],
   },
 ];
 
@@ -936,22 +942,37 @@ async function runPaymentSetupInterceptCheck(browser, check) {
     const body = request?.body || {};
     const checkoutQuote = body.checkout_quote || {};
     const metadata = body.metadata || {};
+    const quoteProductId = String(checkoutQuote.productId || "");
+    const quoteLabels = Array.isArray(checkoutQuote.variantDisplayLabels)
+      ? checkoutQuote.variantDisplayLabels.map((label) => String(label || ""))
+      : [];
     const meaningfulConsole = consoleMessages.filter(
       (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
     );
+    const missingVariantLabels = (check.expectedVariantDisplayLabels || []).filter((label) => !quoteLabels.includes(label));
     const mismatches = [
       paymentRequests.length !== 1 ? `payment setup requests=${paymentRequests.length}` : null,
       request?.method !== "POST" ? `payment setup method=${request?.method || "missing"}` : null,
+      body.tenant_id !== check.expectedTenantId ? `tenant_id=${JSON.stringify(body.tenant_id)} expected ${check.expectedTenantId}` : null,
       body.amount_ore !== check.expectedAmountOre ? `amount_ore=${JSON.stringify(body.amount_ore)} expected ${check.expectedAmountOre}` : null,
       body.currency !== "dkk" ? `currency=${JSON.stringify(body.currency)} expected "dkk"` : null,
+      !isUuid(quoteProductId) ? `quote.productId=${JSON.stringify(checkoutQuote.productId)} is not a UUID` : null,
       checkoutQuote.productSlug !== check.expectedProductSlug ? `quote.productSlug=${JSON.stringify(checkoutQuote.productSlug)}` : null,
       checkoutQuote.quantity !== check.expectedQuantity ? `quote.quantity=${JSON.stringify(checkoutQuote.quantity)} expected ${check.expectedQuantity}` : null,
+      checkoutQuote.shippingSelected !== "standard" ? `quote.shippingSelected=${JSON.stringify(checkoutQuote.shippingSelected)} expected "standard"` : null,
+      Number(checkoutQuote.areaM2) <= 0 ? `quote.areaM2=${JSON.stringify(checkoutQuote.areaM2)} expected positive area` : null,
+      missingVariantLabels.length ? `quote.variantDisplayLabels missing ${missingVariantLabels.join(", ")}` : null,
+      metadata.product_id !== quoteProductId ? `metadata.product_id=${JSON.stringify(metadata.product_id)} expected quote productId` : null,
       metadata.product_slug !== check.expectedProductSlug ? `metadata.product_slug=${JSON.stringify(metadata.product_slug)}` : null,
       metadata.uploaded_file !== "smoke-readonly/no-storage-write.png" ? `metadata.uploaded_file=${JSON.stringify(metadata.uploaded_file)}` : null,
+      metadata.quantity !== String(check.expectedQuantity) ? `metadata.quantity=${JSON.stringify(metadata.quantity)} expected "${check.expectedQuantity}"` : null,
       metadata.customer_email !== "smoke-test@example.com" ? `metadata.customer_email=${JSON.stringify(metadata.customer_email)}` : null,
       metadata.customer_name !== "Smoke Test Kunde" ? `metadata.customer_name=${JSON.stringify(metadata.customer_name)}` : null,
       metadata.recipient_name !== "Smoke Modtager" ? `metadata.recipient_name=${JSON.stringify(metadata.recipient_name)}` : null,
       metadata.delivery_city !== "Aarhus C" ? `metadata.delivery_city=${JSON.stringify(metadata.delivery_city)}` : null,
+      metadata.delivery_type !== check.expectedDeliveryType ? `metadata.delivery_type=${JSON.stringify(metadata.delivery_type)} expected ${JSON.stringify(check.expectedDeliveryType)}` : null,
+      metadata.blind_shipping !== "false" ? `metadata.blind_shipping=${JSON.stringify(metadata.blind_shipping)} expected "false"` : null,
+      metadata.sender_name !== "" ? `metadata.sender_name=${JSON.stringify(metadata.sender_name)} expected empty sender override` : null,
       text.includes("Udfyld kunde- og leveringsoplysninger før betaling.") ? "validation still blocked complete details" : null,
       blockedWriteRequests.length ? `unexpected order/storage write: ${blockedWriteRequests[0]}` : null,
       meaningfulConsole.length ? `console: ${meaningfulConsole.slice(0, 2).join(" | ")}` : null,
@@ -962,7 +983,7 @@ async function runPaymentSetupInterceptCheck(browser, check) {
       name: check.name,
       ok,
       detail: [
-        ok ? "intercepted payment setup request with quote and customer metadata" : "payment setup mismatch",
+        ok ? "intercepted payment setup request with tenant, quote, delivery and customer metadata" : "payment setup mismatch",
         mismatches.length ? mismatches.join("; ") : null,
       ].filter(Boolean).join("; "),
     };
@@ -1072,4 +1093,8 @@ function normalizeBaseUrl(value) {
 
 function normalizeVisibleText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ""));
 }
