@@ -599,7 +599,12 @@ Implemented first read-only version:
   from Webprinter aluminium and the first Salgsmapper template product. The
   check confirms `/designer` receives `order=1`, product context, return path,
   checkout session state, and the Salgsmapper `templatePdfUrl`, without
-  creating an order or writing live product/pricing/Supplier Bank data.
+  creating an order or writing live product/pricing/Supplier Bank data. It also
+  verifies product-to-checkout handoff by clicking `Bestil nu` from the same
+  two products and checking `/checkout/konfigurer` for current product,
+  selected format, quantity, price totals, tenant context, and Salgsmapper
+  template PDF context. That check stops before upload, payment or order
+  creation.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported

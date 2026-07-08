@@ -156,6 +156,43 @@ const designLaunchChecks = [
   },
 ];
 
+const checkoutLaunchChecks = [
+  {
+    name: "Aluminium product opens checkout",
+    path: "/produkt/aluminium?force_domain=webprinter.dk",
+    expectedCheckoutText: ["Konfigurer dit design", "Aluminium Skilte", "100 x 100 cm", "Total (ex. moms): 565 kr", "Fil Upload"],
+    expectedSearchParams: {
+      force_domain: "webprinter.dk",
+    },
+    expectedSession: {
+      productSlug: "aluminium",
+      productName: "Aluminium Skilte",
+      selectedFormat: "100 x 100 cm",
+      quantity: 1,
+      productPrice: 436,
+      totalPrice: 565,
+      templatePdfUrl: null,
+    },
+  },
+  {
+    name: "Salgsmapper product opens checkout",
+    path: "/produkt/standard-sales-mapper-kopi-2?force_domain=www.salgsmapper.dk",
+    expectedCheckoutText: ["Konfigurer dit design", "Standard Salgsmapper", "A4 salgsmappe", "Total (ex. moms): 622 kr", "Fil Upload"],
+    expectedSearchParams: {
+      force_domain: "www.salgsmapper.dk",
+    },
+    expectedSession: {
+      productSlug: "standard-sales-mapper-kopi-2",
+      productName: "Standard Salgsmapper",
+      selectedFormat: "A4",
+      quantity: 50,
+      productPrice: 573,
+      totalPrice: 622,
+      templatePdfUrl: "/designer-templates/salgsmapper/salgsmappe-a5-5mm-ryg.pdf",
+    },
+  },
+];
+
 const results = [];
 
 console.log(`\nCommercial readiness smoke for ${baseUrl}`);
@@ -169,7 +206,7 @@ if (!skipBundleMarkers) {
   results.push(await runBundleMarkerCheck());
 }
 
-  if (runBrowserSmoke) {
+if (runBrowserSmoke) {
   results.push(...(await runBrowserChecks()));
 }
 
@@ -349,6 +386,10 @@ async function runBrowserChecks() {
     for (const check of designLaunchChecks) {
       renderedResults.push(await runDesignLaunchCheck(browser, check));
     }
+
+    for (const check of checkoutLaunchChecks) {
+      renderedResults.push(await runCheckoutLaunchCheck(browser, check));
+    }
   } finally {
     await browser.close();
   }
@@ -397,6 +438,66 @@ async function runDesignLaunchCheck(browser, check) {
       ok,
       detail: [
         ok ? "opened designer with order context" : "designer handoff mismatch",
+        runtimeError ? "rendered the temporary error screen" : null,
+        missingText.length ? `missing text: ${missingText.join(", ")}` : null,
+        missingParams.length ? `params: ${missingParams.join(", ")}` : null,
+        sessionFailures.length ? `session: ${sessionFailures.join(", ")}` : null,
+        meaningfulConsole.length ? `console: ${meaningfulConsole.slice(0, 2).join(" | ")}` : null,
+      ].filter(Boolean).join("; "),
+    };
+  } catch (error) {
+    return {
+      name: check.name,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function runCheckoutLaunchCheck(browser, check) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  const consoleMessages = [];
+
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleMessages.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+
+  page.on("pageerror", (error) => {
+    consoleMessages.push(`pageerror: ${error.message}`);
+  });
+
+  try {
+    const url = new URL(check.path, baseUrl);
+    await page.goto(url.href, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+    await page.getByRole("button", { name: /Bestil nu/i }).click({ timeout: timeoutMs });
+    await page.waitForURL(/\/checkout\/konfigurer/, { timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+
+    const currentUrl = new URL(page.url());
+    const text = normalizeVisibleText(await page.locator("body").innerText({ timeout: timeoutMs }));
+    const session = await readCheckoutSession(page);
+    const missingText = check.expectedCheckoutText.filter((marker) => !text.includes(marker));
+    const missingParams = expectedParamFailures(currentUrl.searchParams, check.expectedSearchParams);
+    const sessionFailures = expectedSessionFailures(session, check.expectedSession);
+    const runtimeError = text.includes("MIDLERTIDIG FEJL") || text.includes("Siden kunne ikke vises korrekt");
+    const meaningfulConsole = consoleMessages.filter(
+      (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
+    );
+    const ok = !runtimeError && currentUrl.pathname === "/checkout/konfigurer" && missingText.length === 0 && missingParams.length === 0 && sessionFailures.length === 0;
+
+    return {
+      name: check.name,
+      ok,
+      detail: [
+        ok ? "opened checkout with current selection" : "checkout handoff mismatch",
+        currentUrl.pathname !== "/checkout/konfigurer" ? `path=${currentUrl.pathname}` : null,
         runtimeError ? "rendered the temporary error screen" : null,
         missingText.length ? `missing text: ${missingText.join(", ")}` : null,
         missingParams.length ? `params: ${missingParams.join(", ")}` : null,
