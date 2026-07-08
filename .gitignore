@@ -86,6 +86,8 @@ dist-ssr
 !scripts/apply-product-content-package.js
 !scripts/apply-product-label-translations.js
 !scripts/check-supabase-migration-grants.js
+!scripts/supabase-cli.mjs
+!scripts/supabase-cli
 !scripts/product-import/
 !scripts/product-import/**/*.js
 !scripts/product-import/tshirt-size-distribution-lock.js
