@@ -356,6 +356,10 @@ Current active direction:
   and Salgsmapper variant labels. The stubbed response intentionally returns no
   Stripe secret, so no real payment form, payment intent, storage write or order
   insert can be created.
+  The smoke command also includes a local no-write source contract that checks
+  checkout still writes admin-readable `[PRODUKTIONSFLOW]`, `[SKABELON]`,
+  `[SKABELON-DOWNLOAD]`, delivery and `order_files` markers, and that
+  `Kunder & Ordrer` still reads those tags and file-readiness signals.
   `Supplier Bank staging-runbook` is the read-only operating sequence for
   supplier-bank products: external source only, report candidate, explicit
   approval, draft import, price-row QA, separate publishing decision and tenant

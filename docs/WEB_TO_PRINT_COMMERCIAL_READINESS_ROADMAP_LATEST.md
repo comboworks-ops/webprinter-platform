@@ -621,6 +621,10 @@ Implemented first read-only version:
   blind-shipping boundary, customer metadata and Salgsmapper variant labels.
   The stubbed response intentionally returns no Stripe secret, so no real
   payment form, payment intent, storage write or order insert can be created.
+  The smoke command also includes a local no-write source contract that checks
+  checkout still writes admin-readable `[PRODUKTIONSFLOW]`, `[SKABELON]`,
+  `[SKABELON-DOWNLOAD]`, delivery and `order_files` markers, and that
+  `Kunder & Ordrer` still reads those tags and file-readiness signals.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported

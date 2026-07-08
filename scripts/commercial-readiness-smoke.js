@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { readFile } from "node:fs/promises";
+
 const DEFAULT_BASE_URL = "https://www.webprinter.dk";
 const DEFAULT_TIMEOUT_MS = 15000;
 
@@ -98,6 +100,56 @@ const bundleMarkers = [
   "Produktionsklarhed",
   "templatePdfUrl",
   "sales-mapper",
+];
+
+const sourceContractChecks = [
+  {
+    name: "Checkout/admin order handoff source contract",
+    detail: "verified checkout order tags, delivery fields, order_files notes and admin readers",
+    files: [
+      {
+        path: "src/pages/FileUploadConfiguration.tsx",
+        markers: [
+          "supabase.functions.invoke(\"stripe-create-payment-intent\"",
+          ".from(\"orders\" as any)",
+          ".from(\"order_files\" as any)",
+          "status_note",
+          "[PRODUKTIONSFLOW]",
+          "[SKABELON]",
+          "[SKABELON-DOWNLOAD]",
+          "[LEVERING]",
+          "[LEVERINGSMETODE]",
+          "[BLIND_SHIPPING]",
+          "delivery_address:",
+          "delivery_zip:",
+          "delivery_city:",
+          "delivery_country:",
+          "Kilde: designer production export",
+          "Kilde: kundeupload",
+          "Skabelon:",
+        ],
+      },
+      {
+        path: "src/components/admin/OrderManager.tsx",
+        markers: [
+          "readOrderTag",
+          "'PRODUKTIONSFLOW'",
+          "'SKABELON'",
+          "'SKABELON-DOWNLOAD'",
+          "'LEVERING'",
+          "'LEVERINGSMETODE'",
+          "'BLIND_SHIPPING'",
+          "delivery_address",
+          "delivery_zip",
+          "delivery_city",
+          "order_files",
+          "getOrderProductionReadinessKind",
+          "Klarhed",
+          "Fil klar",
+        ],
+      },
+    ],
+  },
 ];
 
 const renderedChecks = [
@@ -295,6 +347,10 @@ if (!skipBundleMarkers) {
   results.push(await runBundleMarkerCheck());
 }
 
+for (const check of sourceContractChecks) {
+  results.push(await runSourceContractCheck(check));
+}
+
 if (runBrowserSmoke) {
   results.push(...(await runBrowserChecks()));
 }
@@ -405,6 +461,32 @@ async function runBundleMarkerCheck() {
       detail: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+async function runSourceContractCheck(check) {
+  const missing = [];
+
+  for (const file of check.files) {
+    let content = "";
+    try {
+      content = await readFile(file.path, "utf8");
+    } catch (error) {
+      missing.push(`${file.path}: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+
+    for (const marker of file.markers) {
+      if (!content.includes(marker)) {
+        missing.push(`${file.path}: missing ${marker}`);
+      }
+    }
+  }
+
+  return {
+    name: check.name,
+    ok: missing.length === 0,
+    detail: missing.length ? missing.slice(0, 8).join("; ") : check.detail,
+  };
 }
 
 async function runBrowserChecks() {
