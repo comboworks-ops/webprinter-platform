@@ -677,6 +677,12 @@ Implemented first read-only version:
   critical path, pilot intake, launch board, commercial-ready scorecard,
   sales evidence binder, decision queue and decision option cards must remain
   visible, linked from the cockpit navigation and read-only.
+  It also guards the pilot-to-first-customer chain: demo boundary, pilot
+  acceptance, responsibility/scope, handoff/Q&A, meeting brief, follow-up,
+  offer draft, agreement checklist, pilot start, week-one report, conversion
+  gate, paid pilot package, first-customer onboarding, setup work order,
+  kickoff agenda/follow-up, customer-material checkpoint and production-release
+  readiness must remain visible, linked and read-only.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported

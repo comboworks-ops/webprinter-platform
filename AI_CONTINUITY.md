@@ -500,6 +500,12 @@ Implemented read-only admin route:
   critical path, pilot intake, launch board, commercial-ready scorecard,
   sales evidence binder, decision queue and decision option cards must remain
   visible, linked from the cockpit navigation and read-only.
+  It also guards the pilot-to-first-customer chain: demo boundary, pilot
+  acceptance, responsibility/scope, handoff/Q&A, meeting brief, follow-up,
+  offer draft, agreement checklist, pilot start, week-one report, conversion
+  gate, paid pilot package, first-customer onboarding, setup work order,
+  kickoff agenda/follow-up, customer-material checkpoint and production-release
+  readiness must remain visible, linked and read-only.
 - It now includes `Supplier Bank staging-runbook`, a read-only operating
   sequence for supplier-bank products: external source only, report candidate,
   explicit approval, draft import, price-row QA, separate publishing decision
