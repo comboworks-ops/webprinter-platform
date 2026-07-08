@@ -1,9 +1,11 @@
 import {
     DEFAULT_PICTURE_BUTTON_STYLING,
+    DEFAULT_SELECTOR_BOX_STYLING,
     DEFAULT_TEXT_BUTTON_STYLING,
     type PictureButtonHoverEffect,
     type PictureButtonSelectedEffect,
     type PictureButtonStyling,
+    type SelectorBoxStyling,
     type SelectorStyling,
     type TextButtonStyling,
 } from "@/types/pricingStructure";
@@ -124,6 +126,11 @@ export const resolveTextButtonsConfig = (options?: {
         ...(options?.selectorConfig || {}),
     };
 };
+
+export const resolveSelectorBoxConfig = (selectorConfig?: Partial<SelectorBoxStyling>): SelectorBoxStyling => ({
+    ...DEFAULT_SELECTOR_BOX_STYLING,
+    ...(selectorConfig || {}),
+});
 
 export const resolvePictureButtonsConfig = (options?: {
     globalConfig?: Partial<PictureButtonStyling>;

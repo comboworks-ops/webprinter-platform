@@ -1,4 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { optionsResponse } from '../_shared/http.ts';
+import { requireLocalOnly } from '../_shared/localOnly.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -62,8 +64,11 @@ const folderPrices = {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return optionsResponse();
   }
+
+  const localOnlyError = requireLocalOnly(req);
+  if (localOnlyError) return localOnlyError;
 
   try {
     const supabaseClient = createClient(

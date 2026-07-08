@@ -24,6 +24,8 @@ import { Loader2 } from "lucide-react";
 import {
     type HeaderSettings,
     type HeaderDropdownMode,
+    type HeaderDropdownPreset,
+    type HeaderSplitPreviewSource,
     type HeaderNavItem,
     type HeaderStyleType,
     type HeaderHeightType,
@@ -50,6 +52,38 @@ import {
     ArrowRight,
     ArrowDown,
 } from "lucide-react";
+
+const DROPDOWN_PRESETS: Array<{
+    value: HeaderDropdownPreset;
+    label: string;
+    description: string;
+}> = [
+    {
+        value: "classic",
+        label: "Classic",
+        description: "Ren dropdown med rolig fade.",
+    },
+    {
+        value: "showcase-bar",
+        label: "Showcase bar",
+        description: "Stor billedlinje øverst og menu under.",
+    },
+    {
+        value: "split-preview",
+        label: "Split preview",
+        description: "Billedfokus til venstre, links til højre.",
+    },
+    {
+        value: "compact-columns",
+        label: "Kompakte kolonner",
+        description: "Tæt menu til mange produkter.",
+    },
+    {
+        value: "gallery-cards",
+        label: "Gallery cards",
+        description: "Kort-layout med mere visuel vægt.",
+    },
+];
 
 interface HeaderSectionProps {
     header: HeaderSettings;
@@ -669,10 +703,72 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                     <span className="text-center text-xs text-muted-foreground">Billeder og tekst</span>
                                 </label>
                             </div>
-                        </RadioGroup>
-                    </CollapsibleCard>
-                </div>
-            )}
+	                        </RadioGroup>
+	                        <div className="mt-5 space-y-3 border-t pt-4">
+	                            <Label>Dropdown preset</Label>
+	                            <div className="grid gap-2">
+	                                {DROPDOWN_PRESETS.map((preset) => {
+	                                    const selected = (safeHeader.dropdownPreset || "classic") === preset.value;
+	                                    return (
+	                                        <button
+	                                            key={preset.value}
+	                                            type="button"
+	                                            className={cn(
+	                                                "flex cursor-pointer items-start justify-between gap-3 rounded-lg border p-3 text-left transition-all hover:bg-muted/50",
+	                                                selected && "border-primary bg-primary/5"
+	                                            )}
+	                                            onClick={() => updateHeader({ dropdownPreset: preset.value })}
+	                                        >
+	                                            <span className="min-w-0">
+	                                                <span className="block text-sm font-medium">{preset.label}</span>
+	                                                <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{preset.description}</span>
+	                                            </span>
+	                                            {selected && <Eye className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
+	                                        </button>
+	                                    );
+	                                })}
+	                            </div>
+                                {(safeHeader.dropdownPreset || "classic") === "split-preview" && (
+                                    <div className="mt-4 rounded-lg border bg-muted/20 p-3">
+                                        <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                            Venstre felt i Split preview
+                                        </Label>
+                                        <div className="mt-2 grid grid-cols-2 gap-2">
+                                            {([
+                                                {
+                                                    value: "featured-product",
+                                                    label: "Framed product",
+                                                    description: "Vis det fremhævede kampagneprodukt.",
+                                                },
+                                                {
+                                                    value: "featured-side-panel",
+                                                    label: "Side panel",
+                                                    description: "Vis kampagnens sidepanel/sidebanner.",
+                                                },
+                                            ] as Array<{ value: HeaderSplitPreviewSource; label: string; description: string }>).map((option) => {
+                                                const selected = (safeHeader.dropdownSplitPreviewSource || "featured-product") === option.value;
+                                                return (
+                                                    <button
+                                                        key={option.value}
+                                                        type="button"
+                                                        className={cn(
+                                                            "rounded-md border p-2 text-left transition-colors hover:bg-background",
+                                                            selected ? "border-primary bg-background text-foreground" : "border-border bg-transparent text-muted-foreground"
+                                                        )}
+                                                        onClick={() => updateHeader({ dropdownSplitPreviewSource: option.value })}
+                                                    >
+                                                        <span className="block text-xs font-medium">{option.label}</span>
+                                                        <span className="mt-0.5 block text-[11px] leading-4">{option.description}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+	                        </div>
+	                    </CollapsibleCard>
+	                </div>
+	            )}
 
             {shouldShowCard("site-design-focus-header-dropdown-media", "site-design-focus-header-dropdown-images") && (
                 <div id="site-design-focus-header-dropdown-media" className={focusCardClass("site-design-focus-header-dropdown-media", "site-design-focus-header-dropdown-images")}>
@@ -861,10 +957,10 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                             />
                             {/* Category Images Section */}
                             <div className="space-y-3 pt-4 border-t">
-                                <Label className="font-medium">Kategori billeder</Label>
-                                <p className="text-xs text-muted-foreground">
-                                    Upload billeder til at erstatte kategoritekst i dropdown-menuen.
-                                </p>
+	                                <Label className="font-medium">Kategori billeder</Label>
+	                                <p className="text-xs text-muted-foreground">
+	                                    Upload billeder til kategorierne. Showcase bar bruger disse som de store billeder øverst.
+	                                </p>
                                 
                                 {/* Display Mode for Categories */}
                                 <div className="flex flex-wrap gap-1">
@@ -897,12 +993,11 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                     </Button>
                                 </div>
 
-                                {/* Category Image Uploads */}
-                                {(safeHeader.dropdownCategoryDisplayMode === 'image' || safeHeader.dropdownCategoryDisplayMode === 'both') && (
-                                    <div className="space-y-3 pt-2">
-                                        {[
-                                            { key: 'tryksager', label: 'Tryk sager' },
-                                            { key: 'storformat', label: 'Stor format' },
+	                                {/* Category Image Uploads */}
+	                                <div className="space-y-3 pt-2">
+	                                        {[
+	                                            { key: 'tryksager', label: 'Tryk sager' },
+	                                            { key: 'storformat', label: 'Stor format' },
                                             { key: 'plakater', label: 'Plakater' },
                                             { key: 'tekstil', label: 'Tekstil tryk' },
                                             { key: 'skilte', label: 'Skilte' },
@@ -950,11 +1045,10 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                                         }}
                                                     />
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                            </div>
+	                                            );
+	                                        })}
+	                                </div>
+	                            </div>
                         </div>
                     </CollapsibleCard>
                 </div>

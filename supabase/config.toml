@@ -1,10 +1,160 @@
 project_id = "ziattmsmiirfweiuunfo"
 
-[functions.send-quote-emails]
+[functions.calculate-machine-price]
+verify_jwt = true
+
+[functions.catalog-read]
+verify_jwt = true
+
+[functions.create-admin-user]
+verify_jwt = true
+
+[functions.designer-pdf-service]
+verify_jwt = true
+
+[functions.icon-studio-generate]
+verify_jwt = true
+
+[functions.platform-pagespeed]
+verify_jwt = true
+
+[functions.platform-sitemap]
+verify_jwt = true
+
+[functions.pod-create-jobs]
+verify_jwt = true
+
+[functions.pod-explorer-request]
+verify_jwt = true
+
+[functions.pod-shipping-possibilities]
+verify_jwt = true
+
+[functions.pod-tenant-approve-charge]
+verify_jwt = true
+
+[functions.pod-tenant-billing-setup]
+verify_jwt = true
+
+[functions.pod-tenant-import]
+verify_jwt = true
+
+[functions.pod-tenant-merge]
+verify_jwt = true
+
+[functions.pod-tenant-remove]
+verify_jwt = true
+
+[functions.pod2-create-jobs]
+verify_jwt = true
+
+[functions.pod2-explorer-request]
+verify_jwt = true
+
+[functions.pod2-master-forward]
+verify_jwt = true
+
+[functions.pod2-order-submit]
+verify_jwt = true
+
+[functions.pod2-pdf-preflight]
+verify_jwt = true
+
+[functions.pod2-printcom-sync-status]
+verify_jwt = true
+
+[functions.pod2-submit-to-printcom]
+verify_jwt = true
+
+[functions.pod2-tenant-approve-charge]
+verify_jwt = true
+
+[functions.pod2-tenant-billing-setup]
+verify_jwt = true
+
+[functions.pod2-tenant-import]
+verify_jwt = true
+
+[functions.pod2-tenant-merge]
+verify_jwt = true
+
+[functions.pod2-tenant-remove]
+verify_jwt = true
+
+[functions.pod2x-printcom-proxy]
+verify_jwt = true
+
+[functions.pod3-flyeralarm-request]
+verify_jwt = true
+
+[functions.pricing-read]
+verify_jwt = true
+
+[functions.product-detail-read]
+verify_jwt = true
+
+[functions.search-console]
+verify_jwt = true
+
+[functions.seed-folder-prices]
+verify_jwt = true
+
+[functions.seed-generic-prices]
+verify_jwt = true
+
+[functions.seed-product-prices]
 verify_jwt = true
 
 [functions.send-contact-message]
 verify_jwt = false
+
+[functions.send-order-email]
+verify_jwt = true
+
+[functions.send-quote-emails]
+verify_jwt = true
+
+[functions.setup-schema]
+verify_jwt = true
+
+[functions.stripe-connect-account-session]
+verify_jwt = true
+
+[functions.supplier-bank-import-draft]
+verify_jwt = true
+
+[functions.supplier-bank-admin-read]
+verify_jwt = true
+
+[functions.supplier-bank-create-delta-review]
+verify_jwt = true
+
+[functions.stripe-connect-create-or-get]
+verify_jwt = true
+
+[functions.stripe-connect-disable]
+verify_jwt = true
+
+[functions.stripe-connect-sync-status]
+verify_jwt = true
+
+[functions.stripe-create-payment-intent]
+verify_jwt = true
+
+[functions.stripe-subscription-create-checkout]
+verify_jwt = true
+
+[functions.stripe-subscription-create-portal]
+verify_jwt = true
+
+[functions.stripe-subscription-webhook]
+verify_jwt = false
+
+[functions.tenant-context-read]
+verify_jwt = true
+
+[functions.test-env]
+verify_jwt = true
 
 [functions.verify-admin]
 verify_jwt = true

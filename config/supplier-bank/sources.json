@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "notes": "External supplier-source registry for the Supplier Product Bank. Internal Webprinter tenant/storefront domains belong in excludedInternalSystems and must not be scraped as supplier sources.",
+  "excludedInternalSystems": [
+    {
+      "slug": "webprinter",
+      "name": "Webprinter",
+      "domains": ["webprinter.dk", "www.webprinter.dk"],
+      "reason": "Main platform/storefront, not an external print-house supplier."
+    },
+    {
+      "slug": "sales-maba",
+      "name": "Sales Maba / Salgsmapper",
+      "domains": ["salgsmapper.dk", "www.salgsmapper.dk"],
+      "reason": "Internal tenant/storefront and product focus area, not an external supplier source."
+    },
+    {
+      "slug": "onlinetryksager",
+      "name": "Onlinetryksager",
+      "domains": ["onlinetryksager.dk", "www.onlinetryksager.dk"],
+      "reason": "Internal Webprinter-related storefront, not an external supplier source."
+    },
+    {
+      "slug": "local-dev",
+      "name": "Local development hosts",
+      "domains": ["localhost", "127.0.0.1", "0.0.0.0"],
+      "reason": "Localhost is the app/runtime surface, not a supplier catalog."
+    }
+  ],
+  "sources": [
+    {
+      "slug": "wir-machen-druck",
+      "name": "WIRmachenDRUCK",
+      "websiteUrl": "https://www.wir-machen-druck.de",
+      "countryCode": "DE",
+      "currency": "EUR",
+      "integrationType": "playwright",
+      "status": "active",
+      "productFamilies": ["folders"],
+      "adapter": "scripts/fetch-folders-import.js",
+      "safeFirstSlice": "WMD folder pilot writes raw, clean, and normalized snapshots, then supplier-bank rows only after guarded remote apply.",
+      "notes": "Current validated pilot source. Keep live product/pricing writes disabled until explicit admin import."
+    },
+    {
+      "slug": "pixartprinting",
+      "name": "Pixartprinting",
+      "websiteUrl": "https://www.pixartprinting.com",
+      "countryCode": "IT",
+      "currency": "EUR",
+      "integrationType": "scrape",
+      "status": "candidate",
+      "productFamilies": ["posters", "banners", "signs", "rollups", "stickers", "labels"],
+      "productFamilyUrlCandidates": {
+        "posters": [
+          {
+            "url": "https://www.pixartprinting.com/poster-printing/large-format-posters/",
+            "status": "official_candidate_needs_confirmation",
+            "evidence": "Official Pixart product-route candidate found during URL discovery; option shape and extractor profile are not confirmed."
+          },
+          {
+            "url": "https://www.pixartprinting.com/poster-printing/custom-posters/",
+            "status": "official_candidate_needs_confirmation",
+            "evidence": "Alternative official Pixart poster route; choose only after manual option-shape review."
+          }
+        ],
+        "banners": [
+          {
+            "url": "https://www.pixartprinting.com/custom-banners/",
+            "status": "official_candidate_needs_confirmation",
+            "evidence": "Official Pixart banner category/product route; exact PVC/banner configurator route still needs manual option-shape confirmation."
+          }
+        ],
+        "rollups": [
+          {
+            "url": "https://www.pixartprinting.com/custom-banners/retractable-banners/",
+            "status": "official_candidate_needs_confirmation",
+            "evidence": "Official Pixart retractable-banner route; likely rollup family candidate but hardware/product shape must be confirmed."
+          },
+          {
+            "url": "https://www.pixartprinting.com/custom-banners/retractable-banners/roll-up-banners/",
+            "status": "official_candidate_needs_confirmation",
+            "evidence": "Official Pixart roll-up route candidate; confirm exact configurator behavior before profile work."
+          }
+        ],
+        "labels": [
+          {
+            "url": "https://www.pixartprinting.com/custom-labels/roll-labels/custom-roll-labels/",
+            "status": "official_candidate_needs_confirmation",
+            "evidence": "Official Pixart custom roll-label route; exact label source and row model must be confirmed before extraction."
+          },
+          {
+            "url": "https://www.pixartprinting.com/custom-labels/roll-labels/paper-labels/",
+            "status": "official_candidate_needs_confirmation",
+            "evidence": "Official Pixart paper-label route; possible narrower first slice after label option-shape review."
+          }
+        ]
+      },
+      "adapter": ".agents/skills/pixart/SKILL.md",
+      "safeFirstSlice": "Reuse the existing Pixart wide-format import skill and script; do not create a parallel flow.",
+      "notes": "Candidate for wide-format bank products after WMD pilot is visible in the admin bank."
+    },
+    {
+      "slug": "print-com",
+      "name": "Print.com",
+      "websiteUrl": "https://www.print.com",
+      "countryCode": "NL",
+      "currency": "EUR",
+      "integrationType": "api",
+      "status": "candidate",
+      "productFamilies": ["flyers", "folders", "business_cards", "letterheads", "tshirts", "packaging", "other"],
+      "adapter": "POD v2 bridge / Print.com API explorer",
+      "safeFirstSlice": "Use existing POD v2 API knowledge as a catalog bridge only; keep Supplier Bank separate from POD v2 tables.",
+      "notes": "Do not merge POD v2 and Supplier Bank data models. Any bridge must preserve both systems' safeguards."
+    }
+  ]
+}

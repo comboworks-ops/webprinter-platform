@@ -50,6 +50,8 @@ interface ButtonSettings {
     // Picture
     showThumbnail: boolean;
     customImage: string | null;
+    hoverImage: string | null;
+    imageSizePx: number;
 }
 
 const DEFAULT_SETTINGS: ButtonSettings = {
@@ -67,6 +69,8 @@ const DEFAULT_SETTINGS: ButtonSettings = {
     minHeightPx: 44,
     showThumbnail: false,
     customImage: null,
+    hoverImage: null,
+    imageSizePx: 48,
 };
 
 export function ProductOptionButtonEditor({
@@ -84,6 +88,8 @@ export function ProductOptionButtonEditor({
     const [settings, setSettings] = useState<ButtonSettings>(DEFAULT_SETTINGS);
     const [productName, setProductName] = useState("");
     const [uploading, setUploading] = useState(false);
+    const [uploadTarget, setUploadTarget] = useState<"customImage" | "hoverImage" | null>(null);
+    const [previewHovered, setPreviewHovered] = useState(false);
 
     // Load current settings
     useEffect(() => {
@@ -107,18 +113,45 @@ export function ProductOptionButtonEditor({
                 
                 // Find the section and value settings
                 let valueSettings: any = {};
+                let foundValueSettings = false;
                 
-                // Check vertical axis
-                if (verticalAxis?.valueSettings?.[valueId]) {
+                // Check the clicked section only.
+                if (verticalAxis?.sectionId === sectionId && verticalAxis?.valueSettings?.[valueId]) {
                     valueSettings = verticalAxis.valueSettings[valueId];
+                    foundValueSettings = true;
                 }
                 
                 // Check layout rows
                 for (const row of layoutRows) {
                     for (const col of row.columns || []) {
-                        if (col.valueSettings?.[valueId]) {
+                        if (col.id === sectionId && col.valueSettings?.[valueId]) {
                             valueSettings = col.valueSettings[valueId];
+                            foundValueSettings = true;
                             break;
+                        }
+                    }
+                }
+
+                if (!foundValueSettings) {
+                    const { data: storformatConfig } = await supabase
+                        .from("storformat_configs" as any)
+                        .select("vertical_axis, layout_rows")
+                        .eq("product_id", productId)
+                        .maybeSingle();
+
+                    const storformatVerticalAxis = (storformatConfig as any)?.vertical_axis;
+                    if (storformatVerticalAxis?.id === sectionId && storformatVerticalAxis?.valueSettings?.[valueId]) {
+                        valueSettings = storformatVerticalAxis.valueSettings[valueId];
+                        foundValueSettings = true;
+                    }
+
+                    for (const row of ((storformatConfig as any)?.layout_rows || [])) {
+                        for (const section of row.sections || []) {
+                            if (section.id === sectionId && section.valueSettings?.[valueId]) {
+                                valueSettings = section.valueSettings[valueId];
+                                foundValueSettings = true;
+                                break;
+                            }
                         }
                     }
                 }
@@ -126,8 +159,21 @@ export function ProductOptionButtonEditor({
                 setSettings({
                     ...DEFAULT_SETTINGS,
                     displayName: valueSettings.displayName || valueName,
+                    backgroundColor: valueSettings.backgroundColor || DEFAULT_SETTINGS.backgroundColor,
+                    hoverBackgroundColor: valueSettings.hoverBackgroundColor || DEFAULT_SETTINGS.hoverBackgroundColor,
+                    borderColor: valueSettings.borderColor || DEFAULT_SETTINGS.borderColor,
+                    hoverBorderColor: valueSettings.hoverBorderColor || DEFAULT_SETTINGS.hoverBorderColor,
+                    borderRadiusPx: valueSettings.borderRadiusPx ?? DEFAULT_SETTINGS.borderRadiusPx,
+                    borderWidthPx: valueSettings.borderWidthPx ?? DEFAULT_SETTINGS.borderWidthPx,
+                    textColor: valueSettings.textColor || DEFAULT_SETTINGS.textColor,
+                    hoverTextColor: valueSettings.hoverTextColor || DEFAULT_SETTINGS.hoverTextColor,
+                    fontSizePx: valueSettings.fontSizePx ?? DEFAULT_SETTINGS.fontSizePx,
+                    paddingPx: valueSettings.paddingPx ?? DEFAULT_SETTINGS.paddingPx,
+                    minHeightPx: valueSettings.minHeightPx ?? DEFAULT_SETTINGS.minHeightPx,
                     showThumbnail: valueSettings.showThumbnail || false,
                     customImage: valueSettings.customImage || null,
+                    hoverImage: valueSettings.hoverImage || null,
+                    imageSizePx: valueSettings.imageSizePx ?? DEFAULT_SETTINGS.imageSizePx,
                 });
             }
             
@@ -152,40 +198,110 @@ export function ProductOptionButtonEditor({
         // Update valueSettings in the appropriate location
         const valueSettingUpdate = {
             displayName: settings.displayName,
+            backgroundColor: settings.backgroundColor,
+            hoverBackgroundColor: settings.hoverBackgroundColor,
+            borderColor: settings.borderColor,
+            hoverBorderColor: settings.hoverBorderColor,
+            borderRadiusPx: settings.borderRadiusPx,
+            borderWidthPx: settings.borderWidthPx,
+            textColor: settings.textColor,
+            hoverTextColor: settings.hoverTextColor,
+            fontSizePx: settings.fontSizePx,
+            paddingPx: settings.paddingPx,
+            minHeightPx: settings.minHeightPx,
             showThumbnail: settings.showThumbnail,
             customImage: settings.customImage,
+            hoverImage: settings.hoverImage,
+            imageSizePx: settings.imageSizePx,
         };
         
-        // We need to preserve the existing structure but update valueSettings
-        // This is a simplified version - in practice you'd need to find the exact path
         const updatedStructure = { ...structure };
+        let updatedProductPricingStructure = false;
         
-        // Update in vertical axis if exists
-        if (updatedStructure.vertical_axis?.valueSettings) {
+        // Update only the clicked section so identical value ids in other sections are not affected.
+        if (updatedStructure.vertical_axis?.sectionId === sectionId) {
+            updatedStructure.vertical_axis.valueSettings = updatedStructure.vertical_axis.valueSettings || {};
             updatedStructure.vertical_axis.valueSettings[valueId] = {
                 ...updatedStructure.vertical_axis.valueSettings[valueId],
                 ...valueSettingUpdate,
             };
+            updatedProductPricingStructure = true;
         }
         
         // Update in layout rows
         if (updatedStructure.layout_rows) {
             for (const row of updatedStructure.layout_rows) {
                 for (const col of row.columns || []) {
-                    if (col.valueSettings) {
-                        col.valueSettings[valueId] = {
-                            ...col.valueSettings[valueId],
-                            ...valueSettingUpdate,
-                        };
-                    }
+                    if (col.id !== sectionId) continue;
+                    col.valueSettings = col.valueSettings || {};
+                    col.valueSettings[valueId] = {
+                        ...col.valueSettings[valueId],
+                        ...valueSettingUpdate,
+                    };
+                    updatedProductPricingStructure = true;
                 }
             }
         }
-        
-        const { error } = await supabase
-            .from('products')
-            .update({ pricing_structure: updatedStructure })
-            .eq('id', productId);
+
+        let error: any = null;
+        if (updatedProductPricingStructure) {
+            const result = await supabase
+                .from('products')
+                .update({ pricing_structure: updatedStructure })
+                .eq('id', productId);
+            error = result.error;
+        } else {
+            const { data: storformatConfig, error: loadError } = await supabase
+                .from("storformat_configs" as any)
+                .select("vertical_axis, layout_rows")
+                .eq("product_id", productId)
+                .maybeSingle();
+
+            if (loadError || !storformatConfig) {
+                error = loadError || new Error("Storformat-konfiguration blev ikke fundet");
+            } else {
+                const updatedVerticalAxis = { ...((storformatConfig as any).vertical_axis || {}) };
+                const updatedLayoutRows = (((storformatConfig as any).layout_rows || []) as any[]).map((row) => ({
+                    ...row,
+                    sections: (row.sections || []).map((section: any) => ({ ...section })),
+                }));
+                let updatedStorformatConfig = false;
+
+                if (updatedVerticalAxis.id === sectionId) {
+                    updatedVerticalAxis.valueSettings = updatedVerticalAxis.valueSettings || {};
+                    updatedVerticalAxis.valueSettings[valueId] = {
+                        ...updatedVerticalAxis.valueSettings[valueId],
+                        ...valueSettingUpdate,
+                    };
+                    updatedStorformatConfig = true;
+                }
+
+                for (const row of updatedLayoutRows) {
+                    for (const section of row.sections || []) {
+                        if (section.id !== sectionId) continue;
+                        section.valueSettings = section.valueSettings || {};
+                        section.valueSettings[valueId] = {
+                            ...section.valueSettings[valueId],
+                            ...valueSettingUpdate,
+                        };
+                        updatedStorformatConfig = true;
+                    }
+                }
+
+                if (!updatedStorformatConfig) {
+                    error = new Error("Kunne ikke finde den valgte knap i produktets konfiguration");
+                } else {
+                    const result = await supabase
+                        .from("storformat_configs" as any)
+                        .update({
+                            vertical_axis: updatedVerticalAxis,
+                            layout_rows: updatedLayoutRows,
+                        } as any)
+                        .eq("product_id", productId);
+                    error = result.error;
+                }
+            }
+        }
         
         if (error) {
             console.error('Error saving button settings:', error);
@@ -197,12 +313,14 @@ export function ProductOptionButtonEditor({
         setSaving(false);
     }, [productId, sectionId, valueId, settings]);
 
-    const handleImageUpload = useCallback(async (file: File) => {
+    const handleImageUpload = useCallback(async (file: File, target: "customImage" | "hoverImage") => {
         setUploading(true);
+        setUploadTarget(target);
         
         try {
             const fileExt = file.name.split('.').pop();
-            const fileName = `product-option-${productId}-${sectionId}-${valueId}-${Date.now()}.${fileExt}`;
+            const suffix = target === "hoverImage" ? "hover" : "primary";
+            const fileName = `product-option-${productId}-${sectionId}-${valueId}-${suffix}-${Date.now()}.${fileExt}`;
             
             const { error: uploadError } = await supabase.storage
                 .from('product-images')
@@ -214,7 +332,7 @@ export function ProductOptionButtonEditor({
                 .from('product-images')
                 .getPublicUrl(fileName);
             
-            setSettings(prev => ({ ...prev, customImage: publicUrl, showThumbnail: true }));
+            setSettings(prev => ({ ...prev, [target]: publicUrl, showThumbnail: true }));
             toast.success('Billede uploadet');
         } catch (error) {
             console.error('Upload error:', error);
@@ -222,6 +340,7 @@ export function ProductOptionButtonEditor({
         }
         
         setUploading(false);
+        setUploadTarget(null);
     }, [productId, sectionId, valueId]);
 
     const updateSetting = <K extends keyof ButtonSettings>(key: K, value: ButtonSettings[K]) => {
@@ -395,6 +514,9 @@ export function ProductOptionButtonEditor({
             <Card>
                 <CardHeader className="space-y-1 pb-3">
                     <CardTitle className="text-sm">Billede</CardTitle>
+                    <CardDescription className="text-xs">
+                        Brug et normalt billede og evt. et separat hover-billede.
+                    </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="flex items-center justify-between">
@@ -406,37 +528,91 @@ export function ProductOptionButtonEditor({
                     </div>
 
                     {settings.showThumbnail && (
-                        <div className="space-y-3">
-                            {settings.customImage ? (
-                                <div className="relative">
-                                    <img
-                                        src={settings.customImage}
-                                        alt="Button thumbnail"
-                                        className="w-20 h-20 rounded-lg object-cover border"
-                                    />
-                                    <Button
-                                        variant="destructive"
-                                        size="sm"
-                                        className="absolute -top-2 -right-2 h-6 w-6 p-0"
-                                        onClick={() => updateSetting('customImage', null)}
-                                    >
-                                        ×
-                                    </Button>
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <Label>Billedstørrelse</Label>
+                                    <span className="text-xs text-muted-foreground">{settings.imageSizePx}px</span>
                                 </div>
-                            ) : (
-                                <div className="flex items-center gap-2">
-                                    <Input
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={(e) => {
-                                            const file = e.target.files?.[0];
-                                            if (file) handleImageUpload(file);
-                                        }}
-                                        disabled={uploading}
-                                    />
-                                    {uploading && <Loader2 className="h-4 w-4 animate-spin" />}
-                                </div>
-                            )}
+                                <Slider
+                                    min={24}
+                                    max={160}
+                                    step={4}
+                                    value={[settings.imageSizePx]}
+                                    onValueChange={([value]) => updateSetting('imageSizePx', value)}
+                                />
+                            </div>
+
+                            <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                                <Label>Normalt billede</Label>
+                                {settings.customImage ? (
+                                    <div className="flex items-start gap-3">
+                                        <img
+                                            src={settings.customImage}
+                                            alt="Button thumbnail"
+                                            className="rounded-lg object-cover border"
+                                            style={{ width: settings.imageSizePx, height: settings.imageSizePx }}
+                                        />
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => updateSetting('customImage', null)}
+                                        >
+                                            Fjern
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2">
+                                        <Input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) handleImageUpload(file, "customImage");
+                                            }}
+                                            disabled={uploading}
+                                        />
+                                        {uploading && uploadTarget === "customImage" && <Loader2 className="h-4 w-4 animate-spin" />}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                                <Label>Hover-billede</Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Vises kun når kunden holder musen over knappen.
+                                </p>
+                                {settings.hoverImage ? (
+                                    <div className="flex items-start gap-3">
+                                        <img
+                                            src={settings.hoverImage}
+                                            alt="Button hover thumbnail"
+                                            className="rounded-lg object-cover border"
+                                            style={{ width: settings.imageSizePx, height: settings.imageSizePx }}
+                                        />
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => updateSetting('hoverImage', null)}
+                                        >
+                                            Fjern
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2">
+                                        <Input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) handleImageUpload(file, "hoverImage");
+                                            }}
+                                            disabled={uploading}
+                                        />
+                                        {uploading && uploadTarget === "hoverImage" && <Loader2 className="h-4 w-4 animate-spin" />}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
                 </CardContent>
@@ -463,16 +639,30 @@ export function ProductOptionButtonEditor({
                                 minHeight: `${settings.minHeightPx}px`,
                             }}
                             onMouseEnter={(e) => {
+                                setPreviewHovered(true);
                                 e.currentTarget.style.backgroundColor = settings.hoverBackgroundColor;
                                 e.currentTarget.style.color = settings.hoverTextColor;
                                 e.currentTarget.style.borderColor = settings.hoverBorderColor;
                             }}
                             onMouseLeave={(e) => {
+                                setPreviewHovered(false);
                                 e.currentTarget.style.backgroundColor = settings.backgroundColor;
                                 e.currentTarget.style.color = settings.textColor;
                                 e.currentTarget.style.borderColor = settings.borderColor;
                             }}
                         >
+                            {settings.showThumbnail && (previewHovered && settings.hoverImage ? settings.hoverImage : settings.customImage) && (
+                                <img
+                                    src={(previewHovered && settings.hoverImage ? settings.hoverImage : settings.customImage) || ""}
+                                    alt=""
+                                    className="mr-2 inline-block object-cover align-middle"
+                                    style={{
+                                        width: settings.imageSizePx,
+                                        height: settings.imageSizePx,
+                                        borderRadius: `${Math.max(2, settings.borderRadiusPx / 2)}px`,
+                                    }}
+                                />
+                            )}
                             {settings.displayName || valueName}
                         </button>
                     </div>

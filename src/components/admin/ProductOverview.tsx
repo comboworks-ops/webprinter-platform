@@ -131,10 +131,10 @@ function normalizeCategoryKey(categoryName?: string | null): string {
 
 function getProductCardShellClass(product: Pick<Product, "is_published" | "is_ready">): string {
   if (product.is_ready) {
-    return "border-emerald-300 bg-emerald-50/70 hover:border-emerald-400";
+    return "border-emerald-300 bg-emerald-50/70 hover:border-emerald-400 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:hover:border-emerald-400/60";
   }
   if (product.is_published) {
-    return "border-orange-300 bg-orange-50/70 hover:border-orange-400";
+    return "border-orange-300 bg-orange-50/70 hover:border-orange-400 dark:border-orange-500/40 dark:bg-orange-500/10 dark:hover:border-orange-400/60";
   }
   return "hover:border-primary bg-background";
 }
@@ -1674,10 +1674,10 @@ export function ProductOverview() {
         </DialogContent>
       </Dialog>
 
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-3xl font-bold">Produktoversigt</h1>
-          <p className="text-muted-foreground">Administrer alle produkter og deres priser</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-3xl font-bold tracking-tight">Produktoversigt</h1>
+          <p className="text-muted-foreground max-w-2xl">Administrer alle produkter og deres priser</p>
         </div>
         <div className="flex items-center gap-3">
           <Button onClick={() => navigate("/admin/create-product")}>
@@ -1688,7 +1688,7 @@ export function ProductOverview() {
       </div>
 
       {loading ? (
-        <div>Henter produkter...</div>
+        <div className="py-16 text-center text-sm text-muted-foreground">Henter produkter...</div>
       ) : (
         <div className="space-y-4">
           {/* Toolbar: Category chips + Search */}
@@ -1699,8 +1699,8 @@ export function ProductOverview() {
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${selectedCategory === cat
-                    ? "bg-primary text-primary-foreground border-primary"
+                  className={`px-3 py-1.5 text-sm font-medium rounded-full border transition-colors ${selectedCategory === cat
+                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
                     : "bg-muted/50 hover:bg-muted border-transparent"
                     }`}
                 >
@@ -1802,9 +1802,9 @@ export function ProductOverview() {
                           setSelectedOverviewId(overview.id);
                           setSelectedCategory("Alle");
                         }}
-                        className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+                        className={`px-3 py-1.5 text-sm font-medium rounded-full border transition-colors ${
                           selectedOverviewId === overview.id
-                            ? "bg-primary text-primary-foreground border-primary"
+                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
                             : "bg-background hover:bg-muted border-border"
                         }`}
                       >
@@ -1851,7 +1851,7 @@ export function ProductOverview() {
                         >
                           <div className="flex items-center gap-2">
                             <span className="font-semibold capitalize">{category.replace('_', ' ')}</span>
-                            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                            <span className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">
                               {categoryProducts.length} produkter
                             </span>
                           </div>
@@ -1864,7 +1864,7 @@ export function ProductOverview() {
                             Ingen produkter i denne kategori endnu.
                           </div>
                         ) : (
-                        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                     {categoryProducts.map((product) => (
                       (() => {
                         const productOverviewId = getOverviewIdForCategory(product.category);
@@ -1902,7 +1902,7 @@ export function ProductOverview() {
                           <div className="absolute left-2 top-2 z-10">
                             <Badge
                               variant="secondary"
-                              className="border border-emerald-300 bg-emerald-100 text-emerald-800"
+                              className="border border-emerald-300 bg-emerald-100 text-emerald-800 shadow-sm dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200"
                             >
                               Klar
                             </Badge>
@@ -2024,7 +2024,7 @@ export function ProductOverview() {
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                      className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:bg-blue-500/10"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         openCloneDialog(product);
@@ -2076,18 +2076,18 @@ export function ProductOverview() {
 
                           {/* Release to Tenants Toggle (Master only) */}
                           {canDistributeToTenants && (
-                            <div className="border-t border-dashed bg-blue-50/30 px-3 py-2 space-y-2">
+                            <div className="border-t border-dashed bg-blue-50/30 px-3 py-2 space-y-2 dark:bg-blue-950/20">
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-1.5">
-                                      <span className="text-xs font-medium text-blue-600">
+                                      <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
                                         {product.is_available_to_tenants ? "Frigivet" : "Privat"}
                                       </span>
                                       <AdminInlineHelp content="Gør masterproduktet tilgængeligt for deling til andre lejere. Det påvirker ikke om produktet vises i webshoppen." />
                                     </div>
                                     <Switch
-                                      className="data-[state=checked]:bg-blue-600 scale-90"
+                                      className="data-[state=checked]:bg-blue-600 dark:data-[state=checked]:bg-blue-500 scale-90"
                                       checked={!!product.is_available_to_tenants}
                                       onCheckedChange={() =>
                                         toggleAvailableToTenants(
@@ -2177,12 +2177,12 @@ export function ProductOverview() {
                           {company.logo_url ? (
                             <img src={company.logo_url} alt={company.name} className="h-8 w-8 rounded object-cover" />
                           ) : (
-                            <div className="h-8 w-8 rounded bg-blue-100 flex items-center justify-center">
-                              <Building2 className="h-4 w-4 text-blue-600" />
+                            <div className="h-8 w-8 rounded bg-blue-100 flex items-center justify-center dark:bg-blue-500/20">
+                              <Building2 className="h-4 w-4 text-blue-600 dark:text-blue-300" />
                             </div>
                           )}
                           <span className="font-semibold">{company.name}</span>
-                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                          <span className="text-xs font-medium bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full dark:bg-blue-500/20 dark:text-blue-200">
                             {hubProducts.length} produkter
                           </span>
                         </div>
@@ -2201,7 +2201,7 @@ export function ProductOverview() {
                           <span className="text-muted-foreground text-sm group-open:rotate-180 transition-transform">▼</span>
                         </div>
                       </summary>
-                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                         {hubProducts.length === 0 ? (
                           <div className="col-span-full text-center text-muted-foreground py-4">
                             Ingen produkter tilknyttet denne virksomhed endnu.
@@ -2210,7 +2210,7 @@ export function ProductOverview() {
                           hubProducts.map((product) => (
                             <Card
                               key={product.id}
-                              className="hover:border-blue-500 transition-colors overflow-hidden cursor-pointer"
+                              className="hover:border-primary transition-colors overflow-hidden cursor-pointer"
                               onClick={() => navigate(`/admin/product/${product.slug}`)}
                             >
                               <CardContent className="p-0">

@@ -15,6 +15,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { format } from 'date-fns';
 import { da } from 'date-fns/locale';
 
+const MASTER_TENANT_ID = '00000000-0000-0000-0000-000000000000';
+const PLATFORM_LEAD_PREFIX = '[PLATFORM LEAD]';
+
 interface Message {
     id: string;
     order_id: string;
@@ -35,6 +38,50 @@ interface OrderWithMessages {
     unread_count: number;
     last_message_at: string;
 }
+
+interface ParsedPlatformLead {
+    id: string;
+    subject: string;
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+    company: string | null;
+    hostname: string | null;
+    pathname: string | null;
+    message: string;
+    createdAt: string;
+    isRead: boolean;
+}
+
+const isPlatformLeadMessage = (msg: any) =>
+    typeof msg?.content === 'string' && msg.content.startsWith(PLATFORM_LEAD_PREFIX);
+
+const readLeadField = (lines: string[], label: string) => {
+    const prefix = `${label}:`;
+    return lines.find(line => line.startsWith(prefix))?.slice(prefix.length).trim() || null;
+};
+
+const parsePlatformLeadMessage = (msg: any): ParsedPlatformLead => {
+    const content = String(msg?.content || '');
+    const lines = content.split('\n');
+    const blankIndex = lines.findIndex(line => line.trim() === '');
+    const detailLines = blankIndex >= 0 ? lines.slice(0, blankIndex) : lines;
+    const message = blankIndex >= 0 ? lines.slice(blankIndex + 1).join('\n').trim() : '';
+
+    return {
+        id: String(msg?.id || ''),
+        subject: lines[0]?.replace(PLATFORM_LEAD_PREFIX, '').trim() || 'Platformhenvendelse',
+        name: readLeadField(detailLines, 'Navn'),
+        email: readLeadField(detailLines, 'Email'),
+        phone: readLeadField(detailLines, 'Telefon'),
+        company: readLeadField(detailLines, 'Virksomhed'),
+        hostname: readLeadField(detailLines, 'Hostname'),
+        pathname: readLeadField(detailLines, 'Side'),
+        message,
+        createdAt: String(msg?.created_at || ''),
+        isRead: Boolean(msg?.is_read),
+    };
+};
 
 export default function AdminMessages() {
     const [orders, setOrders] = useState<OrderWithMessages[]>([]);
@@ -106,6 +153,11 @@ export default function AdminMessages() {
     const markSupportMessagesAsRead = async () => {
         try {
             const targetSenderRole = isMaster ? 'tenant' : 'master';
+
+            // Platform leads are a read-only intake log; opening the thread must not clear lead evidence.
+            if (isMaster && selectedTenantId === MASTER_TENANT_ID) {
+                return;
+            }
 
             // Update all unread messages sent BY the other party
             let query = supabase
@@ -422,6 +474,18 @@ export default function AdminMessages() {
     const platformThreadMessages = isMaster
         ? platformMessages.filter(m => m.tenant_id === selectedTenantId)
         : platformMessages;
+    const selectedPlatformThreadHasLeads = platformThreadMessages.some((msg: any) =>
+        isPlatformLeadMessage(msg)
+    );
+    const selectedPlatformLeads = platformThreadMessages
+        .filter(isPlatformLeadMessage)
+        .map(parsePlatformLeadMessage)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const latestPlatformLead = selectedPlatformLeads[0] || null;
+    const unreadPlatformLeadCount = selectedPlatformLeads.filter(lead => !lead.isRead).length;
+    const latestPlatformLeadMailto = latestPlatformLead?.email
+        ? `mailto:${encodeURIComponent(latestPlatformLead.email)}?subject=${encodeURIComponent(`Svar fra Webprinter: ${latestPlatformLead.subject}`)}`
+        : null;
 
     useEffect(() => {
         if (activeView !== 'order') return;
@@ -439,13 +503,26 @@ export default function AdminMessages() {
         platformMessages.reduce((acc: any, msg: any) => {
             const tid = msg.tenant_id;
             if (!acc[tid]) {
+                const isPlatformLeadThread = tid === MASTER_TENANT_ID
+                    && isPlatformLeadMessage(msg);
                 acc[tid] = {
                     tenant_id: tid,
-                    tenant_name: msg.tenants?.name || 'Ukendt Shop',
+                    is_platform_lead_thread: isPlatformLeadThread,
+                    tenant_name: isPlatformLeadThread ? 'Platform henvendelser' : msg.tenants?.name || 'Ukendt Shop',
                     last_message: msg.content,
                     last_message_at: msg.created_at,
-                    unread_count: 0
+                    unread_count: 0,
+                    lead_count: 0,
+                    unread_lead_count: 0,
                 };
+            }
+            if (tid === MASTER_TENANT_ID && isPlatformLeadMessage(msg)) {
+                acc[tid].is_platform_lead_thread = true;
+                acc[tid].tenant_name = 'Platform henvendelser';
+                acc[tid].lead_count++;
+                if (!msg.is_read) {
+                    acc[tid].unread_lead_count++;
+                }
             }
             if (msg.sender_role === 'tenant' && !msg.is_read) {
                 acc[tid].unread_count++;
@@ -457,6 +534,10 @@ export default function AdminMessages() {
             return acc;
         }, {})
     ).sort((a: any, b: any) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
+    const filteredSupportThreads = (supportThreads as any[]).filter((thread: any) =>
+        String(thread.tenant_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(thread.last_message || '').toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
     if (loading) {
         return (
@@ -496,7 +577,7 @@ export default function AdminMessages() {
                             >
                                 <span className="flex items-center gap-2">
                                     <LifeBuoy className="h-3.5 w-3.5" />
-                                    {isMaster ? 'Shop Support' : 'Support'}
+                                    {isMaster ? 'Shop support og platformhenvendelser' : 'Support'}
                                 </span>
                                 {sectionsOpen.support ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                             </button>
@@ -504,10 +585,10 @@ export default function AdminMessages() {
                             {sectionsOpen.support && (
                                 <div className="space-y-1 mt-1">
                                     {isMaster ? (
-                                        supportThreads.length === 0 ? (
+                                        filteredSupportThreads.length === 0 ? (
                                             <p className="text-[10px] text-center py-4 text-muted-foreground opacity-50">Ingen aktive samtaler</p>
                                         ) : (
-                                            supportThreads.map((thread: any) => (
+                                            filteredSupportThreads.map((thread: any) => (
                                                 <button
                                                     key={thread.tenant_id}
                                                     onClick={() => handleSelectTenant(thread.tenant_id)}
@@ -520,12 +601,27 @@ export default function AdminMessages() {
                                                 >
                                                     <div className="flex items-center justify-between mb-0.5">
                                                         <span className="font-semibold text-sm truncate">{thread.tenant_name}</span>
-                                                        {thread.unread_count > 0 && (
-                                                            <Badge className="bg-red-500 text-white h-4 min-w-[16px] px-1 flex items-center justify-center text-[10px]">
-                                                                {thread.unread_count}
-                                                            </Badge>
-                                                        )}
+                                                        <div className="flex items-center gap-1">
+                                                            {thread.is_platform_lead_thread && (
+                                                                <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+                                                                    {thread.lead_count} henv.
+                                                                </Badge>
+                                                            )}
+                                                            {thread.unread_count > 0 && (
+                                                                <Badge className="bg-red-500 text-white h-4 min-w-[16px] px-1 flex items-center justify-center text-[10px]">
+                                                                    {thread.unread_count}
+                                                                </Badge>
+                                                            )}
+                                                        </div>
                                                     </div>
+                                                    {thread.is_platform_lead_thread && (
+                                                        <p className={cn(
+                                                            "mb-1 text-[10px]",
+                                                            selectedTenantId === thread.tenant_id ? "text-primary-foreground/80" : "text-amber-700"
+                                                        )}>
+                                                            {thread.unread_lead_count} ulæste platformhenvendelser
+                                                        </p>
+                                                    )}
                                                     <p className={cn(
                                                         "text-[10px] truncate opacity-80",
                                                         selectedTenantId === thread.tenant_id ? "text-primary-foreground" : "text-muted-foreground"
@@ -700,13 +796,19 @@ export default function AdminMessages() {
                                     <div>
                                         <CardTitle className="text-xl">
                                             {isMaster ? (
-                                                platformMessages.find(m => m.tenant_id === selectedTenantId)?.tenants?.name || 'Shop Support'
+                                                selectedPlatformThreadHasLeads
+                                                    ? 'Platform henvendelser'
+                                                    : platformMessages.find(m => m.tenant_id === selectedTenantId)?.tenants?.name || 'Shop Support'
                                             ) : (
                                                 'Support Samtale'
                                             )}
                                         </CardTitle>
                                         <CardDescription>
-                                            {isMaster ? 'Direkte dialog med shop ejeren' : 'Kontakt vores support team'}
+                                            {isMaster
+                                                ? selectedPlatformThreadHasLeads
+                                                    ? 'Eksterne platformhenvendelser fra Webprinter-kontaktsiden'
+                                                    : 'Direkte dialog med shop ejeren'
+                                                : 'Kontakt vores support team'}
                                         </CardDescription>
                                     </div>
                                     {isMaster && (
@@ -722,6 +824,47 @@ export default function AdminMessages() {
                                 </div>
                             </CardHeader>
                             <CardContent className="flex-1 overflow-y-auto p-6 space-y-4 bg-muted/5">
+                                {isMaster && selectedPlatformThreadHasLeads && (
+                                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950 shadow-sm">
+                                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                            <div>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <Badge className="bg-amber-600 text-white">Platformhenvendelse</Badge>
+                                                    <Badge variant="outline" className="border-amber-300 bg-white/60 text-amber-900">
+                                                        {selectedPlatformLeads.length} henvendelser
+                                                    </Badge>
+                                                    <Badge variant="outline" className="border-amber-300 bg-white/60 text-amber-900">
+                                                        {unreadPlatformLeadCount} ulæste
+                                                    </Badge>
+                                                </div>
+                                                <h3 className="mt-3 font-semibold">
+                                                    {latestPlatformLead?.subject || 'Nyeste platformhenvendelse'}
+                                                </h3>
+                                                <p className="mt-1 text-sm leading-6">
+                                                    {latestPlatformLead?.name || 'Ukendt navn'}
+                                                    {latestPlatformLead?.company ? ` fra ${latestPlatformLead.company}` : ''}
+                                                    {latestPlatformLead?.email ? ` · ${latestPlatformLead.email}` : ''}
+                                                    {latestPlatformLead?.phone ? ` · ${latestPlatformLead.phone}` : ''}
+                                                </p>
+                                                <p className="mt-1 text-xs text-amber-800">
+                                                    Seneste: {latestPlatformLead?.createdAt ? formatMessageTime(latestPlatformLead.createdAt) : 'ukendt'}
+                                                    {latestPlatformLead?.hostname ? ` · ${latestPlatformLead.hostname}` : ''}
+                                                    {latestPlatformLead?.pathname ? ` · ${latestPlatformLead.pathname}` : ''}
+                                                </p>
+                                            </div>
+                                            {latestPlatformLeadMailto && (
+                                                <Button asChild variant="outline" size="sm" className="shrink-0 border-amber-300 bg-white text-amber-950 hover:bg-amber-100">
+                                                    <a href={latestPlatformLeadMailto}>Svar via e-mail</a>
+                                                </Button>
+                                            )}
+                                        </div>
+                                        {latestPlatformLead?.message && (
+                                            <p className="mt-3 line-clamp-3 rounded-lg bg-white/70 p-3 text-sm leading-6 text-amber-950">
+                                                {latestPlatformLead.message}
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
                                 {platformThreadMessages.map(msg => (
                                     <div key={msg.id} className={cn(
                                         "max-w-[75%] p-4 rounded-2xl shadow-sm",
@@ -752,28 +895,35 @@ export default function AdminMessages() {
                                 <div ref={supportMessagesEndRef} className="h-1" />
                             </CardContent>
                             <div className="p-4 border-t bg-card">
-                                <div className="flex items-end gap-3 max-w-4xl mx-auto">
-                                    <Textarea
-                                        value={supportInput}
-                                        onChange={e => setSupportInput(e.target.value)}
-                                        placeholder={isMaster ? "Skriv svar til tenant..." : "Skriv til support..."}
-                                        className="flex-1 min-h-[44px] max-h-[200px] resize-none border-none bg-muted/40 focus-visible:ring-1"
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter' && !e.shiftKey) {
-                                                e.preventDefault();
-                                                sendSupportMessage();
-                                            }
-                                        }}
-                                    />
-                                    <Button
-                                        onClick={sendSupportMessage}
-                                        disabled={sending || !supportInput.trim()}
-                                        size="icon"
-                                        className="h-11 w-11 shrink-0 rounded-full"
-                                    >
-                                        {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-                                    </Button>
-                                </div>
+                                {isMaster && selectedPlatformThreadHasLeads ? (
+                                    <div className="mx-auto max-w-4xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+                                        Platformhenvendelser er en read-only log fra kontaktsiden. Svar kunden via e-mail
+                                        eller det kommende leadflow, så du ikke tror denne interne note sender en ekstern mail.
+                                    </div>
+                                ) : (
+                                    <div className="flex items-end gap-3 max-w-4xl mx-auto">
+                                        <Textarea
+                                            value={supportInput}
+                                            onChange={e => setSupportInput(e.target.value)}
+                                            placeholder={isMaster ? "Skriv svar til tenant..." : "Skriv til support..."}
+                                            className="flex-1 min-h-[44px] max-h-[200px] resize-none border-none bg-muted/40 focus-visible:ring-1"
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' && !e.shiftKey) {
+                                                    e.preventDefault();
+                                                    sendSupportMessage();
+                                                }
+                                            }}
+                                        />
+                                        <Button
+                                            onClick={sendSupportMessage}
+                                            disabled={sending || !supportInput.trim()}
+                                            size="icon"
+                                            className="h-11 w-11 shrink-0 rounded-full"
+                                        >
+                                            {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
                         </>
                     ) : (

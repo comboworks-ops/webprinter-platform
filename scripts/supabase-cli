@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+set -eu
+
+NODE_BIN="/Users/thomasprintmaker/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+exec "$NODE_BIN" "$SCRIPT_DIR/supabase-cli.mjs" "$@"

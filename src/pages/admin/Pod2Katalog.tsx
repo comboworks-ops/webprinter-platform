@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Loader2, Package, Download, Check, Search, GitMerge, ArrowUpRight, ListFilter, Layers } from "lucide-react";
+import { Loader2, Package, Download, Check, Search, GitMerge, ArrowUpRight, ListFilter, Layers, ExternalLink } from "lucide-react";
 import { usePodCatalogProducts, usePodImportProduct, usePodTenantImports, usePodRemoveImport, usePodMergeProducts } from "@/lib/pod2/hooks";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveAdminTenant, MASTER_TENANT_ID } from "@/lib/adminTenant";
@@ -254,9 +254,10 @@ export function Pod2Katalog() {
         const raw = product?.supplier_product_data?.matrix_mapping;
         const normalized = normalizeMatrixMapping(raw, groupKeys);
         const availableQuantities = extractAvailableQuantities(product);
-        const quantities = Array.isArray(product?.supplier_product_data?.matrix_quantities)
+        const savedQuantities = Array.isArray(product?.supplier_product_data?.matrix_quantities)
             ? product.supplier_product_data.matrix_quantities.filter((value: any) => availableQuantities.includes(Number(value)))
-            : availableQuantities;
+            : [];
+        const quantities = savedQuantities.length > 0 ? savedQuantities : availableQuantities;
         return {
             verticalAxis: normalized.verticalAxis,
             rows: normalized.rows.map((row: any) => ({
@@ -665,6 +666,19 @@ export function Pod2Katalog() {
                                             <Badge variant="secondary">Kræver tilbud</Badge>
                                         )}
                                     </div>
+                                    {product.supplier_product_ref && (
+                                        <a
+                                            href={`https://app.print.com/selector/${product.supplier_product_ref}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="absolute top-3 right-3 inline-flex items-center gap-1 rounded-md bg-background/90 backdrop-blur px-2 py-1 text-xs font-medium text-foreground shadow-sm hover:bg-background border border-border/50"
+                                            title={`Åbn ${product.supplier_product_ref} på Print.com i ny fane`}
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <ExternalLink className="h-3 w-3" />
+                                            Print.com
+                                        </a>
+                                    )}
                                 </div>
 
                                 <CardHeader className="pb-2">
@@ -763,8 +777,8 @@ export function Pod2Katalog() {
                     }
                 }}
             >
-                <DialogContent className="max-w-4xl">
-                    <DialogHeader>
+                <DialogContent className="flex max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0">
+                    <DialogHeader className="shrink-0 border-b px-6 py-5 pr-12">
                         <DialogTitle>Importér POD v2 Produkt</DialogTitle>
                         <DialogDescription>
                             Produktet oprettes i din produktliste og kan derefter publiceres til din butik.
@@ -773,7 +787,7 @@ export function Pod2Katalog() {
 
                     {wizardStep === 1 && (
                         <>
-                            <div className="space-y-4 py-4">
+                            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
                                 <div className="space-y-2">
                                     <Label>Produktnavn</Label>
                                     <Input
@@ -800,7 +814,7 @@ export function Pod2Katalog() {
                                 </div>
                             </div>
 
-                            <DialogFooter>
+                            <DialogFooter className="shrink-0 border-t px-6 py-4">
                                 <Button
                                     variant="outline"
                                     onClick={() => setImportDialog({ open: false, product: null })}
@@ -822,7 +836,7 @@ export function Pod2Katalog() {
 
                     {wizardStep === 2 && importDialog.product && (
                         <>
-                            <div className="space-y-6 py-4">
+                            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
                                 <div className="grid gap-4 md:grid-cols-3">
                                     <Card>
                                         <CardHeader className="pb-2">
@@ -935,15 +949,14 @@ export function Pod2Katalog() {
                                 </div>
                             </div>
 
-                            <div className="text-xs text-muted-foreground">
-                                {!matrixDraft?.verticalAxis && "Vælg en vertikal akse før du gemmer layoutet."}
-                            </div>
-
-                            <DialogFooter className="flex items-center justify-between gap-3">
-                                <Button variant="outline" onClick={() => setWizardStep(1)}>
-                                    Tilbage
-                                </Button>
-                                <div className="flex items-center gap-2">
+                            <DialogFooter className="flex shrink-0 flex-col gap-3 border-t px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:space-x-0">
+                                <div className="min-h-4 text-xs text-muted-foreground">
+                                    {!matrixDraft?.verticalAxis && "Vælg en vertikal akse før du gemmer layoutet."}
+                                </div>
+                                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+                                    <Button variant="outline" onClick={() => setWizardStep(1)}>
+                                        Tilbage
+                                    </Button>
                                     <Button
                                         variant="outline"
                                         onClick={() => {

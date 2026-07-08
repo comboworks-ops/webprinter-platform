@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { motion, useReducedMotion } from "framer-motion";
 import { Menu, X, Search, ChevronDown, LogOut, User, Shield, Package, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -104,6 +105,39 @@ type HeaderDesktopMenuSection = {
   groups: HeaderDesktopMenuGroup[];
 };
 
+type HeaderDropdownPreset = "classic" | "showcase-bar" | "split-preview" | "compact-columns" | "gallery-cards";
+type HeaderSplitPreviewSource = "featured-product" | "featured-side-panel";
+
+type HeaderSplitPreviewSidePanel = {
+  href: string;
+  imageUrl: string | null;
+  title: string;
+  subtitle?: string | null;
+  ctaLabel?: string | null;
+  overlayColor?: string;
+  overlayOpacity?: number;
+  titleColor?: string;
+  subtitleColor?: string;
+  ctaColor?: string;
+  ctaTextColor?: string;
+};
+
+const DROPDOWN_PRESET_PANEL_CLASS: Record<HeaderDropdownPreset, string> = {
+  "classic": "min-w-[760px] max-w-[1120px] rounded-2xl p-4",
+  "showcase-bar": "min-w-[min(1120px,calc(100vw-2rem))] max-w-[1120px] overflow-hidden rounded-2xl p-0",
+  "split-preview": "min-w-[900px] max-w-[1120px] overflow-hidden rounded-2xl p-0",
+  "compact-columns": "min-w-[680px] max-w-[960px] rounded-xl p-3",
+  "gallery-cards": "min-w-[920px] max-w-[1120px] rounded-2xl p-5",
+};
+
+const DROPDOWN_PRESET_FALLBACK_PANEL_CLASS: Record<HeaderDropdownPreset, string> = {
+  "classic": "min-w-[600px] max-w-4xl rounded-xl p-4",
+  "showcase-bar": "min-w-[760px] max-w-[960px] overflow-hidden rounded-2xl p-0",
+  "split-preview": "min-w-[760px] max-w-[960px] overflow-hidden rounded-2xl p-0",
+  "compact-columns": "min-w-[420px] rounded-xl p-3",
+  "gallery-cards": "min-w-[760px] max-w-[960px] rounded-2xl p-5",
+};
+
 type DesktopProductsDropdownProps = {
   itemId: string;
   itemLabel: string;
@@ -123,6 +157,8 @@ type DesktopProductsDropdownProps = {
   selectedIconPackId: string;
   dropdownImageSizePx: number;
   dropdownCompactImageSizePx: number;
+  splitPreviewProduct?: HeaderProductMenuProduct | null;
+  splitPreviewSidePanel?: HeaderSplitPreviewSidePanel | null;
 };
 
 type DesktopHeaderActionsProps = {
@@ -442,9 +478,67 @@ const DesktopProductsDropdown = ({
   selectedIconPackId,
   dropdownImageSizePx,
   dropdownCompactImageSizePx,
+  splitPreviewProduct,
+  splitPreviewSidePanel,
 }: DesktopProductsDropdownProps) => {
   const [activeDesktopDropdownGroupKey, setActiveDesktopDropdownGroupKey] = useState<string | null>(null);
   const [activeDesktopDropdownChildKey, setActiveDesktopDropdownChildKey] = useState<string | null>(null);
+  const shouldReduceMotion = useReducedMotion();
+  const dropdownPreset = (headerSettings.dropdownPreset || "classic") as HeaderDropdownPreset;
+  const dropdownMotionStyle = String((headerSettings as any).dropdownMotionStyle || "");
+  const richPanelClass = DROPDOWN_PRESET_PANEL_CLASS[dropdownPreset] || DROPDOWN_PRESET_PANEL_CLASS.classic;
+  const fallbackPanelClass = DROPDOWN_PRESET_FALLBACK_PANEL_CLASS[dropdownPreset] || DROPDOWN_PRESET_FALLBACK_PANEL_CLASS.classic;
+  const motionInitial = shouldReduceMotion
+    ? { opacity: 1 }
+    : dropdownMotionStyle === "liquid"
+      ? { opacity: 0, y: -6, scale: 0.965, filter: "blur(10px)" }
+      : dropdownMotionStyle === "gallery-rise"
+        ? { opacity: 0, y: 14, scale: 0.98 }
+      : dropdownMotionStyle === "focus-slide"
+        ? { opacity: 0, x: -14, scale: 0.99, filter: "blur(4px)" }
+    : dropdownPreset === "split-preview"
+      ? { opacity: 0, x: -10, scale: 0.985 }
+      : dropdownPreset === "gallery-cards"
+        ? { opacity: 0, y: 8, scale: 0.97 }
+        : { opacity: 0, y: -8, scale: 0.985 };
+  const motionAnimate = shouldReduceMotion ? { opacity: 1 } : { opacity: 1, x: 0, y: 0, scale: 1, filter: "blur(0px)" };
+  const dropdownTransition = dropdownMotionStyle === "liquid"
+    ? { type: "spring" as const, stiffness: 340, damping: 27 }
+    : dropdownMotionStyle === "gallery-rise"
+      ? { duration: shouldReduceMotion ? 0 : 0.28, ease: [0.16, 1, 0.3, 1] as const }
+      : dropdownMotionStyle === "focus-slide"
+        ? { duration: shouldReduceMotion ? 0 : 0.2, ease: [0.2, 0.8, 0.2, 1] as const }
+        : { duration: shouldReduceMotion ? 0 : 0.22, ease: [0.16, 1, 0.3, 1] as const };
+  const showcaseCategories = useMemo(() => {
+    const categoryImages = headerSettings.dropdownCategoryImages || {};
+    return desktopProductSections.slice(0, 5).map((section) => {
+      const sectionKey = section.key.toLowerCase();
+      const imageKey = sectionKey.replace(/[^a-z0-9]/g, "");
+      const firstGroup = section.groups[0];
+      const firstProduct = firstGroup?.products[0] || firstGroup?.children[0]?.products[0] || null;
+      const imageUrl = categoryImages[sectionKey] || categoryImages[imageKey] || firstProduct?.imageUrl || null;
+      return {
+        key: section.key,
+        label: section.label,
+        href: firstGroup?.href || firstProduct?.href || "/produkter",
+        imageUrl,
+        fallbackProductSlug: firstProduct?.productSlug || section.key,
+        fallbackCategory: firstProduct?.category || section.label,
+      };
+    });
+  }, [desktopProductSections, headerSettings.dropdownCategoryImages]);
+  const showcaseProducts = useMemo(() => {
+    const products: HeaderProductMenuProduct[] = [];
+    desktopProductSections.some((section) => section.groups.some((group) => {
+      const product = group.products[0] || group.children[0]?.products[0] || null;
+      if (product) products.push(product);
+      return products.length >= 1;
+    }));
+    return products;
+  }, [desktopProductSections]);
+  const dropdownSplitPreviewSource = (headerSettings.dropdownSplitPreviewSource || "featured-product") as HeaderSplitPreviewSource;
+  const resolvedSplitPreviewProduct = splitPreviewProduct || showcaseProducts[0] || null;
+  const showSplitPreviewSidePanel = dropdownSplitPreviewSource === "featured-side-panel" && Boolean(splitPreviewSidePanel);
 
   // Determine display mode for this nav item
   const displayMode = itemImageUrl ? (headerSettings.navItems?.find((i: any) => i.id === itemId)?.displayMode || 'image_and_text') : 'text_only';
@@ -496,14 +590,20 @@ const DesktopProductsDropdown = ({
         data-branding-id="header.dropdown.panel"
         align="start"
         sideOffset={10}
-        className={`backdrop-blur-md z-[1205] ${headerSettings.dropdownShowBorder !== false ? 'border shadow-2xl' : 'border-0 shadow-none'} ${usesRichDropdownMenu
-          ? 'min-w-[760px] max-w-[1120px] max-h-[calc(100vh-7rem)] overflow-y-auto rounded-2xl p-4'
+        className={`backdrop-blur-md z-[1205] max-h-[calc(100vh-7rem)] overflow-y-auto ${headerSettings.dropdownShowBorder !== false ? 'border shadow-2xl' : 'border-0 shadow-none'} ${usesRichDropdownMenu
+          ? richPanelClass
           : (headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT')
-            ? 'min-w-[600px] max-w-4xl rounded-xl p-4'
+            ? fallbackPanelClass
             : 'min-w-[200px] rounded-xl p-2'
-          } animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-200`}
+          }`}
         style={getDropdownStyles()}
       >
+        <motion.div
+          initial={motionInitial}
+          animate={motionAnimate}
+          transition={dropdownTransition}
+          className={dropdownPreset === "split-preview" && usesRichDropdownMenu ? "grid gap-0 lg:grid-cols-[280px_1fr]" : undefined}
+        >
         {/* Custom Dropdown Image */}
         {headerSettings.dropdownCustomImageUrl && (
           <div className="mb-4 rounded-lg overflow-hidden border border-black/10">
@@ -517,8 +617,120 @@ const DesktopProductsDropdown = ({
             />
           </div>
         )}
+        {usesRichDropdownMenu && dropdownPreset === "showcase-bar" && showcaseCategories.length > 0 && (
+          <div className="border-b border-black/10 bg-black/[0.025] px-5 py-4">
+            <div className="mb-3 h-1 w-28 rounded-full bg-current opacity-70" style={{ color: headerSettings.activeTextColor || "#0284C7" }} />
+            <div className="grid grid-cols-5 gap-3">
+              {showcaseCategories.map((category) => (
+                <Link
+                  key={category.key}
+                  to={category.href}
+                  data-branding-id="header.dropdown.category"
+                  className="dropdown-product-link group rounded-xl p-2"
+                >
+                  <div className="flex h-24 items-center justify-center">
+                    {category.imageUrl ? (
+                      <img
+                        data-branding-id="header.dropdown.image"
+                        src={getProductImage(category.fallbackProductSlug, category.imageUrl)}
+                        alt={category.label}
+                        className="max-h-full max-w-full object-contain transition-transform duration-300 ease-out group-hover:scale-[1.035]"
+                        style={{ filter: "var(--product-filter)" }}
+                      />
+                    ) : (
+                      <ProductCategoryIcon slug={category.fallbackProductSlug} category={category.fallbackCategory} packId={selectedIconPackId} className="h-8 w-8" />
+                    )}
+                  </div>
+                  <p className="mt-2 truncate text-center text-xs font-semibold" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>
+                    {category.label}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+        {usesRichDropdownMenu && dropdownPreset === "split-preview" && showSplitPreviewSidePanel && splitPreviewSidePanel && (
+          <Link
+            to={appendStorefrontTenantContext(splitPreviewSidePanel.href)}
+            className="dropdown-product-link relative hidden min-h-[420px] flex-col justify-between overflow-hidden border-r border-black/10 bg-black/[0.035] p-5 transition-colors lg:flex"
+            data-branding-id="header.dropdown.product"
+          >
+            {splitPreviewSidePanel.imageUrl && (
+              <img
+                data-branding-id="header.dropdown.image"
+                src={splitPreviewSidePanel.imageUrl}
+                alt={splitPreviewSidePanel.title}
+                className="absolute inset-0 h-full w-full object-cover"
+                style={{ filter: "var(--product-filter)" }}
+              />
+            )}
+            <div
+              className="absolute inset-0"
+              style={{
+                backgroundColor: splitPreviewSidePanel.overlayColor || "#000000",
+                opacity: splitPreviewSidePanel.overlayOpacity ?? 0.35,
+              }}
+            />
+            <div className="relative z-10">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: splitPreviewSidePanel.subtitleColor || "rgba(255,255,255,0.78)" }}>
+                Kampagne
+              </div>
+              <h3 className="mt-2 text-xl font-semibold leading-tight" style={{ color: splitPreviewSidePanel.titleColor || "#FFFFFF", fontFamily: `'${productFont}', sans-serif` }}>
+                {splitPreviewSidePanel.title}
+              </h3>
+              {splitPreviewSidePanel.subtitle && (
+                <p className="mt-2 line-clamp-3 text-sm" style={{ color: splitPreviewSidePanel.subtitleColor || "rgba(255,255,255,0.86)" }}>
+                  {splitPreviewSidePanel.subtitle}
+                </p>
+              )}
+            </div>
+            {splitPreviewSidePanel.ctaLabel && (
+              <span
+                className="relative z-10 mt-6 inline-flex w-fit items-center rounded-lg px-3 py-2 text-xs font-semibold"
+                style={{
+                  backgroundColor: splitPreviewSidePanel.ctaColor || headerSettings.activeTextColor || "#0284C7",
+                  color: splitPreviewSidePanel.ctaTextColor || "#FFFFFF",
+                }}
+              >
+                {splitPreviewSidePanel.ctaLabel}
+              </span>
+            )}
+          </Link>
+        )}
+        {usesRichDropdownMenu && dropdownPreset === "split-preview" && !showSplitPreviewSidePanel && resolvedSplitPreviewProduct && (
+          <Link
+            to={resolvedSplitPreviewProduct.href}
+            className="dropdown-product-link hidden min-h-[420px] flex-col justify-between border-r border-black/10 bg-black/[0.025] p-5 transition-colors lg:flex"
+            data-branding-id="header.dropdown.product"
+          >
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: categoryColor }}>
+                Fremhævet
+              </div>
+              <h3 className="mt-2 text-xl font-semibold leading-tight" style={{ color: productColor, fontFamily: `'${productFont}', sans-serif` }}>
+                {resolvedSplitPreviewProduct.label}
+              </h3>
+              <p className="mt-1 text-xs" style={{ color: headerSettings.dropdownMetaColor || "#6B7280" }}>
+                {resolvedSplitPreviewProduct.category}
+              </p>
+            </div>
+            <div className="mt-6 flex h-52 items-center justify-center">
+              {resolvedSplitPreviewProduct.imageUrl ? (
+                <img
+                  data-branding-id="header.dropdown.image"
+                  src={getProductImage(resolvedSplitPreviewProduct.productSlug, resolvedSplitPreviewProduct.imageUrl)}
+                  alt={resolvedSplitPreviewProduct.label}
+                  className="max-h-full max-w-full object-contain"
+                  style={{ filter: "var(--product-filter)" }}
+                />
+              ) : (
+                <ProductCategoryIcon slug={resolvedSplitPreviewProduct.productSlug} category={resolvedSplitPreviewProduct.category} packId={selectedIconPackId} className="h-12 w-12" />
+              )}
+            </div>
+          </Link>
+        )}
         {usesRichDropdownMenu ? (
-          <div className="space-y-5">
+          <div className={`${dropdownPreset === "showcase-bar" ? "space-y-5 p-5" : dropdownPreset === "split-preview" ? "space-y-5 p-5" : dropdownPreset === "compact-columns" ? "space-y-3" : dropdownPreset === "gallery-cards" ? "space-y-5" : "space-y-5"}`}>
             {desktopProductSections.map((section) => {
               const categoryImages = headerSettings.dropdownCategoryImages || {};
               const categoryDisplayMode = headerSettings.dropdownCategoryDisplayMode || 'text';
@@ -528,7 +740,7 @@ const DesktopProductsDropdown = ({
               const showCategoryImage = categoryImageUrl && (categoryDisplayMode === 'image' || categoryDisplayMode === 'both');
               
               return (
-              <div key={section.key} className="space-y-3">
+              <div key={section.key} className={dropdownPreset === "compact-columns" ? "space-y-2" : "space-y-3"}>
                 <div className="px-1">
                   {showCategoryImage ? (
                     <div 
@@ -573,7 +785,7 @@ const DesktopProductsDropdown = ({
                     </h3>
                   )}
                 </div>
-                <div className="flex flex-wrap items-start gap-x-8 gap-y-5">
+                <div className={`flex flex-wrap items-start ${dropdownPreset === "compact-columns" ? "gap-x-4 gap-y-3" : dropdownPreset === "gallery-cards" ? "gap-x-5 gap-y-5" : "gap-x-8 gap-y-5"}`}>
                   {section.groups.map((group) => {
                     const activeChild =
                       activeDesktopDropdownGroupKey === group.key
@@ -586,7 +798,7 @@ const DesktopProductsDropdown = ({
                       && group.products.length > 0;
 
                     return (
-                      <div key={group.key} className="min-w-[180px] flex-1 basis-[220px]">
+                      <div key={group.key} className={`${dropdownPreset === "compact-columns" ? "min-w-[150px] basis-[180px]" : dropdownPreset === "gallery-cards" ? "min-w-[200px] basis-[240px] rounded-xl border border-black/10 bg-white/35 p-3" : "min-w-[180px] basis-[220px]"} flex-1`}>
                         <div
                           className="min-w-0"
                           onMouseEnter={() => {
@@ -685,7 +897,7 @@ const DesktopProductsDropdown = ({
                                         key={product.key}
                                         to={product.href}
                                         data-branding-id="header.dropdown.product"
-                                        className={`dropdown-product-link grid gap-3 rounded-md px-1 py-1.5 transition-all duration-200 hover:translate-x-0.5 ${
+                                        className={`dropdown-product-link grid gap-3 rounded-md px-1 py-1.5 ${
                                           dropdownTextPosition === 'side' 
                                             ? 'grid-cols-[auto_1fr] items-start' 
                                             : 'grid-rows-[auto_auto] items-center text-center'
@@ -784,7 +996,7 @@ const DesktopProductsDropdown = ({
                                   key={product.key}
                                   to={product.href}
                                   data-branding-id="header.dropdown.product"
-                                  className={`dropdown-product-link grid gap-3 rounded-md px-1 py-1.5 transition-all duration-200 hover:translate-x-0.5 ${
+                                  className={`dropdown-product-link grid gap-3 rounded-md px-1 py-1.5 ${
                                     dropdownTextPosition === 'side' 
                                       ? 'grid-cols-[auto_1fr] items-start' 
                                       : 'grid-rows-[auto_auto] items-center text-center'
@@ -1009,6 +1221,7 @@ const DesktopProductsDropdown = ({
         })}
       </>
       )}
+      </motion.div>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1103,9 +1316,11 @@ const Header = () => {
     activeTextColor: '#0284C7',
     actionHoverTextColor: '#0EA5E9',
     actionHoverBgColor: 'rgba(0,0,0,0.05)',
-    autoContrastText: true,
-    dropdownMode: 'IMAGE_AND_TEXT' as const,
-    dropdownImageSizePx: 56,
+	    autoContrastText: true,
+	    dropdownMode: 'IMAGE_AND_TEXT' as const,
+	    dropdownPreset: 'classic' as HeaderDropdownPreset,
+    dropdownSplitPreviewSource: 'featured-product' as HeaderSplitPreviewSource,
+	    dropdownImageSizePx: 56,
     dropdownCompactImageSizePx: 40,
     transparentOverHero: true, // Default to true for standard template
     // Logo defaults
@@ -1603,6 +1818,72 @@ const Header = () => {
     ? "/shop?tenantId=00000000-0000-0000-0000-000000000000"
     : "/shop";
   const usesRichDropdownMenu = desktopProductSections.length > 0;
+  const featuredProductConfig = activeBranding?.forside?.productsSection?.featuredProductConfig;
+  const campaignFeaturedProduct = useMemo<HeaderProductMenuProduct | null>(() => {
+    const productId = featuredProductConfig?.productId;
+    if (!productId) return null;
+    const product = allProducts.find((item) => item.id === productId);
+    if (!product) return null;
+    return {
+      key: `featured:${product.id}`,
+      label: featuredProductConfig?.customTitle || getProductLabel(product),
+      href: appendStorefrontTenantContext(`/produkt/${product.slug}`),
+      imageUrl: featuredProductConfig?.customImageUrl || product.image_url,
+      productSlug: product.slug,
+      category: product.category,
+    };
+  }, [
+    allProducts,
+    featuredProductConfig?.customImageUrl,
+    featuredProductConfig?.customTitle,
+    featuredProductConfig?.productId,
+  ]);
+  const campaignSidePanelPreview = useMemo<HeaderSplitPreviewSidePanel | null>(() => {
+    const sidePanel = featuredProductConfig?.sidePanel;
+    if (!sidePanel?.enabled) return null;
+
+    const firstItem = (sidePanel.items || [])[0];
+    const sourceMode = firstItem?.mode || sidePanel.mode || "banner";
+    const sourceProductId = firstItem?.productId || sidePanel.productId;
+
+    if (sourceMode === "product" && sourceProductId) {
+      const product = allProducts.find((item) => item.id === sourceProductId);
+      if (product) {
+        return {
+          href: `/produkt/${product.slug}`,
+          imageUrl: product.image_url,
+          title: firstItem?.title || product.name,
+          subtitle: firstItem?.subtitle || product.category,
+          ctaLabel: firstItem?.ctaLabel || sidePanel.ctaLabel || "Se produkt",
+          overlayColor: sidePanel.overlayColor,
+          overlayOpacity: sidePanel.overlayOpacity,
+          titleColor: sidePanel.titleColor,
+          subtitleColor: sidePanel.subtitleColor,
+          ctaColor: sidePanel.ctaColor,
+          ctaTextColor: sidePanel.ctaTextColor,
+        };
+      }
+    }
+
+    const imageUrl = firstItem?.imageUrl || sidePanel.imageUrl || (sidePanel.images || []).find(Boolean) || null;
+    const title = firstItem?.title || sidePanel.title || "Kampagne";
+    return {
+      href: firstItem?.ctaHref || sidePanel.ctaHref || "/produkter",
+      imageUrl,
+      title,
+      subtitle: firstItem?.subtitle || sidePanel.subtitle,
+      ctaLabel: firstItem?.ctaLabel || sidePanel.ctaLabel,
+      overlayColor: sidePanel.overlayColor,
+      overlayOpacity: sidePanel.overlayOpacity,
+      titleColor: sidePanel.titleColor,
+      subtitleColor: sidePanel.subtitleColor,
+      ctaColor: sidePanel.ctaColor,
+      ctaTextColor: sidePanel.ctaTextColor,
+    };
+  }, [
+    allProducts,
+    featuredProductConfig?.sidePanel,
+  ]);
 
   const navItems = [
     { label: t("home"), path: "/" },
@@ -1796,12 +2077,25 @@ const Header = () => {
           color: var(--header-action-hover-text) !important;
           background-color: var(--header-action-hover-bg) !important;
         }
+        .dropdown-product-link {
+          transform: translateZ(0) scale(1);
+          transform-origin: center center;
+          backface-visibility: hidden;
+          will-change: transform, opacity, background-color;
+          transition:
+            transform 260ms cubic-bezier(0.16, 1, 0.3, 1),
+            background-color 220ms cubic-bezier(0.16, 1, 0.3, 1),
+            color 180ms ease,
+            box-shadow 260ms cubic-bezier(0.16, 1, 0.3, 1),
+            opacity 220ms ease;
+        }
         /* Custom hover/selection color for dropdown items - target focus and data-highlighted for Radix UI */
         .dropdown-product-link:hover,
         .dropdown-product-link:focus,
         .dropdown-product-link[data-highlighted] {
           background-color: var(--dropdown-hover-bg) !important;
           outline: none;
+          transform: translateZ(0) scale(1.018);
         }
         .header-cta-button {
           background-color: var(--header-cta-bg) !important;
@@ -1923,6 +2217,8 @@ const Header = () => {
                       dropdownImageSizePx={dropdownImageSizePx}
                       dropdownCompactImageSizePx={dropdownCompactImageSizePx}
                       dropdownTextPosition={dropdownTextPosition}
+                      splitPreviewProduct={campaignFeaturedProduct}
+                      splitPreviewSidePanel={campaignSidePanelPreview}
                     />
                   );
                 }

@@ -36,6 +36,12 @@ export const getMatrixStyleVars = (
         "--matrix-selected-bg": matrix.selectedBg,
         "--matrix-selected-text": matrix.selectedText,
         "--matrix-border": matrix.borderColor,
+        "--matrix-nav-button-bg": matrix.navButtonBg || matrix.cellBg,
+        "--matrix-nav-button-text": matrix.navButtonText || matrix.cellText,
+        "--matrix-nav-button-hover-bg": matrix.navButtonHoverBg || matrix.cellHoverBg,
+        "--matrix-nav-button-hover-text": matrix.navButtonHoverText || matrix.cellHoverText,
+        "--matrix-nav-button-border": matrix.navButtonBorder || matrix.borderColor,
+        "--matrix-nav-button-hover-border": matrix.navButtonHoverBorder || matrix.borderColor,
         // Box styling
         "--matrix-box-bg": boxBg,
         "--matrix-box-radius": `${boxRadius}px`,

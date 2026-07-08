@@ -116,6 +116,7 @@ interface ProduktvalgknapperSectionProps {
     persistedPricingStructure?: { productId: string; pricingStructure: MatrixLayoutV1 | Record<string, unknown> } | null;
     focusedProductId?: string | null;
     focusedSectionId?: string | null;
+    focusedValueId?: string | null;
 }
 
 const UI_MODE_OPTIONS: Array<{ value: SelectorUiMode; label: string }> = [
@@ -189,6 +190,7 @@ export function ProduktvalgknapperSection({
     persistedPricingStructure,
     focusedProductId,
     focusedSectionId,
+    focusedValueId,
 }: ProduktvalgknapperSectionProps) {
     const [products, setProducts] = useState<Product[]>([]);
     const [selectedProductId, setSelectedProductId] = useState<string>("");
@@ -272,10 +274,10 @@ export function ProduktvalgknapperSection({
     }, [focusedProductId, selectedProductId]);
 
     useEffect(() => {
-        if (focusedProductId || focusedSectionId) {
+        if (focusedProductId || focusedSectionId || focusedValueId) {
             setActiveTab("sections");
         }
-    }, [focusedProductId, focusedSectionId]);
+    }, [focusedProductId, focusedSectionId, focusedValueId]);
 
     const handleSelectedProductChange = useCallback((productId: string) => {
         setSelectedProductId(productId);
@@ -466,17 +468,27 @@ export function ProduktvalgknapperSection({
     }, [persistedPricingStructure, selectedProductId]);
 
     useEffect(() => {
-        if (!focusedSectionId || activeTab !== "sections" || hydratedProductId !== selectedProductId) return;
+        if ((!focusedSectionId && !focusedValueId) || activeTab !== "sections" || hydratedProductId !== selectedProductId) return;
 
         const timeoutId = window.setTimeout(() => {
-            const element = document.getElementById(`site-design-focus-produktvalg-section-${focusedSectionId}`);
+            const valueElement = focusedSectionId && focusedValueId
+                ? document.getElementById(`site-design-focus-produktvalg-value-${focusedSectionId}-${focusedValueId}`)
+                : null;
+            const sectionElement = focusedSectionId
+                ? document.getElementById(`site-design-focus-produktvalg-section-${focusedSectionId}`)
+                : null;
+            const element = valueElement || sectionElement;
             if (!element) return;
 
             element.scrollIntoView({ behavior: "smooth", block: "center" });
+            element.classList.add("ring-2", "ring-primary", "ring-offset-2");
+            window.setTimeout(() => {
+                element.classList.remove("ring-2", "ring-primary", "ring-offset-2");
+            }, 1800);
         }, 120);
 
         return () => window.clearTimeout(timeoutId);
-    }, [activeTab, focusedSectionId, hydratedProductId, selectedProductId]);
+    }, [activeTab, focusedSectionId, focusedValueId, hydratedProductId, selectedProductId]);
 
     const handleSave = useCallback(async () => {
         if (!selectedProductId) {
@@ -617,6 +629,54 @@ export function ProduktvalgknapperSection({
         }
     }, [selectedProductId, updateSectionValueSetting, uploadingTarget]);
 
+    const focusedSection = useMemo(
+        () => sections.find((section) => section.id === focusedSectionId) || null,
+        [focusedSectionId, sections],
+    );
+    const focusedValueSetting = focusedSection && focusedValueId
+        ? (focusedSection.valueSettings[focusedValueId] || {})
+        : null;
+    const focusedValueName = focusedSection && focusedValueId
+        ? getDisplayName(focusedSection, focusedValueId)
+        : "";
+    const focusedValueImageUrl = getOptionImageUrl(focusedValueSetting || undefined);
+    const focusedUsesPictureButtons = focusedSection ? isPictureUiMode(focusedSection.uiMode) : false;
+    const focusedTextButtonsConfig = focusedSection
+        ? resolveTextButtonsConfig({
+            productConfig: textButtons,
+            selectorConfig: focusedSection.selectorStyling.textButtons as Record<string, unknown>,
+        })
+        : textButtons;
+    const focusedPictureButtonsConfig = focusedSection
+        ? resolvePictureButtonsConfig({
+            productConfig: pictureButtons,
+            selectorConfig: focusedSection.selectorStyling.pictureButtons as Record<string, unknown>,
+            uiMode: focusedSection.uiMode,
+            thumbnailSize: focusedSection.thumbnailSize,
+            thumbnailCustomPx: focusedSection.thumbnailCustomPx,
+        })
+        : pictureButtons;
+    const updateFocusedTextButton = (key: keyof TextButtonStyling, value: string | number) => {
+        if (!focusedSection) return;
+        updateSectionSelectorStyling(focusedSection.id, {
+            ...focusedSection.selectorStyling,
+            textButtons: {
+                ...(focusedSection.selectorStyling.textButtons || {}),
+                [key]: value,
+            },
+        });
+    };
+    const updateFocusedPictureButton = (key: keyof PictureButtonStyling, value: string | number | boolean) => {
+        if (!focusedSection) return;
+        updateSectionSelectorStyling(focusedSection.id, {
+            ...focusedSection.selectorStyling,
+            pictureButtons: {
+                ...(focusedSection.selectorStyling.pictureButtons || {}),
+                [key]: value,
+            },
+        });
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center py-12">
@@ -679,6 +739,186 @@ export function ProduktvalgknapperSection({
                     )}
                 </CardContent>
             </Card>
+
+            {selectedProductId && focusedSection && focusedValueId && (
+                <Card className="overflow-hidden border-primary/30 bg-primary/5">
+                    <CardHeader className="space-y-1 p-3 pb-0">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                                <CardTitle className="text-sm">Valgt knap: {focusedValueName}</CardTitle>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    {focusedSection.title} · ændringerne gælder denne attributsektion.
+                                </CardDescription>
+                            </div>
+                            <Badge variant="secondary" className="text-[10px]">Hotspot</Badge>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4 p-3 pt-3">
+                        <div className="rounded-lg border bg-background/80 p-3">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                    <h4 className="text-xs font-medium">Billede og navn</h4>
+                                    <p className="text-[11px] text-muted-foreground">Styrer kun den valgte knap.</p>
+                                </div>
+                                <Switch
+                                    checked={Boolean(focusedValueSetting?.showThumbnail)}
+                                    onCheckedChange={(checked) => updateSectionValueSetting(focusedSection.id, focusedValueId, {
+                                        showThumbnail: checked,
+                                    })}
+                                />
+                            </div>
+                            <div className="grid gap-3">
+                                <Input
+                                    value={focusedValueSetting?.displayName || ""}
+                                    placeholder={valuesById.get(focusedValueId)?.name || focusedValueId}
+                                    onChange={(event) => updateSectionValueSetting(focusedSection.id, focusedValueId, {
+                                        displayName: event.target.value,
+                                    })}
+                                />
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div
+                                        className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40"
+                                    >
+                                        {focusedValueImageUrl ? (
+                                            <img
+                                                src={getHiResThumbnailUrl(focusedValueImageUrl, 48, 48)}
+                                                alt={focusedValueName}
+                                                className="h-full w-full object-cover"
+                                            />
+                                        ) : (
+                                            <span className="text-[10px] font-semibold text-muted-foreground">
+                                                {(focusedValueName || "?").slice(0, 2).toUpperCase()}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 gap-2 text-xs"
+                                        onClick={() => triggerUpload(focusedSection.id, focusedValueId)}
+                                    >
+                                        <CloudUpload className="h-3.5 w-3.5" />
+                                        Upload billede
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 gap-2 text-xs"
+                                        disabled={!focusedValueImageUrl && !focusedValueSetting?.showThumbnail}
+                                        onClick={() => updateSectionValueSetting(focusedSection.id, focusedValueId, {
+                                            customImage: undefined,
+                                            showThumbnail: false,
+                                        })}
+                                    >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                        Fjern
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="rounded-lg border bg-background/80 p-3">
+                            <div className="mb-3">
+                                <h4 className="text-xs font-medium">Knapfarver</h4>
+                                <p className="text-[11px] text-muted-foreground">
+                                    Styrer knapperne i sektionen “{focusedSection.title}”.
+                                </p>
+                            </div>
+                            <div className="grid gap-3">
+                                {focusedUsesPictureButtons ? (
+                                    <>
+                                        <ColorPickerWithSwatches
+                                            label="Baggrund"
+                                            value={focusedPictureButtonsConfig.backgroundColor}
+                                            onChange={(color) => updateFocusedPictureButton("backgroundColor", color)}
+                                            savedSwatches={savedSwatches}
+                                            onSaveSwatch={onSaveSwatch}
+                                            onRemoveSwatch={onRemoveSwatch}
+                                            compact
+                                            showFullSwatches={false}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Hover farve"
+                                            value={focusedPictureButtonsConfig.hoverColor}
+                                            onChange={(color) => updateFocusedPictureButton("hoverColor", color)}
+                                            savedSwatches={savedSwatches}
+                                            onSaveSwatch={onSaveSwatch}
+                                            onRemoveSwatch={onRemoveSwatch}
+                                            compact
+                                            showFullSwatches={false}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Tekst"
+                                            value={focusedPictureButtonsConfig.textColor}
+                                            onChange={(color) => updateFocusedPictureButton("textColor", color)}
+                                            savedSwatches={savedSwatches}
+                                            onSaveSwatch={onSaveSwatch}
+                                            onRemoveSwatch={onRemoveSwatch}
+                                            compact
+                                            showFullSwatches={false}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Border"
+                                            value={focusedPictureButtonsConfig.borderColor}
+                                            onChange={(color) => updateFocusedPictureButton("borderColor", color)}
+                                            savedSwatches={savedSwatches}
+                                            onSaveSwatch={onSaveSwatch}
+                                            onRemoveSwatch={onRemoveSwatch}
+                                            compact
+                                            showFullSwatches={false}
+                                        />
+                                    </>
+                                ) : (
+                                    <>
+                                        <ColorPickerWithSwatches
+                                            label="Baggrund"
+                                            value={focusedTextButtonsConfig.backgroundColor}
+                                            onChange={(color) => updateFocusedTextButton("backgroundColor", color)}
+                                            savedSwatches={savedSwatches}
+                                            onSaveSwatch={onSaveSwatch}
+                                            onRemoveSwatch={onRemoveSwatch}
+                                            compact
+                                            showFullSwatches={false}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Hover baggrund"
+                                            value={focusedTextButtonsConfig.hoverBackgroundColor}
+                                            onChange={(color) => updateFocusedTextButton("hoverBackgroundColor", color)}
+                                            savedSwatches={savedSwatches}
+                                            onSaveSwatch={onSaveSwatch}
+                                            onRemoveSwatch={onRemoveSwatch}
+                                            compact
+                                            showFullSwatches={false}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Tekst"
+                                            value={focusedTextButtonsConfig.textColor}
+                                            onChange={(color) => updateFocusedTextButton("textColor", color)}
+                                            savedSwatches={savedSwatches}
+                                            onSaveSwatch={onSaveSwatch}
+                                            onRemoveSwatch={onRemoveSwatch}
+                                            compact
+                                            showFullSwatches={false}
+                                        />
+                                        <ColorPickerWithSwatches
+                                            label="Valgt baggrund"
+                                            value={focusedTextButtonsConfig.selectedBackgroundColor}
+                                            onChange={(color) => updateFocusedTextButton("selectedBackgroundColor", color)}
+                                            savedSwatches={savedSwatches}
+                                            onSaveSwatch={onSaveSwatch}
+                                            onRemoveSwatch={onRemoveSwatch}
+                                            compact
+                                            showFullSwatches={false}
+                                        />
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
 
             {!selectedProductId ? (
                 <div className="rounded-lg border border-dashed border-border/60 bg-muted/25 px-4 py-8 text-center">
@@ -1428,8 +1668,15 @@ export function ProduktvalgknapperSection({
                                                         </span>
                                                     </div>
                                                     <div className="max-h-72 space-y-2 overflow-y-auto overscroll-contain pr-1">
-                                                        {previewValues.map((value) => (
-                                                            <div key={`${section.id}-${value.id}`} className="flex flex-col gap-2 rounded-md border bg-background px-2.5 py-2">
+                                                        {previewValues.map((value) => {
+                                                            const isFocusedValue = focusedSectionId === section.id && focusedValueId === value.id;
+
+                                                            return (
+                                                            <div
+                                                                key={`${section.id}-${value.id}`}
+                                                                id={`site-design-focus-produktvalg-value-${section.id}-${value.id}`}
+                                                                className={`flex flex-col gap-2 rounded-md border bg-background px-2.5 py-2 transition-shadow ${isFocusedValue ? "border-primary/70 bg-primary/5" : ""}`}
+                                                            >
                                                                 <div className="flex min-w-0 items-center gap-2">
                                                                     <div
                                                                         className="flex shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/40"
@@ -1448,7 +1695,12 @@ export function ProduktvalgknapperSection({
                                                                         )}
                                                                     </div>
                                                                     <div className="min-w-0 flex-1">
-                                                                        <p className="truncate text-sm font-medium">{value.name}</p>
+                                                                        <div className="flex min-w-0 items-center gap-2">
+                                                                            <p className="truncate text-sm font-medium">{value.name}</p>
+                                                                            {isFocusedValue && (
+                                                                                <Badge variant="secondary" className="shrink-0 text-[10px]">Valgt hotspot</Badge>
+                                                                            )}
+                                                                        </div>
                                                                         <p className="text-[11px] text-muted-foreground">
                                                                             {value.showThumbnail ? "Vises med billede" : "Vises uden billede"}
                                                                         </p>
@@ -1490,7 +1742,8 @@ export function ProduktvalgknapperSection({
                                                                     </Button>
                                                                 </div>
                                                             </div>
-                                                        ))}
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
 

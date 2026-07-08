@@ -5,6 +5,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { deliveryFee } from "@/utils/productPricing";
 import { Download, CheckCircle2, ExternalLink, Sparkles } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
 import jsPDF from "jspdf";
 import { cn } from "@/lib/utils";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
@@ -21,6 +22,7 @@ type ProductPricePanelProps = {
   onShippingChange?: (type: string | null, cost: number) => void;
   summary?: string;
   optionSelections?: Record<string, { optionId: string; name: string; extraPrice: number; priceMode: "fixed" | "per_quantity" | "per_area" }>;
+  pricingQuote?: SiteCheckoutState["pricingQuote"];
   selectedVariant?: string;
   productName?: string;
   productSlug: string;
@@ -116,6 +118,8 @@ const DEFAULT_DELIVERY_METHODS: DeliveryMethod[] = [
   }
 ];
 
+const MotionButton = motion(Button);
+
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 const hexToRgba = (color: string, alpha: number): string => {
@@ -140,6 +144,41 @@ const hexToRgba = (color: string, alpha: number): string => {
   return normalized || `rgba(0, 0, 0, ${a})`;
 };
 
+const getHexLuminance = (color?: string | null): number | null => {
+  const normalized = String(color || "").trim();
+  const shortMatch = normalized.match(/^#([0-9a-f]{3})$/i);
+  const longMatch = normalized.match(/^#([0-9a-f]{6})$/i);
+  const hex = shortMatch
+    ? shortMatch[1].split("").map((part) => `${part}${part}`).join("")
+    : longMatch?.[1];
+
+  if (!hex) return null;
+
+  const channels = [0, 2, 4].map((index) => {
+    const value = parseInt(hex.slice(index, index + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+  });
+
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+};
+
+const getContrastRatio = (a?: string | null, b?: string | null): number | null => {
+  const lumA = getHexLuminance(a);
+  const lumB = getHexLuminance(b);
+  if (lumA === null || lumB === null) return null;
+  const lighter = Math.max(lumA, lumB);
+  const darker = Math.min(lumA, lumB);
+  return (lighter + 0.05) / (darker + 0.05);
+};
+
+const ensureReadableTextColor = (background: string, preferred: string, dark = "#0F172A", light = "#FFFFFF") => {
+  const contrast = getContrastRatio(background, preferred);
+  if (contrast === null || contrast >= 4.5) return preferred;
+  const darkContrast = getContrastRatio(background, dark) || 0;
+  const lightContrast = getContrastRatio(background, light) || 0;
+  return darkContrast >= lightContrast ? dark : light;
+};
+
 export function ProductPricePanel({
   productId,
   quantity,
@@ -150,6 +189,7 @@ export function ProductPricePanel({
   onShippingChange,
   summary,
   optionSelections,
+  pricingQuote,
   selectedVariant,
   productName,
   productSlug,
@@ -170,6 +210,7 @@ export function ProductPricePanel({
 }: ProductPricePanelProps) {
   const navigate = useNavigate();
   const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
+  const shouldReduceMotion = useReducedMotion();
   const [shippingSelected, setShippingSelected] = useState<string>("standard");
   const [designReady, setDesignReady] = useState(false);
   const [now, setNow] = useState<Date>(() => new Date());
@@ -214,15 +255,28 @@ export function ProductPricePanel({
   }, [activeBranding]);
 
   const orderButtonStyles = useMemo(() => {
-    const configured = activeBranding.productPage?.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
-    const resolveButton = (button: typeof configured.primary, fallback: typeof orderButtonDefaults.primary) => ({
-      bgColor: button?.bgColor || fallback.bgColor,
-      hoverBgColor: button?.hoverBgColor || fallback.hoverBgColor,
-      textColor: button?.textColor || fallback.textColor,
-      hoverTextColor: button?.hoverTextColor || fallback.hoverTextColor,
-      borderColor: button?.borderColor || fallback.borderColor,
-      hoverBorderColor: button?.hoverBorderColor || fallback.hoverBorderColor,
-    });
+    const configured = (activeBranding.productPage?.orderButtons || DEFAULT_BRANDING.productPage.orderButtons) as any;
+    const resolveButton = (button: any, fallback: typeof orderButtonDefaults.primary) => {
+      const bgColor = button?.bgColor || fallback.bgColor;
+      const hoverBgColor = button?.hoverBgColor || fallback.hoverBgColor;
+      const gradientStart = button?.gradientStart || configured.gradientStart || bgColor;
+      const hoverGradientStart = button?.hoverGradientStart || configured.hoverGradientStart || hoverBgColor;
+      const textColor = button?.textColor || fallback.textColor;
+      const hoverTextColor = button?.hoverTextColor || fallback.hoverTextColor;
+
+      return {
+        bgColor,
+        hoverBgColor,
+        gradientStart,
+        gradientEnd: button?.gradientEnd || configured.gradientEnd || bgColor,
+        hoverGradientStart,
+        hoverGradientEnd: button?.hoverGradientEnd || configured.hoverGradientEnd || hoverBgColor,
+        textColor: ensureReadableTextColor(gradientStart, textColor),
+        hoverTextColor: ensureReadableTextColor(hoverGradientStart, hoverTextColor),
+        borderColor: button?.borderColor || fallback.borderColor,
+        hoverBorderColor: button?.hoverBorderColor || fallback.hoverBorderColor,
+      };
+    };
 
     return {
       primary: resolveButton(configured.primary, orderButtonDefaults.primary),
@@ -230,6 +284,41 @@ export function ProductPricePanel({
       selected: resolveButton(configured.selected, orderButtonDefaults.selected),
     };
   }, [activeBranding.productPage?.orderButtons, orderButtonDefaults]);
+
+  const orderButtonMotion = useMemo(() => {
+    const configured = (activeBranding.productPage?.orderButtons || DEFAULT_BRANDING.productPage.orderButtons) as any;
+    const enhanced = Boolean(
+      configured.surfaceStyle ||
+      configured.gradientStart ||
+      configured.gradientEnd ||
+      configured.hoverGradientStart ||
+      configured.hoverGradientEnd ||
+      configured.innerShadow ||
+      configured.sheenColor ||
+      configured.shadow ||
+      configured.hoverShadow ||
+      configured.hoverScale ||
+      configured.hoverY ||
+      configured.tapScale ||
+      configured.transitionMs ||
+      configured.motionStyle
+    );
+    const transitionMs = clamp(Number(configured.transitionMs) || 170, 80, 420);
+    return {
+      enhanced,
+      radiusPx: clamp(Number(configured.radiusPx) || 10, 0, 999),
+      shadow: enhanced ? configured.shadow || "0 8px 18px rgba(15, 23, 42, 0.10)" : undefined,
+      hoverShadow: enhanced ? configured.hoverShadow || "0 14px 28px rgba(15, 23, 42, 0.16)" : undefined,
+      hoverScale: enhanced ? clamp(Number(configured.hoverScale) || 1.015, 1, 1.08) : 1,
+      hoverY: enhanced ? clamp(Number(configured.hoverY) || -1, -10, 0) : 0,
+      tapScale: enhanced ? clamp(Number(configured.tapScale) || 0.98, 0.92, 1) : 1,
+      transitionMs,
+      motionStyle: String(configured.motionStyle || "smooth"),
+      surfaceStyle: enhanced ? String(configured.surfaceStyle || "matte") : "plain",
+      innerShadow: enhanced ? configured.innerShadow || "inset 0 1px 0 rgba(255, 255, 255, 0.18)" : undefined,
+      sheenColor: enhanced ? configured.sheenColor || "rgba(255, 255, 255, 0.28)" : "transparent",
+    };
+  }, [activeBranding.productPage?.orderButtons]);
 
   const pricePanelStyles = useMemo(() => {
     const primaryColor = activeBranding.colors.primary || "#0EA5E9";
@@ -262,6 +351,19 @@ export function ProductPricePanel({
       badgeBg: configured.badgeBg || hexToRgba(primaryColor, 0.1),
       badgeText: configured.badgeText || primaryColor,
       badgeBorderColor: configured.badgeBorderColor || primaryColor,
+      downloadButtonBg: configured.downloadButtonBg || cardColor,
+      downloadButtonHoverBg: configured.downloadButtonHoverBg || hexToRgba(primaryColor, 0.04),
+      downloadButtonText: configured.downloadButtonText || headingColor,
+      downloadButtonHoverText: configured.downloadButtonHoverText || headingColor,
+      downloadButtonBorder: configured.downloadButtonBorder || secondaryColor,
+      downloadButtonHoverBorder: configured.downloadButtonHoverBorder || hexToRgba(primaryColor, 0.3),
+      downloadButtonSurfaceStyle: (configured as any).downloadButtonSurfaceStyle || "matte",
+      downloadButtonGradientStart: (configured as any).downloadButtonGradientStart || configured.downloadButtonBg || cardColor,
+      downloadButtonGradientEnd: (configured as any).downloadButtonGradientEnd || configured.downloadButtonBg || cardColor,
+      downloadButtonHoverGradientStart: (configured as any).downloadButtonHoverGradientStart || configured.downloadButtonHoverBg || hexToRgba(primaryColor, 0.04),
+      downloadButtonHoverGradientEnd: (configured as any).downloadButtonHoverGradientEnd || configured.downloadButtonHoverBg || hexToRgba(primaryColor, 0.04),
+      downloadButtonShadow: (configured as any).downloadButtonShadow || "0 4px 12px rgba(15, 23, 42, 0.08)",
+      downloadButtonHoverShadow: (configured as any).downloadButtonHoverShadow || "0 8px 20px rgba(15, 23, 42, 0.12)",
     };
 
     const background = resolved.backgroundType === "gradient"
@@ -288,6 +390,16 @@ export function ProductPricePanel({
       ["--price-panel-badge-bg" as any]: resolved.badgeBg,
       ["--price-panel-badge-text" as any]: resolved.badgeText,
       ["--price-panel-badge-border" as any]: resolved.badgeBorderColor,
+      ["--price-panel-download-bg" as any]: resolved.downloadButtonBg,
+      ["--price-panel-download-hover-bg" as any]: resolved.downloadButtonHoverBg,
+      ["--price-panel-download-text" as any]: resolved.downloadButtonText,
+      ["--price-panel-download-hover-text" as any]: resolved.downloadButtonHoverText,
+      ["--price-panel-download-border" as any]: resolved.downloadButtonBorder,
+      ["--price-panel-download-hover-border" as any]: resolved.downloadButtonHoverBorder,
+      ["--price-panel-download-surface" as any]: `linear-gradient(180deg, ${resolved.downloadButtonGradientStart}, ${resolved.downloadButtonGradientEnd})`,
+      ["--price-panel-download-hover-surface" as any]: `linear-gradient(180deg, ${resolved.downloadButtonHoverGradientStart}, ${resolved.downloadButtonHoverGradientEnd})`,
+      ["--price-panel-download-shadow" as any]: resolved.downloadButtonShadow,
+      ["--price-panel-download-hover-shadow" as any]: resolved.downloadButtonHoverShadow,
     } as CSSProperties;
 
     return {
@@ -555,27 +667,64 @@ export function ProductPricePanel({
   const primaryButtonCssVars = {
     ["--order-primary-bg" as any]: orderButtonStyles.primary.bgColor,
     ["--order-primary-hover-bg" as any]: orderButtonStyles.primary.hoverBgColor,
+    ["--order-primary-surface" as any]: `linear-gradient(180deg, ${orderButtonStyles.primary.gradientStart}, ${orderButtonStyles.primary.gradientEnd})`,
+    ["--order-primary-hover-surface" as any]: `linear-gradient(180deg, ${orderButtonStyles.primary.hoverGradientStart}, ${orderButtonStyles.primary.hoverGradientEnd})`,
     ["--order-primary-text" as any]: orderButtonStyles.primary.textColor,
     ["--order-primary-hover-text" as any]: orderButtonStyles.primary.hoverTextColor,
     ["--order-primary-border" as any]: orderButtonStyles.primary.borderColor,
     ["--order-primary-hover-border" as any]: orderButtonStyles.primary.hoverBorderColor,
+    ["--order-inner-shadow" as any]: orderButtonMotion.innerShadow || "none",
+    ["--order-sheen-color" as any]: orderButtonMotion.sheenColor,
+    ["--order-button-shadow" as any]: orderButtonMotion.shadow || "none",
+    borderRadius: `${orderButtonMotion.radiusPx}px`,
+    boxShadow: orderButtonMotion.shadow,
   } as any;
   const secondaryButtonCssVars = {
     ["--order-secondary-bg" as any]: orderButtonStyles.secondary.bgColor,
     ["--order-secondary-hover-bg" as any]: orderButtonStyles.secondary.hoverBgColor,
+    ["--order-secondary-surface" as any]: `linear-gradient(180deg, ${orderButtonStyles.secondary.gradientStart}, ${orderButtonStyles.secondary.gradientEnd})`,
+    ["--order-secondary-hover-surface" as any]: `linear-gradient(180deg, ${orderButtonStyles.secondary.hoverGradientStart}, ${orderButtonStyles.secondary.hoverGradientEnd})`,
     ["--order-secondary-text" as any]: orderButtonStyles.secondary.textColor,
     ["--order-secondary-hover-text" as any]: orderButtonStyles.secondary.hoverTextColor,
     ["--order-secondary-border" as any]: orderButtonStyles.secondary.borderColor,
     ["--order-secondary-hover-border" as any]: orderButtonStyles.secondary.hoverBorderColor,
+    ["--order-inner-shadow" as any]: orderButtonMotion.innerShadow || "none",
+    ["--order-sheen-color" as any]: orderButtonMotion.sheenColor,
+    ["--order-button-shadow" as any]: orderButtonMotion.shadow || "none",
+    borderRadius: `${orderButtonMotion.radiusPx}px`,
+    boxShadow: orderButtonMotion.shadow,
   } as any;
   const selectedButtonCssVars = {
     ["--order-selected-bg" as any]: orderButtonStyles.selected.bgColor,
     ["--order-selected-hover-bg" as any]: orderButtonStyles.selected.hoverBgColor,
+    ["--order-selected-surface" as any]: `linear-gradient(180deg, ${orderButtonStyles.selected.gradientStart}, ${orderButtonStyles.selected.gradientEnd})`,
+    ["--order-selected-hover-surface" as any]: `linear-gradient(180deg, ${orderButtonStyles.selected.hoverGradientStart}, ${orderButtonStyles.selected.hoverGradientEnd})`,
     ["--order-selected-text" as any]: orderButtonStyles.selected.textColor,
     ["--order-selected-hover-text" as any]: orderButtonStyles.selected.hoverTextColor,
     ["--order-selected-border" as any]: orderButtonStyles.selected.borderColor,
     ["--order-selected-hover-border" as any]: orderButtonStyles.selected.hoverBorderColor,
+    ["--order-inner-shadow" as any]: orderButtonMotion.innerShadow || "none",
+    ["--order-sheen-color" as any]: orderButtonMotion.sheenColor,
+    ["--order-button-shadow" as any]: orderButtonMotion.shadow || "none",
+    borderRadius: `${orderButtonMotion.radiusPx}px`,
+    boxShadow: orderButtonMotion.shadow,
   } as any;
+
+  const orderButtonMotionProps = shouldReduceMotion || !orderButtonMotion.enhanced ? {} : {
+    whileHover: {
+      scale: orderButtonMotion.hoverScale,
+      y: orderButtonMotion.hoverY,
+      boxShadow: orderButtonMotion.hoverShadow,
+    },
+    whileTap: {
+      scale: orderButtonMotion.tapScale,
+      y: 0,
+      boxShadow: orderButtonMotion.shadow,
+    },
+    transition: orderButtonMotion.motionStyle === "elastic"
+      ? { type: "spring" as const, stiffness: 360, damping: 22 }
+      : { type: "tween" as const, duration: orderButtonMotion.transitionMs / 1000, ease: "easeOut" as const },
+  };
 
   const generatePDF = () => {
     const doc = new jsPDF();
@@ -757,6 +906,16 @@ export function ProductPricePanel({
       designSafeAreaMm: designSafeAreaMm ?? null,
       shippingSelected: activeDeliveryMethod?.id || null,
       shippingCost: activeShippingCost,
+      pricingQuote: pricingQuote
+        ? {
+          ...pricingQuote,
+          quantity,
+          optionIds: Object.values(optionSelections || {})
+            .map((option) => option.optionId)
+            .filter((optionId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(optionId || ""))),
+          shippingSelected: activeDeliveryMethod?.id || null,
+        }
+        : null,
       createdAt: new Date().toISOString(),
   });
 
@@ -782,7 +941,7 @@ export function ProductPricePanel({
   return (
     <div
       data-branding-id="productPage.pricePanel.box"
-      className="sticky top-24 space-y-4 overflow-hidden border p-6"
+      className="space-y-4 overflow-hidden border p-4 sm:p-6 lg:sticky lg:top-24"
       style={pricePanelStyles.containerStyle}
     >
       <style>{`
@@ -802,14 +961,27 @@ export function ProductPricePanel({
           border-color: var(--price-panel-divider) !important;
         }
         .price-panel-download-button {
-          background-color: var(--price-panel-option-bg) !important;
-          color: var(--price-panel-title) !important;
-          border-color: var(--price-panel-option-border) !important;
+          background: var(--price-panel-download-surface) !important;
+          color: var(--price-panel-download-text) !important;
+          border-color: var(--price-panel-download-border) !important;
+          box-shadow: var(--price-panel-download-shadow) !important;
+          transition: background 180ms ease, box-shadow 180ms ease, border-color 180ms ease, color 180ms ease, transform 180ms ease;
         }
         .price-panel-download-button:hover:not(:disabled) {
-          background-color: var(--price-panel-option-hover-bg) !important;
-          color: var(--price-panel-title) !important;
-          border-color: var(--price-panel-option-hover-border) !important;
+          background: var(--price-panel-download-hover-surface) !important;
+          color: var(--price-panel-download-hover-text) !important;
+          border-color: var(--price-panel-download-hover-border) !important;
+          box-shadow: var(--price-panel-download-hover-shadow) !important;
+          transform: translateY(-1px);
+        }
+        .price-panel-download-button[data-surface="pressed"]:hover:not(:disabled) {
+          transform: translateY(-2px);
+        }
+        .price-panel-download-button[data-surface="apple-glass"] {
+          backdrop-filter: blur(14px) saturate(1.25);
+        }
+        .price-panel-download-button[data-surface="luminous"]:hover:not(:disabled) {
+          filter: saturate(1.08) brightness(1.03);
         }
         .price-panel-option {
           background-color: var(--price-panel-option-bg) !important;
@@ -830,54 +1002,128 @@ export function ProductPricePanel({
           border-color: var(--price-panel-badge-border) !important;
         }
         .order-primary-button {
-          background-color: var(--order-primary-bg) !important;
+          position: relative;
+          overflow: hidden;
+          background: var(--order-primary-surface) !important;
           color: var(--order-primary-text) !important;
           border-color: var(--order-primary-border) !important;
+          box-shadow: var(--order-inner-shadow), var(--order-button-shadow, none) !important;
         }
         .order-primary-button:hover:not(:disabled) {
-          background-color: var(--order-primary-hover-bg) !important;
+          background: var(--order-primary-hover-surface) !important;
           color: var(--order-primary-hover-text) !important;
           border-color: var(--order-primary-hover-border) !important;
         }
         .order-secondary-button {
-          background-color: var(--order-secondary-bg) !important;
+          position: relative;
+          overflow: hidden;
+          background: var(--order-secondary-surface) !important;
           color: var(--order-secondary-text) !important;
           border-color: var(--order-secondary-border) !important;
+          box-shadow: var(--order-inner-shadow), var(--order-button-shadow, none) !important;
         }
         .order-secondary-button:hover:not(:disabled) {
-          background-color: var(--order-secondary-hover-bg) !important;
+          background: var(--order-secondary-hover-surface) !important;
           color: var(--order-secondary-hover-text) !important;
           border-color: var(--order-secondary-hover-border) !important;
         }
         .order-selected-button {
-          background-color: var(--order-selected-bg) !important;
+          position: relative;
+          overflow: hidden;
+          background: var(--order-selected-surface) !important;
           color: var(--order-selected-text) !important;
           border-color: var(--order-selected-border) !important;
+          box-shadow: var(--order-inner-shadow), var(--order-button-shadow, none) !important;
         }
         .order-selected-button:hover:not(:disabled) {
-          background-color: var(--order-selected-hover-bg) !important;
+          background: var(--order-selected-hover-surface) !important;
           color: var(--order-selected-hover-text) !important;
           border-color: var(--order-selected-hover-border) !important;
         }
+        .order-primary-button::before,
+        .order-secondary-button::before,
+        .order-selected-button::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background:
+            linear-gradient(180deg, var(--order-sheen-color), transparent 42%),
+            linear-gradient(100deg, transparent 0%, rgba(255,255,255,0.34) 44%, transparent 60%);
+          opacity: 0.38;
+          transform: translateX(-36%);
+          transition: transform 520ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease;
+        }
+        .order-primary-button:hover::before,
+        .order-secondary-button:hover::before,
+        .order-selected-button:hover::before {
+          opacity: 0.65;
+          transform: translateX(28%);
+        }
+        .order-primary-button[data-surface="apple-glass"],
+        .order-secondary-button[data-surface="apple-glass"],
+        .order-selected-button[data-surface="apple-glass"] {
+          backdrop-filter: blur(18px) saturate(1.3);
+        }
+        .order-primary-button[data-surface="apple-glass"]::before,
+        .order-secondary-button[data-surface="apple-glass"]::before,
+        .order-selected-button[data-surface="apple-glass"]::before {
+          background:
+            radial-gradient(circle at 30% 0%, rgba(255,255,255,0.88), transparent 36%),
+            linear-gradient(105deg, transparent 0%, rgba(255,255,255,0.5) 42%, transparent 58%);
+          opacity: 0.45;
+        }
+        .order-primary-button[data-surface="pressed"]::before,
+        .order-secondary-button[data-surface="pressed"]::before,
+        .order-selected-button[data-surface="pressed"]::before {
+          opacity: 0.12;
+          transform: none;
+        }
+        .order-primary-button[data-surface="pressed"]:hover::before,
+        .order-secondary-button[data-surface="pressed"]:hover::before,
+        .order-selected-button[data-surface="pressed"]:hover::before {
+          opacity: 0.2;
+          transform: none;
+        }
+        .order-primary-button[data-surface="luminous"]::before,
+        .order-secondary-button[data-surface="luminous"]::before,
+        .order-selected-button[data-surface="luminous"]::before {
+          background:
+            radial-gradient(circle at 50% -20%, rgba(255,255,255,0.7), transparent 35%),
+            linear-gradient(100deg, transparent 0%, rgba(255,255,255,0.38) 45%, transparent 62%);
+          opacity: 0.5;
+        }
+        .order-primary-button[data-surface="plain"]::before,
+        .order-secondary-button[data-surface="plain"]::before,
+        .order-selected-button[data-surface="plain"]::before {
+          display: none;
+        }
       `}</style>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3
           data-branding-id="productPage.pricePanel.titleColor"
-          className="price-panel-title text-2xl font-heading font-bold"
+          className="price-panel-title text-xl font-heading font-bold sm:text-2xl"
         >
           Prisberegning
         </h3>
         {hasStableSelection && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={generatePDF}
-            className="price-panel-download-button gap-2"
-            disabled={!canDownloadOffer}
+          <span
+            data-site-design-target="productPage.pricePanel.downloadButton"
+            className="inline-flex"
           >
-            <Download className="h-4 w-4" />
-            Download tilbud
-          </Button>
+            <Button
+              data-branding-id="productPage.pricePanel.downloadButton"
+              data-surface={pricePanelStyles.config.downloadButtonSurfaceStyle}
+              variant="outline"
+              size="sm"
+              onClick={generatePDF}
+              className="price-panel-download-button min-h-11 w-full touch-manipulation gap-2 sm:w-auto"
+              disabled={!canDownloadOffer}
+            >
+              <Download className="h-4 w-4" />
+              Download tilbud
+            </Button>
+          </span>
         )}
       </div>
 
@@ -905,24 +1151,26 @@ export function ProductPricePanel({
 
       {/* Product price */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-4">
-          <div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
             <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-sm">Pris ex. moms</p>
             <p
               data-branding-id="productPage.pricePanel.price"
-              className="price-panel-price min-w-[170px] text-4xl font-heading font-bold tabular-nums"
+              className="price-panel-price min-w-0 text-3xl font-heading font-bold tabular-nums sm:text-4xl"
             >
               {baseTotal > 0 ? `${baseTotal} kr` : "-"}
             </p>
           </div>
           {hasStableSelection && (
-            <div className="flex flex-col items-stretch gap-2">
-              <Button
+            <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto">
+              <MotionButton
+                {...orderButtonMotionProps}
+                data-surface={orderButtonMotion.surfaceStyle}
                 data-branding-id={designReady ? "productPage.orderButtons.selected" : "productPage.orderButtons.secondary"}
                 variant="outline"
                 size="lg"
                 className={cn(
-                  "gap-2 py-5 border-2",
+                  "min-h-12 w-full touch-manipulation gap-2 py-5 border-2",
                   designReady
                     ? "order-selected-button"
                     : "order-secondary-button border-dashed border-2"
@@ -958,13 +1206,15 @@ export function ProductPricePanel({
                   </svg>
                 )}
                 {designReady ? "Design klar" : "Design online"}
-              </Button>
+              </MotionButton>
               {canvaOffer?.enabled && canvaOffer.launchUrl ? (
                 <>
-                  <Button
+                  <MotionButton
+                    {...orderButtonMotionProps}
+                    data-surface={orderButtonMotion.surfaceStyle}
                     variant="outline"
                     size="lg"
-                    className="gap-2 border-dashed py-5"
+                    className="min-h-12 w-full touch-manipulation gap-2 border-dashed py-5"
                     style={secondaryButtonCssVars}
                     onClick={() => {
                       persistCheckoutState({ crossTab: true });
@@ -974,7 +1224,7 @@ export function ProductPricePanel({
                     <Sparkles className="h-5 w-5" />
                     {canvaOffer.buttonLabel || "Design i Canva"}
                     <ExternalLink className="h-4 w-4" />
-                  </Button>
+                  </MotionButton>
                   {canvaOffer.helperText ? (
                     <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted max-w-[260px] text-xs">
                       {canvaOffer.helperText}
@@ -982,16 +1232,18 @@ export function ProductPricePanel({
                   ) : null}
                 </>
               ) : null}
-              <Button
+              <MotionButton
+                {...orderButtonMotionProps}
+                data-surface={orderButtonMotion.surfaceStyle}
                 data-branding-id="productPage.orderButtons.primary"
                 size="lg"
-                className="order-primary-button px-6 py-6 text-lg font-semibold"
+                className="order-primary-button min-h-12 w-full touch-manipulation px-6 py-6 text-base font-semibold sm:text-lg"
                 style={primaryButtonCssVars}
                 onClick={handleOrderClick}
                 disabled={!canOrder}
               >
                 Bestil nu!
-              </Button>
+              </MotionButton>
               {!canOrder && orderValidationError && (
                 <p className="text-xs text-destructive max-w-[260px]">
                   {orderValidationError}
@@ -1068,7 +1320,7 @@ export function ProductPricePanel({
                   key={method.id}
                   data-branding-id="productPage.pricePanel.optionCard"
                   className={cn(
-                    "price-panel-option flex items-start space-x-2 rounded-md border p-3 transition-colors",
+                    "price-panel-option flex min-h-11 items-start space-x-2 rounded-md border p-3 transition-colors",
                     isSelected && "price-panel-option--selected"
                   )}
                 >
@@ -1083,8 +1335,8 @@ export function ProductPricePanel({
                     }}
                   />
                   <Label htmlFor={`delivery-${method.id}`} className="cursor-pointer flex-1">
-                    <div className="flex justify-between items-start gap-2">
-                      <div>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
                         <div className="flex flex-wrap items-baseline gap-2">
                           {carrierLogo && (
                             <span className="inline-flex items-center justify-center rounded border bg-background px-1.5 py-1">
@@ -1122,7 +1374,7 @@ export function ProductPricePanel({
                           <div data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted mt-1 text-xs">{deliveryDateLabel}</div>
                         )}
                       </div>
-                      <span data-branding-id="productPage.pricePanel.price" className="price-panel-price min-w-[88px] text-right text-sm font-semibold tabular-nums">{cost} kr</span>
+                      <span data-branding-id="productPage.pricePanel.price" className="price-panel-price text-left text-sm font-semibold tabular-nums sm:min-w-[88px] sm:text-right">{cost} kr</span>
                     </div>
                   </Label>
                 </div>
@@ -1130,11 +1382,11 @@ export function ProductPricePanel({
             })}
           </RadioGroup>
 
-          <div className="price-panel-divider flex items-end justify-between border-t pt-4">
+          <div className="price-panel-divider flex flex-col gap-1 border-t pt-4 sm:flex-row sm:items-end sm:justify-between">
             <span data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-sm">Samlet pris ex. moms:</span>
             <span
               data-branding-id="productPage.pricePanel.price"
-              className="price-panel-price min-w-[170px] text-right text-4xl font-heading font-bold tabular-nums"
+              className="price-panel-price min-w-0 text-left text-3xl font-heading font-bold tabular-nums sm:min-w-[170px] sm:text-right sm:text-4xl"
             >
               {totalPrice} kr
             </span>

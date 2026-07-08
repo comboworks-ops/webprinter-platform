@@ -1,9 +1,18 @@
 import { Pool } from 'https://deno.land/x/postgres@v0.17.0/mod.ts';
-
-const databaseUrl = Deno.env.get('SUPABASE_DB_URL')!;
-const pool = new Pool(databaseUrl, 3, true);
+import { optionsResponse } from '../_shared/http.ts';
+import { requireLocalOnly } from '../_shared/localOnly.ts';
 
 Deno.serve(async (req) => {
+    if (req.method === 'OPTIONS') {
+        return optionsResponse();
+    }
+
+    const localOnlyError = requireLocalOnly(req);
+    if (localOnlyError) return localOnlyError;
+
+    const databaseUrl = Deno.env.get('SUPABASE_DB_URL')!;
+    const pool = new Pool(databaseUrl, 3, true);
+
     try {
         const connection = await pool.connect();
         try {
@@ -86,5 +95,7 @@ Deno.serve(async (req) => {
     } catch (err) {
         console.error("Schema Setup Error:", err);
         return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    } finally {
+        await pool.end();
     }
 });

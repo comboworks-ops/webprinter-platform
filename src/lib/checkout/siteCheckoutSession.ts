@@ -70,6 +70,21 @@ export interface SiteCheckoutState {
   designSafeAreaMm?: number | null;
   shippingSelected?: string | null;
   optionSelections?: Record<string, unknown>;
+  pricingQuote?: {
+    productId?: string | null;
+    productSlug?: string | null;
+    quantity?: number | null;
+    formatId?: string | null;
+    materialId?: string | null;
+    verticalValueId?: string | null;
+    variantKey?: string | null;
+    variantValueIds?: string[] | null;
+    variantDisplayLabels?: string[] | null;
+    selectedSectionValues?: Record<string, string | null> | null;
+    optionIds?: string[] | null;
+    shippingSelected?: string | null;
+    areaM2?: number | null;
+  } | null;
   sourceSiteId?: string | null;
   siteUpload?: SiteCheckoutUpload | null;
   designerExport?: SiteCheckoutDesignerExport | null;

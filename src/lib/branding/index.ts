@@ -34,6 +34,8 @@ export {
     type HeaderSettings,
     type HeaderScrollSettings,
     type HeaderDropdownMode,
+    type HeaderDropdownPreset,
+    type HeaderSplitPreviewSource,
     type HeaderNavItem,
     type HeaderCtaSettings,
     type HeaderStyleType,

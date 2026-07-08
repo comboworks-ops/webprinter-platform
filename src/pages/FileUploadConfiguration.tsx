@@ -1119,12 +1119,31 @@ const FileUploadConfiguration = () => {
             const sizeSummaryWithTotal = sizeDistributionSummary
                 ? `${sizeDistributionSummary} (sum ${sizeDistributionTotal}/${orderQuantity})`
                 : "";
+            const verifiedOptionIds = Object.values(nonSizeOptionSelections)
+                .map((option) => option.optionId)
+                .filter((optionId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(optionId || "")));
+            const checkoutQuote = state?.pricingQuote
+                ? {
+                    ...state.pricingQuote,
+                    productId: state.pricingQuote.productId || state?.productId || null,
+                    productSlug: state.pricingQuote.productSlug || state?.productSlug || null,
+                    quantity: orderQuantity,
+                    optionIds: verifiedOptionIds,
+                    shippingSelected,
+                }
+                : null;
+
+            if (!checkoutQuote) {
+                toast.error("Kunne ikke verificere prisgrundlaget. Gå tilbage til produktet og vælg prisen igen.");
+                return;
+            }
 
             const { data, error } = await supabase.functions.invoke("stripe-create-payment-intent", {
                 body: {
                     tenant_id: tenantId,
                     amount_ore: amountOre,
                     currency: "dkk",
+                    checkout_quote: checkoutQuote,
                     metadata: {
                         product_id: state?.productId || "",
                         product_slug: state?.productSlug || "",
@@ -2399,10 +2418,9 @@ const FileUploadConfiguration = () => {
                 issues.push("Kunne ikke læse PDF-dimensioner automatisk. Kontroller filformatet manuelt.");
             }
 
-            if (isPodProduct && podPreflightEnabled && uploadInfo?.publicUrl && product?.id) {
+            if (isPodProduct && podPreflightEnabled && uploadInfo?.filePath && product?.id) {
                 await runPlatformPreflight({
                     productId: product.id,
-                    pdfUrl: uploadInfo.publicUrl,
                     filePath: uploadInfo.filePath,
                     specs,
                     autoFix: podPreflightAutoFix,
@@ -2425,7 +2443,6 @@ const FileUploadConfiguration = () => {
 
     const runPlatformPreflight = async (params: {
         productId: string;
-        pdfUrl: string;
         filePath: string;
         specs: TechnicalSpecs;
         autoFix: boolean;
@@ -2435,7 +2452,7 @@ const FileUploadConfiguration = () => {
             const { data, error } = await supabase.functions.invoke("pod2-pdf-preflight", {
                 body: {
                     productId: params.productId,
-                    pdfUrl: params.pdfUrl,
+                    storageBucket: "order-files",
                     filePath: params.filePath,
                     specs: params.specs,
                     autoFix: params.autoFix,

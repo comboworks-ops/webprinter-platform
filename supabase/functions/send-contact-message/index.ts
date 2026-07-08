@@ -1,11 +1,12 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const PLATFORM_CONTACT_EMAIL = Deno.env.get("PLATFORM_CONTACT_EMAIL") ?? "info@webprinter.dk";
 const DEFAULT_FROM_EMAIL = Deno.env.get("CONTACT_EMAIL_FROM") ?? "info@webprinter.dk";
+const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,7 +98,7 @@ function checkRateLimit(key: string): boolean {
 }
 
 async function resolveRecipient(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseClient,
   mode: "platform" | "tenant",
   tenantId: string | null,
 ): Promise<RecipientInfo> {
@@ -137,6 +138,33 @@ async function resolveRecipient(
     shopName: shopName || tenant.name || "Webprinter",
     domain: tenant.domain,
   };
+}
+
+function buildContactMessageLog(input: {
+  mode: "platform" | "tenant";
+  senderName: string;
+  senderEmail: string;
+  senderPhone: string;
+  senderCompany: string;
+  senderSubject: string;
+  senderMessage: string;
+  hostname: string;
+  pathname: string;
+}): string {
+  const leadLabel = input.mode === "platform" ? "[PLATFORM LEAD]" : "[KONTAKT]";
+  const lines = [
+    `${leadLabel} ${input.senderSubject}`,
+    `Navn: ${input.senderName}`,
+    `Email: ${input.senderEmail}`,
+  ];
+
+  if (input.senderPhone) lines.push(`Telefon: ${input.senderPhone}`);
+  if (input.senderCompany) lines.push(`Virksomhed: ${input.senderCompany}`);
+  if (input.hostname) lines.push(`Hostname: ${input.hostname}`);
+  if (input.pathname) lines.push(`Side: ${input.pathname}`);
+
+  lines.push("", input.senderMessage);
+  return lines.join("\n");
 }
 
 async function sendEmail(payload: {
@@ -263,6 +291,37 @@ serve(async (req: Request) => {
         html: customerHtml,
       }),
     ]);
+    let messageLogCreated = false;
+    let messageLogError: string | null = null;
+
+    if (mode === "platform") {
+      const { error: logError } = await serviceClient
+        .from("platform_messages")
+        .insert({
+          tenant_id: MASTER_TENANT_ID,
+          sender_role: "tenant",
+          sender_user_id: null,
+          is_read: false,
+          content: buildContactMessageLog({
+            mode,
+            senderName,
+            senderEmail,
+            senderPhone,
+            senderCompany,
+            senderSubject,
+            senderMessage,
+            hostname,
+            pathname,
+          }),
+        });
+
+      if (logError) {
+        messageLogError = logError.message;
+        console.warn("Could not create platform contact message log:", logError);
+      } else {
+        messageLogCreated = true;
+      }
+    }
 
     return jsonResponse(200, {
       success: true,
@@ -270,6 +329,8 @@ serve(async (req: Request) => {
       recipient: recipient.email,
       supportEmailId: supportEmail?.id ?? null,
       customerEmailId: customerEmail?.id ?? null,
+      messageLogCreated,
+      messageLogError,
     });
   } catch (error) {
     console.error("send-contact-message error:", error);

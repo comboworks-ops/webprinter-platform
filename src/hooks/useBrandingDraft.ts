@@ -43,7 +43,28 @@ export interface HeroButton {
 }
 
 // Text animation types for banner headlines
-export type HeroTextAnimation = 'none' | 'fade' | 'slide-up' | 'slide-down' | 'scale' | 'blur';
+export type HeroTextAnimation = 'none'
+    | 'fade'
+    | 'slide-up'
+    | 'slide-down'
+    | 'scale'
+    | 'blur'
+    | 'reveal-up'
+    | 'soft-mask'
+    | 'stagger-rise'
+    | 'cinematic';
+
+export type HeroSlideTransition = 'fade'
+    | 'slide'
+    | 'zoom-fade'
+    | 'cross-zoom'
+    | 'soft-wipe'
+    | 'ken-burns';
+
+export type HeroParallaxStyle = 'classic'
+    | 'soft-depth'
+    | 'slow-zoom'
+    | 'fixed-focus';
 
 // Hero image interface
 export interface HeroImage {
@@ -84,7 +105,7 @@ export interface HeroVideo {
 // Slideshow settings interface
 export interface HeroSlideshowSettings {
     enabled: boolean;
-    transition: 'fade' | 'slide';
+    transition: HeroSlideTransition;
     autoplay: boolean;
     intervalMs: number;
 }
@@ -123,8 +144,10 @@ export interface HeroSettings {
     type: 'image' | 'slideshow' | 'video';
     slideshow: HeroSlideshowSettings;
     /** @deprecated Legacy field */
-    transition: 'fade' | 'slide';
+    transition: HeroSlideTransition;
     parallax: boolean;
+    parallaxStyle?: HeroParallaxStyle;
+    parallaxIntensity?: number;
     videoSettings: HeroVideoSettings;
     overlay_color: string;
     overlay_opacity: number;
@@ -229,6 +252,8 @@ const DEFAULT_HERO: HeroSettings = {
     videoSettings: DEFAULT_VIDEO_SETTINGS,
     overlay_color: '#000000',
     overlay_opacity: 0.3,
+    parallaxStyle: 'classic',
+    parallaxIntensity: 30,
     overlay: DEFAULT_OVERLAY,
 };
 
@@ -279,6 +304,8 @@ export interface HeaderCtaSettings {
 export type HeaderStyleType = 'auto' | 'solid' | 'glass';
 export type HeaderHeightType = 'sm' | 'md' | 'lg';
 export type HeaderAlignmentType = 'left' | 'center' | 'right';
+export type HeaderDropdownPreset = 'classic' | 'showcase-bar' | 'split-preview' | 'compact-columns' | 'gallery-cards';
+export type HeaderSplitPreviewSource = 'featured-product' | 'featured-side-panel';
 
 // Complete header settings
 export interface HeaderSettings {
@@ -293,6 +320,8 @@ export interface HeaderSettings {
     // Navigation
     navItems: HeaderNavItem[];
     dropdownMode: HeaderDropdownMode;
+    dropdownPreset?: HeaderDropdownPreset;
+    dropdownSplitPreviewSource?: HeaderSplitPreviewSource;
 
     // Styling
     fontId: string;
@@ -383,6 +412,8 @@ const DEFAULT_HEADER: HeaderSettings = {
     logoLink: '/',
     navItems: DEFAULT_NAV_ITEMS,
     dropdownMode: 'IMAGE_AND_TEXT',
+    dropdownPreset: 'classic',
+    dropdownSplitPreviewSource: 'featured-product',
     menuFontSizePx: 14,
     fontId: 'Inter',
     bgColor: '#FFFFFF',
@@ -980,6 +1011,272 @@ const DEFAULT_SEO_CONTENT: SEOContentSettings = {
 // COMPLETE BRANDING CONFIGURATION
 // ============================================================================
 
+type BrandingColorPresetColors = {
+    primary: string;
+    secondary: string;
+    background: string;
+    card: string;
+    dropdown: string;
+    hover: string;
+    headingText: string;
+    bodyText: string;
+    pricingText: string;
+    linkText: string;
+};
+
+export type BrandingColorPreset = {
+    id: string;
+    name: string;
+    colors: BrandingColorPresetColors;
+    createdAt?: string;
+    isSystem?: boolean;
+};
+
+type BrandingFontPresetFonts = {
+    heading: string;
+    body: string;
+    pricing: string;
+};
+
+export type BrandingFontPreset = {
+    id: string;
+    name: string;
+    description: string;
+    fonts: BrandingFontPresetFonts;
+    isSystem?: boolean;
+};
+
+const DEFAULT_COLOR_PRESETS: BrandingColorPreset[] = [
+    {
+        id: "webprinter-demo",
+        name: "Webprinter Demo",
+        isSystem: true,
+        colors: {
+            primary: "#0EA5E9",
+            secondary: "#F1F5F9",
+            background: "#F8FAFC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#0284C7",
+            headingText: "#1F2937",
+            bodyText: "#4B5563",
+            pricingText: "#0EA5E9",
+            linkText: "#0EA5E9",
+        },
+    },
+    {
+        id: "nordic-teal",
+        name: "Nordic Teal",
+        isSystem: true,
+        colors: {
+            primary: "#0F766E",
+            secondary: "#E6FFFA",
+            background: "#F8FAFC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#0D9488",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#0F766E",
+            linkText: "#0F766E",
+        },
+    },
+    {
+        id: "press-green",
+        name: "Press Green",
+        isSystem: true,
+        colors: {
+            primary: "#16A34A",
+            secondary: "#ECFDF5",
+            background: "#F8FAFC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#15803D",
+            headingText: "#102A1A",
+            bodyText: "#3F5347",
+            pricingText: "#15803D",
+            linkText: "#166534",
+        },
+    },
+    {
+        id: "print-blue",
+        name: "Print Blue",
+        isSystem: true,
+        colors: {
+            primary: "#2563EB",
+            secondary: "#EFF6FF",
+            background: "#F8FAFC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#1D4ED8",
+            headingText: "#111827",
+            bodyText: "#475569",
+            pricingText: "#1D4ED8",
+            linkText: "#2563EB",
+        },
+    },
+    {
+        id: "graphite-gold",
+        name: "Graphite Gold",
+        isSystem: true,
+        colors: {
+            primary: "#D97706",
+            secondary: "#F3F4F6",
+            background: "#FAFAF9",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#B45309",
+            headingText: "#111827",
+            bodyText: "#4B5563",
+            pricingText: "#B45309",
+            linkText: "#B45309",
+        },
+    },
+    {
+        id: "slate-cyan",
+        name: "Slate Cyan",
+        isSystem: true,
+        colors: {
+            primary: "#0891B2",
+            secondary: "#E0F2FE",
+            background: "#F8FAFC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#0E7490",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#0E7490",
+            linkText: "#0891B2",
+        },
+    },
+    {
+        id: "ink-coral",
+        name: "Ink Coral",
+        isSystem: true,
+        colors: {
+            primary: "#E11D48",
+            secondary: "#FFF1F2",
+            background: "#FFF7F7",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#BE123C",
+            headingText: "#18181B",
+            bodyText: "#52525B",
+            pricingText: "#BE123C",
+            linkText: "#E11D48",
+        },
+    },
+    {
+        id: "royal-indigo",
+        name: "Royal Indigo",
+        isSystem: true,
+        colors: {
+            primary: "#4F46E5",
+            secondary: "#EEF2FF",
+            background: "#F8FAFC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#3730A3",
+            headingText: "#111827",
+            bodyText: "#4B5563",
+            pricingText: "#4338CA",
+            linkText: "#4F46E5",
+        },
+    },
+    {
+        id: "mint-graphite",
+        name: "Mint Graphite",
+        isSystem: true,
+        colors: {
+            primary: "#059669",
+            secondary: "#D1FAE5",
+            background: "#F8FAFC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#047857",
+            headingText: "#111827",
+            bodyText: "#4B5563",
+            pricingText: "#047857",
+            linkText: "#059669",
+        },
+    },
+    {
+        id: "navy-sun",
+        name: "Navy Sun",
+        isSystem: true,
+        colors: {
+            primary: "#0369A1",
+            secondary: "#FEF3C7",
+            background: "#F8FAFC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#075985",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#0369A1",
+            linkText: "#0369A1",
+        },
+    },
+];
+
+const DEFAULT_FONT_PRESETS: BrandingFontPreset[] = [
+    {
+        id: "modern-professional",
+        name: "Modern Professional",
+        description: "Clean business look with approachable headings.",
+        isSystem: true,
+        fonts: {
+            heading: "Poppins",
+            body: "Open Sans",
+            pricing: "Roboto Mono",
+        },
+    },
+    {
+        id: "ecommerce-clean",
+        name: "E-commerce Clean",
+        description: "Rounded product-page typography with easy scanning.",
+        isSystem: true,
+        fonts: {
+            heading: "Rubik",
+            body: "Nunito",
+            pricing: "IBM Plex Mono",
+        },
+    },
+    {
+        id: "premium-editorial",
+        name: "Premium Editorial",
+        description: "More elegant headings with practical body text.",
+        isSystem: true,
+        fonts: {
+            heading: "Playfair Display",
+            body: "Source Sans 3",
+            pricing: "Roboto Mono",
+        },
+    },
+    {
+        id: "technical-clean",
+        name: "Technical Clean",
+        description: "Precise, modern typography for production-heavy shops.",
+        isSystem: true,
+        fonts: {
+            heading: "Space Grotesk",
+            body: "Inter",
+            pricing: "JetBrains Mono",
+        },
+    },
+    {
+        id: "friendly-commerce",
+        name: "Friendly Commerce",
+        description: "Warm retail feel without losing readability.",
+        isSystem: true,
+        fonts: {
+            heading: "Montserrat",
+            body: "Lato",
+            pricing: "Space Mono",
+        },
+    },
+];
+
 // Default branding configuration
 const DEFAULT_BRANDING = {
     logo_url: null as string | null,
@@ -1012,6 +1309,8 @@ const DEFAULT_BRANDING = {
     },
     // Saved color swatches (max 20)
     savedSwatches: [] as string[],
+    colorPresets: DEFAULT_COLOR_PRESETS,
+    fontPresets: DEFAULT_FONT_PRESETS,
     hero: DEFAULT_HERO,
     header: DEFAULT_HEADER,
     footer: DEFAULT_FOOTER,
@@ -1089,6 +1388,12 @@ const DEFAULT_BRANDING = {
             selectedBg: "#0EA5E9",
             selectedText: "#FFFFFF",
             borderColor: "#E2E8F0",
+            navButtonBg: "#FFFFFF",
+            navButtonText: "#1F2937",
+            navButtonHoverBg: "#F8FAFC",
+            navButtonHoverText: "#1F2937",
+            navButtonBorder: "#E2E8F0",
+            navButtonHoverBorder: "#CBD5E1",
             // Box styling
             boxBackgroundColor: "#FFFFFF",
             boxBorderRadiusPx: 12,
@@ -1154,6 +1459,12 @@ const DEFAULT_BRANDING = {
             badgeBg: "",
             badgeText: "",
             badgeBorderColor: "",
+            downloadButtonBg: "",
+            downloadButtonHoverBg: "",
+            downloadButtonText: "",
+            downloadButtonHoverText: "",
+            downloadButtonBorder: "",
+            downloadButtonHoverBorder: "",
         },
         orderButtons: {
             font: "Inter",
@@ -1451,6 +1762,26 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
     // Deep merge nested objects
     if (data.fonts) merged.fonts = { ...DEFAULT_BRANDING.fonts, ...data.fonts };
     if (data.colors) merged.colors = { ...DEFAULT_BRANDING.colors, ...data.colors };
+    if (Array.isArray(data.colorPresets)) {
+        const systemPresetIds = new Set(DEFAULT_COLOR_PRESETS.map((preset) => preset.id));
+        const storedSystemPresets = DEFAULT_COLOR_PRESETS.map((defaultPreset) =>
+            data.colorPresets.find((preset: BrandingColorPreset) => preset?.id === defaultPreset.id) || defaultPreset
+        );
+        const customPresets = data.colorPresets.filter((preset: BrandingColorPreset) =>
+            preset?.id && !systemPresetIds.has(preset.id)
+        );
+        merged.colorPresets = [...storedSystemPresets, ...customPresets];
+    }
+    if (Array.isArray(data.fontPresets)) {
+        const systemPresetIds = new Set(DEFAULT_FONT_PRESETS.map((preset) => preset.id));
+        const storedSystemPresets = DEFAULT_FONT_PRESETS.map((defaultPreset) =>
+            data.fontPresets.find((preset: BrandingFontPreset) => preset?.id === defaultPreset.id) || defaultPreset
+        );
+        const customPresets = data.fontPresets.filter((preset: BrandingFontPreset) =>
+            preset?.id && !systemPresetIds.has(preset.id)
+        );
+        merged.fontPresets = [...storedSystemPresets, ...customPresets];
+    }
     if (data.navigation) merged.navigation = { ...DEFAULT_BRANDING.navigation, ...data.navigation };
 
     return merged;
@@ -1734,6 +2065,8 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
                 ...partial,
                 fonts: { ...prev.fonts, ...(partial.fonts || {}) },
                 colors: { ...prev.colors, ...(partial.colors || {}) },
+                colorPresets: partial.colorPresets ?? prev.colorPresets,
+                fontPresets: partial.fontPresets ?? prev.fontPresets,
                 hero: newHero,
                 header: newHeader,
                 footer: newFooter,

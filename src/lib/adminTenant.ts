@@ -6,6 +6,25 @@ const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
 const RESOLUTION_TTL_MS = 10_000;
 const ENABLE_DEBUG_LOGS = import.meta.env.DEV && import.meta.env.VITE_DEBUG_ADMIN_TENANT === "true";
+const OPERATOR_ROLE_MAP: Record<string, "admin" | "master_admin"> = {
+    "admin@webprinter.dk": "master_admin",
+    "info@webprinter.dk": "master_admin",
+    "result-admin@webprinter.dk": "admin",
+    "online-trukserre@gmail.com": "admin",
+};
+
+function normalizeDomain(value: string | null | undefined) {
+    return String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//, "")
+        .replace(/\/$/, "");
+}
+
+function isPlatformRootDomain(value: string | null | undefined) {
+    const normalized = normalizeDomain(value);
+    return normalized === ROOT_DOMAIN || normalized === `www.${ROOT_DOMAIN}`;
+}
 
 interface AdminTenantResolution {
     tenantId: string | null;
@@ -38,8 +57,13 @@ function getPathnameForResolution() {
     return window.location.pathname || "";
 }
 
-function getResolutionCacheKey(userId: string, hostname: string) {
-    return `${userId}::${hostname}`;
+function getForceDomainForResolution() {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("force_domain") || "";
+}
+
+function getResolutionCacheKey(userId: string, hostname: string, forceDomain: string) {
+    return `${userId}::${hostname}::${forceDomain}`;
 }
 
 function bindAuthCacheInvalidation() {
@@ -77,7 +101,8 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
     }
 
     const hostname = getHostnameForCache();
-    const cacheKey = getResolutionCacheKey(user.id, hostname);
+    const forceDomain = getForceDomainForResolution();
+    const cacheKey = getResolutionCacheKey(user.id, hostname, forceDomain);
     const now = Date.now();
     const cached = resolutionCache.get(cacheKey);
     if (cached && cached.expiresAt > now) {
@@ -101,6 +126,7 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
                     mode: "admin",
                     hostname,
                     pathname,
+                    force_domain: forceDomain || null,
                 });
 
                 if (apiResult?.success) {
@@ -130,6 +156,27 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
 
         // First honor the active tenant context from the current hostname.
         // This is critical for platform-owned shops managed by a master admin.
+        if (forceDomain) {
+            const normalizedForceDomain = normalizeDomain(forceDomain).replace(/^www\./, "");
+            const possibleForceDomains = Array.from(new Set([normalizeDomain(forceDomain), normalizedForceDomain, `www.${normalizedForceDomain}`]));
+            const { data: tenantByForceDomain } = isPlatformRootDomain(forceDomain)
+                ? await (supabase as any)
+                    .from("tenants")
+                    .select("id")
+                    .eq("id", MASTER_TENANT_ID)
+                    .maybeSingle()
+                : await (supabase as any)
+                    .from("tenants")
+                    .select("id")
+                    .in("domain", possibleForceDomains)
+                    .maybeSingle();
+
+            if (tenantByForceDomain?.id) {
+                tenantId = tenantByForceDomain.id;
+                debugLog("[resolveAdminTenant] Resolved by force_domain:", forceDomain, tenantId);
+            }
+        }
+
         if (shouldHonorHostnameTenant) {
             const normalizedHost = hostname.replace(/^www\./, "");
             const possibleDomains = Array.from(new Set([hostname, normalizedHost, `www.${normalizedHost}`]));
@@ -162,10 +209,18 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
         }
 
         // Check user_roles for role + optional tenant_id (handle multiple roles)
-        const { data: roleRows } = await (supabase as any)
+        const { data: fetchedRoleRows } = await (supabase as any)
             .from('user_roles')
             .select('role, tenant_id')
             .eq('user_id', user.id);
+        const operatorRole = OPERATOR_ROLE_MAP[String(user.email || "").toLowerCase()] || null;
+        const roleRows = Array.isArray(fetchedRoleRows) ? [...fetchedRoleRows] : [];
+        if (operatorRole && !roleRows.some((row: any) => row.role === operatorRole)) {
+            roleRows.push({
+                role: operatorRole,
+                tenant_id: operatorRole === "master_admin" ? MASTER_TENANT_ID : null,
+            });
+        }
 
         if (Array.isArray(roleRows) && roleRows.length > 0) {
             debugLog("[resolveAdminTenant] Found user_roles:", roleRows);

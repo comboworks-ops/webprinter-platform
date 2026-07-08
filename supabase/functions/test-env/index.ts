@@ -1,37 +1,21 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { jsonResponse, optionsResponse } from "../_shared/http.ts";
+import { requireLocalOnly } from "../_shared/localOnly.ts";
 
 serve(async (req) => {
-  const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Content-Type": "application/json",
-  };
+  if (req.method === "OPTIONS") return optionsResponse();
+
+  const localOnlyError = requireLocalOnly(req);
+  if (localOnlyError) return localOnlyError;
 
   try {
-    const allEnv = Deno.env.toObject();
-    
-    // Find token-related env vars
-    const tokenKeys = Object.keys(allEnv).filter(k => 
-      k.toLowerCase().includes('flyer') || 
-      k.toLowerCase().includes('alarm') || 
-      k.toLowerCase().includes('token')
-    );
-    
-    const token = allEnv["FLYERALARM_DEMO_TOKEN"] || "";
-    
-    return new Response(
-      JSON.stringify({
-        token_found: !!token,
-        token_length: token.length,
-        token_preview: token ? token.substring(0, 50) + "..." : null,
-        token_keys: tokenKeys,
-        all_keys_count: Object.keys(allEnv).length,
-      }, null, 2),
-      { headers }
-    );
+    return jsonResponse({
+      FLYERALARM_DEMO_TOKEN: Boolean(Deno.env.get("FLYERALARM_DEMO_TOKEN")),
+      SUPABASE_URL: Boolean(Deno.env.get("SUPABASE_URL")),
+      SUPABASE_SERVICE_ROLE_KEY: Boolean(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")),
+    });
   } catch (error) {
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { headers, status: 500 }
-    );
+    const message = error instanceof Error ? error.message : "Environment check failed";
+    return jsonResponse({ error: message }, 500);
   }
 });

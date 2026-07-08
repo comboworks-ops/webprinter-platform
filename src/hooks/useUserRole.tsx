@@ -4,16 +4,19 @@ import { resolveAdminTenant, MASTER_TENANT_ID } from '@/lib/adminTenant';
 
 export type UserRole = 'admin' | 'master_admin' | 'moderator' | 'user' | null;
 
-// Whitelisted admin emails as a last-resort fallback to avoid lockouts.
-// Keep in sync with the user_roles table - whitelist is only used to avoid
-// locking out a known operator if the DB read fails; if it contradicts the
-// DB, the UI role (master tools visibility, etc.) will disagree with the
-// actual permissions enforced by RLS.
+// Known operator emails are only a short-lived UI hint while the DB role loads.
+// Server-verified admin access must come from user_roles or tenant ownership.
 const EMAIL_ROLE_MAP: Record<string, UserRole> = {
   'admin@webprinter.dk': 'master_admin',
   'info@webprinter.dk': 'master_admin',
   'result-admin@webprinter.dk': 'admin',
   'online-trukserre@gmail.com': 'admin',
+};
+
+const isLocalDevelopmentHost = () => {
+  if (import.meta.env.DEV) return true;
+  if (typeof window === 'undefined') return false;
+  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 };
 
 const isAbortLikeError = (error: unknown) => {
@@ -63,16 +66,44 @@ export const useUserRole = () => {
           return;
         }
 
-        // Immediate fallback based on email to avoid lockout while we fetch roles
+        // Show an optimistic role hint while we fetch roles, but never mark it
+        // server-verified. Admin UI requires serverVerified=true below.
         const email = (user.email || '').toLowerCase();
         const fallbackRole = EMAIL_ROLE_MAP[email] || null;
         if (fallbackRole) {
-          // Whitelisted emails: trust the fallback and skip DB fetch to avoid lockouts
           setIfActive(() => {
             setRole(fallbackRole);
-            setServerVerified(true);
-            setLoading(false);
+            setServerVerified(isLocalDevelopmentHost());
           });
+        }
+
+        try {
+          const { data: verified } = await supabase.functions.invoke('verify-admin');
+          if (verified?.isAdmin) {
+            const verifiedRole: UserRole = verified.isMasterAdmin ? 'master_admin' : 'admin';
+
+            if (verifiedRole === 'master_admin') {
+              const { tenantId } = await resolveAdminTenant();
+              if (tenantId && tenantId !== MASTER_TENANT_ID) {
+                setIfActive(() => {
+                  setRole('admin');
+                  setServerVerified(true);
+                });
+                return;
+              }
+            }
+
+            setIfActive(() => {
+              setRole(verifiedRole);
+              setServerVerified(true);
+            });
+            return;
+          }
+        } catch (verifyError) {
+          console.warn('Server admin verification unavailable, falling back to direct role lookup:', verifyError);
+        }
+
+        if (fallbackRole && isLocalDevelopmentHost()) {
           return;
         }
 
