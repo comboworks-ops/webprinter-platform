@@ -428,6 +428,7 @@ function createSupabaseServiceClient() {
 }
 
 function toFiniteNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 }
@@ -666,43 +667,121 @@ async function discoverOptions(page) {
 }
 
 async function setRadioByValue(page, name, wantedValue) {
-  const result = await page.evaluate(
-    ({ nameArg, valueArg }) => {
-      const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
-      const radios = Array.from(document.querySelectorAll(`input[type=\"radio\"][name=\"${nameArg}\"]`));
-      const wanted = normalize(valueArg);
-      const match = radios.find((input) => normalize(input.value) === wanted);
+  let lastResult = null;
+  const started = Date.now();
 
-      if (!match) {
-        return { ok: false, reason: "not-found", selected: radios.filter((r) => r.checked).map((r) => r.value) };
-      }
+  while (Date.now() - started < 12000) {
+    const result = await page.evaluate(
+      ({ nameArg, valueArg }) => {
+        const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+        const isVisible = (el) => {
+          if (!(el instanceof HTMLElement)) return false;
+          const style = window.getComputedStyle(el);
+          if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+        const labelForInput = (input) => {
+          if (input.id) {
+            const label = document.querySelector(`label[for='${input.id}']`);
+            if (label) return label;
+          }
+          return input.closest("label") || input.closest("[role='radio']") || input.parentElement;
+        };
+        const isOptionVisible = (input) => isVisible(input) || isVisible(labelForInput(input));
+        const radios = Array.from(document.querySelectorAll(`input[type=\"radio\"][name=\"${nameArg}\"]`));
+        const wanted = normalize(valueArg);
+        const matches = radios.filter((input) => normalize(input.value) === wanted);
+        const match = matches.find((input) => isOptionVisible(input)) || matches[0];
 
-      const id = match.id;
-      let clicked = false;
-
-      if (id) {
-        const label = document.querySelector(`label[for='${id}']`);
-        if (label) {
-          label.click();
-          clicked = true;
+        if (!match) {
+          return { ok: false, reason: "not-found", selected: radios.filter((r) => r.checked).map((r) => r.value) };
         }
-      }
+        if (match.disabled) {
+          return { ok: false, reason: "disabled", selected: radios.filter((r) => r.checked).map((r) => r.value) };
+        }
 
-      if (!clicked) {
-        match.click();
-      }
+        const id = match.id;
+        let clicked = false;
 
-      const selected = radios.filter((r) => r.checked).map((r) => r.value);
-      return { ok: true, selected };
-    },
-    { nameArg: name, valueArg: wantedValue }
-  );
+        const label = labelForInput(match);
 
-  if (!result.ok) {
-    throw new Error(`Could not set ${name}=${wantedValue} (${result.reason})`);
+        if (id || label) {
+          if (label && isVisible(label)) {
+            label.click();
+            clicked = true;
+          }
+        }
+
+        if (!clicked) {
+          match.click();
+        }
+
+        const selected = radios.filter((r) => r.checked).map((r) => r.value);
+        const visibleSelected = radios.filter((r) => r.checked && isOptionVisible(r)).map((r) => r.value);
+        return { ok: true, selected, visibleSelected };
+      },
+      { nameArg: name, valueArg: wantedValue }
+    );
+
+    lastResult = result;
+    if (result.ok) {
+      const applied = await waitForRadioSelection(page, name, wantedValue, 5000);
+      if (applied.ok) return applied;
+      lastResult = applied;
+    }
+
+    await page.waitForTimeout(500);
   }
 
-  return result;
+  throw new Error(`Could not set ${name}=${wantedValue} (${lastResult?.reason || "selection-not-applied"})`);
+}
+
+async function waitForRadioSelection(page, name, wantedValue, timeoutMs = 5000) {
+  const started = Date.now();
+  let lastState = null;
+
+  while (Date.now() - started < timeoutMs) {
+    const state = await page.evaluate(
+      ({ nameArg, valueArg }) => {
+        const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+        const isVisible = (el) => {
+          if (!(el instanceof HTMLElement)) return false;
+          const style = window.getComputedStyle(el);
+          if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+        const labelForInput = (input) => {
+          if (input.id) {
+            const label = document.querySelector(`label[for='${input.id}']`);
+            if (label) return label;
+          }
+          return input.closest("label") || input.closest("[role='radio']") || input.parentElement;
+        };
+        const isOptionVisible = (input) => isVisible(input) || isVisible(labelForInput(input));
+        const radios = Array.from(document.querySelectorAll(`input[type=\"radio\"][name=\"${nameArg}\"]`));
+        const wanted = normalize(valueArg);
+        const selected = radios.filter((radio) => radio.checked).map((radio) => radio.value);
+        const visibleSelected = radios.filter((radio) => radio.checked && isOptionVisible(radio)).map((radio) => radio.value);
+        const selectedNormalized = selected.map((value) => normalize(value));
+        const visibleSelectedNormalized = visibleSelected.map((value) => normalize(value));
+        return {
+          ok: visibleSelectedNormalized.includes(wanted),
+          reason: radios.length ? "selection-not-applied" : "group-not-found",
+          selected,
+          visibleSelected,
+        };
+      },
+      { nameArg: name, valueArg: wantedValue }
+    );
+
+    lastState = state;
+    if (state.ok) return state;
+    await page.waitForTimeout(250);
+  }
+
+  return lastState || { ok: false, reason: "selection-not-applied", selected: [] };
 }
 
 async function setDimensions(page, widthCm, heightCm) {
@@ -803,14 +882,76 @@ async function setDimensions(page, widthCm, heightCm) {
     }
   }
 
-  if (Number.isFinite(lastApplied.widthCm) && Number.isFinite(lastApplied.heightCm)) {
-    return {
-      widthCm: Number(lastApplied.widthCm),
-      heightCm: Number(lastApplied.heightCm),
-    };
-  }
+  const suffix =
+    Number.isFinite(lastApplied.widthCm) && Number.isFinite(lastApplied.heightCm)
+      ? `:${lastApplied.widthCm}x${lastApplied.heightCm}`
+      : "";
+  throw new Error(`dimension-input-not-applied${suffix}`);
+}
 
-  throw new Error("dimension-input-not-applied");
+async function readCurrentFlatDimensions(page) {
+  const selectors = {
+    width: [
+      "#Finished_Sheet_Width___LOR",
+      "[name='Finished_Sheet_Width___LOR']",
+      "[data-test='custom-width-input']",
+      "input[id*='Width']",
+      "input[name*='Width']",
+    ],
+    height: [
+      "#Finished_Sheet_Height___LOR",
+      "[name='Finished_Sheet_Height___LOR']",
+      "[data-test='custom-height-input']",
+      "input[id*='Height']",
+      "input[name*='Height']",
+    ],
+  };
+
+  return page.evaluate(({ widthSelectors, heightSelectors }) => {
+    const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const parseLocalizedFloat = (value) => {
+      const tokens = normalize(value).match(/[0-9][0-9.,]*/g) || [];
+      for (const token of tokens) {
+        const cleaned = token.replace(/[^0-9.,]/g, "");
+        if (!cleaned) continue;
+        const normalized = cleaned.includes(",") && !cleaned.includes(".")
+          ? cleaned.replace(",", ".")
+          : cleaned.replace(/,/g, "");
+        const parsed = Number(normalized);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return null;
+    };
+    const isVisible = (el) => {
+      if (!(el instanceof HTMLElement)) return false;
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden") return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
+    const findValue = (selectorList) => {
+      for (const selector of selectorList) {
+        const candidate = document.querySelector(selector);
+        if (!candidate || !isVisible(candidate)) continue;
+        const value = parseLocalizedFloat(candidate.value || candidate.textContent || "");
+        if (Number.isFinite(value)) return value;
+      }
+      return null;
+    };
+    return {
+      widthCm: findValue(widthSelectors),
+      heightCm: findValue(heightSelectors),
+    };
+  }, { widthSelectors: selectors.width, heightSelectors: selectors.height });
+}
+
+function dimensionsDiffer(left, right) {
+  if (!Number.isFinite(Number(left?.widthCm)) || !Number.isFinite(Number(left?.heightCm))) return false;
+  if (!Number.isFinite(Number(right?.widthCm)) || !Number.isFinite(Number(right?.heightCm))) return false;
+  const widthDelta = Math.abs(Number(left.widthCm) - Number(right.widthCm));
+  const heightDelta = Math.abs(Number(left.heightCm) - Number(right.heightCm));
+  return widthDelta > Math.max(0.5, Math.abs(Number(right.widthCm)) * 0.02)
+    || heightDelta > Math.max(0.5, Math.abs(Number(right.heightCm)) * 0.02);
 }
 
 async function setCustomQuantity(page, quantity) {
@@ -1098,6 +1239,26 @@ async function waitForGridStability(page, timeoutMs = 22000, pollMs = 600, stabl
   return lastRows;
 }
 
+async function waitForGridSignatureChange(page, previousSignature, timeoutMs = 16000, pollMs = 600) {
+  if (!previousSignature) return [];
+  const started = Date.now();
+  let lastRows = [];
+
+  while (Date.now() - started < timeoutMs) {
+    const rows = await readGridRows(page);
+    if (rows.length > 0) {
+      lastRows = rows;
+      const signature = gridRowsSignature(rows);
+      if (signature && signature !== previousSignature) {
+        return rows;
+      }
+    }
+    await page.waitForTimeout(pollMs);
+  }
+
+  return lastRows;
+}
+
 function matchOptionByNeedle(options, needles = []) {
   const loweredNeedles = needles.map((needle) => normalizeKey(needle));
   return options.find((option) =>
@@ -1242,16 +1403,17 @@ async function discoverRigidsOptions(page) {
       });
 
       for (const [dataTest, groupNodes] of byDataTest.entries()) {
-        const visibleNode = groupNodes.find((node) => isVisible(node));
-        const node = visibleNode || groupNodes[0];
+        const visibleNodes = groupNodes.filter((node) => isVisible(node));
+        if (!visibleNodes.length) continue;
+        const node = visibleNodes[0];
         const label = normalize(node.textContent || node.getAttribute("aria-label") || "");
-        const selected = groupNodes.some(
+        const selected = visibleNodes.some(
           (candidate) =>
             candidate.getAttribute("aria-checked") === "true" ||
             candidate.classList.contains("active") ||
             !!candidate.querySelector("input:checked")
         );
-        const disabled = groupNodes.every(
+        const disabled = visibleNodes.every(
           (candidate) =>
             candidate.getAttribute("aria-disabled") === "true" ||
             candidate.hasAttribute("disabled") ||
@@ -1264,6 +1426,8 @@ async function discoverRigidsOptions(page) {
           label: label || normalize(dataTest.replace(prefix, "")),
           selected,
           disabled,
+          visible_count: visibleNodes.length,
+          total_count: groupNodes.length,
         });
       }
       return values;
@@ -1282,7 +1446,14 @@ async function discoverRigidsOptions(page) {
 async function ensureRigidsCustomFormat(page) {
   const result = await page.evaluate(() => {
     const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
-    const options = Array.from(document.querySelectorAll("[data-test^='select-Finished_Sheet-']"));
+    const isVisible = (el) => {
+      if (!(el instanceof HTMLElement)) return false;
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden") return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
+    const options = Array.from(document.querySelectorAll("[data-test^='select-Finished_Sheet-']")).filter(isVisible);
     const customOption = options.find((option) => {
       const label = normalize(option.textContent || option.getAttribute("aria-label") || "");
       return label.includes("custom");
@@ -1314,7 +1485,7 @@ async function setRigidsOptionByDataTest(page, dataTest) {
     };
 
     const candidates = Array.from(document.querySelectorAll(`[data-test='${dataTestArg}']`));
-    const node = candidates.find((candidate) => isVisible(candidate)) || candidates[0];
+    const node = candidates.find((candidate) => isVisible(candidate));
     if (!node) return { ok: false, reason: "not-found" };
 
     const disabled =
@@ -1495,14 +1666,29 @@ async function runExtract(args) {
         for (const areaM2 of areas) {
           const { widthCm, heightCm } = areaToDimensionsCm(areaM2, args.widthCm);
           try {
+            const previousDimensions = await readCurrentFlatDimensions(page);
+            const previousGridRows = await readGridRows(page);
+            const previousGridSignature = gridRowsSignature(previousGridRows);
+            const mustSeeGridChange =
+              Boolean(previousGridSignature) &&
+              dimensionsDiffer(previousDimensions, { widthCm, heightCm });
             const appliedDimensions = await setDimensions(page, widthCm, heightCm);
             const appliedAreaM2 = Number(
               ((Number(appliedDimensions.widthCm) * Number(appliedDimensions.heightCm)) / 10000).toFixed(6)
             );
-            await page.waitForTimeout(1200);
+            await page.waitForTimeout(1400);
             await ensurePriceGridVisible(page);
+            if (mustSeeGridChange) {
+              const changedRows = await waitForGridSignatureChange(page, previousGridSignature, 16000, 600);
+              const changedSignature = gridRowsSignature(changedRows);
+              if (!changedSignature || changedSignature === previousGridSignature) {
+                throw new Error(
+                  `price-grid-stale-after-dimensions:${previousDimensions.widthCm}x${previousDimensions.heightCm}->${widthCm}x${heightCm}`
+                );
+              }
+            }
 
-            const visibleGridRows = await waitForGridRows(page, 15000);
+            const visibleGridRows = await waitForGridStability(page, 22000, 600, 2);
             const visibleRowByQuantity = new Map(
               visibleGridRows.map((gridRow) => [Number(gridRow.quantity), gridRow])
             );
@@ -1538,7 +1724,10 @@ async function runExtract(args) {
                 let gridRow = visibleRowByQuantity.get(Number(quantity)) || null;
                 if (!gridRow) {
                   await setCustomQuantity(page, quantity);
-                  gridRow = await waitForQuantityRow(page, quantity, 15000);
+                  const stabilizedRows = await waitForGridStability(page, 20000, 600, 1);
+                  gridRow =
+                    stabilizedRows.find((candidate) => Number(candidate.quantity) === Number(quantity)) ||
+                    (await waitForQuantityRow(page, quantity, 15000));
                 }
 
                 if (!gridRow) {

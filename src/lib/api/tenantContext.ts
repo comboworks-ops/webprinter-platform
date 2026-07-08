@@ -43,13 +43,17 @@ export interface TenantContextResponse {
 }
 
 export async function fetchTenantContext(input: TenantContextRequest = {}): Promise<TenantContextResponse> {
+  const currentForceDomain = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("force_domain")
+    : null;
+
   const { data, error } = await supabase.functions.invoke("tenant-context-read", {
     body: {
       mode: input.mode || "storefront",
       hostname: input.hostname || window.location.hostname,
       pathname: input.pathname || window.location.pathname,
       tenantId: input.tenantId || input.tenant_id || null,
-      force_domain: input.force_domain || null,
+      force_domain: input.force_domain || currentForceDomain || null,
     },
   });
 

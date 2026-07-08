@@ -30,6 +30,8 @@ type UserRoleRow = {
   tenant_id: string | null;
 };
 
+type ServiceClient = any;
+
 type RequestInput = {
   mode?: ResolveMode;
   hostname?: string | null;
@@ -61,16 +63,16 @@ function getDomainVariants(value: string | null | undefined): string[] {
   return Array.from(new Set([normalized, withoutWww, `www.${withoutWww}`]));
 }
 
-function isLocalhost(hostname: string): boolean {
+function isLocalhost(hostname: string | null | undefined): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1";
 }
 
-function isPlatformRoot(hostname: string): boolean {
+function isPlatformRoot(hostname: string | null | undefined): boolean {
   return hostname === ROOT_DOMAIN || hostname === `www.${ROOT_DOMAIN}`;
 }
 
-function isAdminRoute(pathname: string): boolean {
-  return pathname.startsWith("/admin");
+function isAdminRoute(pathname: string | null | undefined): boolean {
+  return String(pathname || "").startsWith("/admin");
 }
 
 function getActiveSiteId(settings: Record<string, unknown> | null | undefined): string | null {
@@ -111,7 +113,7 @@ async function parseRequestBody(req: Request): Promise<RequestInput> {
   }
 }
 
-async function findTenantById(serviceClient: ReturnType<typeof createClient>, tenantId: string | null | undefined): Promise<TenantRow | null> {
+async function findTenantById(serviceClient: ServiceClient, tenantId: string | null | undefined): Promise<TenantRow | null> {
   const id = String(tenantId || "").trim();
   if (!id) return null;
   const { data } = await serviceClient
@@ -122,7 +124,7 @@ async function findTenantById(serviceClient: ReturnType<typeof createClient>, te
   return (data as TenantRow | null) ?? null;
 }
 
-async function findTenantByDomain(serviceClient: ReturnType<typeof createClient>, domain: string | null | undefined): Promise<TenantRow | null> {
+async function findTenantByDomain(serviceClient: ServiceClient, domain: string | null | undefined): Promise<TenantRow | null> {
   const variants = getDomainVariants(domain);
   if (!variants.length) return null;
   const { data } = await serviceClient
@@ -155,7 +157,7 @@ async function getAuthenticatedUser(supabaseUrl: string, anonKey: string, authHe
   return user ? { id: user.id, email: user.email } : null;
 }
 
-async function getUserRoles(serviceClient: ReturnType<typeof createClient>, userId: string): Promise<UserRoleRow[]> {
+async function getUserRoles(serviceClient: ServiceClient, userId: string): Promise<UserRoleRow[]> {
   const { data } = await serviceClient
     .from("user_roles")
     .select("role, tenant_id")
@@ -169,7 +171,7 @@ function withOperatorRole(rows: UserRoleRow[], user: { email?: string | null } |
   return [...rows, { role: operatorRole, tenant_id: operatorRole === "master_admin" ? MASTER_TENANT_ID : null }];
 }
 
-async function getOwnedTenant(serviceClient: ReturnType<typeof createClient>, userId: string): Promise<TenantRow | null> {
+async function getOwnedTenant(serviceClient: ServiceClient, userId: string): Promise<TenantRow | null> {
   const { data } = await serviceClient
     .from("tenants")
     .select("id, name, domain, settings, owner_id")
@@ -198,7 +200,7 @@ function pickRoleForTenant(roles: UserRoleRow[], tenantId: string | null): { rol
 }
 
 async function resolveStorefrontTenant(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: ServiceClient,
   input: Required<RequestInput>,
 ): Promise<{ tenant: TenantRow | null; source: string }> {
   const explicitTenantId = input.tenantId || input.tenant_id;
@@ -208,7 +210,9 @@ async function resolveStorefrontTenant(
   }
 
   if (input.force_domain) {
-    const tenant = await findTenantByDomain(serviceClient, input.force_domain);
+    const tenant = isPlatformRoot(normalizeHostname(input.force_domain))
+      ? await findTenantById(serviceClient, MASTER_TENANT_ID)
+      : await findTenantByDomain(serviceClient, input.force_domain);
     return { tenant, source: tenant ? "force_domain" : "force_domain_missing" };
   }
 
@@ -222,7 +226,7 @@ async function resolveStorefrontTenant(
 }
 
 async function resolveAdminTenant(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: ServiceClient,
   input: Required<RequestInput>,
   user: { id: string; email?: string | null } | null,
 ): Promise<{ tenant: TenantRow | null; source: string; roles: UserRoleRow[] }> {
@@ -235,7 +239,9 @@ async function resolveAdminTenant(
   }
 
   if (input.force_domain) {
-    const tenant = await findTenantByDomain(serviceClient, input.force_domain);
+    const tenant = isPlatformRoot(normalizeHostname(input.force_domain))
+      ? await findTenantById(serviceClient, MASTER_TENANT_ID)
+      : await findTenantByDomain(serviceClient, input.force_domain);
     return { tenant, source: tenant ? "force_domain" : "force_domain_missing", roles };
   }
 

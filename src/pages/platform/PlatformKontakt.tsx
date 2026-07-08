@@ -5,8 +5,10 @@
  */
 
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Mail, MapPin, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +17,7 @@ import PlatformHeader from "@/components/platform/PlatformHeader";
 import PlatformFooter from "@/components/platform/PlatformFooter";
 import { SEO } from "@/components/SEO";
 import { sendContactMessage } from "@/lib/contact/sendContactMessage";
+import { platformNavLink } from "@/lib/platform/context";
 
 const PlatformKontakt = () => {
     const { toast } = useToast();
@@ -24,10 +27,22 @@ const PlatformKontakt = () => {
         email: "",
         company: "",
         message: "",
+        consent: false,
     });
+    const privacyPolicyHref = platformNavLink("/privacy-policy");
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!formData.consent) {
+            toast({
+                title: "Samtykke mangler",
+                description: "Du skal acceptere at dine oplysninger bruges til at behandle henvendelsen.",
+                variant: "destructive",
+            });
+            return;
+        }
+
         setIsSubmitting(true);
 
         try {
@@ -45,7 +60,7 @@ const PlatformKontakt = () => {
                 description: "Din besked er sendt. Vi vender tilbage hurtigst muligt.",
             });
 
-            setFormData({ name: "", email: "", company: "", message: "" });
+            setFormData({ name: "", email: "", company: "", message: "", consent: false });
         } catch (error) {
             const errorMessage =
                 error instanceof Error
@@ -126,6 +141,24 @@ const PlatformKontakt = () => {
                                         onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                                         required
                                     />
+                                </div>
+                                <div className="flex items-start space-x-2">
+                                    <Checkbox
+                                        id="platform-consent"
+                                        checked={formData.consent}
+                                        onCheckedChange={(checked) => setFormData({ ...formData, consent: checked as boolean })}
+                                    />
+                                    <Label htmlFor="platform-consent" className="text-sm font-normal cursor-pointer leading-relaxed text-muted-foreground">
+                                        Jeg accepterer at mine oplysninger bruges til at behandle min henvendelse i henhold til{" "}
+                                        <Link
+                                            to={privacyPolicyHref}
+                                            className="text-primary underline-offset-4 hover:underline"
+                                            onClick={(event) => event.stopPropagation()}
+                                        >
+                                            privatlivspolitikken
+                                        </Link>
+                                        .
+                                    </Label>
                                 </div>
                                 <Button type="submit" className="w-full" disabled={isSubmitting}>
                                     {isSubmitting ? "Sender..." : "Send besked"}

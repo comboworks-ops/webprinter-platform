@@ -120,6 +120,15 @@ verify_jwt = true
 [functions.stripe-connect-account-session]
 verify_jwt = true
 
+[functions.supplier-bank-import-draft]
+verify_jwt = true
+
+[functions.supplier-bank-admin-read]
+verify_jwt = true
+
+[functions.supplier-bank-create-delta-review]
+verify_jwt = true
+
 [functions.stripe-connect-create-or-get]
 verify_jwt = true
 

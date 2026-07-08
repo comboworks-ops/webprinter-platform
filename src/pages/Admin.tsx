@@ -56,6 +56,8 @@ import { ShopModules } from '@/components/admin/ShopModules';
 import SitesAdmin from '@/pages/admin/SitesAdmin';
 import IconStudioPage from '@/pages/admin/IconStudioPage';
 import AdminPrintDesignerRedirect from '@/pages/admin/AdminPrintDesignerRedirect';
+import SupplierBank from '@/pages/admin/SupplierBank';
+import CommercialReadiness from '@/pages/admin/CommercialReadiness';
 
 
 export default function Admin() {
@@ -101,17 +103,25 @@ export default function Admin() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground">
+    <div className="min-h-screen flex flex-col bg-slate-50 font-sans text-slate-950 antialiased dark:bg-slate-950 dark:text-slate-50">
+      <a
+        href="#admin-main"
+        className="sr-only z-50 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4 dark:bg-white dark:text-slate-950"
+      >
+        Spring til indhold
+      </a>
       <SidebarProvider defaultOpen={false}>
         <div className="flex-1 flex w-full">
           <AdminSidebar />
 
-          <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <main id="admin-main" className="flex-1 flex flex-col min-w-0 overflow-hidden">
             <AdminHeader />
 
-            <div className="flex-1 p-6 overflow-auto">
+            <div className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
+              <div className="mx-auto w-full max-w-[1600px]">
               <Routes>
                 <Route path="/" element={<Dashboard />} /> {/* Changed to Dashboard */}
+                <Route path="/commercial-readiness" element={<CommercialReadiness />} />
                 <Route path="/products" element={<ProductOverview />} /> {/* Moved ProductOverview to /products */}
                 <Route path="/prismoduler" element={<PricingModules />} />
                 <Route path="/machine-pricing" element={<MachinePricingManager />} />
@@ -149,6 +159,7 @@ export default function Admin() {
                 <Route path="/skabeloner" element={<TenantTemplatesPage />} />
                 <Route path="/platform-seo" element={<PlatformSeoAdmin />} />
                 <Route path="/platform-seo/callback" element={<SearchConsoleCallback />} />
+                <Route path="/supplier-bank" element={<SupplierBank />} />
                 {/* Print on Demand Routes */}
                 <Route path="/pod" element={<PodAdmin />} />
                 <Route path="/pod-katalog" element={<PodKatalog />} />
@@ -162,6 +173,7 @@ export default function Admin() {
                 {/* Print on Demand v3 Routes (Flyer Alarm) */}
                 <Route path="/pod3" element={<Pod3FlyerAlarm />} />
               </Routes>
+              </div>
             </div>
           </main>
         </div>
