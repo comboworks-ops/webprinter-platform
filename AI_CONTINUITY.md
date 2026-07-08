@@ -448,6 +448,10 @@ Implemented read-only admin route:
   checkout still writes admin-readable `[PRODUKTIONSFLOW]`, `[SKABELON]`,
   `[SKABELON-DOWNLOAD]`, delivery and `order_files` markers, and that
   `Kunder & Ordrer` still reads those tags and file-readiness signals.
+  It also checks the Stripe payment-intent edge function source still requires
+  `checkout_quote`, recalculates the amount through server-side `pricing-read`,
+  rejects client/server amount mismatches, includes delivery/option components,
+  and writes server-quote metadata to Stripe.
 - It now includes `Supplier Bank staging-runbook`, a read-only operating
   sequence for supplier-bank products: external source only, report candidate,
   explicit approval, draft import, price-row QA, separate publishing decision

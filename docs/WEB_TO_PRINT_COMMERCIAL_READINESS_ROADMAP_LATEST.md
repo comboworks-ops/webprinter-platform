@@ -625,6 +625,10 @@ Implemented first read-only version:
   checkout still writes admin-readable `[PRODUKTIONSFLOW]`, `[SKABELON]`,
   `[SKABELON-DOWNLOAD]`, delivery and `order_files` markers, and that
   `Kunder & Ordrer` still reads those tags and file-readiness signals.
+  It also checks the Stripe payment-intent edge function source still requires
+  `checkout_quote`, recalculates the amount through server-side `pricing-read`,
+  rejects client/server amount mismatches, includes delivery/option components,
+  and writes server-quote metadata to Stripe.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported

@@ -150,6 +150,33 @@ const sourceContractChecks = [
       },
     ],
   },
+  {
+    name: "Stripe checkout amount validation source contract",
+    detail: "verified payment intent uses server-side pricing, amount mismatch rejection and Stripe metadata evidence",
+    files: [
+      {
+        path: "supabase/functions/stripe-create-payment-intent/index.ts",
+        markers: [
+          "checkRateLimit",
+          "checkout_quote required",
+          "calculateCheckoutQuote",
+          "fetchPricingRead",
+          "pricing-read",
+          "calculateOptionExtras",
+          "resolveDeliveryMethodCost",
+          "Checkout amount mismatch",
+          "server_amount_ore",
+          "client_amount_ore",
+          "amount_source: \"server_checkout_quote\"",
+          "product_price_ore",
+          "option_extra_ore",
+          "shipping_ore",
+          "pricing_source",
+          "matched_price_row_id",
+        ],
+      },
+    ],
+  },
 ];
 
 const renderedChecks = [
