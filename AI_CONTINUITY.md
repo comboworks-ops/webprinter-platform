@@ -417,6 +417,11 @@ Implemented read-only admin route:
   temporary error screen. This caught and fixed the `/produkt/aluminium`
   first-load crash where `ProductPricePanel` compared two missing template URLs
   as equal and then read `templateDownloadedAt` from a null checkout session.
+  The browser smoke now also clicks `Design online` from `/produkt/aluminium`
+  and from the first Salgsmapper template product, then verifies `/designer`
+  receives `order=1`, product context, return path, checkout session state, and
+  for Salgsmapper the correct `templatePdfUrl`. This proves product-to-designer
+  handoff without creating orders or writing database state.
 - It now includes `Supplier Bank staging-runbook`, a read-only operating
   sequence for supplier-bank products: external source only, report candidate,
   explicit approval, draft import, price-row QA, separate publishing decision

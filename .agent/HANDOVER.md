@@ -331,6 +331,11 @@ Current active direction:
   a null checkout session; `ProductPricePanel` now preserves that timestamp
   only when an existing session and current template PDF URL both exist and
   match.
+  The same browser smoke now clicks `Design online` on aluminium and the first
+  Salgsmapper template product. It verifies `/designer` receives `order=1`,
+  product context, return path, checkout session state, and the Salgsmapper
+  `templatePdfUrl`, while remaining read-only and creating no orders or
+  database writes.
   `Supplier Bank staging-runbook` is the read-only operating sequence for
   supplier-bank products: external source only, report candidate, explicit
   approval, draft import, price-row QA, separate publishing decision and tenant

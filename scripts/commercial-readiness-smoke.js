@@ -124,6 +124,38 @@ const renderedChecks = [
   },
 ];
 
+const designLaunchChecks = [
+  {
+    name: "Aluminium product opens designer",
+    path: "/produkt/aluminium?force_domain=webprinter.dk",
+    expectedDesignerText: ["Design til Aluminium", "Tilbage til bestilling"],
+    expectedSearchParams: {
+      productId: true,
+      order: "1",
+      returnTo: "/produkt/aluminium",
+    },
+    expectedSession: {
+      productSlug: "aluminium",
+      templatePdfUrl: null,
+    },
+  },
+  {
+    name: "Salgsmapper product opens template designer",
+    path: "/produkt/standard-sales-mapper-kopi-2?force_domain=www.salgsmapper.dk",
+    expectedDesignerText: ["Design til Standard Salgsmapper", "504x371mm", "Tilbage til bestilling"],
+    expectedSearchParams: {
+      productId: true,
+      order: "1",
+      returnTo: "/produkt/standard-sales-mapper-kopi-2",
+      templatePdfUrl: "/designer-templates/salgsmapper/salgsmappe-a5-5mm-ryg.pdf",
+    },
+    expectedSession: {
+      productSlug: "standard-sales-mapper-kopi-2",
+      templatePdfUrl: "/designer-templates/salgsmapper/salgsmappe-a5-5mm-ryg.pdf",
+    },
+  },
+];
+
 const results = [];
 
 console.log(`\nCommercial readiness smoke for ${baseUrl}`);
@@ -137,8 +169,8 @@ if (!skipBundleMarkers) {
   results.push(await runBundleMarkerCheck());
 }
 
-if (runBrowserSmoke) {
-  results.push(...(await runRenderedChecks()));
+  if (runBrowserSmoke) {
+  results.push(...(await runBrowserChecks()));
 }
 
 const failed = results.filter((result) => !result.ok);
@@ -249,7 +281,7 @@ async function runBundleMarkerCheck() {
   }
 }
 
-async function runRenderedChecks() {
+async function runBrowserChecks() {
   let chromium;
   try {
     ({ chromium } = await import("playwright"));
@@ -313,11 +345,100 @@ async function runRenderedChecks() {
         });
       }
     }
+
+    for (const check of designLaunchChecks) {
+      renderedResults.push(await runDesignLaunchCheck(browser, check));
+    }
   } finally {
     await browser.close();
   }
 
   return renderedResults;
+}
+
+async function runDesignLaunchCheck(browser, check) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  const consoleMessages = [];
+
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleMessages.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+
+  page.on("pageerror", (error) => {
+    consoleMessages.push(`pageerror: ${error.message}`);
+  });
+
+  try {
+    const url = new URL(check.path, baseUrl);
+    await page.goto(url.href, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+    await page.getByRole("button", { name: /Design online|Design klar/i }).click({ timeout: timeoutMs });
+    await page.waitForURL(/\/designer\?/, { timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+
+    const currentUrl = new URL(page.url());
+    const text = normalizeVisibleText(await page.locator("body").innerText({ timeout: timeoutMs }));
+    const session = await readCheckoutSession(page);
+    const missingText = check.expectedDesignerText.filter((marker) => !text.includes(marker));
+    const missingParams = expectedParamFailures(currentUrl.searchParams, check.expectedSearchParams);
+    const sessionFailures = expectedSessionFailures(session, check.expectedSession);
+    const runtimeError = text.includes("MIDLERTIDIG FEJL") || text.includes("Siden kunne ikke vises korrekt");
+    const meaningfulConsole = consoleMessages.filter(
+      (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
+    );
+    const ok = !runtimeError && missingText.length === 0 && missingParams.length === 0 && sessionFailures.length === 0;
+
+    return {
+      name: check.name,
+      ok,
+      detail: [
+        ok ? "opened designer with order context" : "designer handoff mismatch",
+        runtimeError ? "rendered the temporary error screen" : null,
+        missingText.length ? `missing text: ${missingText.join(", ")}` : null,
+        missingParams.length ? `params: ${missingParams.join(", ")}` : null,
+        sessionFailures.length ? `session: ${sessionFailures.join(", ")}` : null,
+        meaningfulConsole.length ? `console: ${meaningfulConsole.slice(0, 2).join(" | ")}` : null,
+      ].filter(Boolean).join("; "),
+    };
+  } catch (error) {
+    return {
+      name: check.name,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function readCheckoutSession(page) {
+  const raw = await page.evaluate(() => sessionStorage.getItem("wp_site_checkout_session"));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function expectedParamFailures(searchParams, expected) {
+  return Object.entries(expected || {}).flatMap(([key, expectedValue]) => {
+    const actual = searchParams.get(key);
+    if (expectedValue === true) return actual ? [] : [`${key} missing`];
+    return actual === expectedValue ? [] : [`${key}=${JSON.stringify(actual)} expected ${JSON.stringify(expectedValue)}`];
+  });
+}
+
+function expectedSessionFailures(session, expected) {
+  if (!session || typeof session !== "object") return ["checkout session missing"];
+  return Object.entries(expected || {}).flatMap(([key, expectedValue]) => {
+    const actual = session[key] ?? null;
+    return actual === expectedValue ? [] : [`${key}=${JSON.stringify(actual)} expected ${JSON.stringify(expectedValue)}`];
+  });
 }
 
 async function fetchWithTimeout(url) {

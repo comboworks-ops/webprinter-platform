@@ -595,6 +595,11 @@ Implemented first read-only version:
   checkout session in template-download state preservation; the product panel
   now only preserves `templateDownloadedAt` when an existing session and the
   current template PDF URL both exist and match.
+  It now also verifies product-to-designer handoff by clicking `Design online`
+  from Webprinter aluminium and the first Salgsmapper template product. The
+  check confirms `/designer` receives `order=1`, product context, return path,
+  checkout session state, and the Salgsmapper `templatePdfUrl`, without
+  creating an order or writing live product/pricing/Supplier Bank data.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported
