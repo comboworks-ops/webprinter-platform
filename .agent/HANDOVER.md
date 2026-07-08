@@ -364,6 +364,12 @@ Current active direction:
   `checkout_quote`, recalculates the amount through server-side `pricing-read`,
   rejects client/server amount mismatches, includes delivery/option components,
   and writes server-quote metadata to Stripe.
+  It also guards tenant payment readiness: admin `Betaling` must still expose
+  Stripe Connect onboarding/status/disable and platform fee controls, Connect
+  edge functions must still check tenant roles/ownership, checkout must still
+  choose destination charges only when a connected Stripe account is live, and
+  `Driftsklarhed` must keep payment/checkout signals read-only without creating
+  Stripe accounts, changing fees or starting payments.
   It also guards the post-payment completion source path: successful payments
   must still persist `orders`, attach current `order_files`, trigger customer
   and admin order notifications, preserve POD v2 job creation, save optional
