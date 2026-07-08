@@ -7147,6 +7147,7 @@ export default function CommercialReadiness() {
   );
   const commercialReadyCount = commercialReadyCriteria.filter((item) => item.status === "klar").length;
   const commercialReadyBlockers = commercialReadyCriteria.filter((item) => item.status === "blokeret").length;
+  const commercialDecisionsQueue = commercialDecisions;
   const thirtyDayPlan = useMemo(
     () => getThirtyDayPlanItems(readinessRows, pilotOrderPlan, flowIssues, commercialReadyCriteria, seoVisibilityRows),
     [readinessRows, pilotOrderPlan, flowIssues, commercialReadyCriteria, seoVisibilityRows],

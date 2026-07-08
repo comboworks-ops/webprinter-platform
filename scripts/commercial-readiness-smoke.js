@@ -838,6 +838,7 @@ const sourceContractChecks = [
           "function getCriticalPathItems(",
           "function getPilotPrintHouseIntake(",
           "function getCommercialDecisionOptionCards(",
+          "const commercialDecisionsQueue = commercialDecisions;",
           "Måleksekvering",
           "Automatisering og menneskelig bevisførelse",
           "Releasebevis og accept",
