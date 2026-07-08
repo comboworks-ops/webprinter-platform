@@ -589,6 +589,12 @@ Implemented first read-only version:
   support. It can target production or localhost with
   `-- --base-url http://127.0.0.1:8083`, and it does not write products,
   prices, orders, Supplier Bank rows, POD data, or Supabase state.
+  `npm run smoke:commercial-readiness:browser` adds rendered Playwright checks
+  for the same proof surface and catches runtime error screens. The first
+  browser smoke found the `/produkt/aluminium` render crash caused by a null
+  checkout session in template-download state preservation; the product panel
+  now only preserves `templateDownloadedAt` when an existing session and the
+  current template PDF URL both exist and match.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported

@@ -24,11 +24,13 @@ Read-only smoke check for the Webprinter commercial proof routes.
 Usage:
   node scripts/commercial-readiness-smoke.js
   node scripts/commercial-readiness-smoke.js --base-url http://127.0.0.1:8083
+  node scripts/commercial-readiness-smoke.js --browser --base-url http://127.0.0.1:8083
 
 Options:
   --base-url <url>          Site root to check. Default: ${DEFAULT_BASE_URL}
   --timeout-ms <number>    Per-request timeout. Default: ${DEFAULT_TIMEOUT_MS}
   --skip-bundle-markers    Skip built bundle marker checks.
+  --browser                Also verify rendered React pages with Playwright.
 `);
   process.exit(0);
 }
@@ -38,6 +40,7 @@ const baseUrl = normalizeBaseUrl(
 );
 const timeoutMs = Number(readArg("--timeout-ms", process.env.COMMERCIAL_SMOKE_TIMEOUT_MS || DEFAULT_TIMEOUT_MS));
 const skipBundleMarkers = hasFlag("--skip-bundle-markers");
+const runBrowserSmoke = hasFlag("--browser") || process.env.COMMERCIAL_SMOKE_BROWSER === "1";
 
 const checks = [
   {
@@ -97,6 +100,30 @@ const bundleMarkers = [
   "sales-mapper",
 ];
 
+const renderedChecks = [
+  {
+    name: "Rendered Webprinter home",
+    path: "/?force_domain=webprinter.dk",
+    expectedText: ["Den komplette løsning"],
+  },
+  {
+    name: "Rendered aluminium product",
+    path: "/produkt/aluminium?force_domain=webprinter.dk",
+    expectedText: ["Prisberegning"],
+  },
+  {
+    name: "Rendered Salgsmapper product",
+    path: "/produkt/standard-sales-mapper-kopi-2?force_domain=www.salgsmapper.dk",
+    expectedText: ["Standard Salgsmapper", "Download skabelon"],
+  },
+  {
+    name: "Rendered designer template",
+    path:
+      "/designer?force_domain=www.salgsmapper.dk&templatePdfName=salgsmappe-a5-5mm-ryg.pdf&templatePdfUrl=%2Fdesigner-templates%2Fsalgsmapper%2Fsalgsmappe-a5-5mm-ryg.pdf",
+    expectedText: ["Format-skabelon indlæst", "salgsmappe-a5-5mm-ryg.pdf"],
+  },
+];
+
 const results = [];
 
 console.log(`\nCommercial readiness smoke for ${baseUrl}`);
@@ -108,6 +135,10 @@ for (const check of checks) {
 
 if (!skipBundleMarkers) {
   results.push(await runBundleMarkerCheck());
+}
+
+if (runBrowserSmoke) {
+  results.push(...(await runRenderedChecks()));
 }
 
 const failed = results.filter((result) => !result.ok);
@@ -218,6 +249,77 @@ async function runBundleMarkerCheck() {
   }
 }
 
+async function runRenderedChecks() {
+  let chromium;
+  try {
+    ({ chromium } = await import("playwright"));
+  } catch (error) {
+    return [
+      {
+        name: "Rendered page smoke",
+        ok: false,
+        detail: `Playwright is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      },
+    ];
+  }
+
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const consoleMessages = [];
+
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleMessages.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+
+  page.on("pageerror", (error) => {
+    consoleMessages.push(`pageerror: ${error.message}`);
+  });
+
+  const renderedResults = [];
+
+  try {
+    for (const check of renderedChecks) {
+      const url = new URL(check.path, baseUrl);
+      const startMessageCount = consoleMessages.length;
+
+      try {
+        await page.goto(url.href, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+        await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+        await page.waitForTimeout(1000);
+
+        const text = normalizeVisibleText(await page.locator("body").innerText({ timeout: timeoutMs }));
+        const missing = check.expectedText.filter((marker) => !text.includes(marker));
+        const runtimeError = text.includes("MIDLERTIDIG FEJL") || text.includes("Siden kunne ikke vises korrekt");
+        const newConsoleErrors = consoleMessages
+          .slice(startMessageCount)
+          .filter((message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"));
+
+        renderedResults.push({
+          name: check.name,
+          ok: !runtimeError && missing.length === 0,
+          detail: [
+            runtimeError ? "rendered the temporary error screen" : "rendered",
+            missing.length ? `missing: ${missing.join(", ")}` : null,
+            newConsoleErrors.length ? `console: ${newConsoleErrors.slice(0, 2).join(" | ")}` : null,
+          ].filter(Boolean).join("; "),
+        });
+      } catch (error) {
+        renderedResults.push({
+          name: check.name,
+          ok: false,
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+
+  return renderedResults;
+}
+
 async function fetchWithTimeout(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -241,4 +343,8 @@ function normalizeBaseUrl(value) {
   url.search = "";
   url.hash = "";
   return url.toString().replace(/\/$/, "/");
+}
+
+function normalizeVisibleText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }

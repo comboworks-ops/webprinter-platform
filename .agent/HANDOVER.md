@@ -325,6 +325,12 @@ Current active direction:
   admin cockpit routes, and shipped bundle markers without creating orders,
   writing products, touching prices, scraping suppliers, or using Supabase
   write paths.
+  `npm run smoke:commercial-readiness:browser` adds Playwright-rendered checks
+  and fails on the Danish temporary error screen. It caught the
+  `/produkt/aluminium` first-load crash from reading `templateDownloadedAt` on
+  a null checkout session; `ProductPricePanel` now preserves that timestamp
+  only when an existing session and current template PDF URL both exist and
+  match.
   `Supplier Bank staging-runbook` is the read-only operating sequence for
   supplier-bank products: external source only, report candidate, explicit
   approval, draft import, price-row QA, separate publishing decision and tenant

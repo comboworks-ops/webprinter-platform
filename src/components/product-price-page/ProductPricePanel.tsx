@@ -913,7 +913,7 @@ export function ProductPricePanel({
       templatePdfUrl: designerTemplateLaunch?.pdfUrl || null,
       templateDownloadedAt: (() => {
         const existingSession = readSiteCheckoutSession();
-        return existingSession?.templatePdfUrl === designerTemplateLaunch?.pdfUrl
+        return existingSession && designerTemplateLaunch?.pdfUrl && existingSession.templatePdfUrl === designerTemplateLaunch.pdfUrl
           ? existingSession.templateDownloadedAt || null
           : null;
       })(),

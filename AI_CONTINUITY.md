@@ -412,6 +412,11 @@ Implemented read-only admin route:
   shipped bundle markers for `Download skabelon`, `Produktionsklarhed`,
   `templatePdfUrl`, and `sales-mapper`. It does not create orders, write
   products, touch prices, scrape suppliers, or call Supabase write paths.
+  `npm run smoke:commercial-readiness:browser` adds Playwright-rendered checks
+  for the same commercial proof surface and fails if a page renders the Danish
+  temporary error screen. This caught and fixed the `/produkt/aluminium`
+  first-load crash where `ProductPricePanel` compared two missing template URLs
+  as equal and then read `templateDownloadedAt` from a null checkout session.
 - It now includes `Supplier Bank staging-runbook`, a read-only operating
   sequence for supplier-bank products: external source only, report candidate,
   explicit approval, draft import, price-row QA, separate publishing decision
