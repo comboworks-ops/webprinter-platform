@@ -231,6 +231,32 @@ const uploadReadinessChecks = [
   },
 ];
 
+const checkoutValidationChecks = [
+  {
+    name: "Aluminium checkout validates customer details before payment",
+    path: "/produkt/aluminium?force_domain=webprinter.dk",
+    syntheticUploadName: "smoke-aluminium-upload.png",
+    expectedValidationText: "Udfyld kunde- og leveringsoplysninger før betaling.",
+    expectedSession: {
+      productSlug: "aluminium",
+      productName: "Aluminium Skilte",
+      selectedFormat: "100 x 100 cm",
+    },
+  },
+  {
+    name: "Salgsmapper checkout validates customer details before payment",
+    path: "/produkt/standard-sales-mapper-kopi-2?force_domain=www.salgsmapper.dk",
+    syntheticUploadName: "smoke-salgsmapper-upload.png",
+    expectedValidationText: "Udfyld kunde- og leveringsoplysninger før betaling.",
+    expectedSession: {
+      productSlug: "standard-sales-mapper-kopi-2",
+      productName: "Standard Salgsmapper",
+      selectedFormat: "A4",
+      templatePdfUrl: "/designer-templates/salgsmapper/salgsmappe-a5-5mm-ryg.pdf",
+    },
+  },
+];
+
 const results = [];
 
 console.log(`\nCommercial readiness smoke for ${baseUrl}`);
@@ -435,6 +461,10 @@ async function runBrowserChecks() {
 
     for (const check of uploadReadinessChecks) {
       renderedResults.push(await runUploadReadinessCheck(browser, check));
+    }
+
+    for (const check of checkoutValidationChecks) {
+      renderedResults.push(await runCheckoutValidationCheck(browser, check));
     }
   } finally {
     await browser.close();
@@ -714,6 +744,126 @@ async function runUploadReadinessCheck(browser, check) {
   } finally {
     await page.close();
   }
+}
+
+async function runCheckoutValidationCheck(browser, check) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  const consoleMessages = [];
+  const blockedWriteRequests = [];
+
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleMessages.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+
+  page.on("pageerror", (error) => {
+    consoleMessages.push(`pageerror: ${error.message}`);
+  });
+
+  page.on("request", (request) => {
+    const url = request.url();
+    const method = request.method().toUpperCase();
+    const isStripePaymentIntent = url.includes("/functions/v1/stripe-create-payment-intent");
+    const isOrderFileWrite = url.includes("/storage/v1/object/order-files") && !["GET", "HEAD", "OPTIONS"].includes(method);
+    const isOrderInsert = url.includes("/rest/v1/orders") && method !== "GET";
+    if (isStripePaymentIntent || isOrderFileWrite || isOrderInsert) {
+      blockedWriteRequests.push(`${method} ${url}`);
+    }
+  });
+
+  try {
+    const url = new URL(check.path, baseUrl);
+    await page.goto(url.href, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+    await page.getByRole("button", { name: /Bestil nu/i }).click({ timeout: timeoutMs });
+    await page.waitForURL(/\/checkout\/konfigurer/, { timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+
+    await installSyntheticCheckoutUpload(page, check.syntheticUploadName);
+    await page.reload({ waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 10000) }).catch(() => undefined);
+    await page.waitForTimeout(1500);
+
+    const beforeApproveText = normalizeVisibleText(await page.locator("body").innerText({ timeout: timeoutMs }));
+    const hasSyntheticUpload = beforeApproveText.includes(check.syntheticUploadName);
+    const paymentButton = page.getByRole("button", { name: /Gå til betaling/i }).first();
+    const paymentDisabledBeforeApproval = await paymentButton.isDisabled({ timeout: timeoutMs });
+    await page.getByRole("button", { name: /^Godkend fil$/i }).first().click({ timeout: timeoutMs });
+    await page.waitForTimeout(750);
+    const paymentDisabledAfterApproval = await paymentButton.isDisabled({ timeout: timeoutMs });
+    await paymentButton.click({ timeout: timeoutMs });
+    await page.waitForTimeout(1000);
+
+    const text = normalizeVisibleText(await page.locator("body").innerText({ timeout: timeoutMs }));
+    const session = await readCheckoutSession(page);
+    const runtimeError = text.includes("MIDLERTIDIG FEJL") || text.includes("Siden kunne ikke vises korrekt");
+    const sessionFailures = expectedSessionFailures(session, check.expectedSession);
+    const uploadPath = session?.siteUpload?.filePath ?? null;
+    const meaningfulConsole = consoleMessages.filter(
+      (message) => !message.includes("A preload for") && !message.includes("was not used within a few seconds"),
+    );
+    const mismatches = [
+      runtimeError ? "rendered the temporary error screen" : null,
+      !hasSyntheticUpload ? "synthetic upload not rendered" : null,
+      uploadPath !== "smoke-readonly/no-storage-write.png" ? `siteUpload.filePath=${JSON.stringify(uploadPath)}` : null,
+      !paymentDisabledBeforeApproval ? "payment enabled before file approval" : null,
+      paymentDisabledAfterApproval ? "payment still disabled after file approval" : null,
+      !text.includes(check.expectedValidationText) ? "missing customer/details validation message" : null,
+      blockedWriteRequests.length ? `unexpected write/payment request: ${blockedWriteRequests[0]}` : null,
+      sessionFailures.length ? `session: ${sessionFailures.join(", ")}` : null,
+      meaningfulConsole.length ? `console: ${meaningfulConsole.slice(0, 2).join(" | ")}` : null,
+    ].filter(Boolean);
+    const ok = mismatches.length === 0;
+
+    return {
+      name: check.name,
+      ok,
+      detail: [
+        ok ? "customer/detail validation blocked payment without writes" : "checkout validation mismatch",
+        mismatches.length ? mismatches.join("; ") : null,
+      ].filter(Boolean).join("; "),
+    };
+  } catch (error) {
+    return {
+      name: check.name,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function installSyntheticCheckoutUpload(page, name) {
+  const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l0D9GwAAAABJRU5ErkJggg==";
+  await page.evaluate(({ dataUrl, name }) => {
+    const key = "wp_site_checkout_session";
+    const raw = sessionStorage.getItem(key);
+    const session = raw ? JSON.parse(raw) : {};
+    const widthMm = Number(session.designWidthMm || 100);
+    const heightMm = Number(session.designHeightMm || 100);
+
+    session.siteUpload = {
+      name,
+      mimeType: "image/png",
+      fileUrl: dataUrl,
+      filePath: "smoke-readonly/no-storage-write.png",
+      previewDataUrl: dataUrl,
+      widthPx: 3000,
+      heightPx: 3000,
+      physicalWidthMm: widthMm,
+      physicalHeightMm: heightMm,
+      estimatedDpi: 300,
+      sourceDpi: 300,
+      uploadedAt: new Date().toISOString(),
+    };
+
+    sessionStorage.setItem(key, JSON.stringify(session));
+    window.history.replaceState(null, "", window.location.href);
+  }, { dataUrl, name });
 }
 
 async function readCheckoutSession(page) {

@@ -433,7 +433,11 @@ Implemented read-only admin route:
   keeps `siteUpload` empty before any file is chosen, and keeps payment disabled
   before upload/customer details. That upload check deliberately does not select
   a real file, because doing so would write to storage; all checkout checks stop
-  before upload, payment or order creation.
+  before upload, payment or order creation. The browser smoke also installs a
+  synthetic in-session upload for both products, approves it in the UI, clicks
+  `Gå til betaling`, and verifies the Danish customer/delivery validation
+  blocks payment before any Stripe payment intent, order-file storage write or
+  order insert request is sent.
 - It now includes `Supplier Bank staging-runbook`, a read-only operating
   sequence for supplier-bank products: external source only, report candidate,
   explicit approval, draft import, price-row QA, separate publishing decision

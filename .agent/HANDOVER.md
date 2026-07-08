@@ -345,7 +345,11 @@ Current active direction:
   accepting PDF/JPG/JPEG/PNG/TIFF, keeps `siteUpload` empty before any file is
   chosen, and keeps payment disabled before upload/customer details. It
   deliberately does not select a file because that would write to storage, and
-  stops before upload, payment or order creation.
+  stops before upload, payment or order creation. It also installs a synthetic
+  in-session upload for both products, approves it in the UI, clicks
+  `Gå til betaling`, and verifies the Danish customer/delivery validation
+  blocks payment before any Stripe payment intent, order-file storage write or
+  order insert request is sent.
   `Supplier Bank staging-runbook` is the read-only operating sequence for
   supplier-bank products: external source only, report candidate, explicit
   approval, draft import, price-row QA, separate publishing decision and tenant
