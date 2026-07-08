@@ -246,6 +246,37 @@ const sourceContractChecks = [
       },
     ],
   },
+  {
+    name: "Admin order processing source contract",
+    detail: "verified admin order handling keeps status updates, readiness, notifications, invoice and message handoff",
+    files: [
+      {
+        path: "src/components/admin/OrderManager.tsx",
+        markers: [
+          "const handleSaveOrder = async ()",
+          "setEditDeliveryType(",
+          "[LEVERINGSMETODE]",
+          "tracking_number: editTrackingNumber || null",
+          "estimated_delivery: editEstimatedDelivery || null",
+          "requires_file_reupload: editRequiresReupload",
+          "delivery_type: editDeliveryType || null",
+          ".from('orders' as any)",
+          ".from('order_status_history' as any)",
+          "sendStatusChangeEmail",
+          "sendProblemNotification",
+          "getOrderProductionReadinessKind",
+          "getProductionStatusWarning",
+          "editStatus === 'production'",
+          "Fil klar",
+          "Ny fil kræves",
+          "Download Faktura",
+          "downloadInvoice",
+          "Gå til besked",
+          "toast.success('Ordre opdateret')",
+        ],
+      },
+    ],
+  },
 ];
 
 const renderedChecks = [

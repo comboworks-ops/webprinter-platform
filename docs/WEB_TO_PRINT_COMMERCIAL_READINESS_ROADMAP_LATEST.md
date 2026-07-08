@@ -638,6 +638,10 @@ Implemented first read-only version:
   still call `send-order-email` for customer confirmations and admin new-order
   notifications, and the edge function must still render delivery, billing,
   blind-shipping, sender, customer/admin links and Resend handoff details.
+  It also guards admin order processing: `Kunder & Ordrer` must still update
+  status/tracking/delivery fields, sync `[LEVERINGSMETODE]`, log status
+  history, send status/problem emails, show production readiness and warnings,
+  download invoices, and link to order messages.
 - latest Supplier Bank operations layer: `Supplier Bank staging-runbook` turns
   the roadmap item "Create an operations runbook for importing/staging
   products" into a read-only cockpit sequence: external source only, reported
