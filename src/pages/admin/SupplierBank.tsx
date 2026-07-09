@@ -33,6 +33,7 @@ import {
 } from "@/lib/supplier-bank";
 import {
   SUPPLIER_BANK_PRODUCT_FAMILY_URL_CANDIDATES,
+  SUPPLIER_BANK_SUPPLIER_LIBRARY_FAMILIES,
   type SupplierSourceUrlCandidate,
 } from "@/lib/supplier-bank/sourceRegistry";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -117,6 +118,46 @@ type ImportedTargetRowCounts = {
   storformatMaterials: number | null;
   storformatFinishes: number | null;
   storformatVariants: number | null;
+};
+
+type ExistingProductRow = {
+  id: string;
+  name: string;
+  slug: string;
+  category: string | null;
+  pricing_type: string | null;
+  is_published: boolean | null;
+};
+
+type ExistingProductOptionGroup = {
+  id: string;
+  product_id: string;
+  name: string;
+  kind: string | null;
+  sort_order: number | null;
+  values?: Array<{
+    id: string;
+    name: string;
+    enabled: boolean | null;
+    sort_order: number | null;
+  }> | null;
+};
+
+type ProductMatchSuggestion = {
+  product: ExistingProductRow;
+  score: number;
+  statusLabel: string;
+  reasons: string[];
+  matchingSupplierValues: string[];
+  missingSupplierValues: string[];
+  optionGroupCount: number;
+  optionValueCount: number;
+  alreadyImportedTarget: boolean;
+};
+
+type ProductLinkPreview = {
+  bankProduct: BankProductRow;
+  suggestion: ProductMatchSuggestion;
 };
 
 type DeltaReviewStatus = "draft" | "reviewed" | "accepted" | "rejected";
@@ -516,14 +557,14 @@ const SUPPLIER_BANK_PROOF_FILES: ProofFileItem[] = [
     title: "Pixart readiness",
     gate: "Før probe",
     path: "docs/SUPPLIER_BANK_PIXART_READINESS_LATEST.md",
-    description: "Viser at 0/4 manglende Pixart-familier er klar til probe uden profil og bekraeftet URL.",
+    description: "Viser at 0/4 manglende Pixart-familier er klar til probe uden profil og bekræftet URL.",
     tone: "blocked",
   },
   {
     title: "URL confirmation checklist",
     gate: "Pixart URL-gate",
     path: "docs/SUPPLIER_BANK_URL_CONFIRMATION_CHECKLIST_LATEST.md",
-    description: "Manual read-only checkliste for at bekraefte eller afvise Pixart URL-kandidater før extractor/probe.",
+    description: "Manual read-only checkliste for at bekræfte eller afvise Pixart URL-kandidater før extractor/probe.",
     tone: "warning",
   },
 ];
@@ -637,12 +678,187 @@ function getAttributeValueLabel(value: NonNullable<NormalizedAttribute["values"]
   return value.labelDa || value.labelOriginal || value.key || "Ukendt";
 }
 
+function normalizeMatchText(value: string | null | undefined) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/æ/g, "ae")
+    .replace(/ø/g, "oe")
+    .replace(/å/g, "aa")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getMatchTokens(...values: Array<string | null | undefined>) {
+  const stopWords = new Set(["og", "eller", "med", "uden", "the", "and", "for", "til", "der", "den"]);
+  return Array.from(new Set(values
+    .flatMap((value) => normalizeMatchText(value).split(" "))
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stopWords.has(token))));
+}
+
+function getFamilyMatchKeywords(family: SupplierBankProductFamily) {
+  const keywords: Record<SupplierBankProductFamily, string[]> = {
+    flyers: ["flyer", "flyers", "falzflyer", "foldet flyer"],
+    folders: ["folder", "foldere", "falset", "faltblaetter", "flyer"],
+    sales_folders: ["salgsmappe", "salgsmapper", "praesentationsmappe", "presentation folder", "mappe"],
+    business_cards: ["visitkort", "visitenkarte", "business card"],
+    posters: ["plakat", "plakater", "poster"],
+    banners: ["banner", "bannere", "planer", "presenning"],
+    signs: ["skilt", "skilte", "plade", "plattendruck"],
+    rollups: ["rollup", "roll-up", "roll ups", "display"],
+    stickers: ["klistermaerke", "klistermærke", "sticker", "aufkleber"],
+    labels: ["etiket", "etiketter", "label", "etiketten"],
+    books: ["bog", "boeger", "bøger", "brochure", "katalog"],
+    letterheads: ["brevpapir", "letterhead", "briefpapier"],
+    tshirts: ["tshirt", "t-shirt", "shirt", "tekstil"],
+    packaging: ["emballage", "packaging", "box", "aeske", "æske"],
+    other: [],
+  };
+  return getMatchTokens(getSupplierBankProductFamilyLabelDa(family), ...keywords[family]);
+}
+
+function getSupplierOptionValueLabels(product: BankProductRow) {
+  return getNormalizedAttributeArray(product.normalized_attributes)
+    .flatMap((attribute) => attribute.values || [])
+    .map(getAttributeValueLabel)
+    .filter((label) => normalizeMatchText(label).length > 0);
+}
+
+function getExistingProductOptionLabels(groups: ExistingProductOptionGroup[]) {
+  return groups
+    .flatMap((group) => group.values || [])
+    .filter((value) => value.enabled !== false)
+    .map((value) => value.name)
+    .filter((label) => normalizeMatchText(label).length > 0);
+}
+
+function countExistingProductOptionValues(groups: ExistingProductOptionGroup[]) {
+  return groups.reduce((count, group) => {
+    return count + (group.values || []).filter((value) => value.enabled !== false).length;
+  }, 0);
+}
+
+function getProductMatchStatusLabel(score: number, alreadyImportedTarget: boolean) {
+  if (alreadyImportedTarget) return "allerede importeret";
+  if (score >= 80) return "stærkt match";
+  if (score >= 55) return "muligt match";
+  return "svagt match";
+}
+
+function getProductMatchBadgeVariant(score: number, alreadyImportedTarget: boolean) {
+  if (alreadyImportedTarget || score >= 80) return "default";
+  if (score >= 55) return "secondary";
+  return "outline";
+}
+
+function getExistingProductMatchSuggestions({
+  bankProduct,
+  existingProducts,
+  optionsByProductId,
+  importedTargetProduct,
+}: {
+  bankProduct: BankProductRow;
+  existingProducts: ExistingProductRow[];
+  optionsByProductId: Record<string, ExistingProductOptionGroup[]>;
+  importedTargetProduct: ImportedTargetProductRow | null;
+}): ProductMatchSuggestion[] {
+  const supplierNameTokens = getMatchTokens(bankProduct.name_da, bankProduct.name_original);
+  const familyTokens = getFamilyMatchKeywords(bankProduct.product_family);
+  const supplierOptionLabels = getSupplierOptionValueLabels(bankProduct);
+  const supplierOptionTokenByLabel = supplierOptionLabels.map((label) => ({
+    label,
+    normalized: normalizeMatchText(label),
+    tokens: getMatchTokens(label),
+  }));
+
+  return existingProducts
+    .map((product) => {
+      const groups = optionsByProductId[product.id] || [];
+      const productText = `${product.name} ${product.slug} ${product.category || ""}`;
+      const productTokens = getMatchTokens(product.name, product.slug, product.category || "");
+      const productTokenSet = new Set(productTokens);
+      const productOptionLabels = getExistingProductOptionLabels(groups);
+      const productOptionNormalized = new Set(productOptionLabels.map(normalizeMatchText));
+      const productOptionTokenSet = new Set(getMatchTokens(...productOptionLabels));
+      const alreadyImportedTarget = importedTargetProduct?.id === product.id;
+
+      let score = alreadyImportedTarget ? 100 : 0;
+      const reasons: string[] = [];
+
+      const familyHits = familyTokens.filter((token) => normalizeMatchText(productText).includes(token));
+      if (familyHits.length > 0) {
+        score += Math.min(35, 18 + familyHits.length * 6);
+        reasons.push("samme produktfamilie");
+      }
+
+      const nameHits = supplierNameTokens.filter((token) => productTokenSet.has(token));
+      if (nameHits.length > 0) {
+        score += Math.min(25, nameHits.length * 7);
+        reasons.push("navn matcher");
+      }
+
+      const matchingSupplierValues = supplierOptionTokenByLabel
+        .filter((supplierValue) => {
+          if (productOptionNormalized.has(supplierValue.normalized)) return true;
+          return supplierValue.tokens.some((token) => productOptionTokenSet.has(token));
+        })
+        .map((supplierValue) => supplierValue.label);
+      const missingSupplierValues = supplierOptionTokenByLabel
+        .filter((supplierValue) => !matchingSupplierValues.includes(supplierValue.label))
+        .map((supplierValue) => supplierValue.label);
+
+      if (matchingSupplierValues.length > 0) {
+        score += Math.min(30, 8 + matchingSupplierValues.length * 4);
+        reasons.push("valg/materialer overlapper");
+      }
+
+      if (groups.length > 0) {
+        score += 4;
+        reasons.push("produkt har valgstruktur");
+      }
+
+      if (alreadyImportedTarget) {
+        reasons.unshift("findes som importeret draft");
+      }
+
+      return {
+        product,
+        score,
+        statusLabel: getProductMatchStatusLabel(score, alreadyImportedTarget),
+        reasons: Array.from(new Set(reasons)).slice(0, 3),
+        matchingSupplierValues: Array.from(new Set(matchingSupplierValues)).slice(0, 6),
+        missingSupplierValues: Array.from(new Set(missingSupplierValues)).slice(0, 8),
+        optionGroupCount: groups.length,
+        optionValueCount: countExistingProductOptionValues(groups),
+        alreadyImportedTarget,
+      } satisfies ProductMatchSuggestion;
+    })
+    .filter((suggestion) => suggestion.alreadyImportedTarget || suggestion.score >= 32)
+    .sort((left, right) => {
+      if (left.alreadyImportedTarget !== right.alreadyImportedTarget) return left.alreadyImportedTarget ? -1 : 1;
+      const scoreDelta = right.score - left.score;
+      if (scoreDelta !== 0) return scoreDelta;
+      return left.product.name.localeCompare(right.product.name, "da");
+    })
+    .slice(0, 3);
+}
+
 function getSupplierExpectedFamilies(supplier: SupplierRow): SupplierBankProductFamily[] {
   const rawFamilies = supplier.metadata?.productFamilies;
-  if (!Array.isArray(rawFamilies)) return [];
-  return rawFamilies.filter((family): family is SupplierBankProductFamily => (
+  const metadataFamilies = Array.isArray(rawFamilies) ? rawFamilies : [];
+  const registryFamilies = SUPPLIER_BANK_SUPPLIER_LIBRARY_FAMILIES[supplier.slug] || [];
+  const families = [...metadataFamilies, ...registryFamilies].filter((family): family is SupplierBankProductFamily => (
     typeof family === "string" && SUPPLIER_BANK_PRODUCT_FAMILIES.includes(family as SupplierBankProductFamily)
   ));
+  return Array.from(new Set(families));
 }
 
 function formatFamilyLabels(families: SupplierBankProductFamily[]) {
@@ -682,10 +898,10 @@ function getSupplierFamilyUrlCandidates(supplier: SupplierRow | undefined, famil
 }
 
 function getUrlCandidateStatusLabel(status: string) {
-  if (status === "confirmed_source_url") return "bekraeftet";
+  if (status === "confirmed_source_url") return "bekræftet";
   if (status === "rejected") return "afvist";
   if (status === "official_candidate_needs_confirmation") return "officiel kandidat";
-  return "skal bekraeftes";
+  return "skal bekræftes";
 }
 
 function getImportedProductSlug(job: ImportJobRow | undefined) {
@@ -1192,6 +1408,13 @@ function getSupplierFamilyShelfNextStep({
   readiness: ReadinessSummary;
 }): { nextStep: string; safeCheckCommand: string | null } {
   if (state === "missing") {
+    if (supplier.slug === "wir-machen-druck") {
+      return {
+        nextStep: "Vælg denne WIRmachenDRUCK-hylde som næste familie, lav dry extraction og vis et normaliseret preview før bank write.",
+        safeCheckCommand: "npm run supplier-bank:url-candidates",
+      };
+    }
+
     if (supplier.slug === "pixartprinting") {
       return {
         nextStep: "Bekræft eksakt Pixart produkt-URL og extractor-profil før probe eller extraction.",
@@ -1361,7 +1584,7 @@ function getCoverageGapItem(
         key: "exact-url",
         label: "Eksakt URL",
         ready: exactUrlConfirmed,
-        detail: exactUrlConfirmed ? "bekraeftet" : "mangler",
+        detail: exactUrlConfirmed ? "bekræftet" : "mangler",
       },
     ];
 
@@ -1396,6 +1619,23 @@ function getCoverageGapItem(
       blocker: "Placemats er scoped som første smalle slice, men bank-only write er ikke godkendt.",
       nextStep: "Brug placemats preflight/approval-pakken og hold det bank-only indtil godkendt.",
       safeCheckCommand: "npm run supplier-bank:print-com-placemats-bank-write-preflight",
+      urlCandidateCount: urlCandidates.length,
+      confirmedUrlCandidateCount,
+      urlCandidatePreview: urlCandidates[0] || null,
+    };
+  }
+
+  if (supplier.slug === "wir-machen-druck") {
+    return {
+      supplierId: supplier.id,
+      supplierName: supplier.name,
+      supplierSlug: supplier.slug,
+      family,
+      tone: "warning",
+      statusLabel: "bibliotekshylde",
+      blocker: "Familien findes kun som planlagt WIRmachenDRUCK-bibliotekshylde endnu.",
+      nextStep: "Lav dry extraction og normaliseret preview for denne familie, før der skrives bankdata eller oprettes produktdrafts.",
+      safeCheckCommand: "npm run supplier-bank:coverage-gap-plan",
       urlCandidateCount: urlCandidates.length,
       confirmedUrlCandidateCount,
       urlCandidatePreview: urlCandidates[0] || null,
@@ -1448,6 +1688,64 @@ async function fetchAllSupabaseRows<T>(makeQuery: () => any) {
   return { data: rows, error: null };
 }
 
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+async function fetchExistingProductMatchData() {
+  const productResult = await fetchAllSupabaseRows<ExistingProductRow>(() => (supabase.from("products" as any) as any)
+    .select("id,name,slug,category,pricing_type,is_published")
+    .order("name"));
+
+  if (productResult.error) {
+    return {
+      products: [] as ExistingProductRow[],
+      optionsByProductId: {} as Record<string, ExistingProductOptionGroup[]>,
+      errorMessage: productResult.error.message || "Eksisterende produkter kunne ikke læses.",
+    };
+  }
+
+  const productRows = productResult.data || [];
+  const productIds = productRows.map((product) => product.id).filter(Boolean);
+  const optionGroups: ExistingProductOptionGroup[] = [];
+
+  for (const productIdChunk of chunkArray(productIds, 150)) {
+    const groupResult = await fetchAllSupabaseRows<ExistingProductOptionGroup>(() => (supabase.from("product_attribute_groups" as any) as any)
+      .select("id,product_id,name,kind,sort_order,values:product_attribute_values(id,name,enabled,sort_order)")
+      .in("product_id", productIdChunk)
+      .order("sort_order"));
+
+    if (groupResult.error) {
+      return {
+        products: productRows,
+        optionsByProductId: {} as Record<string, ExistingProductOptionGroup[]>,
+        errorMessage: groupResult.error.message || "Produktvalg kunne ikke læses.",
+      };
+    }
+
+    optionGroups.push(...(groupResult.data || []));
+  }
+
+  const optionsByProductId = optionGroups.reduce((acc, group) => {
+    if (!acc[group.product_id]) acc[group.product_id] = [];
+    acc[group.product_id].push({
+      ...group,
+      values: [...(group.values || [])].sort((left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0)),
+    });
+    return acc;
+  }, {} as Record<string, ExistingProductOptionGroup[]>);
+
+  return {
+    products: productRows,
+    optionsByProductId,
+    errorMessage: null as string | null,
+  };
+}
+
 export default function SupplierBank() {
   const { isAdmin, isMasterAdmin, loading: roleLoading } = useUserRole();
   const { toast } = useToast();
@@ -1456,11 +1754,15 @@ export default function SupplierBank() {
   const [importJobs, setImportJobs] = useState<ImportJobRow[]>([]);
   const [importedTargetProductsById, setImportedTargetProductsById] = useState<Record<string, ImportedTargetProductRow>>({});
   const [importedTargetRowCountsById, setImportedTargetRowCountsById] = useState<Record<string, ImportedTargetRowCounts>>({});
+  const [existingProducts, setExistingProducts] = useState<ExistingProductRow[]>([]);
+  const [existingProductOptionsById, setExistingProductOptionsById] = useState<Record<string, ExistingProductOptionGroup[]>>({});
+  const [existingProductMatchError, setExistingProductMatchError] = useState<string | null>(null);
   const [deltaReviews, setDeltaReviews] = useState<DeltaReviewRow[]>([]);
   const [refreshJobs, setRefreshJobs] = useState<RefreshJobRow[]>([]);
   const [snapshotStatsByProductId, setSnapshotStatsByProductId] = useState<Record<string, PriceSnapshotStat>>({});
   const [loading, setLoading] = useState(true);
   const [previewProduct, setPreviewProduct] = useState<BankProductRow | null>(null);
+  const [linkPreview, setLinkPreview] = useState<ProductLinkPreview | null>(null);
   const [previewSnapshot, setPreviewSnapshot] = useState<PriceSnapshotPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewSelection, setPreviewSelection] = useState<Record<string, string>>({});
@@ -1492,6 +1794,9 @@ export default function SupplierBank() {
         setLoading(false);
         setBankReadSource("none");
         setBankReadDiagnostic("Denne session har ikke admin-adgang til leverandørbanken.");
+        setExistingProducts([]);
+        setExistingProductOptionsById({});
+        setExistingProductMatchError(null);
         return;
       }
 
@@ -1499,6 +1804,14 @@ export default function SupplierBank() {
       setError(null);
       setBankReadSource("none");
       setBankReadDiagnostic(null);
+
+      const loadExistingMatches = async () => {
+        const matchData = await fetchExistingProductMatchData();
+        if (cancelled) return;
+        setExistingProducts(matchData.products);
+        setExistingProductOptionsById(matchData.optionsByProductId);
+        setExistingProductMatchError(matchData.errorMessage);
+      };
 
       const { data: adminReadData, error: adminReadError } = await supabase.functions.invoke("supplier-bank-admin-read", {
         body: {},
@@ -1516,6 +1829,8 @@ export default function SupplierBank() {
         setSnapshotStatsByProductId((payload.snapshotStatsByProductId || {}) as Record<string, PriceSnapshotStat>);
         setBankReadSource("secure_admin_endpoint");
         setBankReadDiagnostic(null);
+        await loadExistingMatches();
+        if (cancelled) return;
         setLoading(false);
         return;
       }
@@ -1556,6 +1871,9 @@ export default function SupplierBank() {
         setImportedTargetProductsById({});
         setImportedTargetRowCountsById({});
         setSnapshotStatsByProductId({});
+        setExistingProducts([]);
+        setExistingProductOptionsById({});
+        setExistingProductMatchError(null);
       } else {
         const productRows = (productResult.data || []) as BankProductRow[];
         const importJobRows = importJobResult.error ? [] : ((importJobResult.data || []) as ImportJobRow[]);
@@ -1649,6 +1967,8 @@ export default function SupplierBank() {
         setSnapshotStatsByProductId(snapshotStats);
         setBankReadSource("direct_rls");
         setBankReadDiagnostic(adminReadMessage);
+        await loadExistingMatches();
+        if (cancelled) return;
       }
 
       setLoading(false);
@@ -1715,6 +2035,28 @@ export default function SupplierBank() {
       });
     return entries;
   }, [refreshJobs]);
+  const existingProductMatchSuggestionsByBankProductId = useMemo(() => {
+    const entries = new Map<string, ProductMatchSuggestion[]>();
+    products.forEach((product) => {
+      const importedJob = latestImportedJobByProductId.get(product.id);
+      const importedTargetProduct = importedJob?.target_product_id
+        ? importedTargetProductsById[importedJob.target_product_id] || null
+        : null;
+      entries.set(product.id, getExistingProductMatchSuggestions({
+        bankProduct: product,
+        existingProducts,
+        optionsByProductId: existingProductOptionsById,
+        importedTargetProduct,
+      }));
+    });
+    return entries;
+  }, [
+    existingProductOptionsById,
+    existingProducts,
+    importedTargetProductsById,
+    latestImportedJobByProductId,
+    products,
+  ]);
   const readinessBySupplierId = useMemo(() => {
     const result = new Map<string, ReadinessSummary>();
     products.forEach((product) => {
@@ -2435,7 +2777,7 @@ export default function SupplierBank() {
       title: "Luk Print.com other med placemats",
       description: printComOtherMissing
         ? "Print.com other mangler stadig i bankdækningen; placemats er den smalle slice, der allerede har lokal preflight."
-        : "Print.com other er ikke laengere en aktiv coverage gap i den aktuelle bankvisning.",
+        : "Print.com other er ikke længere en aktiv coverage gap i den aktuelle bankvisning.",
       details: [
         `Print.com familier i banken: ${formatFamilyLabels(printComCoverage?.stagedFamilies || [])}`,
         `Mangler: ${formatFamilyLabels(printComCoverage?.missingFamilies || [])}`,
@@ -2455,7 +2797,7 @@ export default function SupplierBank() {
         : "Der er ikke registrerede Pixart-familier tilbage som mangler i denne visning.",
       details: [
         `Mangler: ${formatFamilyLabels(pixartMissingFamilies)}`,
-        `URL-kandidater: ${pixartUrlCandidateRows.length} (${confirmedPixartUrlCandidates} bekraeftet)`,
+        `URL-kandidater: ${pixartUrlCandidateRows.length} (${confirmedPixartUrlCandidates} bekræftet)`,
         "Profiler for manglende Pixart-familier er planlægning, ikke kørbare imports endnu.",
         "Brug URL-kandidat og readiness rapporter før probe/extract.",
       ],
@@ -2587,7 +2929,7 @@ export default function SupplierBank() {
         statusLabel: printComOtherMissing ? "Klar til small-slice approval" : "Dækning findes i banken",
         description: printComOtherMissing
           ? "Placemats er den smalle Print.com `other` kandidat, der kan lukke den manglende familie efter eksplicit bank-only godkendelse."
-          : "Print.com `other` er ikke laengere markeret som manglende i den aktive coverage-visning.",
+          : "Print.com `other` er ikke længere markeret som manglende i den aktive coverage-visning.",
         evidence: [
           `I banken: ${formatFamilyLabels(printComCoverage?.stagedFamilies || [])}`,
           `Mangler: ${formatFamilyLabels(printComCoverage?.missingFamilies || [])}`,
@@ -2617,11 +2959,11 @@ export default function SupplierBank() {
         ],
         approvalNote: "Godkendelse må kun skrive supplier-bank snapshot. Ingen POD v2 rows, produkter, publicering eller live priser.",
         approveImpact: "Print.com `other` kan lukkes som bank-only placemats snapshot efter den godkendte preflight.",
-        deferImpact: "Print.com `other` bliver ved med at taelle som manglende coverage, men ingen produktdata ændres.",
+        deferImpact: "Print.com `other` bliver ved med at tælle som manglende coverage, men ingen produktdata ændres.",
         guardrails: [
           "No-write preflight findes",
           "Bank-write kræver eksplicit approval",
-          "POD v2 og live priser roeres ikke",
+          "POD v2 og live priser røres ikke",
         ],
         decisionChecklist: [
           "Review placemats preflight og local price preview.",
@@ -2888,6 +3230,15 @@ export default function SupplierBank() {
       || previewPricingSummary.priceMaxDkk != null
       || !!previewSnapshot
     : false;
+  const linkPreviewSnapshotStats = linkPreview
+    ? snapshotStatsByProductId[linkPreview.bankProduct.id]
+    : undefined;
+  const linkPreviewPricingSummary = linkPreview
+    ? resolveProductPricingSummary(linkPreview.bankProduct, linkPreviewSnapshotStats)
+    : null;
+  const linkPreviewSupplier = linkPreview
+    ? supplierById.get(linkPreview.bankProduct.supplier_id)
+    : undefined;
   const previewSelectionActive = hasSelectionFilter(previewSelection);
   const previewSelectionSuffix = previewProduct ? getSelectionSuffix(previewProduct.normalized_attributes, previewSelection) : "";
   const previewDraftImportBlockReason = previewDraftImport?.conversionGate?.allowed === false
@@ -3885,7 +4236,7 @@ export default function SupplierBank() {
                   <div>
                     <p className="text-sm font-medium">Pixart URL-kandidater</p>
                     <p className="text-xs text-muted-foreground">
-                      Planlaegning fra supplier registry. Links må ikke bruges til probe/extract, før eksakt URL og profil er bekraeftet.
+                      Planlægning fra supplier registry. Links må ikke bruges til probe/extract, før eksakt URL og profil er bekræftet.
                     </p>
                   </div>
                   <Badge variant="outline">{pixartUrlCandidateRows.length} kandidater</Badge>
@@ -3895,7 +4246,7 @@ export default function SupplierBank() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="secondary">{pixartUrlCandidateSummary.pending} afventer</Badge>
                       <Badge variant={pixartUrlCandidateSummary.confirmed > 0 ? "default" : "secondary"}>
-                        {pixartUrlCandidateSummary.confirmed} bekraeftet
+                        {pixartUrlCandidateSummary.confirmed} bekræftet
                       </Badge>
                       <Badge variant={pixartUrlCandidateSummary.rejected > 0 ? "destructive" : "secondary"}>
                         {pixartUrlCandidateSummary.rejected} afvist
@@ -4104,7 +4455,7 @@ export default function SupplierBank() {
                     {item.urlCandidateCount} URL-kandidat{item.urlCandidateCount === 1 ? "" : "er"}
                   </Badge>
                   <Badge variant={item.confirmedUrlCandidateCount > 0 ? "default" : "secondary"}>
-                    {item.confirmedUrlCandidateCount} bekraeftet
+                    {item.confirmedUrlCandidateCount} bekræftet
                   </Badge>
                   {item.pixartProfile ? (
                     <Badge variant="outline">
@@ -4370,6 +4721,27 @@ export default function SupplierBank() {
               <p className="font-medium">{selectedSupplierAction.label}</p>
               <p className="mt-1 text-xs opacity-80">{selectedSupplierAction.description}</p>
             </div>
+            <div className="rounded-md border bg-muted/30 px-3 py-3 text-sm">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="font-medium">Match mod eksisterende produkter</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Viser mulige forbindelser mellem supplier-bank produkter og de produkter, der allerede findes i Webprinter.
+                    Det er kun et læseværktøj og ændrer ikke produkter, valg eller priser.
+                  </p>
+                </div>
+                <Badge variant={existingProductMatchError ? "secondary" : "outline"}>
+                  {existingProductMatchError
+                    ? "matchdata delvis"
+                    : `${existingProducts.length} produkter`}
+                </Badge>
+              </div>
+              {existingProductMatchError ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Matchdata kunne ikke læses fuldt: {existingProductMatchError}
+                </p>
+              ) : null}
+            </div>
             {businessImportQueueItems.length > 0 ? (
               <div className="rounded-md border bg-muted/30 p-3">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
@@ -4492,7 +4864,7 @@ export default function SupplierBank() {
                             <p className="font-medium">Afventer lokal preview</p>
                             <p className="mt-1 opacity-80">
                               {row.urlCandidateCount > 0
-                                ? `${row.urlCandidateCount} URL-kandidat${row.urlCandidateCount === 1 ? "" : "er"} skal bekraeftes før extraction.`
+                                ? `${row.urlCandidateCount} URL-kandidat${row.urlCandidateCount === 1 ? "" : "er"} skal bekræftes før extraction.`
                               : "Start med dry extraction og normaliseret preview før bank write."}
                             </p>
                           </div>
@@ -4602,7 +4974,7 @@ export default function SupplierBank() {
               <div>
                 <p className="font-medium">Produktkortene viser normale importvalg først</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Refresh og prisreview er avancerede vaerktoejer og skjules, indtil de skal bruges.
+                  Refresh og prisreview er avancerede værktøjer og skjules, indtil de skal bruges.
                 </p>
               </div>
               <Button
@@ -4686,6 +5058,7 @@ export default function SupplierBank() {
                   snapshotStats,
                   refreshJob,
                 });
+                const matchSuggestions = existingProductMatchSuggestionsByBankProductId.get(product.id) || [];
                 return (
                   <div key={product.id} className="rounded-lg border p-4">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -4741,6 +5114,84 @@ export default function SupplierBank() {
                             </div>
                           </div>
                         ) : null}
+                        <div className="mt-3 rounded-md border bg-muted/30 px-3 py-2">
+                          <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground">Match mod eksisterende produkt</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Brug dette som beslutningshjælp: forbind til eksisterende produkt, opret ny draft, eller tilføj manglende valg i en draft senere.
+                              </p>
+                            </div>
+                            <Badge variant="outline">
+                              {matchSuggestions.length > 0 ? `${matchSuggestions.length} forslag` : "ingen forslag"}
+                            </Badge>
+                          </div>
+                          {matchSuggestions.length > 0 ? (
+                            <div className="mt-3 space-y-2">
+                              {matchSuggestions.map((suggestion) => (
+                                <div key={suggestion.product.id} className="rounded border bg-background/70 px-3 py-2 text-xs">
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="font-medium">{suggestion.product.name}</p>
+                                        <Badge variant={getProductMatchBadgeVariant(suggestion.score, suggestion.alreadyImportedTarget) as any}>
+                                          {suggestion.statusLabel}
+                                        </Badge>
+                                        <Badge variant="outline">{suggestion.score}/100</Badge>
+                                      </div>
+                                      <p className="mt-1 text-muted-foreground">
+                                        {suggestion.product.pricing_type || "ukendt pris"} · {suggestion.optionGroupCount} grupper · {suggestion.optionValueCount} valg
+                                      </p>
+                                    </div>
+                                    <div className="flex shrink-0 flex-wrap gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="default"
+                                        onClick={() => setLinkPreview({ bankProduct: product, suggestion })}
+                                      >
+                                        <ShieldCheck className="mr-2 h-4 w-4" />
+                                        Forbered
+                                      </Button>
+                                      <Button asChild size="sm" variant="outline">
+                                        <a href={adminPathWithCurrentContext(`/admin/product/${suggestion.product.slug}`)}>
+                                          <SquareArrowOutUpRight className="mr-2 h-4 w-4" />
+                                          Åbn
+                                        </a>
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  {suggestion.reasons.length > 0 ? (
+                                    <div className="mt-2 flex flex-wrap gap-1">
+                                      {suggestion.reasons.map((reason) => (
+                                        <Badge key={reason} variant="secondary">{reason}</Badge>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                  {suggestion.matchingSupplierValues.length > 0 ? (
+                                    <div className="mt-2">
+                                      <p className="font-medium text-emerald-700">Findes allerede</p>
+                                      <p className="mt-1 text-muted-foreground line-clamp-2">
+                                        {suggestion.matchingSupplierValues.join(", ")}
+                                      </p>
+                                    </div>
+                                  ) : null}
+                                  {suggestion.missingSupplierValues.length > 0 ? (
+                                    <div className="mt-2">
+                                      <p className="font-medium text-amber-700">Mangler som mulige nye valg</p>
+                                      <p className="mt-1 text-muted-foreground line-clamp-2">
+                                        {suggestion.missingSupplierValues.join(", ")}
+                                      </p>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-3 text-xs text-muted-foreground">
+                              Ingen tydelige match fundet. Den sikre vej er at oprette en upubliceret draft og gennemgå navn, materialer og valgmuligheder manuelt.
+                            </p>
+                          )}
+                        </div>
                         <div className={`mt-3 rounded-md border px-3 py-2 text-sm ${getNextActionClasses(nextAction.tone)}`}>
                           <p className="font-medium">{nextAction.label}</p>
                           <p className="mt-1 text-xs opacity-80">{nextAction.description}</p>
@@ -4836,7 +5287,7 @@ export default function SupplierBank() {
                               title={hasActiveRefreshJob ? "Refresh ligger allerede i kø" : undefined}
                             >
                               <ListChecks className={`mr-2 h-4 w-4 ${isQueueingRefresh ? "animate-pulse" : ""}`} />
-                              {hasActiveRefreshJob ? "Refresh i kø" : isQueueingRefresh ? "Lægger i kø..." : "Ko refresh"}
+                              {hasActiveRefreshJob ? "Refresh i kø" : isQueueingRefresh ? "Lægger i kø..." : "Kø refresh"}
                             </Button>
                             <Button
                               size="sm"
@@ -5043,6 +5494,133 @@ export default function SupplierBank() {
       </Card>
         </>
       ) : null}
+
+      <Dialog open={!!linkPreview} onOpenChange={(open) => !open && setLinkPreview(null)}>
+        <DialogContent className="max-h-[88vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Forbered forbindelse til eksisterende produkt</DialogTitle>
+            <DialogDescription>
+              Læsepreview før en mulig senere handling. Denne dialog opretter ikke produkter, valg, priser eller links.
+            </DialogDescription>
+          </DialogHeader>
+
+          {linkPreview ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-md border bg-muted/30 px-3 py-3 text-sm">
+                  <p className="text-xs font-medium text-muted-foreground">Supplier-bank produkt</p>
+                  <p className="mt-1 font-semibold">{linkPreview.bankProduct.name_da}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {linkPreviewSupplier?.name || "Ukendt leverandør"} · {getSupplierBankProductFamilyLabelDa(linkPreview.bankProduct.product_family)}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    <Badge variant="outline">{formatNumber(linkPreviewPricingSummary?.rows || 0)} prislinjer</Badge>
+                    <Badge variant="outline">{linkPreviewSnapshotStats?.count || 0} snapshots</Badge>
+                    <Badge variant={statusVariant(linkPreview.bankProduct.status) as any}>{linkPreview.bankProduct.status}</Badge>
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/30 px-3 py-3 text-sm">
+                  <p className="text-xs font-medium text-muted-foreground">Eksisterende Webprinter produkt</p>
+                  <p className="mt-1 font-semibold">{linkPreview.suggestion.product.name}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {linkPreview.suggestion.product.pricing_type || "ukendt pris"} · {linkPreview.suggestion.product.is_published ? "publiceret" : "upubliceret"}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    <Badge variant={getProductMatchBadgeVariant(linkPreview.suggestion.score, linkPreview.suggestion.alreadyImportedTarget) as any}>
+                      {linkPreview.suggestion.statusLabel}
+                    </Badge>
+                    <Badge variant="outline">{linkPreview.suggestion.score}/100</Badge>
+                    <Badge variant="outline">{linkPreview.suggestion.optionValueCount} eksisterende valg</Badge>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border px-3 py-3 text-sm">
+                <p className="font-medium">Hvad previewet betyder</p>
+                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                  <div className="rounded border bg-background px-3 py-2">
+                    <p className="text-xs text-muted-foreground">Match</p>
+                    <p className="mt-1 font-semibold">{linkPreview.suggestion.matchingSupplierValues.length}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Supplier-valg ser ud til at findes allerede.</p>
+                  </div>
+                  <div className="rounded border bg-background px-3 py-2">
+                    <p className="text-xs text-muted-foreground">Mulige nye valg</p>
+                    <p className="mt-1 font-semibold">{linkPreview.suggestion.missingSupplierValues.length}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Skal kun oprettes i en draft efter senere approval.</p>
+                  </div>
+                  <div className="rounded border bg-background px-3 py-2">
+                    <p className="text-xs text-muted-foreground">Prisrækker</p>
+                    <p className="mt-1 font-semibold">{formatNumber(linkPreviewPricingSummary?.rows || 0)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Kun læst fra supplier-bank preview.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-md border px-3 py-3 text-sm">
+                  <p className="font-medium text-emerald-700">Findes allerede</p>
+                  {linkPreview.suggestion.matchingSupplierValues.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {linkPreview.suggestion.matchingSupplierValues.map((value) => (
+                        <Badge key={value} variant="secondary">{value}</Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">Ingen tydelige option-match fundet.</p>
+                  )}
+                </div>
+                <div className="rounded-md border px-3 py-3 text-sm">
+                  <p className="font-medium text-amber-700">Kandidat til nye draft-valg</p>
+                  {linkPreview.suggestion.missingSupplierValues.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {linkPreview.suggestion.missingSupplierValues.map((value) => (
+                        <Badge key={value} variant="outline">{value}</Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">Ingen manglende supplier-valg i denne korte previewliste.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-950">
+                <p className="font-medium">Sikkerhedsgrænse</p>
+                <p className="mt-1 text-xs">
+                  Næste write-flow må først bygges som en separat approval-gate: opret kun upubliceret draft, overskriv ikke eksisterende produkter,
+                  skriv ikke live priser, og vis fuld diff før noget gemmes.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            {linkPreview ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    openDryRunPreview(linkPreview.bankProduct);
+                    setLinkPreview(null);
+                  }}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  Åbn supplier preview
+                </Button>
+                <Button asChild type="button" variant="outline">
+                  <a href={adminPathWithCurrentContext(`/admin/product/${linkPreview.suggestion.product.slug}`)}>
+                    <SquareArrowOutUpRight className="mr-2 h-4 w-4" />
+                    Åbn eksisterende produkt
+                  </a>
+                </Button>
+              </>
+            ) : null}
+            <Button type="button" onClick={() => setLinkPreview(null)}>
+              Luk
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!previewProduct} onOpenChange={(open) => !open && setPreviewProduct(null)}>
         <DialogContent className="max-h-[88vh] max-w-4xl overflow-y-auto">

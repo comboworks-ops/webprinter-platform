@@ -1455,6 +1455,7 @@ export function ProductAttributeBuilder({
                 .from('generic_product_prices')
                 .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
                 .eq('product_id', productId)
+                .order('quantity', { ascending: true })
                 .order('id', { ascending: true })
                 .range(offset, offset + pageSize - 1);
 
