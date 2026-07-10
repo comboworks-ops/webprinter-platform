@@ -45,6 +45,7 @@ dist-ssr
 !vercel.json
 !components.json
 !config/supplier-bank/sources.json
+!public/site-previews/*/manifest.json
 !eslint.config.js
 !supabase/migrations/*.sql
 !supabase/functions/**
