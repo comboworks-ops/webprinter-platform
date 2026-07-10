@@ -749,10 +749,36 @@ const FileUploadConfiguration = () => {
     } | null>(null);
     const [platformPreflightLoading, setPlatformPreflightLoading] = useState(false);
     const [previewUrl, setPreviewUrl] = useState<string | null>(() => {
-        const persistedPreview = persistedSiteUpload?.previewDataUrl || persistedSiteUpload?.fileUrl;
+        const persistedPreview = persistedDesignerExport?.previewDataUrl
+            || persistedSiteUpload?.previewDataUrl
+            || persistedSiteUpload?.fileUrl;
         return persistedPreview ? String(persistedPreview) : null;
     });
     const [proofingPreview, setProofingPreview] = useState<ProofingPreviewData | null>(() => {
+        if (persistedDesignerExport?.previewDataUrl) {
+            const physicalWidthMm = Number(
+                persistedDesignerExport.previewWidthMm
+                || state?.designWidthMm
+                || 0
+            );
+            const physicalHeightMm = Number(
+                persistedDesignerExport.previewHeightMm
+                || state?.designHeightMm
+                || 0
+            );
+
+            if (physicalWidthMm > 0 && physicalHeightMm > 0) {
+                return {
+                    fileType: persistedDesignerExport.mimeType === "image/png" ? "image" : "pdf",
+                    previewUrl: String(persistedDesignerExport.previewDataUrl),
+                    physicalWidthMm,
+                    physicalHeightMm,
+                    sourceWidthPx: 0,
+                    sourceHeightPx: 0,
+                };
+            }
+        }
+
         if (!persistedSiteUpload?.previewDataUrl) return null;
         const physicalWidthMm = Number(persistedSiteUpload.physicalWidthMm || 0);
         const physicalHeightMm = Number(persistedSiteUpload.physicalHeightMm || 0);

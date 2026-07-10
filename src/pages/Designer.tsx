@@ -358,6 +358,34 @@ function dataUrlToBlob(dataUrl: string): Blob {
     return new Blob([ab], { type: mimeString });
 }
 
+async function createCheckoutPreviewDataUrl(sourceDataUrl: string, maxDimension = 720): Promise<string | null> {
+    try {
+        const image = new Image();
+        image.src = sourceDataUrl;
+        await new Promise<void>((resolve, reject) => {
+            image.onload = () => resolve();
+            image.onerror = () => reject(new Error("Kunne ikke indlæse design-preview"));
+        });
+
+        const sourceWidth = Math.max(1, image.naturalWidth || image.width);
+        const sourceHeight = Math.max(1, image.naturalHeight || image.height);
+        const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+        canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+        const context = canvas.getContext("2d");
+        if (!context) return null;
+
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL("image/jpeg", 0.78);
+    } catch (error) {
+        console.warn("[Designer] Checkout preview could not be generated:", error);
+        return null;
+    }
+}
+
 function ApparelMockupArtboard({
     config,
     viewportWidth,
@@ -1521,19 +1549,17 @@ function DesignerWorkspace() {
     }, [hasChanges, navigateBack]);
 
     const markDesignReady = useCallback(() => {
-        if (!documentSpec.product_id) return;
-        markSiteCheckoutDesignReady(documentSpec.product_id, readSiteCheckoutSession());
-    }, [documentSpec.product_id]);
+        const readyProductId = documentSpec.product_id || productId || checkoutSession?.productId;
+        if (!readyProductId) return;
+        markSiteCheckoutDesignReady(readyProductId, readSiteCheckoutSession());
+    }, [checkoutSession?.productId, documentSpec.product_id, productId]);
 
-    const buildCanvasOrderPdfBlob = useCallback(async (fabricCanvas: fabric.Canvas, nameOverride?: string) => {
-        const exportName = nameOverride || documentSpec.name;
+    const buildCanvasOrderArtworkDataUrl = useCallback(async (fabricCanvas: fabric.Canvas) => {
         const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId)
             || OUTPUT_PROFILES[0];
         const bleedPx = (documentSpec.bleed_mm || 0) * displayMmToPx;
-        const pdfWidth = documentSpec.width_mm + ((documentSpec.bleed_mm || 0) * 2);
-        const pdfHeight = documentSpec.height_mm + ((documentSpec.bleed_mm || 0) * 2);
 
-        const proofedRgbDataUrl = await withCanonicalExportViewport(
+        return withCanonicalExportViewport(
             fabricCanvas,
             () => withHiddenGuides(fabricCanvas, async () => {
                 const result = await colorProofing.exportCMYK(
@@ -1551,6 +1577,24 @@ function DesignerWorkspace() {
                 return result.proofedRgbDataUrl;
             }),
         );
+    }, [
+        colorProofing,
+        displayMmToPx,
+        documentSpec.bleed_mm,
+        documentSpec.height_mm,
+        documentSpec.width_mm,
+        pasteboardPaddingPx,
+        productProfile.profileBytes,
+    ]);
+
+    const buildCanvasOrderPdfBlob = useCallback(async (fabricCanvas: fabric.Canvas, nameOverride?: string) => {
+        const exportName = nameOverride || documentSpec.name;
+        const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId)
+            || OUTPUT_PROFILES[0];
+        const pdfWidth = documentSpec.width_mm + ((documentSpec.bleed_mm || 0) * 2);
+        const pdfHeight = documentSpec.height_mm + ((documentSpec.bleed_mm || 0) * 2);
+        const proofedRgbDataUrl = await buildCanvasOrderArtworkDataUrl(fabricCanvas);
+        const previewDataUrl = await createCheckoutPreviewDataUrl(proofedRgbDataUrl);
 
         const doc = new jsPDF({
             orientation: pdfWidth > pdfHeight ? 'landscape' : 'portrait',
@@ -1569,50 +1613,26 @@ function DesignerWorkspace() {
         return {
             blob: doc.output('blob') as Blob,
             filename: `${exportName.replace(/[^a-z0-9_.-]/gi, '_')}.pdf`,
+            previewDataUrl,
         };
     }, [
-        colorProofing,
-        displayMmToPx,
+        buildCanvasOrderArtworkDataUrl,
         documentSpec,
-        pasteboardPaddingPx,
-        productProfile.profileBytes,
     ]);
 
     const buildCanvasOrderPngBlob = useCallback(async (fabricCanvas: fabric.Canvas, nameOverride?: string) => {
         const exportName = nameOverride || documentSpec.name;
-        const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId)
-            || OUTPUT_PROFILES[0];
-        const bleedPx = (documentSpec.bleed_mm || 0) * displayMmToPx;
-
-        const proofedRgbDataUrl = await withCanonicalExportViewport(
-            fabricCanvas,
-            () => withHiddenGuides(fabricCanvas, async () => {
-                const result = await colorProofing.exportCMYK(
-                    SRGB_PROFILE_URL,
-                    profile.url,
-                    productProfile.profileBytes,
-                    {
-                        left: pasteboardPaddingPx,
-                        top: pasteboardPaddingPx,
-                        width: (documentSpec.width_mm * displayMmToPx) + (bleedPx * 2),
-                        height: (documentSpec.height_mm * displayMmToPx) + (bleedPx * 2),
-                    }
-                );
-
-                return result.proofedRgbDataUrl;
-            }),
-        );
+        const proofedRgbDataUrl = await buildCanvasOrderArtworkDataUrl(fabricCanvas);
+        const previewDataUrl = await createCheckoutPreviewDataUrl(proofedRgbDataUrl);
 
         return {
             blob: dataUrlToBlob(proofedRgbDataUrl),
             filename: `${exportName.replace(/[^a-z0-9_.-]/gi, '_')}.png`,
+            previewDataUrl,
         };
     }, [
-        colorProofing,
-        displayMmToPx,
+        buildCanvasOrderArtworkDataUrl,
         documentSpec,
-        pasteboardPaddingPx,
-        productProfile.profileBytes,
     ]);
 
     const handleReturnToOrder = useCallback(() => {
@@ -1675,6 +1695,7 @@ function DesignerWorkspace() {
 
                 if (apparelConfig) {
                     saveApparelSideDraft(apparelConfig.activeSide);
+                    let checkoutPreviewDataUrl: string | null = null;
 
                     const productionFiles: Array<{
                         format: "png" | "pdf";
@@ -1715,6 +1736,9 @@ function DesignerWorkspace() {
                         const sidePdfBackgroundMeta = detectPdfBackground(sideCanvas);
                         const isFirstProductionSide = productionFiles.length === 0;
                         const pngFile = await buildCanvasOrderPngBlob(sideCanvas, sideName);
+                        if (!checkoutPreviewDataUrl && pngFile.previewDataUrl) {
+                            checkoutPreviewDataUrl = pngFile.previewDataUrl;
+                        }
                         const pngUpload = await uploadProductionFile(pngFile, "image/png", "apparel_png");
                         productionFiles.push({
                             format: "png",
@@ -1788,6 +1812,9 @@ function DesignerWorkspace() {
                             mimeType: primaryPngUpload.mimeType,
                             fileUrl: primaryPngUpload.fileUrl,
                             filePath: primaryPngUpload.filePath,
+                            previewDataUrl: checkoutPreviewDataUrl,
+                            previewWidthMm: apparelConfig.printWidthMm,
+                            previewHeightMm: apparelConfig.printHeightMm,
                             sourceMode: primaryPngUpload.sourceMode,
                             primaryFormat: "png",
                             alternateFormats: ["pdf"],
@@ -1827,12 +1854,20 @@ function DesignerWorkspace() {
                     };
 
                 const pdfUpload = await uploadProductionFile(productionFile, "application/pdf", productionFile.sourceMode);
+                const productionPreviewDataUrl = "previewDataUrl" in productionFile
+                    ? productionFile.previewDataUrl
+                    : null;
+                const checkoutPreviewDataUrl = productionPreviewDataUrl
+                    || await createCheckoutPreviewDataUrl(await buildCanvasOrderArtworkDataUrl(fabricCanvas));
 
                 const existingSession = readSiteCheckoutSession();
                 writeSiteCheckoutSession({
                     ...existingSession,
                     designerExport: {
                         ...pdfUpload,
+                        previewDataUrl: checkoutPreviewDataUrl,
+                        previewWidthMm: documentSpec.width_mm + ((documentSpec.bleed_mm || 0) * 2),
+                        previewHeightMm: documentSpec.height_mm + ((documentSpec.bleed_mm || 0) * 2),
                         primaryFormat: "pdf",
                         alternateFormats: [],
                         productionFiles: [
@@ -1852,7 +1887,7 @@ function DesignerWorkspace() {
         };
 
         void prepareDesignerOrderFile();
-    }, [apparelConfig, buildCanvasOrderPdfBlob, buildCanvasOrderPngBlob, documentSpec, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo, saveApparelSideDraft]);
+    }, [apparelConfig, buildCanvasOrderArtworkDataUrl, buildCanvasOrderPdfBlob, buildCanvasOrderPngBlob, documentSpec, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo, saveApparelSideDraft]);
 
     // Save and then navigate back
     const handleSaveAndLeave = useCallback(async () => {
@@ -3720,7 +3755,7 @@ function DesignerWorkspace() {
                             ) : (
                                 <ShoppingCart className="h-4 w-4 mr-2" />
                             )}
-                            {returningToOrder ? "Forbereder produktionsfil..." : "Tilbage til bestilling"}
+                            {returningToOrder ? "Forbereder produktionsfil..." : "Fortsæt til checkout"}
                         </Button>
                     ) : (
                         <Button onClick={() => handleSave()} disabled={saving} className="bg-primary text-primary-foreground hover:bg-primary/90">

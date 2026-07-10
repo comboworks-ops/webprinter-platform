@@ -25,6 +25,9 @@ export interface SiteCheckoutDesignerExport {
   mimeType?: string | null;
   fileUrl?: string | null;
   filePath?: string | null;
+  previewDataUrl?: string | null;
+  previewWidthMm?: number | null;
+  previewHeightMm?: number | null;
   sourceMode?: "vector_pdf" | "print_pdf" | "apparel_png" | null;
   primaryFormat?: "png" | "pdf" | null;
   alternateFormats?: Array<"png" | "pdf"> | null;

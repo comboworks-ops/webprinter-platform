@@ -64,7 +64,7 @@ const FLOW_COPY: Record<ProductDesignerMode, {
   storformat: {
     badgeLabel: "Storformat",
     customerHelpText: "Design efter valgt bredde og højde, eller upload en færdig storformatfil.",
-    designerCtaLabel: "Design i valgt mål",
+    designerCtaLabel: "Design",
     orderCtaLabel: "Upload fil og bestil",
     checkoutTitle: "Storformat fil-tjek",
     checkoutUploadTitle: "Upload storformatfil",
@@ -76,7 +76,7 @@ const FLOW_COPY: Record<ProductDesignerMode, {
   signage: {
     badgeLabel: "Skilt/facade",
     customerHelpText: "Design efter mål og materiale, eller upload produktionsklar skiltefil.",
-    designerCtaLabel: "Design skilt",
+    designerCtaLabel: "Design",
     orderCtaLabel: "Upload fil og bestil",
     checkoutTitle: "Skiltefil og korrektur",
     checkoutUploadTitle: "Upload skiltefil",

@@ -144,25 +144,11 @@ const copyTenantContextParams = (target: URLSearchParams, source: URLSearchParam
   });
 };
 
-const buildDesignerReturnTo = (productSlug: string, source: URLSearchParams) => {
-  const productPath = `/produkt/${productSlug}`;
-  const productParams = new URLSearchParams();
-  copyTenantContextParams(productParams, source);
-  const productQuery = productParams.toString();
-  const productReturnTo = `${productPath}${productQuery ? `?${productQuery}` : ""}`;
-
-  const isSitePreview = source.get("sitePreview") === "1" && !!source.get("siteId");
-  if (!isSitePreview) return productReturnTo;
-
-  const previewParams = new URLSearchParams();
-  previewParams.set("preview_mode", "1");
-  const tenantId = source.get("tenantId");
-  const siteId = source.get("siteId");
-  if (tenantId) previewParams.set("tenantId", tenantId);
-  if (siteId) previewParams.set("siteId", siteId);
-  previewParams.set("sitePreview", "1");
-  previewParams.set("page", productPath);
-  return `/preview-shop?${previewParams.toString()}`;
+const buildDesignerReturnTo = (source: URLSearchParams) => {
+  const checkoutParams = new URLSearchParams();
+  copyTenantContextParams(checkoutParams, source);
+  const checkoutQuery = checkoutParams.toString();
+  return `/checkout/konfigurer${checkoutQuery ? `?${checkoutQuery}` : ""}`;
 };
 
 const MotionButton = motion(Button);
@@ -1411,7 +1397,7 @@ export function ProductPricePanel({
                       params.set('safeMm', String(finalSafeMm));
                     }
                     params.set('order', '1');
-                    params.set('returnTo', buildDesignerReturnTo(productSlug, currentSearchParams));
+                    params.set('returnTo', buildDesignerReturnTo(currentSearchParams));
                     navigate(`/designer?${params.toString()}`);
                   }}
                 >
