@@ -46,6 +46,9 @@ dist-ssr
 !components.json
 !config/supplier-bank/sources.json
 !public/site-previews/*/manifest.json
+!public/site-previews/**/*.js
+!public/site-previews/**/*.mjs
+!public/site-previews/*/branding.json
 !eslint.config.js
 !supabase/migrations/*.sql
 !supabase/functions/**
