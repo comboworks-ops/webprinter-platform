@@ -309,6 +309,11 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 name = 'Cirkel';
             } else if (obj.type === 'line') {
                 name = 'Linje';
+            } else if ((obj as any).__isPdfTemplate) {
+                name = 'PDF-skabelon (ikke-printbar)';
+            } else if ((obj as any).data?.kind === 'pdf_page_background') {
+                const fileName = (obj as any).data?.originalFileName;
+                name = fileName ? `PDF: ${fileName}` : 'PDF';
             } else if (obj.type === 'image') {
                 name = 'Billede';
             }
@@ -325,6 +330,44 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
 
         onLayersChange?.(layers);
     }, [onLayersChange]);
+
+    const lockPdfTemplate = useCallback((obj: fabric.Object) => {
+        obj.set({
+            selectable: false,
+            evented: false,
+            lockMovementX: true,
+            lockMovementY: true,
+            lockScalingX: true,
+            lockScalingY: true,
+            lockRotation: true,
+            hasControls: false,
+            hasBorders: false,
+            excludeFromExport: true,
+            hoverCursor: 'default',
+        });
+    }, []);
+
+    const bringSystemOverlaysToFront = useCallback((canvas: fabric.Canvas) => {
+        canvas.getObjects().forEach((obj) => {
+            if ((obj as any).__isPdfTemplate) {
+                lockPdfTemplate(obj);
+                obj.bringToFront();
+            }
+        });
+
+        canvas.getObjects().forEach((obj) => {
+            if ((obj as any).__isCutContour) {
+                obj.bringToFront();
+            }
+        });
+
+        canvas.getObjects().forEach((obj) => {
+            if ((obj as any).__isGuide || (obj as any).__isGuideLabel) {
+                obj.set({ excludeFromExport: true });
+                obj.bringToFront();
+            }
+        });
+    }, [lockPdfTemplate]);
 
     const isVectorSafeCutContourCandidate = useCallback((obj: fabric.Object): boolean => {
         if (!obj) return false;
@@ -483,24 +526,13 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 }
             });
 
-            canvas.getObjects().forEach((obj) => {
-                if ((obj as any).__isPdfTemplate || (obj as any).__isCutContour) {
-                    obj.bringToFront();
-                }
-            });
-
-            canvas.getObjects().forEach((obj) => {
-                if ((obj as any).__isGuide || (obj as any).__isGuideLabel) {
-                    obj.set({ excludeFromExport: true });
-                    obj.bringToFront();
-                }
-            });
+            bringSystemOverlaysToFront(canvas);
 
             canvas.renderAll();
             emitLayersUpdate();
             onDone?.();
         });
-    }, [emitLayersUpdate]);
+    }, [bringSystemOverlaysToFront, emitLayersUpdate]);
 
     const restoreHistorySnapshot = useCallback((snapshot: any, onDone?: () => void) => {
         const canvas = fabricRef.current;
@@ -528,24 +560,13 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         fabric.util.enlivenObjects(objects, (enlivenedObjects: fabric.Object[]) => {
             enlivenedObjects.forEach((obj) => canvas.add(obj));
 
-            canvas.getObjects().forEach((obj) => {
-                if ((obj as any).__isPdfTemplate || (obj as any).__isCutContour) {
-                    obj.bringToFront();
-                }
-            });
-
-            canvas.getObjects().forEach((obj) => {
-                if ((obj as any).__isGuide || (obj as any).__isGuideLabel) {
-                    obj.set({ excludeFromExport: true });
-                    obj.bringToFront();
-                }
-            });
+            bringSystemOverlaysToFront(canvas);
 
             canvas.renderAll();
             emitLayersUpdate();
             onDone?.();
         });
-    }, [emitLayersUpdate]);
+    }, [bringSystemOverlaysToFront, emitLayersUpdate]);
 
     // Initialize Fabric.js canvas
     useEffect(() => {
@@ -699,18 +720,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 (e.target as any).__layerId = `layer-${objectCounter.current++}`;
             }
 
-            // Keep guide lines, templates, and CutContours on top after any object is added
-            canvas.getObjects().forEach(obj => {
-                if ((obj as any).__isPdfTemplate || (obj as any).__isCutContour) {
-                    obj.bringToFront();
-                }
-            });
-            // Guides should be on the very top
-            canvas.getObjects().forEach(obj => {
-                if ((obj as any).__isGuide) {
-                    obj.bringToFront();
-                }
-            });
+            bringSystemOverlaysToFront(canvas);
 
             if (!isUndoRedo.current) {
                 saveHistory();
@@ -877,14 +887,16 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         const isInteractive = selectedTool === 'select';
         canvas.forEachObject(obj => {
             // Document background and guides should remain unselectable/unevented unless specific logic exists
-            const isSystemObj = (obj as any).__isDocumentBackground || (obj as any).__isGuide;
+            const isSystemObj = (obj as any).__isDocumentBackground || (obj as any).__isGuide || (obj as any).__isGuideLabel || (obj as any).__isPdfTemplate;
             if (!isSystemObj) {
                 obj.selectable = isInteractive;
                 obj.evented = isInteractive;
+            } else if ((obj as any).__isPdfTemplate) {
+                lockPdfTemplate(obj);
             }
         });
 
-    }, [selectedTool]);
+    }, [lockPdfTemplate, selectedTool]);
 
     // Expose methods via ref
     useImperativeHandle(ref, () => ({
@@ -1167,35 +1179,27 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                     scaleX: scale,
                     scaleY: scale,
                     opacity: 0.5,              // Semi-transparent
-                    selectable: true,          // Can select to reposition if needed
-                    evented: true,
+                    selectable: false,
+                    evented: false,
                     lockMovementX: true,       // Lock position by default
                     lockMovementY: true,
                     lockScalingX: true,        // Lock scale
                     lockScalingY: true,
                     lockRotation: true,        // Lock rotation
                     hasControls: false,        // No resize handles
-                    hasBorders: true,          // Show selection border
+                    hasBorders: false,
                     excludeFromExport: true,   // Non-printing
+                    hoverCursor: 'default',
                 });
 
                 // Mark as PDF template for preflight exclusion
                 (img as any).__isPdfTemplate = true;
                 (img as any).__layerId = `pdftemplate-${objectCounter.current++}`;
+                lockPdfTemplate(img);
 
                 canvas.add(img);
 
-                // Bring template to front (below guides and CutContour)
-                img.bringToFront();
-
-                // Keep guide lines and CutContours on top
-                canvas.getObjects().forEach(canvasObj => {
-                    if ((canvasObj as any).__isGuide || (canvasObj as any).__isCutContour) {
-                        canvasObj.bringToFront();
-                    }
-                });
-
-                canvas.setActiveObject(img);
+                bringSystemOverlaysToFront(canvas);
                 canvas.renderAll();
                 emitLayersUpdate();
                 saveHistory();
@@ -1628,7 +1632,9 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
 
             return userObjects.map((obj, index) => {
                 let name = obj.type || 'Object';
-                if (obj.type === 'i-text' || obj.type === 'text') {
+                if ((obj as any).__isPdfTemplate) {
+                    name = 'PDF-skabelon (ikke-printbar)';
+                } else if (obj.type === 'i-text' || obj.type === 'text') {
                     const text = (obj as fabric.IText).text || '';
                     name = text.substring(0, 20) + (text.length > 20 ? '...' : '');
                 }
@@ -1662,6 +1668,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             const obj = canvas.getObjects().find((o) => (o as any).__layerId === id);
             if (obj) {
                 canvas.bringForward(obj);
+                bringSystemOverlaysToFront(canvas);
                 canvas.renderAll();
                 emitLayersUpdate();
             }
@@ -1674,6 +1681,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             const obj = canvas.getObjects().find((o) => (o as any).__layerId === id);
             if (obj) {
                 canvas.sendBackwards(obj);
+                bringSystemOverlaysToFront(canvas);
                 canvas.renderAll();
                 emitLayersUpdate();
             }
@@ -1805,10 +1813,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             const activeObject = canvas?.getActiveObject();
             if (activeObject) {
                 activeObject.bringToFront();
-                // Keep guide lines on top
-                canvas?.getObjects().forEach(obj => {
-                    if ((obj as any).__isGuide) obj.bringToFront();
-                });
+                if (canvas) bringSystemOverlaysToFront(canvas);
                 canvas?.requestRenderAll();
             }
         },
@@ -1821,10 +1826,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 // Document background should stay at back
                 const bg = canvas?.getObjects().find(obj => (obj as any).__isDocumentBackground);
                 if (bg) bg.sendToBack();
-                // Keep guide lines on top
-                canvas?.getObjects().forEach(obj => {
-                    if ((obj as any).__isGuide) obj.bringToFront();
-                });
+                if (canvas) bringSystemOverlaysToFront(canvas);
                 canvas?.requestRenderAll();
             }
         }

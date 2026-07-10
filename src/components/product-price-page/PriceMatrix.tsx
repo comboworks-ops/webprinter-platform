@@ -172,19 +172,19 @@ export function PriceMatrix({
     >
       {/* Navigation buttons */}
       {columns.length > columnsPerPage && (
-        <div className="flex items-center justify-between" data-site-design-target="productPage.matrix.buttons">
+        <div className="flex flex-wrap items-center justify-between gap-2" data-site-design-target="productPage.matrix.buttons">
           <Button
             variant="outline"
             size="sm"
             onClick={handlePrev}
             disabled={!canGoPrev}
             aria-label="Forrige kolonner"
-            className="!border-[var(--matrix-nav-button-border)] !bg-[var(--matrix-nav-button-bg)] !text-[var(--matrix-nav-button-text)] hover:!border-[var(--matrix-nav-button-hover-border)] hover:!bg-[var(--matrix-nav-button-hover-bg)] hover:!text-[var(--matrix-nav-button-hover-text)]"
+            className="min-h-11 touch-manipulation whitespace-nowrap !border-[var(--matrix-nav-button-border)] !bg-[var(--matrix-nav-button-bg)] !text-[var(--matrix-nav-button-text)] hover:!border-[var(--matrix-nav-button-hover-border)] hover:!bg-[var(--matrix-nav-button-hover-bg)] hover:!text-[var(--matrix-nav-button-hover-text)]"
           >
             <ChevronLeft className="h-4 w-4 mr-1" />
             Forrige
           </Button>
-          <span className="text-sm" style={{ color: "var(--matrix-row-header-text)" }}>
+          <span className="order-3 w-full text-center text-xs sm:order-none sm:w-auto sm:text-sm" style={{ color: "var(--matrix-row-header-text)" }}>
             Viser {columnOffset + 1}-{Math.min(columnOffset + columnsPerPage, columns.length)} af {columns.length}
           </span>
           <Button
@@ -193,7 +193,7 @@ export function PriceMatrix({
             onClick={handleNext}
             disabled={!canGoNext}
             aria-label="Næste kolonner"
-            className="!border-[var(--matrix-nav-button-border)] !bg-[var(--matrix-nav-button-bg)] !text-[var(--matrix-nav-button-text)] hover:!border-[var(--matrix-nav-button-hover-border)] hover:!bg-[var(--matrix-nav-button-hover-bg)] hover:!text-[var(--matrix-nav-button-hover-text)]"
+            className="min-h-11 touch-manipulation whitespace-nowrap !border-[var(--matrix-nav-button-border)] !bg-[var(--matrix-nav-button-bg)] !text-[var(--matrix-nav-button-text)] hover:!border-[var(--matrix-nav-button-hover-border)] hover:!bg-[var(--matrix-nav-button-hover-bg)] hover:!text-[var(--matrix-nav-button-hover-text)]"
           >
             Næste
             <ChevronRight className="h-4 w-4 ml-1" />
@@ -203,21 +203,21 @@ export function PriceMatrix({
 
       {/* Matrix */}
       <div 
-        className="overflow-x-auto rounded-[var(--matrix-box-radius)] border-[var(--matrix-box-border-width)] border-[var(--matrix-box-border-color)] bg-[var(--matrix-box-bg)] p-[var(--matrix-box-padding)] transition-opacity duration-200"
+        className="max-w-full overflow-x-auto overscroll-x-contain rounded-[var(--matrix-box-radius)] border-[var(--matrix-box-border-width)] border-[var(--matrix-box-border-color)] bg-[var(--matrix-box-bg)] p-[var(--matrix-box-padding)] pb-3 transition-opacity duration-200"
         data-branding-id="productPage.matrix.box"
         data-site-design-target="productPage.matrix.box"
       >
-        <div role="grid" aria-label="Prismatrix" className="min-w-full">
+        <div role="grid" aria-label="Prismatrix" className="min-w-max sm:min-w-full">
           {/* Header row */}
           <div role="row" className="flex border-b border-[var(--matrix-border)] bg-[var(--matrix-header-bg)] text-[var(--matrix-header-text)]" data-site-design-target="productPage.matrix.topRow">
-            <div className="sticky left-0 w-32 flex-shrink-0 border-r border-[var(--matrix-border)] bg-[var(--matrix-header-bg)] p-3 text-sm font-semibold md:w-40">
+            <div className="sticky left-0 w-28 flex-shrink-0 border-r border-[var(--matrix-border)] bg-[var(--matrix-header-bg)] p-2 text-xs font-semibold sm:w-32 sm:p-3 sm:text-sm md:w-40">
               {rowHeaderLabel || "Materiale / Antal"}
             </div>
             {visibleColumns.map((col) => (
               <div
                 key={col}
                 role="columnheader"
-                className="w-24 flex-shrink-0 border-l border-[var(--matrix-border)] p-3 text-center text-sm font-semibold first:border-l-0"
+                className="w-20 flex-shrink-0 border-l border-[var(--matrix-border)] p-2 text-center text-xs font-semibold first:border-l-0 sm:w-24 sm:p-3 sm:text-sm"
               >
                 {col} {columnUnit}
               </div>
@@ -227,7 +227,7 @@ export function PriceMatrix({
           {/* Data rows */}
           {rows.map((row) => (
             <div key={row} role="row" className="flex border-b border-[var(--matrix-border)] last:border-b-0">
-              <div className="sticky left-0 w-32 flex-shrink-0 border-r border-[var(--matrix-border)] bg-[var(--matrix-row-header-bg)] p-3 text-sm font-medium text-[var(--matrix-row-header-text)] md:w-40" data-site-design-target="productPage.matrix.vertical">
+              <div className="sticky left-0 w-28 flex-shrink-0 border-r border-[var(--matrix-border)] bg-[var(--matrix-row-header-bg)] p-2 text-xs font-medium text-[var(--matrix-row-header-text)] sm:w-32 sm:p-3 sm:text-sm md:w-40" data-site-design-target="productPage.matrix.vertical">
                 {row}
               </div>
               {visibleColumns.map((col) => {
@@ -244,7 +244,7 @@ export function PriceMatrix({
                     onClick={() => onCellClick(row, col, base, display)}
                     onKeyDown={(e) => handleKeyDown(e, row, col)}
                     data-site-design-target="productPage.matrix.pricing"
-                    className={`w-24 flex-shrink-0 border-l border-[var(--matrix-border)] p-3 text-center text-sm tabular-nums transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--matrix-selected-bg)] focus:ring-inset ${isSelected
+                    className={`min-h-11 w-20 flex-shrink-0 touch-manipulation border-l border-[var(--matrix-border)] p-2 text-center text-xs tabular-nums transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--matrix-selected-bg)] focus:ring-inset sm:w-24 sm:p-3 sm:text-sm ${isSelected
                       ? "bg-[var(--matrix-selected-bg)] font-semibold text-[var(--matrix-selected-text)]"
                       : "cursor-pointer bg-[var(--matrix-cell-bg)] text-[var(--matrix-cell-text)] hover:bg-[var(--matrix-cell-hover-bg)] hover:text-[var(--matrix-cell-hover-text)]"
                       }`}

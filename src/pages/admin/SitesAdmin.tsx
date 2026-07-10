@@ -391,7 +391,7 @@ export default function SitesAdmin() {
             Sites
           </CardTitle>
           <CardDescription>
-            Vaelg et facade-site, importer site-specifikke formater/efterbehandlinger til biblioteket,
+            Vælg et facade-site, importer site-specifikke formater/efterbehandlinger til biblioteket,
             og behold checkout i WebPrinter-systemet.
           </CardDescription>
           <p className="text-xs text-muted-foreground px-6 pb-2">
@@ -422,25 +422,25 @@ export default function SitesAdmin() {
             <Button asChild variant="outline" size="sm">
               <Link to="/admin/branding-v2">
                 <Palette className="h-4 w-4 mr-2" />
-                Gaa til Site Design
+                Gå til Site Design
               </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
               <Link to="/admin/site-design-v2">
                 <Palette className="h-4 w-4 mr-2" />
-                Gaa til Site Design V2
+                Gå til Site Design V2
               </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
               <Link to="/admin/tilvalgsbibliotek">
                 <Layers3 className="h-4 w-4 mr-2" />
-                Aabn tilvalgsbibliotek
+                Åbn tilvalgsbibliotek
               </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
               <Link to="/admin/products">
                 <LayoutGrid className="h-4 w-4 mr-2" />
-                Gaa til produkter
+                Gå til produkter
               </Link>
             </Button>
             <Button asChild variant="outline" size="sm">

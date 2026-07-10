@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Loader2, Save, Trash2, ArrowLeft, X, LayoutGrid, Printer, Cpu } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Save, Trash2, ArrowLeft, X, LayoutGrid, Printer, Cpu } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { ProductImageUpload } from "./ProductImageUpload";
 import { AddPriceRow } from "./AddPriceRow";
@@ -289,6 +289,7 @@ function createDefaultSiteFrontendConfig(productName: string): SiteFrontendConfi
 
 const FALLBACK_OVERVIEW_ID = "__default_overview__";
 const FALLBACK_OVERVIEW_NAME = "Produkter";
+const LARGE_PRICE_ROW_COUNT_THRESHOLD = 5000;
 
 function createDefaultCategoryLandingConfig(): CategoryLandingConfig {
   return {
@@ -405,6 +406,9 @@ export function ProductPriceManager() {
     inkSets: []
   });
   const [filteredPrices, setFilteredPrices] = useState<any[]>([]);
+  const [priceRowCount, setPriceRowCount] = useState<number | null>(null);
+  const [pricesLoadedAsSummary, setPricesLoadedAsSummary] = useState(false);
+  const [priceFingerprintHint, setPriceFingerprintHint] = useState("");
   const [activeTab, setActiveTab] = useState("about");
   const [orderDeliveryConfig, setOrderDeliveryConfig] = useState<OrderDeliveryConfig>(DEFAULT_ORDER_DELIVERY_CONFIG);
   const [hasOrderDeliveryEdits, setHasOrderDeliveryEdits] = useState(false);
@@ -420,8 +424,13 @@ export function ProductPriceManager() {
   const [catalogCategories, setCatalogCategories] = useState<ProductCategoryRecord[]>([]);
 
   const publishedPricesFingerprint = useMemo(
-    () => createPriceFingerprint(prices),
-    [prices]
+    () => {
+      if (pricesLoadedAsSummary && priceRowCount != null) {
+        return `${priceRowCount}:summary:${priceFingerprintHint}`;
+      }
+      return createPriceFingerprint(prices);
+    },
+    [priceFingerprintHint, priceRowCount, prices, pricesLoadedAsSummary]
   );
 
   const rootLandingCategories = useMemo(
@@ -439,6 +448,61 @@ export function ProductPriceManager() {
 
   // Hook for product attribute groups (used in pricing structure)
   const productAttrs = useProductAttributes(product?.id, product?.tenant_id);
+  const pricePreviewHealth = useMemo(() => {
+    const isStorformat = activeConfigSection === "storformat" || product?.pricing_type === "STORFORMAT";
+    const isMachinePriced = activeConfigSection === "machine" || pricingType === "MACHINE_PRICED" || product?.pricing_type === "MACHINE_PRICED";
+    const formattedRows = priceRowCount == null ? "Ukendt" : priceRowCount.toLocaleString("da-DK");
+
+    if (isStorformat) {
+      return {
+        tone: "info" as const,
+        Icon: Printer,
+        label: "Storformat bruger separat prislogik",
+        detail: "Denne produkttype henter ikke nødvendigvis sine kundevendte priser fra Matrix-prisrækker.",
+        rows: formattedRows,
+      };
+    }
+
+    if (isMachinePriced) {
+      return {
+        tone: "info" as const,
+        Icon: Cpu,
+        label: "Maskinberegning bruger MPA-logik",
+        detail: "Pris-preview skal bevises i maskinberegneren, ikke kun via Matrix-prisrækker.",
+        rows: formattedRows,
+      };
+    }
+
+    if (priceRowCount == null) {
+      return {
+        tone: "info" as const,
+        Icon: RefreshCw,
+        label: "Prisrækker indlæses",
+        detail: "Systemet tæller Matrix-prisrækker for at vise om previewet kan vise priser.",
+        rows: formattedRows,
+      };
+    }
+
+    if (priceRowCount === 0) {
+      return {
+        tone: "danger" as const,
+        Icon: AlertTriangle,
+        label: "0 Matrix-prisrækker fundet",
+        detail: "Produkt-previewet vil ikke kunne vise priser, før produktet har mindst én gyldig prisrække.",
+        rows: formattedRows,
+      };
+    }
+
+    return {
+      tone: "success" as const,
+      Icon: CheckCircle2,
+      label: pricesLoadedAsSummary ? "Pris-preview har mange rækker" : "Pris-preview har prisrækker",
+      detail: pricesLoadedAsSummary
+        ? "Rækkerne er indlæst som opsummering i admin for at holde siden hurtig, men previewgrundlaget findes."
+        : "Produktet har Matrix-prisrækker, så previewet har et prisgrundlag at vise.",
+      rows: formattedRows,
+    };
+  }, [activeConfigSection, priceRowCount, pricesLoadedAsSummary, pricingType, product?.pricing_type]);
 
   const normalizeDeliveryMethods = (methods?: DeliveryMethod[], fallbackTimeline?: OrderDeliveryConfig["delivery"]["customer_timeline"]) => {
     if (!methods || methods.length === 0) return DEFAULT_DELIVERY_METHODS.map(method => ({ ...method }));
@@ -934,14 +998,46 @@ export function ProductPriceManager() {
       let data: any[] = [];
 
       if (tableName === 'generic_product_prices') {
+        const { count, error: countError } = await supabase
+          .from(tableName as any)
+          .select('id', { count: 'exact', head: true })
+          .eq('product_id', product.id);
+
+        if (countError) throw countError;
+        const totalRows = count || 0;
+        setPriceRowCount(totalRows);
+
+        if (totalRows > LARGE_PRICE_ROW_COUNT_THRESHOLD) {
+          const { data: latestRow } = await supabase
+            .from(tableName as any)
+            .select('id, created_at, updated_at')
+            .eq('product_id', product.id)
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          setPrices([]);
+          setFilteredPrices([]);
+          setPricesLoadedAsSummary(true);
+          setPriceFingerprintHint(
+            (latestRow as any)?.updated_at
+            || (latestRow as any)?.created_at
+            || (latestRow as any)?.id
+            || ""
+          );
+          return;
+        }
+
         const pageSize = 5000;
         let offset = 0;
+        const priceColumns = 'id, product_id, tenant_id, variant_name, variant_value, quantity, price_dkk, extra_data, created_at, updated_at';
 
         while (true) {
           const { data: pageData, error } = await supabase
             .from(tableName as any)
-            .select('*')
+            .select(priceColumns)
             .eq('product_id', product.id)
+            .order('quantity', { ascending: true })
             .order('id', { ascending: true })
             .range(offset, offset + pageSize - 1);
 
@@ -972,6 +1068,9 @@ export function ProductPriceManager() {
 
       setPrices(sortedData);
       setFilteredPrices(sortedData);
+      setPriceRowCount(sortedData.length);
+      setPricesLoadedAsSummary(false);
+      setPriceFingerprintHint("");
     } catch (error) {
       console.error('Error fetching prices:', error);
       toast.error('Kunne ikke hente priser');
@@ -1525,6 +1624,7 @@ export function ProductPriceManager() {
   }
 
   const hasEdits = Object.keys(editedPrices).length > 0 || Object.keys(editedListPrices).length > 0 || Object.keys(editedPricePerUnit).length > 0 || Object.keys(editedVariantNames).length > 0 || Object.keys(editedVariantValues).length > 0 || Object.keys(editedQuantities).length > 0;
+  const PricePreviewIcon = pricePreviewHealth.Icon;
 
   return (
     <div className="space-y-6">
@@ -1635,6 +1735,44 @@ export function ProductPriceManager() {
               <p className="text-muted-foreground">Definer formater, materialer og andre valgmuligheder for dette produkt</p>
             </div>
           </div>
+          <Card className={cn(
+            "border-l-4",
+            pricePreviewHealth.tone === "danger" && "border-l-destructive bg-destructive/5",
+            pricePreviewHealth.tone === "success" && "border-l-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/20",
+            pricePreviewHealth.tone === "info" && "border-l-sky-500 bg-sky-50/60 dark:bg-sky-950/20",
+          )}>
+            <CardContent className="flex flex-col gap-4 pt-6 md:flex-row md:items-center md:justify-between">
+              <div className="flex gap-3">
+                <div className={cn(
+                  "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border",
+                  pricePreviewHealth.tone === "danger" && "border-destructive/30 bg-destructive/10 text-destructive",
+                  pricePreviewHealth.tone === "success" && "border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300",
+                  pricePreviewHealth.tone === "info" && "border-sky-200 bg-sky-100 text-sky-700 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-300",
+                )}>
+                  <PricePreviewIcon className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold">Pris-preview status</h3>
+                    <Badge variant={pricePreviewHealth.tone === "danger" ? "destructive" : "outline"}>
+                      {pricePreviewHealth.rows} prisrækker
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-sm font-medium">{pricePreviewHealth.label}</p>
+                  <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{pricePreviewHealth.detail}</p>
+                  {pricePreviewHealth.tone === "danger" && (
+                    <p className="mt-2 text-xs text-destructive">
+                      Kontroller importen eller tilføj Matrix-priser, før produktet bruges som aktivt salgsprodukt.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={fetchPrices} disabled={loading}>
+                <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
+                Genindlæs status
+              </Button>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Prisopsætning</CardTitle>

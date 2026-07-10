@@ -491,7 +491,7 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
           <CardContent className="p-6 space-y-2">
             <h2 className="text-xl font-semibold text-slate-100">Site preview ikke fundet</h2>
             <p className="text-sm text-slate-300">
-              Kunne ikke finde site-pakken. Gaa tilbage til `Sites` og vaelg et gyldigt site.
+              Kunne ikke finde site-pakken. Gå tilbage til `Sites` og vælg et gyldigt site.
             </p>
           </CardContent>
         </Card>
@@ -936,7 +936,7 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
               <Button variant="outline" asChild>
                 <a href={iframeEntryPath} target="_blank" rel="noreferrer noopener">
                   <ExternalLink className="h-4 w-4 mr-2" />
-                  Aabn bundle
+                  Åbn bundle
                 </a>
               </Button>
               <Button asChild>
@@ -1081,7 +1081,7 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
         {isPreviewMode && manifestStatus !== 'ready' && (
           <Card style={{ backgroundColor: palette.panel, borderColor: palette.border }}>
             <CardContent className="p-4 text-sm" style={{ color: palette.mutedText }}>
-              Repo preview bundle ikke fundet. Tilfoej `public/site-previews/{siteId}/manifest.json`
+              Repo preview bundle ikke fundet. Tilføj `public/site-previews/{siteId}/manifest.json`
               med repo assets (eller `mode: iframe` + `entry`) for at vise det originale site-design.
             </CardContent>
           </Card>
@@ -1124,7 +1124,7 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
 
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl md:text-2xl font-semibold">Populaere produkter</h2>
+            <h2 className="text-xl md:text-2xl font-semibold">Populære produkter</h2>
             {isPreviewMode && (
               <p className="text-sm" style={{ color: palette.mutedText }}>
                 Preview af den valgte site facade
@@ -1251,7 +1251,7 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
                 Shared checkout flow
               </h3>
               <p className="text-sm mt-2" style={{ color: palette.mutedText }}>
-                Kunden vaelger produkt og konfiguration i dette site UI, og checkout koerer i WebPrinter backend.
+                Kunden vælger produkt og konfiguration i dette site UI, og checkout kører i WebPrinter backend.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Badge className="border" style={{ backgroundColor: palette.bgSoft, borderColor: palette.border, color: palette.text }}>

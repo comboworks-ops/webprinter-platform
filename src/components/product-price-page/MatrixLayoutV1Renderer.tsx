@@ -17,6 +17,7 @@ import { normalizeThumbnailCustomPx, normalizeThumbnailSize, resolveThumbnailSiz
 import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
+import { getMatrixStyleVars } from "@/lib/branding/matrix";
 import { readTransientString, writeTransientString } from "@/lib/storage/transientStorage";
 import { fetchPricingRead } from "@/lib/api/pricingRead";
 import {
@@ -333,21 +334,15 @@ async function fetchPriceRowsCached(productId: string, forceRefresh = false): Pr
     if (inflight) return inflight;
 
     const fetchAllPriceRows = async (pageSize: number): Promise<any[]> => {
-        let cursorId: string | null = null;
         const all: any[] = [];
+        let offset = 0;
 
         while (true) {
-            let query = supabase
+            const query = supabase
                 .from('generic_product_prices')
                 .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
                 .eq('product_id', productId)
-                .order('id', { ascending: true })
-                .limit(pageSize);
-
-            // Use keyset pagination to avoid high OFFSET scans on large products.
-            if (cursorId) {
-                query = query.gt('id', cursorId);
-            }
+                .range(offset, offset + pageSize - 1);
 
             const { data, error } = await query;
 
@@ -359,10 +354,7 @@ async function fetchPriceRowsCached(productId: string, forceRefresh = false): Pr
 
             if (!data || data.length === 0) break;
             if (data.length < pageSize) break;
-
-            const nextCursor = data[data.length - 1]?.id ?? null;
-            if (!nextCursor || nextCursor === cursorId) break;
-            cursorId = nextCursor;
+            offset += pageSize;
         }
 
         return all;
@@ -472,6 +464,7 @@ export function MatrixLayoutV1Renderer({
         }
         return basePricingStructure;
     }, [basePricingStructure, isPreviewMode, productId, productPricingOverrides]);
+    const matrixStyleVars = getMatrixStyleVars(activeBranding as any, (pricingStructure as any).matrixBox);
 
     // State: per-section selections (sectionId -> valueId)
     const [selectedSectionValues, setSelectedSectionValues] = useState<Record<string, string | null>>({});
@@ -2127,9 +2120,10 @@ export function MatrixLayoutV1Renderer({
                             && sectionPictureButtonsConfig.showImage
                             && sectionPictureButtonsConfig.showLabel;
 
-                        const buttonWidth = sectionPictureButtonsConfig.showImage ? pictureImagePx : 'auto';
+                        const pictureImageSizeCss = `min(${pictureImagePx}px, 44vw)`;
+                        const buttonWidth = sectionPictureButtonsConfig.showImage ? pictureImageSizeCss : 'auto';
                         const buttonHeight = !useDetachedLabel && sectionPictureButtonsConfig.showImage
-                            ? pictureImagePx + (sectionPictureButtonsConfig.showLabel ? 24 : 0)
+                            ? `calc(${pictureImageSizeCss} + ${sectionPictureButtonsConfig.showLabel ? 24 : 0}px)`
                             : 'auto';
                         const pictureBackgroundColor = valueSetting?.backgroundColor || sectionPictureButtonsConfig.backgroundColor;
                         const pictureTextColor = valueSetting?.textColor || sectionPictureButtonsConfig.textColor;
@@ -2161,8 +2155,8 @@ export function MatrixLayoutV1Renderer({
                                 className={cn(
                                     "transition-all",
                                     useDetachedLabel
-                                        ? "flex flex-col items-center gap-1 bg-transparent p-0"
-                                        : "relative flex overflow-hidden border-2 flex-col items-center",
+                                        ? "flex max-w-full touch-manipulation flex-col items-center gap-1 bg-transparent p-0"
+                                        : "relative flex max-w-full touch-manipulation overflow-hidden border-2 flex-col items-center",
                                     isSelected ? "shadow-none" : "",
                                     (!isActive || !isAvailable) && "cursor-not-allowed opacity-45"
                                 )}
@@ -2185,7 +2179,7 @@ export function MatrixLayoutV1Renderer({
                                             className="relative flex overflow-hidden border-2"
                                             style={{
                                                 width: buttonWidth,
-                                                minHeight: pictureImagePx,
+                                                minHeight: pictureImageSizeCss,
                                                 backgroundColor: pictureBackgroundColor,
                                                 borderColor: pictureBorderColor,
                                                 borderRadius: `${pictureBorderRadius}px`,
@@ -2205,13 +2199,13 @@ export function MatrixLayoutV1Renderer({
                                                     src={getHiResThumbnailUrl(thumbUrl, pictureImagePx, pictureImagePx)}
                                                     alt={displayName}
                                                     className="relative z-0 w-full object-cover"
-                                                    style={{ height: pictureImagePx }}
+                                                    style={{ height: pictureImageSizeCss }}
                                                 />
                                             ) : (
                                                 <div
                                                     className="relative z-0 flex w-full items-center justify-center text-xs font-semibold"
                                                     style={{
-                                                        height: pictureImagePx,
+                                                        height: pictureImageSizeCss,
                                                         color: pictureTextColor,
                                                         backgroundColor: pictureBackgroundColor,
                                                     }}
@@ -2245,7 +2239,7 @@ export function MatrixLayoutV1Renderer({
                                                     alt={displayName}
                                                     className="relative z-0 w-full object-cover"
                                                     style={{ 
-                                                        height: pictureImagePx,
+                                                        height: pictureImageSizeCss,
                                                         borderRadius: sectionPictureButtonsConfig.isTextBelow ? `${sectionPictureButtonsConfig.imageBorderRadiusPx}px ${sectionPictureButtonsConfig.imageBorderRadiusPx}px 0 0` : undefined
                                                     }}
                                                 />
@@ -2253,7 +2247,7 @@ export function MatrixLayoutV1Renderer({
                                                 <div
                                                     className="relative z-0 w-full flex items-center justify-center text-xs font-semibold"
                                                     style={{ 
-                                                        height: pictureImagePx,
+                                                        height: pictureImageSizeCss,
                                                         color: pictureTextColor,
                                                         backgroundColor: pictureBackgroundColor,
                                                         borderRadius: sectionPictureButtonsConfig.isTextBelow ? `${pictureBorderRadius}px ${pictureBorderRadius}px 0 0` : undefined
@@ -2335,7 +2329,7 @@ export function MatrixLayoutV1Renderer({
                             }}
                             disabled={!isActive || !isAvailable}
                             className={cn(
-                                "transition-all duration-200 flex items-center gap-2",
+                                "flex min-h-11 min-w-[min(10rem,100%)] touch-manipulation items-center justify-center gap-2 text-center leading-tight transition-all duration-200 sm:min-w-0",
                                 !isAvailable && "opacity-45 cursor-not-allowed"
                             )}
                             style={{
@@ -2427,7 +2421,7 @@ export function MatrixLayoutV1Renderer({
     }
 
     return (
-        <div className="space-y-6" data-branding-id="productPage.matrix">
+        <div className="space-y-6 [font-family:var(--matrix-font)]" style={matrixStyleVars} data-branding-id="productPage.matrix">
             <div className="h-4 text-xs text-muted-foreground" aria-live="polite">
                 {matrixLoading ? 'Opdaterer priser...' : '\u00A0'}
             </div>
@@ -2446,10 +2440,10 @@ export function MatrixLayoutV1Renderer({
                             {row.title && <div className="text-xs font-medium">{row.title}</div>}
                             {row.description && <p className="text-xs text-muted-foreground">{row.description}</p>}
                             <div className={cn(
-                                "grid gap-3",
+                                "grid grid-cols-1 gap-3",
                                 filteredColumns.length === 1 && "grid-cols-1",
-                                filteredColumns.length === 2 && "grid-cols-2",
-                                filteredColumns.length >= 3 && "grid-cols-3"
+                                filteredColumns.length === 2 && "sm:grid-cols-2",
+                                filteredColumns.length >= 3 && "sm:grid-cols-2 lg:grid-cols-3"
                             )}>
                                 {filteredColumns.map((col, colIndex) => {
                                     const values = getSectionValues(col.groupId, col.valueIds);
@@ -2483,7 +2477,7 @@ export function MatrixLayoutV1Renderer({
                                             className={cn(
                                                 "space-y-1.5 transition-colors",
                                                 isOptionalEnabled && "ring-1 ring-primary/20",
-                                                colIndex > 0 && col.sectionType !== "finishes" && "border-l-2 border-primary/20"
+                                                colIndex > 0 && col.sectionType !== "finishes" && "sm:border-l-2 sm:border-primary/20"
                                             )}
                                             style={{
                                                 backgroundColor: selectorBoxConfig.backgroundColor,

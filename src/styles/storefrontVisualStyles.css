@@ -1,0 +1,949 @@
+.storefront-visual-style {
+    position: relative;
+    isolation: isolate;
+    overflow-x: hidden;
+    --storefront-surface-radius: 16px;
+    --storefront-tight-radius: 10px;
+    --storefront-border-width: 1px;
+    --storefront-card-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
+    --storefront-card-hover-shadow: 0 22px 48px rgba(15, 23, 42, 0.12);
+    --storefront-card-border: rgba(15, 23, 42, 0.1);
+    --storefront-surface-bg: rgba(255, 255, 255, 0.92);
+    --storefront-surface-bg-hover: rgba(255, 255, 255, 0.98);
+    --storefront-image-bg: rgba(248, 250, 252, 0.86);
+    --storefront-section-padding: 4.5rem;
+    --storefront-product-gap: 1.5rem;
+    --storefront-hero-max-width: 42rem;
+    --storefront-hero-copy-bg: transparent;
+    --storefront-hero-copy-border: transparent;
+    --storefront-hero-copy-shadow: none;
+    --storefront-hero-copy-padding: 0;
+    --storefront-hero-letter-spacing: 0;
+    --storefront-hero-text-transform: none;
+    --storefront-button-transform: translateY(-1px);
+    --storefront-button-filter: none;
+    --storefront-page-bg: transparent;
+    --storefront-heading-weight: 700;
+    --storefront-heading-case: none;
+    --storefront-label-case: none;
+    --storefront-label-spacing: 0;
+    --storefront-image-filter: none;
+    --storefront-pattern-opacity: 0;
+    --storefront-pattern-bg: none;
+  }
+
+  .storefront-visual-style::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: var(--storefront-pattern-bg);
+    opacity: var(--storefront-pattern-opacity);
+  }
+
+  .storefront-visual-style > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .storefront-visual-style h1,
+  .storefront-visual-style h2,
+  .storefront-visual-style h3,
+  .storefront-visual-style [data-branding-id="forside.hero.title"],
+  .storefront-visual-style [data-branding-id="productPage.heading"] h1 {
+    font-weight: var(--storefront-heading-weight);
+    text-transform: var(--storefront-heading-case);
+  }
+
+  .storefront-visual-style label,
+  .storefront-visual-style .price-panel-muted,
+  .storefront-visual-style [data-branding-id="productPage.matrix"] .text-xs,
+  .storefront-visual-style [data-branding-id="productPage.optionSelectors"] label {
+    letter-spacing: var(--storefront-label-spacing);
+    text-transform: var(--storefront-label-case);
+  }
+
+  .storefront-visual-style img {
+    filter: var(--storefront-image-filter);
+  }
+
+  .storefront-visual-style header[data-branding-id="header.background"] {
+    border-bottom-color: var(--storefront-card-border) !important;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08) !important;
+  }
+
+  .storefront-visual-style .header-nav-link,
+  .storefront-visual-style .header-action-link,
+  .storefront-visual-style .header-cta-button {
+    border-radius: var(--storefront-tight-radius) !important;
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .storefront-visual-style [data-branding-id="header.dropdown.panel"] {
+    border-radius: var(--storefront-surface-radius) !important;
+    border-width: var(--storefront-border-width) !important;
+    border-color: var(--storefront-card-border) !important;
+    box-shadow: var(--storefront-card-hover-shadow) !important;
+  }
+
+  .storefront-visual-style [data-branding-id="forside.hero.media"] {
+    min-height: 520px;
+    isolation: isolate;
+  }
+
+  .storefront-visual-style [data-branding-id="forside.hero.media"] > .absolute.inset-0.z-20 .mt-14 {
+    max-width: var(--storefront-hero-max-width) !important;
+    padding: var(--storefront-hero-copy-padding);
+    border: 1px solid var(--storefront-hero-copy-border);
+    border-radius: var(--storefront-surface-radius);
+    background: var(--storefront-hero-copy-bg);
+    box-shadow: var(--storefront-hero-copy-shadow);
+  }
+
+  .storefront-visual-style [data-branding-id="forside.hero.title"] {
+    letter-spacing: var(--storefront-hero-letter-spacing);
+    text-transform: var(--storefront-hero-text-transform);
+  }
+
+  .storefront-visual-style [data-branding-id="forside.products"] {
+    padding-block: var(--storefront-section-padding);
+  }
+
+  .storefront-visual-style [data-branding-id="forside.products"] .grid {
+    gap: var(--storefront-product-gap);
+  }
+
+  .storefront-visual-style [data-branding-id="forside.products.background"] {
+    border-radius: var(--storefront-surface-radius) !important;
+    border: var(--storefront-border-width) solid var(--storefront-card-border) !important;
+    background: var(--storefront-surface-bg) !important;
+    box-shadow: var(--storefront-card-shadow) !important;
+    transition:
+      transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 240ms cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 200ms ease,
+      background 200ms ease;
+  }
+
+  .storefront-visual-style [data-branding-id="forside.products.background"]:hover {
+    background: var(--storefront-surface-bg-hover) !important;
+    box-shadow: var(--storefront-card-hover-shadow) !important;
+    transform: var(--storefront-button-transform);
+  }
+
+  .storefront-visual-style [data-branding-id="icons.product-images"] {
+    border-radius: calc(var(--storefront-surface-radius) - 6px) !important;
+    background: var(--storefront-image-bg);
+  }
+
+  .storefront-visual-style [data-branding-id="forside.products.button"] {
+    border-radius: var(--storefront-tight-radius) !important;
+    filter: var(--storefront-button-filter);
+  }
+
+  .storefront-visual-style [data-branding-id="usp-strip"] {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .storefront-visual-style [data-branding-id="seo-content"],
+  .storefront-visual-style [data-branding-id^="content:"] {
+    border-top: 1px solid var(--storefront-card-border);
+  }
+
+  .storefront-style-taste-glassmorphism,
+  .storefront-style-glass-studio {
+    --storefront-surface-radius: 28px;
+    --storefront-tight-radius: 999px;
+    --storefront-border-width: 1px;
+    --storefront-card-border: rgba(255, 255, 255, 0.56);
+    --storefront-surface-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.76), rgba(235, 244, 248, 0.52));
+    --storefront-surface-bg-hover: linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(225, 238, 246, 0.66));
+    --storefront-image-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0.18));
+    --storefront-card-shadow: 0 18px 48px rgba(38, 73, 92, 0.15);
+    --storefront-card-hover-shadow: 0 28px 70px rgba(38, 73, 92, 0.22);
+    --storefront-hero-copy-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+    --storefront-hero-copy-border: rgba(255, 255, 255, 0.34);
+    --storefront-hero-copy-shadow: 0 24px 90px rgba(0, 0, 0, 0.22);
+    --storefront-hero-copy-padding: clamp(1.25rem, 3vw, 2.5rem);
+    --storefront-section-padding: 5rem;
+    --storefront-button-transform: translateY(-4px) scale(1.01);
+    --storefront-pattern-opacity: 1;
+    --storefront-pattern-bg:
+      radial-gradient(circle at 14% 18%, rgba(255, 255, 255, 0.52), transparent 24rem),
+      radial-gradient(circle at 86% 12%, rgba(125, 211, 252, 0.24), transparent 22rem),
+      radial-gradient(circle at 75% 78%, rgba(196, 181, 253, 0.24), transparent 28rem);
+  }
+
+  .storefront-style-taste-glassmorphism header[data-branding-id="header.background"],
+  .storefront-style-glass-studio header[data-branding-id="header.background"] {
+    backdrop-filter: blur(22px) saturate(150%);
+  }
+
+  .storefront-style-taste-glassmorphism [data-branding-id="forside.products.background"],
+  .storefront-style-glass-studio [data-branding-id="forside.products.background"] {
+    backdrop-filter: blur(20px) saturate(150%);
+  }
+
+  .storefront-style-taste-minimalism,
+  .storefront-style-taste-apple-clean,
+  .storefront-style-taste-dashboard-saas,
+  .storefront-style-precision-print {
+    --storefront-surface-radius: 14px;
+    --storefront-tight-radius: 10px;
+    --storefront-card-border: rgba(15, 23, 42, 0.08);
+    --storefront-surface-bg: #ffffff;
+    --storefront-surface-bg-hover: #ffffff;
+    --storefront-image-bg: #f8fafc;
+    --storefront-card-shadow: 0 1px 0 rgba(15, 23, 42, 0.05), 0 10px 28px rgba(15, 23, 42, 0.06);
+    --storefront-card-hover-shadow: 0 1px 0 rgba(15, 23, 42, 0.07), 0 16px 38px rgba(15, 23, 42, 0.1);
+    --storefront-section-padding: 4rem;
+    --storefront-hero-max-width: 38rem;
+    --storefront-button-transform: translateY(-2px);
+  }
+
+  .storefront-style-taste-minimalism [data-branding-id="forside.products.background"],
+  .storefront-style-taste-apple-clean [data-branding-id="forside.products.background"],
+  .storefront-style-taste-dashboard-saas [data-branding-id="forside.products.background"],
+  .storefront-style-precision-print [data-branding-id="forside.products.background"] {
+    overflow: hidden;
+  }
+
+  .storefront-style-taste-neo-brutalism,
+  .storefront-style-bold-maker {
+    --storefront-surface-radius: 4px;
+    --storefront-tight-radius: 3px;
+    --storefront-border-width: 3px;
+    --storefront-card-border: #111827;
+    --storefront-surface-bg: #ffffff;
+    --storefront-surface-bg-hover: #fff8cc;
+    --storefront-image-bg: #fff4a3;
+    --storefront-card-shadow: 8px 8px 0 #111827;
+    --storefront-card-hover-shadow: 12px 12px 0 #111827;
+    --storefront-hero-letter-spacing: 0.01em;
+    --storefront-hero-text-transform: uppercase;
+    --storefront-section-padding: 4rem;
+    --storefront-button-transform: translate(-1px, -1px);
+    --storefront-heading-weight: 900;
+    --storefront-heading-case: uppercase;
+    --storefront-label-case: uppercase;
+    --storefront-label-spacing: 0.08em;
+    --storefront-pattern-opacity: 0.62;
+    --storefront-pattern-bg:
+      linear-gradient(90deg, rgba(17, 24, 39, 0.07) 1px, transparent 1px),
+      linear-gradient(rgba(17, 24, 39, 0.07) 1px, transparent 1px),
+      radial-gradient(circle at 95% 8%, #ffe566 0 7rem, transparent 7.1rem);
+    background-color: #fffdf5 !important;
+  }
+
+  .storefront-style-taste-neo-brutalism header[data-branding-id="header.background"],
+  .storefront-style-bold-maker header[data-branding-id="header.background"] {
+    border-bottom: 3px solid #111827 !important;
+    box-shadow: 0 6px 0 #111827 !important;
+  }
+
+  .storefront-style-taste-flat-design,
+  .storefront-style-taste-material-design,
+  .storefront-style-taste-ecommerce-modern,
+  .storefront-style-taste-marketplace-ui {
+    --storefront-surface-radius: 10px;
+    --storefront-tight-radius: 8px;
+    --storefront-card-border: rgba(37, 99, 235, 0.12);
+    --storefront-surface-bg: #ffffff;
+    --storefront-surface-bg-hover: #f8fbff;
+    --storefront-image-bg: #eef6ff;
+    --storefront-card-shadow: 0 10px 22px rgba(37, 99, 235, 0.08);
+    --storefront-card-hover-shadow: 0 20px 40px rgba(37, 99, 235, 0.14);
+    --storefront-product-gap: 1.25rem;
+  }
+
+  .storefront-style-taste-neumorphism {
+    --storefront-surface-radius: 26px;
+    --storefront-tight-radius: 18px;
+    --storefront-card-border: rgba(255, 255, 255, 0.72);
+    --storefront-surface-bg: #f8fbfe;
+    --storefront-surface-bg-hover: #fbfdff;
+    --storefront-image-bg: #eef3f8;
+    --storefront-card-shadow: 12px 12px 28px rgba(72, 101, 129, 0.14), -10px -10px 24px rgba(255, 255, 255, 0.88);
+    --storefront-card-hover-shadow: 16px 16px 34px rgba(72, 101, 129, 0.18), -12px -12px 28px rgba(255, 255, 255, 0.94);
+    --storefront-button-transform: translateY(-2px);
+    --storefront-pattern-opacity: 1;
+    --storefront-pattern-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.22), rgba(72, 101, 129, 0.08));
+    background-color: #eef3f8 !important;
+  }
+
+  .storefront-style-taste-swiss-international,
+  .storefront-style-taste-corporate-enterprise,
+  .storefront-style-taste-government-public-service,
+  .storefront-style-taste-industrial-technical {
+    --storefront-surface-radius: 0px;
+    --storefront-tight-radius: 0px;
+    --storefront-border-width: 1px;
+    --storefront-card-border: rgba(15, 23, 42, 0.18);
+    --storefront-surface-bg: #ffffff;
+    --storefront-surface-bg-hover: #f8fafc;
+    --storefront-image-bg: #f1f5f9;
+    --storefront-card-shadow: none;
+    --storefront-card-hover-shadow: 0 8px 0 rgba(15, 23, 42, 0.08);
+    --storefront-hero-max-width: 46rem;
+    --storefront-hero-letter-spacing: 0;
+    --storefront-product-gap: 1rem;
+    --storefront-section-padding: 3.5rem;
+    --storefront-label-case: uppercase;
+    --storefront-label-spacing: 0.1em;
+  }
+
+  .storefront-style-taste-editorial-magazine,
+  .storefront-style-taste-luxury-premium,
+  .storefront-style-premium-press {
+    --storefront-surface-radius: 2px;
+    --storefront-tight-radius: 999px;
+    --storefront-card-border: rgba(24, 24, 27, 0.14);
+    --storefront-surface-bg: #ffffff;
+    --storefront-surface-bg-hover: #fffdf8;
+    --storefront-image-bg: #f8f4ec;
+    --storefront-card-shadow: 0 20px 54px rgba(24, 24, 27, 0.09);
+    --storefront-card-hover-shadow: 0 30px 78px rgba(24, 24, 27, 0.14);
+    --storefront-hero-max-width: 48rem;
+    --storefront-section-padding: 5.25rem;
+    --storefront-heading-weight: 500;
+    --storefront-label-case: uppercase;
+    --storefront-label-spacing: 0.12em;
+  }
+
+  .storefront-style-taste-editorial-magazine [data-branding-id="forside.products.background"],
+  .storefront-style-taste-luxury-premium [data-branding-id="forside.products.background"],
+  .storefront-style-premium-press [data-branding-id="forside.products.background"] {
+    border-top-width: 4px !important;
+  }
+
+  .storefront-style-taste-dark-futuristic,
+  .storefront-style-taste-gaming-ui,
+  .storefront-style-dark-production {
+    --storefront-surface-radius: 18px;
+    --storefront-tight-radius: 12px;
+    --storefront-card-border: rgba(148, 163, 184, 0.22);
+    --storefront-surface-bg: linear-gradient(145deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.82));
+    --storefront-surface-bg-hover: linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(17, 24, 39, 0.88));
+    --storefront-image-bg: rgba(255, 255, 255, 0.06);
+    --storefront-card-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+    --storefront-card-hover-shadow: 0 28px 72px rgba(0, 0, 0, 0.38);
+    --storefront-hero-copy-bg: rgba(2, 6, 23, 0.36);
+    --storefront-hero-copy-border: rgba(255, 255, 255, 0.12);
+    --storefront-hero-copy-shadow: 0 28px 90px rgba(0, 0, 0, 0.42);
+    --storefront-hero-copy-padding: clamp(1.25rem, 3vw, 2.25rem);
+    --storefront-button-filter: drop-shadow(0 0 14px rgba(45, 212, 191, 0.26));
+    --storefront-heading-weight: 800;
+    --storefront-label-case: uppercase;
+    --storefront-label-spacing: 0.12em;
+    --storefront-pattern-opacity: 1;
+    --storefront-pattern-bg:
+      linear-gradient(rgba(34, 211, 238, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(34, 211, 238, 0.07) 1px, transparent 1px),
+      radial-gradient(circle at 82% 14%, rgba(34, 211, 238, 0.16), transparent 18rem);
+    background-color: #050816 !important;
+  }
+
+  .storefront-style-taste-dark-futuristic [data-branding-id="forside.products.card.title"],
+  .storefront-style-taste-dark-futuristic [data-branding-id="forside.products.card.body"],
+  .storefront-style-taste-gaming-ui [data-branding-id="forside.products.card.title"],
+  .storefront-style-taste-gaming-ui [data-branding-id="forside.products.card.body"],
+  .storefront-style-dark-production [data-branding-id="forside.products.card.title"],
+  .storefront-style-dark-production [data-branding-id="forside.products.card.body"] {
+    color: rgba(248, 250, 252, 0.92) !important;
+  }
+
+  .storefront-style-taste-retro-y2k,
+  .storefront-style-taste-playful-cartoon {
+    --storefront-surface-radius: 22px;
+    --storefront-tight-radius: 999px;
+    --storefront-border-width: 2px;
+    --storefront-card-border: rgba(15, 23, 42, 0.16);
+    --storefront-surface-bg: linear-gradient(145deg, #ffffff, #fff4fb);
+    --storefront-surface-bg-hover: linear-gradient(145deg, #ffffff, #eef7ff);
+    --storefront-image-bg: linear-gradient(145deg, #fff1f8, #e8f8ff);
+    --storefront-card-shadow: 0 16px 0 rgba(255, 128, 191, 0.12), 0 26px 52px rgba(15, 23, 42, 0.1);
+    --storefront-card-hover-shadow: 0 20px 0 rgba(255, 128, 191, 0.16), 0 34px 70px rgba(15, 23, 42, 0.14);
+    --storefront-hero-letter-spacing: 0.005em;
+    --storefront-button-transform: translateY(-3px);
+    --storefront-pattern-opacity: 0.85;
+    --storefront-pattern-bg:
+      radial-gradient(circle at 12% 22%, rgba(255, 78, 205, 0.16), transparent 12rem),
+      radial-gradient(circle at 88% 12%, rgba(0, 245, 255, 0.18), transparent 14rem),
+      linear-gradient(135deg, rgba(255, 229, 0, 0.08), transparent 42%);
+  }
+
+  .storefront-style-taste-organic-natural,
+  .storefront-style-taste-restaurant-menu {
+    --storefront-surface-radius: 20px;
+    --storefront-tight-radius: 14px;
+    --storefront-card-border: rgba(71, 85, 105, 0.14);
+    --storefront-surface-bg: rgba(255, 255, 255, 0.9);
+    --storefront-surface-bg-hover: rgba(255, 255, 255, 0.98);
+    --storefront-image-bg: rgba(236, 247, 238, 0.82);
+    --storefront-card-shadow: 0 16px 38px rgba(52, 83, 65, 0.11);
+    --storefront-card-hover-shadow: 0 24px 58px rgba(52, 83, 65, 0.16);
+    --storefront-section-padding: 5rem;
+    --storefront-pattern-opacity: 0.46;
+    --storefront-pattern-bg:
+      radial-gradient(circle at 15% 20%, rgba(143, 185, 150, 0.18), transparent 14rem),
+      radial-gradient(circle at 90% 70%, rgba(251, 146, 60, 0.1), transparent 16rem);
+  }
+
+  .storefront-style-taste-mobile-first-app {
+    --storefront-surface-radius: 30px;
+    --storefront-tight-radius: 999px;
+    --storefront-card-border: rgba(99, 102, 241, 0.12);
+    --storefront-surface-bg: #ffffff;
+    --storefront-surface-bg-hover: #ffffff;
+    --storefront-image-bg: linear-gradient(180deg, #eef2ff, #ffffff);
+    --storefront-card-shadow: 0 20px 60px rgba(99, 102, 241, 0.14);
+    --storefront-card-hover-shadow: 0 30px 80px rgba(99, 102, 241, 0.18);
+    --storefront-product-gap: 1rem;
+    --storefront-button-transform: scale(1.015);
+  }
+
+  .storefront-style-taste-print-cmyk-graphic {
+    --storefront-surface-radius: 8px;
+    --storefront-tight-radius: 4px;
+    --storefront-border-width: 2px;
+    --storefront-card-border: rgba(2, 6, 23, 0.2);
+    --storefront-surface-bg: #ffffff;
+    --storefront-surface-bg-hover: linear-gradient(135deg, rgba(0, 174, 239, 0.08), rgba(236, 0, 140, 0.08), rgba(255, 242, 0, 0.12));
+    --storefront-image-bg: repeating-linear-gradient(45deg, #ffffff 0, #ffffff 12px, #f8fafc 12px, #f8fafc 24px);
+    --storefront-card-shadow: 0 12px 0 rgba(0, 174, 239, 0.18);
+    --storefront-card-hover-shadow: 0 12px 0 rgba(236, 0, 140, 0.18), 0 24px 42px rgba(2, 6, 23, 0.12);
+    --storefront-label-case: uppercase;
+    --storefront-label-spacing: 0.08em;
+    --storefront-pattern-opacity: 0.45;
+    --storefront-pattern-bg:
+      linear-gradient(90deg, rgba(0, 174, 239, 0.18) 0 2px, transparent 2px 32px),
+      linear-gradient(rgba(236, 0, 140, 0.15) 0 2px, transparent 2px 32px);
+  }
+
+  .storefront-style-taste-cinematic-storytelling {
+    --storefront-surface-radius: 22px;
+    --storefront-tight-radius: 999px;
+    --storefront-card-border: rgba(255, 255, 255, 0.16);
+    --storefront-surface-bg: linear-gradient(145deg, rgba(17, 24, 39, 0.88), rgba(0, 0, 0, 0.76));
+    --storefront-surface-bg-hover: linear-gradient(145deg, rgba(24, 24, 27, 0.94), rgba(0, 0, 0, 0.82));
+    --storefront-image-bg: rgba(255, 255, 255, 0.06);
+    --storefront-card-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+    --storefront-card-hover-shadow: 0 32px 100px rgba(0, 0, 0, 0.38);
+    --storefront-hero-copy-bg: linear-gradient(90deg, rgba(0, 0, 0, 0.54), rgba(0, 0, 0, 0.18), transparent);
+    --storefront-hero-copy-border: rgba(255, 255, 255, 0.1);
+    --storefront-hero-copy-padding: clamp(1.25rem, 3vw, 2.75rem);
+    --storefront-hero-max-width: 50rem;
+  }
+
+  .storefront-style-taste-cinematic-storytelling [data-branding-id="forside.products.card.title"],
+  .storefront-style-taste-cinematic-storytelling [data-branding-id="forside.products.card.body"] {
+    color: rgba(248, 250, 252, 0.92) !important;
+  }
+
+  .storefront-order-flow {
+    --storefront-order-section-gap: 1.75rem;
+    --storefront-order-surface-padding: clamp(1rem, 2vw, 1.5rem);
+    --storefront-order-control-bg: rgba(255, 255, 255, 0.94);
+    --storefront-order-control-border: var(--storefront-card-border);
+    color: var(--body-text, inherit);
+  }
+
+  .storefront-order-flow h1,
+  .storefront-order-flow h2,
+  .storefront-order-flow h3,
+  .storefront-order-flow h4,
+  .storefront-order-flow label,
+  .storefront-order-flow [data-branding-id="productPage.heading"] {
+    color: var(--heading-text, inherit);
+  }
+
+  .storefront-order-flow input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  .storefront-order-flow textarea,
+  .storefront-order-flow select,
+  .storefront-order-flow [role="combobox"] {
+    border-color: var(--storefront-order-control-border) !important;
+    border-radius: var(--storefront-tight-radius) !important;
+    background: var(--storefront-order-control-bg) !important;
+    min-height: 44px;
+  }
+
+  .storefront-order-hero {
+    padding: clamp(1rem, 3vw, 2rem);
+    border: var(--storefront-border-width) solid var(--storefront-card-border);
+    border-radius: var(--storefront-surface-radius);
+    background: var(--storefront-surface-bg);
+    box-shadow: var(--storefront-card-shadow);
+  }
+
+  .storefront-order-product-image {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(0.75rem, 2vw, 1.25rem);
+    border: var(--storefront-border-width) solid var(--storefront-card-border);
+    border-radius: var(--storefront-surface-radius);
+    background: var(--storefront-image-bg);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+
+  .storefront-order-flow [data-branding-id="productPage.matrix"],
+  .storefront-order-flow [data-branding-id="productPage.optionSelectors"],
+  .storefront-order-flow .storefront-order-surface,
+  .storefront-order-flow .storefront-order-price-panel,
+  .storefront-order-flow [data-storefront-order-panel],
+  .storefront-checkout-flow .shadow-sm {
+    border-color: var(--storefront-card-border) !important;
+    border-radius: var(--storefront-surface-radius) !important;
+    box-shadow: var(--storefront-card-shadow) !important;
+  }
+
+  .storefront-order-flow [data-branding-id="productPage.optionSelectors"],
+  .storefront-order-flow .storefront-order-surface {
+    padding: var(--storefront-order-surface-padding);
+    border: var(--storefront-border-width) solid var(--storefront-card-border);
+    background: var(--storefront-surface-bg);
+  }
+
+  .storefront-order-flow [data-branding-id="productPage.matrix.box"] {
+    border-color: var(--storefront-card-border) !important;
+    border-radius: var(--storefront-surface-radius) !important;
+    background: var(--storefront-surface-bg) !important;
+    box-shadow: var(--storefront-card-shadow) !important;
+  }
+
+  .storefront-order-flow [data-branding-id="productPage.matrix"] button,
+  .storefront-order-flow [data-branding-id="productPage.optionSelectors"] button,
+  .storefront-order-flow .price-panel-download-button,
+  .storefront-order-flow .order-primary-button,
+  .storefront-order-flow .order-secondary-button,
+  .storefront-order-flow .order-selected-button,
+  .storefront-checkout-flow button {
+    border-radius: var(--storefront-tight-radius) !important;
+    min-height: 44px;
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease,
+      border-color 180ms ease,
+      background 180ms ease,
+      color 180ms ease;
+  }
+
+  .storefront-order-flow [data-branding-id="productPage.matrix"] button:hover,
+  .storefront-order-flow [data-branding-id="productPage.optionSelectors"] button:hover,
+  .storefront-checkout-flow button:hover {
+    transform: var(--storefront-button-transform);
+  }
+
+  .storefront-checkout-flow > .max-w-5xl {
+    padding: clamp(0.75rem, 2vw, 1.25rem);
+    border: var(--storefront-border-width) solid var(--storefront-card-border);
+    border-radius: var(--storefront-surface-radius);
+    background: var(--storefront-surface-bg);
+    box-shadow: var(--storefront-card-shadow);
+  }
+
+  .storefront-checkout-flow .shadow-sm,
+  .storefront-checkout-flow .rounded-lg.border {
+    overflow: hidden;
+    border-color: var(--storefront-card-border) !important;
+    background: var(--storefront-surface-bg) !important;
+  }
+
+  .storefront-checkout-flow .bg-white,
+  .storefront-checkout-flow .bg-slate-50\/60,
+  .storefront-checkout-flow .bg-slate-50\/80 {
+    background: var(--storefront-surface-bg) !important;
+  }
+
+  .storefront-checkout-flow .bg-primary\/5,
+  .storefront-checkout-flow .bg-primary\/10 {
+    border-bottom: 1px solid var(--storefront-card-border);
+    background: var(--storefront-image-bg) !important;
+  }
+
+  .storefront-checkout-flow .text-slate-900,
+  .storefront-checkout-flow .text-slate-800,
+  .storefront-checkout-flow .text-slate-700 {
+    color: var(--heading-text) !important;
+  }
+
+  .storefront-checkout-flow .text-slate-500,
+  .storefront-checkout-flow .text-slate-600,
+  .storefront-checkout-flow .text-muted-foreground {
+    color: var(--body-text) !important;
+  }
+
+  .storefront-style-taste-glassmorphism .storefront-order-flow,
+  .storefront-style-glass-studio .storefront-order-flow {
+    --storefront-order-control-bg: rgba(255, 255, 255, 0.72);
+  }
+
+  .storefront-style-taste-glassmorphism .storefront-order-hero,
+  .storefront-style-glass-studio .storefront-order-hero,
+  .storefront-style-taste-glassmorphism .storefront-order-flow [data-branding-id="productPage.optionSelectors"],
+  .storefront-style-glass-studio .storefront-order-flow [data-branding-id="productPage.optionSelectors"],
+  .storefront-style-taste-glassmorphism .storefront-checkout-flow .shadow-sm,
+  .storefront-style-glass-studio .storefront-checkout-flow .shadow-sm {
+    backdrop-filter: blur(20px) saturate(150%);
+  }
+
+  .storefront-style-taste-neo-brutalism .storefront-order-flow button,
+  .storefront-style-bold-maker .storefront-order-flow button {
+    border-width: 2px !important;
+    box-shadow: 4px 4px 0 #111827 !important;
+  }
+
+  .storefront-style-taste-neo-brutalism .storefront-order-flow button:hover,
+  .storefront-style-bold-maker .storefront-order-flow button:hover {
+    box-shadow: 7px 7px 0 #111827 !important;
+  }
+
+  .storefront-style-taste-dark-futuristic .storefront-order-flow,
+  .storefront-style-taste-gaming-ui .storefront-order-flow,
+  .storefront-style-taste-cinematic-storytelling .storefront-order-flow,
+  .storefront-style-dark-production .storefront-order-flow {
+    --storefront-order-control-bg: rgba(15, 23, 42, 0.82);
+    color: rgba(226, 232, 240, 0.92);
+  }
+
+  .storefront-style-taste-dark-futuristic .storefront-order-flow h1,
+  .storefront-style-taste-dark-futuristic .storefront-order-flow h2,
+  .storefront-style-taste-dark-futuristic .storefront-order-flow h3,
+  .storefront-style-taste-dark-futuristic .storefront-order-flow h4,
+  .storefront-style-taste-gaming-ui .storefront-order-flow h1,
+  .storefront-style-taste-gaming-ui .storefront-order-flow h2,
+  .storefront-style-taste-gaming-ui .storefront-order-flow h3,
+  .storefront-style-taste-gaming-ui .storefront-order-flow h4,
+  .storefront-style-taste-cinematic-storytelling .storefront-order-flow h1,
+  .storefront-style-taste-cinematic-storytelling .storefront-order-flow h2,
+  .storefront-style-taste-cinematic-storytelling .storefront-order-flow h3,
+  .storefront-style-taste-cinematic-storytelling .storefront-order-flow h4,
+  .storefront-style-dark-production .storefront-order-flow h1,
+  .storefront-style-dark-production .storefront-order-flow h2,
+  .storefront-style-dark-production .storefront-order-flow h3,
+  .storefront-style-dark-production .storefront-order-flow h4 {
+    color: rgba(248, 250, 252, 0.96) !important;
+  }
+
+  .storefront-style-taste-dark-futuristic .storefront-order-flow input,
+  .storefront-style-taste-dark-futuristic .storefront-order-flow textarea,
+  .storefront-style-taste-dark-futuristic .storefront-order-flow [role="combobox"],
+  .storefront-style-taste-gaming-ui .storefront-order-flow input,
+  .storefront-style-taste-gaming-ui .storefront-order-flow textarea,
+  .storefront-style-taste-gaming-ui .storefront-order-flow [role="combobox"],
+  .storefront-style-taste-cinematic-storytelling .storefront-order-flow input,
+  .storefront-style-taste-cinematic-storytelling .storefront-order-flow textarea,
+  .storefront-style-taste-cinematic-storytelling .storefront-order-flow [role="combobox"],
+  .storefront-style-dark-production .storefront-order-flow input,
+  .storefront-style-dark-production .storefront-order-flow textarea,
+  .storefront-style-dark-production .storefront-order-flow [role="combobox"] {
+    color: rgba(248, 250, 252, 0.94) !important;
+  }
+
+  .storefront-style-taste-minimalism {
+    --storefront-card-shadow: none;
+    --storefront-card-hover-shadow: none;
+    --storefront-pattern-opacity: 0;
+  }
+
+  .storefront-style-taste-minimalism [data-branding-id="forside.products.background"],
+  .storefront-style-taste-minimalism .storefront-order-hero,
+  .storefront-style-taste-minimalism .storefront-order-product-image,
+  .storefront-style-taste-minimalism .storefront-order-flow [data-branding-id="productPage.matrix.box"],
+  .storefront-style-taste-minimalism .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-minimalism .storefront-checkout-flow .shadow-sm,
+  .storefront-style-taste-apple-clean [data-branding-id="forside.products.background"],
+  .storefront-style-taste-apple-clean .storefront-order-hero,
+  .storefront-style-taste-apple-clean .storefront-order-flow [data-storefront-order-panel] {
+    border-width: 1px !important;
+    box-shadow: none !important;
+  }
+
+  .storefront-style-taste-minimalism [data-branding-id="forside.products.button"],
+  .storefront-style-taste-minimalism .storefront-order-flow button,
+  .storefront-style-taste-apple-clean [data-branding-id="forside.products.button"],
+  .storefront-style-taste-apple-clean .storefront-order-flow button {
+    box-shadow: none !important;
+  }
+
+  .storefront-style-taste-glassmorphism .storefront-order-product-image,
+  .storefront-style-glass-studio .storefront-order-product-image,
+  .storefront-style-taste-glassmorphism .storefront-order-flow [data-branding-id="productPage.matrix.box"],
+  .storefront-style-glass-studio .storefront-order-flow [data-branding-id="productPage.matrix.box"],
+  .storefront-style-taste-glassmorphism .storefront-checkout-flow > .max-w-5xl,
+  .storefront-style-glass-studio .storefront-checkout-flow > .max-w-5xl {
+    backdrop-filter: blur(18px) saturate(145%);
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.34)) !important;
+  }
+
+  .storefront-style-taste-glassmorphism .storefront-order-flow input,
+  .storefront-style-taste-glassmorphism .storefront-order-flow textarea,
+  .storefront-style-glass-studio .storefront-order-flow input,
+  .storefront-style-glass-studio .storefront-order-flow textarea {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62) !important;
+  }
+
+  .storefront-style-taste-neo-brutalism [data-branding-id="forside.products.background"],
+  .storefront-style-bold-maker [data-branding-id="forside.products.background"],
+  .storefront-style-taste-neo-brutalism .storefront-order-hero,
+  .storefront-style-bold-maker .storefront-order-hero,
+  .storefront-style-taste-neo-brutalism .storefront-order-product-image,
+  .storefront-style-bold-maker .storefront-order-product-image,
+  .storefront-style-taste-neo-brutalism .storefront-order-flow [data-branding-id="productPage.matrix.box"],
+  .storefront-style-bold-maker .storefront-order-flow [data-branding-id="productPage.matrix.box"],
+  .storefront-style-taste-neo-brutalism .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-bold-maker .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-neo-brutalism .storefront-checkout-flow .shadow-sm,
+  .storefront-style-bold-maker .storefront-checkout-flow .shadow-sm {
+    border-color: #111827 !important;
+    border-width: 3px !important;
+    box-shadow: 8px 8px 0 #111827 !important;
+  }
+
+  .storefront-style-taste-neo-brutalism .storefront-order-flow button:active,
+  .storefront-style-bold-maker .storefront-order-flow button:active,
+  .storefront-style-taste-neo-brutalism [data-branding-id="forside.products.button"]:active,
+  .storefront-style-bold-maker [data-branding-id="forside.products.button"]:active {
+    transform: translate(3px, 3px) !important;
+    box-shadow: 1px 1px 0 #111827 !important;
+  }
+
+  .storefront-style-taste-neumorphism [data-branding-id="forside.products.background"],
+  .storefront-style-taste-neumorphism .storefront-order-hero,
+  .storefront-style-taste-neumorphism .storefront-order-product-image,
+  .storefront-style-taste-neumorphism .storefront-order-flow [data-branding-id="productPage.matrix.box"],
+  .storefront-style-taste-neumorphism .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-neumorphism .storefront-checkout-flow .shadow-sm {
+    border-color: rgba(255, 255, 255, 0.82) !important;
+    box-shadow:
+      14px 14px 30px rgba(72, 101, 129, 0.14),
+      -12px -12px 26px rgba(255, 255, 255, 0.9) !important;
+  }
+
+  .storefront-style-taste-neumorphism .storefront-order-flow input,
+  .storefront-style-taste-neumorphism .storefront-order-flow textarea,
+  .storefront-style-taste-neumorphism .storefront-order-flow [role="combobox"] {
+    border-color: rgba(255, 255, 255, 0.9) !important;
+    box-shadow:
+      inset 5px 5px 10px rgba(72, 101, 129, 0.13),
+      inset -5px -5px 10px rgba(255, 255, 255, 0.9) !important;
+  }
+
+  .storefront-style-taste-flat-design [data-branding-id="forside.products.background"],
+  .storefront-style-taste-flat-design .storefront-order-hero,
+  .storefront-style-taste-flat-design .storefront-order-product-image,
+  .storefront-style-taste-flat-design .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-flat-design .storefront-checkout-flow .shadow-sm {
+    box-shadow: none !important;
+  }
+
+  .storefront-style-taste-flat-design [data-branding-id="forside.products.button"],
+  .storefront-style-taste-flat-design .storefront-order-flow button {
+    border-width: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .storefront-style-taste-material-design [data-branding-id="forside.products.background"],
+  .storefront-style-taste-material-design .storefront-order-hero,
+  .storefront-style-taste-material-design .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-material-design .storefront-checkout-flow .shadow-sm {
+    box-shadow:
+      0 1px 2px rgba(60, 64, 67, 0.18),
+      0 4px 12px rgba(60, 64, 67, 0.12) !important;
+  }
+
+  .storefront-style-taste-material-design .storefront-order-flow button:hover,
+  .storefront-style-taste-ecommerce-modern .storefront-order-flow button:hover,
+  .storefront-style-taste-marketplace-ui .storefront-order-flow button:hover {
+    box-shadow:
+      0 3px 8px rgba(60, 64, 67, 0.16),
+      0 10px 24px rgba(37, 99, 235, 0.16) !important;
+  }
+
+  .storefront-style-taste-swiss-international {
+    --storefront-pattern-opacity: 0.28;
+    --storefront-pattern-bg:
+      linear-gradient(90deg, rgba(17, 24, 39, 0.05) 1px, transparent 1px),
+      linear-gradient(rgba(17, 24, 39, 0.05) 1px, transparent 1px);
+  }
+
+  .storefront-style-taste-swiss-international [data-branding-id="forside.products.background"],
+  .storefront-style-taste-swiss-international .storefront-order-hero,
+  .storefront-style-taste-swiss-international .storefront-order-product-image,
+  .storefront-style-taste-swiss-international .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-swiss-international .storefront-checkout-flow .shadow-sm,
+  .storefront-style-taste-industrial-technical [data-branding-id="forside.products.background"],
+  .storefront-style-taste-industrial-technical .storefront-order-flow [data-storefront-order-panel] {
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .storefront-style-taste-swiss-international [data-branding-id="forside.products.background"]::before,
+  .storefront-style-taste-print-cmyk-graphic [data-branding-id="forside.products.background"]::before {
+    content: "";
+    display: block;
+    height: 4px;
+    margin: -1px -1px 1rem;
+    background: linear-gradient(90deg, #111827 0 33%, #d01f2f 33% 66%, #111827 66%);
+  }
+
+  .storefront-style-taste-retro-y2k {
+    --storefront-image-filter: saturate(1.12) contrast(1.03);
+  }
+
+  .storefront-style-taste-retro-y2k [data-branding-id="forside.products.button"],
+  .storefront-style-taste-retro-y2k .storefront-order-flow button,
+  .storefront-style-taste-playful-cartoon [data-branding-id="forside.products.button"],
+  .storefront-style-taste-playful-cartoon .storefront-order-flow button {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.42),
+      0 12px 0 rgba(255, 78, 205, 0.12),
+      0 18px 34px rgba(124, 58, 237, 0.18) !important;
+  }
+
+  .storefront-style-taste-editorial-magazine [data-branding-id="forside.products.background"],
+  .storefront-style-taste-editorial-magazine .storefront-order-hero,
+  .storefront-style-taste-editorial-magazine .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-luxury-premium [data-branding-id="forside.products.background"],
+  .storefront-style-taste-luxury-premium .storefront-order-hero,
+  .storefront-style-taste-luxury-premium .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-premium-press [data-branding-id="forside.products.background"],
+  .storefront-style-premium-press .storefront-order-flow [data-storefront-order-panel] {
+    border-top-color: currentColor !important;
+    box-shadow: 0 28px 80px rgba(24, 24, 27, 0.1) !important;
+  }
+
+  .storefront-style-taste-editorial-magazine img,
+  .storefront-style-taste-luxury-premium img,
+  .storefront-style-premium-press img {
+    filter: saturate(0.92) contrast(1.02);
+  }
+
+  .storefront-style-taste-dark-futuristic .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-dark-futuristic .storefront-checkout-flow .shadow-sm,
+  .storefront-style-taste-gaming-ui .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-gaming-ui .storefront-checkout-flow .shadow-sm,
+  .storefront-style-dark-production .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-dark-production .storefront-checkout-flow .shadow-sm {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 0 0 1px rgba(34, 211, 238, 0.12),
+      0 24px 80px rgba(0, 0, 0, 0.36) !important;
+  }
+
+  .storefront-style-taste-dark-futuristic .storefront-order-flow button,
+  .storefront-style-taste-gaming-ui .storefront-order-flow button,
+  .storefront-style-dark-production .storefront-order-flow button {
+    box-shadow:
+      0 0 0 1px rgba(34, 211, 238, 0.28),
+      0 0 26px rgba(34, 211, 238, 0.18) !important;
+  }
+
+  .storefront-style-taste-cinematic-storytelling {
+    --storefront-pattern-opacity: 1;
+    --storefront-pattern-bg:
+      linear-gradient(180deg, rgba(0, 0, 0, 0.2), transparent 26rem),
+      radial-gradient(circle at 50% 0%, rgba(251, 191, 36, 0.16), transparent 24rem);
+  }
+
+  .storefront-style-taste-cinematic-storytelling .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-cinematic-storytelling .storefront-checkout-flow .shadow-sm {
+    box-shadow: 0 32px 100px rgba(0, 0, 0, 0.34) !important;
+  }
+
+  .storefront-style-taste-corporate-enterprise [data-branding-id="forside.products.background"],
+  .storefront-style-taste-corporate-enterprise .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-government-public-service [data-branding-id="forside.products.background"],
+  .storefront-style-taste-government-public-service .storefront-order-flow [data-storefront-order-panel] {
+    border-radius: 8px !important;
+    box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06) !important;
+  }
+
+  .storefront-style-taste-organic-natural [data-branding-id="forside.products.background"],
+  .storefront-style-taste-organic-natural .storefront-order-hero,
+  .storefront-style-taste-restaurant-menu [data-branding-id="forside.products.background"],
+  .storefront-style-taste-restaurant-menu .storefront-order-hero {
+    border-color: rgba(63, 107, 79, 0.18) !important;
+  }
+
+  .storefront-style-taste-mobile-first-app .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-mobile-first-app .storefront-checkout-flow .shadow-sm {
+    border-radius: 24px !important;
+  }
+
+  .storefront-style-taste-print-cmyk-graphic [data-branding-id="forside.products.background"],
+  .storefront-style-taste-print-cmyk-graphic .storefront-order-hero,
+  .storefront-style-taste-print-cmyk-graphic .storefront-order-flow [data-storefront-order-panel],
+  .storefront-style-taste-print-cmyk-graphic .storefront-checkout-flow .shadow-sm {
+    background:
+      linear-gradient(#ffffff, #ffffff) padding-box,
+      linear-gradient(135deg, #00aeef, #ec008c, #fff200, #111111) border-box !important;
+  }
+
+  .storefront-style-taste-print-cmyk-graphic [data-branding-id="forside.products.button"],
+  .storefront-style-taste-print-cmyk-graphic .storefront-order-flow button {
+    box-shadow: 4px 4px 0 rgba(0, 174, 239, 0.34), 8px 8px 0 rgba(236, 0, 140, 0.22) !important;
+  }
+
+  .storefront-style-taste-neo-brutalism .storefront-order-flow button:not(:disabled),
+  .storefront-style-bold-maker .storefront-order-flow button:not(:disabled) {
+    border-color: #111827 !important;
+    border-width: 2px !important;
+    box-shadow: 4px 4px 0 #111827 !important;
+  }
+
+  .storefront-style-taste-neo-brutalism .storefront-checkout-flow button:hover,
+  .storefront-style-bold-maker .storefront-checkout-flow button:hover {
+    box-shadow: 7px 7px 0 #111827 !important;
+  }
+
+  .storefront-style-taste-dark-futuristic .storefront-checkout-flow button,
+  .storefront-style-taste-gaming-ui .storefront-checkout-flow button,
+  .storefront-style-taste-cinematic-storytelling .storefront-checkout-flow button,
+  .storefront-style-dark-production .storefront-checkout-flow button {
+    border-color: rgba(148, 163, 184, 0.34) !important;
+    color: rgba(248, 250, 252, 0.94) !important;
+  }
+
+  .storefront-style-taste-dark-futuristic .storefront-checkout-flow button[disabled],
+  .storefront-style-taste-gaming-ui .storefront-checkout-flow button[disabled],
+  .storefront-style-taste-cinematic-storytelling .storefront-checkout-flow button[disabled],
+  .storefront-style-dark-production .storefront-checkout-flow button[disabled] {
+    color: rgba(203, 213, 225, 0.58) !important;
+  }
+
+  @media (max-width: 767px) {
+    .storefront-visual-style {
+      --storefront-section-padding: 3rem;
+      --storefront-product-gap: 1rem;
+      --storefront-hero-copy-padding: 0;
+    }
+
+    .storefront-visual-style [data-branding-id="forside.hero.media"] {
+      min-height: 480px;
+    }
+
+    .storefront-visual-style [data-branding-id="forside.hero.media"] > .absolute.inset-0.z-20 .mt-14 {
+      margin-inline: 0.75rem !important;
+      padding: clamp(0.75rem, 4vw, 1.25rem);
+    }
+
+    .storefront-order-hero,
+    .storefront-checkout-flow > .max-w-5xl {
+      padding: 1rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .storefront-visual-style *,
+    .storefront-visual-style *::before,
+    .storefront-visual-style *::after {
+      scroll-behavior: auto !important;
+      transition-duration: 1ms !important;
+      animation-duration: 1ms !important;
+    }
+  }

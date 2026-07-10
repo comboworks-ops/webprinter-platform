@@ -46,7 +46,7 @@ export function CookieBanner() {
                                 <Button
                                     size="sm"
                                     onClick={acceptAll}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                                    className="min-h-11 bg-blue-600 text-white shadow-sm hover:bg-blue-700"
                                 >
                                     Accepter alle
                                 </Button>
@@ -54,7 +54,7 @@ export function CookieBanner() {
                                     size="sm"
                                     variant="outline"
                                     onClick={rejectAll}
-                                    className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                                    className="min-h-11 border-blue-300 text-blue-700 hover:bg-blue-50"
                                 >
                                     Kun nødvendige
                                 </Button>
@@ -62,7 +62,7 @@ export function CookieBanner() {
                                     size="sm"
                                     variant="ghost"
                                     onClick={openSettings}
-                                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                    className="min-h-11 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
                                 >
                                     Tilpas
                                 </Button>

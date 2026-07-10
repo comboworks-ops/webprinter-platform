@@ -1,7 +1,7 @@
 
-import { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { Package, Trash2, Copy, Search, X, ImageIcon, Building2, Loader2, Settings2, Plus, ChevronUp, ChevronDown, FolderOpen } from "lucide-react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useNavigate, Link, useLocation } from "react-router-dom";
+import { Package, Trash2, Copy, Search, X, ImageIcon, Building2, Loader2, Settings2, Plus, ChevronUp, ChevronDown, FolderOpen, AlertTriangle, CheckCircle2, Gauge } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -96,6 +96,15 @@ type TenantOption = {
 };
 
 type DeliveryMode = "price_list" | "pod_price_list";
+type PriceHealthTone = "ok" | "warning" | "info" | "unknown";
+type PriceHealthFilter = "all" | "ok" | "missing" | "special" | "unknown";
+
+type ProductPriceHealth = {
+  tone: PriceHealthTone;
+  label: string;
+  detail: string;
+  rowCount: number | null;
+};
 
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 const FALLBACK_OVERVIEW_ID = "__default_overview__";
@@ -139,6 +148,77 @@ function getProductCardShellClass(product: Pick<Product, "is_published" | "is_re
   return "hover:border-primary bg-background";
 }
 
+function isStorformatProduct(product: Pick<Product, "pricing_type">): boolean {
+  return String(product.pricing_type || "").toUpperCase() === "STORFORMAT";
+}
+
+function isMachinePricedProduct(product: Pick<Product, "pricing_type">): boolean {
+  const type = String(product.pricing_type || "");
+  return type === "MACHINE_PRICED" || type.toLowerCase() === "machine-priced";
+}
+
+function createSpecialPriceHealth(product: Pick<Product, "pricing_type">): ProductPriceHealth | null {
+  if (isStorformatProduct(product)) {
+    return {
+      tone: "info",
+      label: "Storformat",
+      detail: "Bruger separat storformat-prislogik.",
+      rowCount: null,
+    };
+  }
+
+  if (isMachinePricedProduct(product)) {
+    return {
+      tone: "info",
+      label: "MPA",
+      detail: "Bruger maskinberegning.",
+      rowCount: null,
+    };
+  }
+
+  return null;
+}
+
+function createMatrixPriceHealth(rowCount: number | null): ProductPriceHealth {
+  if (rowCount === null) {
+    return {
+      tone: "unknown",
+      label: "Prisstatus ukendt",
+      detail: "Prisrækker kunne ikke læses i denne session.",
+      rowCount: null,
+    };
+  }
+
+  if (rowCount === 0) {
+    return {
+      tone: "warning",
+      label: "0 prisrækker",
+      detail: "Produkt-preview kan ikke vise Matrix-priser.",
+      rowCount,
+    };
+  }
+
+  return {
+    tone: "ok",
+    label: rowCount > 5000 ? "Pris OK, mange rækker" : "Pris OK",
+    detail: `${rowCount.toLocaleString("da-DK")} Matrix-prisrækker fundet.`,
+    rowCount,
+  };
+}
+
+function getPriceHealthClasses(tone: PriceHealthTone): string {
+  switch (tone) {
+    case "ok":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200";
+    case "warning":
+      return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
+    case "info":
+      return "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300";
+  }
+}
+
 type DbErrorLike = {
   code?: string | null;
   message?: string | null;
@@ -172,13 +252,17 @@ const isMissingFrontendCardColumn = (error: unknown) => {
 
 export function ProductOverview() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [priceHealthByProductId, setPriceHealthByProductId] = useState<Record<string, ProductPriceHealth>>({});
+  const [priceHealthLoading, setPriceHealthLoading] = useState(false);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const { isMasterAdmin: roleIsMasterAdmin } = useUserRole();
   const [isMasterAdmin, setIsMasterAdmin] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("Alle");
+  const [priceHealthFilter, setPriceHealthFilter] = useState<PriceHealthFilter>("all");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [companyAccounts, setCompanyAccounts] = useState<CompanyAccount[]>([]);
@@ -227,6 +311,16 @@ export function ProductOverview() {
   const [productsTenantId, setProductsTenantId] = useState<string | null>(null);
   // LOCK LF-005: Distribution actions are only valid in Master tenant context.
   const canDistributeToTenants = isMasterAdmin && productsTenantId === MASTER_TENANT_ID;
+  const withAdminContext = (path: string) => {
+    const forceDomain = new URLSearchParams(location.search).get("force_domain");
+    if (!forceDomain || !path.startsWith("/admin") || path.includes("?")) return path;
+    return `${path}?force_domain=${encodeURIComponent(forceDomain)}`;
+  };
+  const getProductPriceHealth = useCallback((product: Product): ProductPriceHealth => (
+    priceHealthByProductId[product.id] ||
+    createSpecialPriceHealth(product) ||
+    createMatrixPriceHealth(null)
+  ), [priceHealthByProductId]);
 
   const fetchUnreadMessages = async () => {
     try {
@@ -309,13 +403,62 @@ export function ProductOverview() {
         .order('name');
 
       if (error) throw error;
-      setProducts(data || []);
+      const rows = (data || []) as Product[];
+      setProducts(rows);
+      void fetchProductPriceHealth(rows, tenantId);
     } catch (error) {
       console.error('Error fetching products:', error);
       toast.error('Kunne ikke hente produkter');
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchProductPriceHealth = async (productRows: Product[], tenantId: string) => {
+    if (productRows.length === 0) {
+      setPriceHealthByProductId({});
+      setPriceHealthLoading(false);
+      return;
+    }
+
+    setPriceHealthLoading(true);
+    const next: Record<string, ProductPriceHealth> = {};
+    const matrixProducts = productRows.filter((product) => {
+      const specialHealth = createSpecialPriceHealth(product);
+      if (specialHealth) {
+        next[product.id] = specialHealth;
+        return false;
+      }
+      return true;
+    });
+
+    const chunkSize = 8;
+    for (let index = 0; index < matrixProducts.length; index += chunkSize) {
+      const chunk = matrixProducts.slice(index, index + chunkSize);
+      const results = await Promise.all(
+        chunk.map(async (product) => {
+          try {
+            const { count, error } = await supabase
+              .from("generic_product_prices" as any)
+              .select("id", { count: "exact", head: true })
+              .eq("tenant_id", tenantId)
+              .eq("product_id", product.id);
+
+            if (error) throw error;
+            return [product.id, createMatrixPriceHealth(count ?? 0)] as const;
+          } catch (error) {
+            return [product.id, createMatrixPriceHealth(null)] as const;
+          }
+        })
+      );
+
+      results.forEach(([productId, health]) => {
+        next[productId] = health;
+      });
+    }
+
+    setPriceHealthByProductId(next);
+    setPriceHealthLoading(false);
   };
 
   const fetchCompanyHubs = async () => {
@@ -474,14 +617,25 @@ export function ProductOverview() {
     }
   };
 
-  const toggleAvailableToTenants = async (id: string, currentStatus: boolean) => {
+  const toggleAvailableToTenants = async (product: Product) => {
     // LOCK LF-004: Scope every mutation by tenant_id.
     if (!productsTenantId) return;
+    const currentStatus = !!product.is_available_to_tenants;
+    const nextStatus = !currentStatus;
+    const priceHealth = getProductPriceHealth(product);
+
+    if (nextStatus && priceHealth.tone === "warning") {
+      const confirmed = window.confirm(
+        `Produktet "${product.name}" har 0 Matrix-prisrækker. Hvis du frigiver det til lejere nu, kan importerede kopier mangle pris-preview. Vil du frigive det alligevel?`
+      );
+      if (!confirmed) return;
+    }
+
     try {
       const { error } = await supabase
         .from('products')
-        .update({ is_available_to_tenants: !currentStatus })
-        .eq('id', id)
+        .update({ is_available_to_tenants: nextStatus })
+        .eq('id', product.id)
         .eq('tenant_id', productsTenantId);
 
       if (error) throw error;
@@ -494,14 +648,25 @@ export function ProductOverview() {
     }
   };
 
-  const togglePublish = async (id: string, currentStatus: boolean) => {
+  const togglePublish = async (product: Product) => {
     // LOCK LF-004: Scope every mutation by tenant_id.
     if (!productsTenantId) return;
+    const currentStatus = product.is_published;
+    const nextStatus = !currentStatus;
+    const priceHealth = getProductPriceHealth(product);
+
+    if (nextStatus && priceHealth.tone === "warning") {
+      const confirmed = window.confirm(
+        `Produktet "${product.name}" har 0 Matrix-prisrækker. Hvis du publicerer det nu, kan kundens pris-preview mangle priser. Vil du publicere alligevel?`
+      );
+      if (!confirmed) return;
+    }
+
     try {
       const { error } = await supabase
         .from('products')
-        .update({ is_published: !currentStatus })
-        .eq('id', id)
+        .update({ is_published: nextStatus })
+        .eq('id', product.id)
         .eq('tenant_id', productsTenantId);
 
       if (error) throw error;
@@ -514,14 +679,25 @@ export function ProductOverview() {
     }
   };
 
-  const toggleReady = async (id: string, currentStatus: boolean) => {
+  const toggleReady = async (product: Product) => {
     // LOCK LF-004: Scope every mutation by tenant_id.
     if (!productsTenantId) return;
+    const currentStatus = !!product.is_ready;
+    const nextStatus = !currentStatus;
+    const priceHealth = getProductPriceHealth(product);
+
+    if (nextStatus && priceHealth.tone === "warning") {
+      const confirmed = window.confirm(
+        `Produktet "${product.name}" har 0 Matrix-prisrækker. Hvis du markerer det som klar, kan produktet stadig mangle priser i kundens preview. Vil du markere det som klar alligevel?`
+      );
+      if (!confirmed) return;
+    }
+
     try {
       const { error } = await supabase
         .from('products')
-        .update({ is_ready: !currentStatus })
-        .eq('id', id)
+        .update({ is_ready: nextStatus })
+        .eq('id', product.id)
         .eq('tenant_id', productsTenantId);
 
       if (error) throw error;
@@ -969,6 +1145,14 @@ export function ProductOverview() {
       toast.error("Denne handling kræver Master-tenant kontekst.");
       return;
     }
+    const priceHealth = getProductPriceHealth(product);
+    if (priceHealth.tone === "warning") {
+      const confirmed = window.confirm(
+        `Produktet "${product.name}" har 0 Matrix-prisrækker. Hvis du sender det til lejere nu, kan modtageren få et produkt uden pris-preview. Vil du fortsætte?`
+      );
+      if (!confirmed) return;
+    }
+
     setDialogProduct(product);
     setSelectedTenantIds([]);
     setTenantFilter("");
@@ -1159,9 +1343,17 @@ export function ProductOverview() {
   const overviewFilteredProducts = useMemo(() => {
     return overviewAllProducts.filter((product) => {
       const category = getCanonicalCategoryName(product.category);
-      return selectedCategory === "Alle" || category === selectedCategory;
+      const categoryMatches = selectedCategory === "Alle" || category === selectedCategory;
+      if (!categoryMatches) return false;
+      if (priceHealthFilter === "all") return true;
+
+      const health = getProductPriceHealth(product);
+      if (priceHealthFilter === "missing") return health.tone === "warning";
+      if (priceHealthFilter === "special") return health.tone === "info";
+      if (priceHealthFilter === "unknown") return health.tone === "unknown";
+      return health.tone === "ok";
     });
-  }, [overviewAllProducts, selectedCategory, getCanonicalCategoryName]);
+  }, [getProductPriceHealth, overviewAllProducts, priceHealthFilter, selectedCategory, getCanonicalCategoryName]);
 
   const productsByCategory = useMemo(() => {
     const map = new Map<string, Product[]>();
@@ -1202,7 +1394,7 @@ export function ProductOverview() {
     setSelectedCategory("Alle");
   }, [categories, selectedCategory]);
 
-  const isFilteringProducts = searchQuery !== "" || selectedCategory !== "Alle";
+  const isFilteringProducts = searchQuery !== "" || selectedCategory !== "Alle" || priceHealthFilter !== "all";
 
   const categoriesByOverview = useMemo(() => {
     const map = new Map<string, ProductCategory[]>();
@@ -1335,6 +1527,87 @@ export function ProductOverview() {
   });
   const tenantCount = tenants.length;
   const taxonomyLoading = !overviewsLoaded || !categoriesLoaded;
+  const priceHealthFilterLabels: Record<PriceHealthFilter, string> = {
+    all: "Alle prisstatusser",
+    ok: "Pris OK",
+    missing: "Uden Matrix-priser",
+    special: "Specialpris",
+    unknown: "Prisstatus ukendt",
+  };
+  const priceHealthSummary = useMemo(() => {
+    return products.reduce(
+      (acc, product) => {
+        const health = priceHealthByProductId[product.id] || createSpecialPriceHealth(product);
+        if (!health) {
+          acc.unknown += 1;
+          return acc;
+        }
+        if (health.tone === "warning") acc.missing += 1;
+        if (health.tone === "ok") acc.ok += 1;
+        if (health.tone === "info") acc.special += 1;
+        if (health.tone === "unknown") acc.unknown += 1;
+        return acc;
+      },
+      { ok: 0, missing: 0, special: 0, unknown: 0 },
+    );
+  }, [priceHealthByProductId, products]);
+
+  const storefrontCategoryReadiness = useMemo(() => {
+    const categoryById = new Map(sortedAdminCategories.map((category) => [category.id, category]));
+    const productCountByCategoryKey = products.reduce((map, product) => {
+      const key = normalizeCategoryKey(product.category);
+      map.set(key, (map.get(key) || 0) + 1);
+      return map;
+    }, new Map<string, number>());
+
+    const branchCountCache = new Map<string, number>();
+    const getBranchProductCount = (categoryId: string, trail = new Set<string>()): number => {
+      if (branchCountCache.has(categoryId)) return branchCountCache.get(categoryId) || 0;
+      if (trail.has(categoryId)) return 0;
+
+      const category = categoryById.get(categoryId);
+      if (!category) return 0;
+
+      const nextTrail = new Set(trail);
+      nextTrail.add(categoryId);
+      const directCount = productCountByCategoryKey.get(normalizeCategoryKey(category.name)) || 0;
+      const childCount = (categoryChildrenByParentId.get(categoryId) || [])
+        .reduce((sum, child) => sum + getBranchProductCount(child.id, nextTrail), 0);
+      const total = directCount + childCount;
+      branchCountCache.set(categoryId, total);
+      return total;
+    };
+
+    const rootCategories = sortedAdminCategories.filter((category) => !category.parent_category_id);
+    const subcategories = sortedAdminCategories.filter((category) => Boolean(category.parent_category_id));
+    const emptyCategories = sortedAdminCategories.filter((category) => getBranchProductCount(category.id) === 0);
+    const visibleRootTiles = rootCategories.filter((category) => getBranchProductCount(category.id) > 0);
+    const autoFrontCards = sortedAdminCategories.filter(
+      (category) => getBranchProductCount(category.id) > 0 && !category.frontend_product_id,
+    );
+    const invalidFrontCards = sortedAdminCategories.filter((category) => {
+      if (!category.frontend_product_id) return false;
+      const product = products.find((candidate) => candidate.id === category.frontend_product_id);
+      return !product || !product.is_published;
+    });
+    const submenuWithoutChildren = sortedAdminCategories.filter((category) => {
+      if (category.navigation_mode !== "submenu") return false;
+      if (getBranchProductCount(category.id) === 0) return false;
+      const visibleChildren = (categoryChildrenByParentId.get(category.id) || [])
+        .filter((child) => getBranchProductCount(child.id) > 0);
+      return visibleChildren.length === 0;
+    });
+
+    return {
+      rootCount: rootCategories.length,
+      subcategoryCount: subcategories.length,
+      visibleRootTileCount: visibleRootTiles.length,
+      emptyCategories,
+      autoFrontCards,
+      invalidFrontCards,
+      submenuWithoutChildren,
+    };
+  }, [categoryChildrenByParentId, products, sortedAdminCategories]);
 
   // Handle search open/close
   const handleSearchToggle = () => {
@@ -1678,9 +1951,60 @@ export function ProductOverview() {
         <div className="space-y-1">
           <h1 className="text-3xl font-bold tracking-tight">Produktoversigt</h1>
           <p className="text-muted-foreground max-w-2xl">Administrer alle produkter og deres priser</p>
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setPriceHealthFilter(priceHealthFilter === "ok" ? "all" : "ok")}
+              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${priceHealthFilter === "ok" ? "ring-2 ring-emerald-500/40" : ""} ${getPriceHealthClasses("ok")}`}
+            >
+              <CheckCircle2 className="h-3 w-3" />
+              <span className="ml-1">{priceHealthSummary.ok} pris OK</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPriceHealthFilter(priceHealthFilter === "missing" ? "all" : "missing")}
+              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${priceHealthFilter === "missing" ? "ring-2 ring-amber-500/40" : ""} ${getPriceHealthClasses("warning")}`}
+            >
+              <AlertTriangle className="h-3 w-3" />
+              <span className="ml-1">{priceHealthSummary.missing} uden Matrix-priser</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPriceHealthFilter(priceHealthFilter === "special" ? "all" : "special")}
+              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${priceHealthFilter === "special" ? "ring-2 ring-sky-500/40" : ""} ${getPriceHealthClasses("info")}`}
+            >
+              <Gauge className="h-3 w-3" />
+              <span className="ml-1">{priceHealthSummary.special} specialpris</span>
+            </button>
+            {priceHealthSummary.unknown > 0 && (
+              <button
+                type="button"
+                onClick={() => setPriceHealthFilter(priceHealthFilter === "unknown" ? "all" : "unknown")}
+                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${priceHealthFilter === "unknown" ? "ring-2 ring-slate-500/40" : ""} ${getPriceHealthClasses("unknown")}`}
+              >
+                <Gauge className="h-3 w-3" />
+                <span className="ml-1">{priceHealthSummary.unknown} ukendt</span>
+              </button>
+            )}
+            {priceHealthFilter !== "all" && (
+              <button
+                type="button"
+                onClick={() => setPriceHealthFilter("all")}
+                className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
+              >
+                Nulstil prisfilter
+              </button>
+            )}
+            {priceHealthLoading && (
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Tjekker prisstatus
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-3">
-          <Button onClick={() => navigate("/admin/create-product")}>
+          <Button onClick={() => navigate(withAdminContext("/admin/create-product"))}>
             <Package className="mr-2 h-4 w-4" />
             Opret Nyt Produkt
           </Button>
@@ -1773,6 +2097,68 @@ export function ProductOverview() {
             </div>
           </div>
 
+          {!taxonomyLoading && adminCategories.length > 0 && (
+            <Card className="border-slate-200 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-950/30">
+              <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary" className="gap-1">
+                      <FolderOpen className="h-3 w-3" />
+                      {storefrontCategoryReadiness.visibleRootTileCount} forside-knapper
+                    </Badge>
+                    <Badge variant="outline">
+                      {storefrontCategoryReadiness.rootCount} hovedkategorier
+                    </Badge>
+                    <Badge variant="outline">
+                      {storefrontCategoryReadiness.subcategoryCount} underkategorier
+                    </Badge>
+                    {storefrontCategoryReadiness.invalidFrontCards.length === 0
+                      && storefrontCategoryReadiness.emptyCategories.length === 0
+                      && storefrontCategoryReadiness.submenuWithoutChildren.length === 0 ? (
+                        <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">
+                          Frontend-kategorier ser klar ud
+                        </Badge>
+                      ) : (
+                        <Badge variant="destructive">
+                          {storefrontCategoryReadiness.invalidFrontCards.length
+                            + storefrontCategoryReadiness.emptyCategories.length
+                            + storefrontCategoryReadiness.submenuWithoutChildren.length} ting at tjekke
+                        </Badge>
+                      )}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Hovedkategorier med produkter bliver vist som knapper/kort på forsiden. Hvis et valgt frontkort mangler eller er skjult, falder shoppen nu tilbage til første synlige produkt i kategorien.
+                  </p>
+                  {(storefrontCategoryReadiness.invalidFrontCards.length > 0
+                    || storefrontCategoryReadiness.emptyCategories.length > 0
+                    || storefrontCategoryReadiness.submenuWithoutChildren.length > 0) && (
+                      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        {storefrontCategoryReadiness.invalidFrontCards.slice(0, 3).map((category) => (
+                          <span key={`invalid-card-${category.id}`} className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800">
+                            Frontkort skal tjekkes: {category.name}
+                          </span>
+                        ))}
+                        {storefrontCategoryReadiness.emptyCategories.slice(0, 3).map((category) => (
+                          <span key={`empty-category-${category.id}`} className="rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                            Tom kategori: {category.name}
+                          </span>
+                        ))}
+                        {storefrontCategoryReadiness.submenuWithoutChildren.slice(0, 3).map((category) => (
+                          <span key={`submenu-category-${category.id}`} className="rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-sky-800">
+                            Undermenu uden synlige underkategorier: {category.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setCategoryDialogOpen(true)}>
+                  <Settings2 className="mr-2 h-4 w-4" />
+                  Administrer struktur
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Products Section */}
           <Card className="overflow-hidden">
             <div className="bg-gradient-to-r from-primary/10 to-primary/5 px-6 py-4 border-b">
@@ -1781,6 +2167,7 @@ export function ProductOverview() {
                 Produkter
                 <span className="text-sm font-normal text-muted-foreground ml-2">
                   ({overviewFilteredProducts.length} af {overviewAllProducts.length})
+                  {priceHealthFilter !== "all" ? ` · ${priceHealthFilterLabels[priceHealthFilter]}` : ""}
                 </span>
               </h2>
               <p className="text-sm text-muted-foreground">Administrer dine produkter og priser</p>
@@ -1871,6 +2258,15 @@ export function ProductOverview() {
                         const productCategoryNames = (
                           categoriesByOverview.get(productOverviewId) || []
                         ).map((category) => category.name);
+                        const priceHealth =
+                          priceHealthByProductId[product.id] ||
+                          createSpecialPriceHealth(product) ||
+                          createMatrixPriceHealth(null);
+                        const PriceHealthIcon = priceHealth.tone === "ok"
+                          ? CheckCircle2
+                          : priceHealth.tone === "warning"
+                            ? AlertTriangle
+                            : Gauge;
 
                         return (
                       <Card
@@ -1888,14 +2284,16 @@ export function ProductOverview() {
                               }`}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                toggleReady(product.id, !!product.is_ready);
+                                toggleReady(product);
                               }}
                             />
                           </TooltipTrigger>
                           <TooltipContent>
                             {product.is_ready
                               ? 'Klik for at markere som ikke færdig'
-                              : 'Klik for at markere som færdig'}
+                              : priceHealth.tone === "warning"
+                                ? 'Produktet mangler Matrix-prisrækker. Klar-markering kræver bekræftelse.'
+                                : 'Klik for at markere som færdig'}
                           </TooltipContent>
                         </Tooltip>
                         {product.is_ready && (
@@ -1912,7 +2310,7 @@ export function ProductOverview() {
                           {/* Thumbnail + Name */}
                           <div
                             className="cursor-pointer flex items-center gap-3 p-3 border-b"
-                            onClick={() => navigate(`/admin/product/${product.slug}`)}
+                            onClick={() => navigate(withAdminContext(`/admin/product/${product.slug}`))}
                           >
                             <div className="w-10 h-10 rounded bg-muted flex-shrink-0 flex items-center justify-center overflow-hidden">
                               {product.image_url ? (
@@ -1932,6 +2330,14 @@ export function ProductOverview() {
                               <p className="text-xs text-muted-foreground truncate">
                                 {getPricingTypeLabel(product.pricing_type)}
                               </p>
+                              <Badge
+                                variant="outline"
+                                title={priceHealth.detail}
+                                className={`mt-1 max-w-full gap-1 truncate text-[10px] ${getPriceHealthClasses(priceHealth.tone)}`}
+                              >
+                                <PriceHealthIcon className="h-3 w-3 shrink-0" />
+                                <span className="truncate">{priceHealth.label}</span>
+                              </Badge>
                             </div>
                           </div>
 
@@ -1987,7 +2393,7 @@ export function ProductOverview() {
                                 <div className="flex items-center gap-1.5">
                                   <Switch
                                     checked={product.is_published}
-                                    onCheckedChange={() => togglePublish(product.id, product.is_published)}
+                                    onCheckedChange={() => togglePublish(product)}
                                     className="scale-90"
                                   />
                                 </div>
@@ -1995,7 +2401,9 @@ export function ProductOverview() {
                               <TooltipContent>
                                 {product.is_published
                                   ? "Produktet er synligt i webshoppen."
-                                  : "Produktet er skjult i webshoppen. Priser og opsætning bevares."}
+                                  : priceHealth.tone === "warning"
+                                    ? "Produktet mangler Matrix-prisrækker. Publicering kræver bekræftelse."
+                                    : "Produktet er skjult i webshoppen. Priser og opsætning bevares."}
                               </TooltipContent>
                             </Tooltip>
 
@@ -2089,19 +2497,16 @@ export function ProductOverview() {
                                     <Switch
                                       className="data-[state=checked]:bg-blue-600 dark:data-[state=checked]:bg-blue-500 scale-90"
                                       checked={!!product.is_available_to_tenants}
-                                      onCheckedChange={() =>
-                                        toggleAvailableToTenants(
-                                          product.id,
-                                          !!product.is_available_to_tenants,
-                                        )
-                                      }
+                                      onCheckedChange={() => toggleAvailableToTenants(product)}
                                     />
                                   </div>
                                 </TooltipTrigger>
                                 <TooltipContent>
                                   {product.is_available_to_tenants
                                     ? "Frigivet til lejere"
-                                    : "Kun synlig for Master"}
+                                    : priceHealth.tone === "warning"
+                                      ? "Produktet mangler Matrix-prisrækker. Frigivelse kræver bekræftelse."
+                                      : "Kun synlig for Master"}
                                 </TooltipContent>
                               </Tooltip>
                               <Button
@@ -2158,7 +2563,7 @@ export function ProductOverview() {
                     variant="outline"
                     size="sm"
                     className="mt-4"
-                    onClick={() => navigate("/admin/companyhub")}
+                    onClick={() => navigate(withAdminContext("/admin/companyhub"))}
                   >
                     Opret ny virksomhed
                   </Button>
@@ -2193,7 +2598,7 @@ export function ProductOverview() {
                             className="text-xs"
                             onClick={(e) => {
                               e.stopPropagation();
-                              navigate("/admin/companyhub");
+                              navigate(withAdminContext("/admin/companyhub"));
                             }}
                           >
                             Administrer
@@ -2211,7 +2616,7 @@ export function ProductOverview() {
                             <Card
                               key={product.id}
                               className="hover:border-primary transition-colors overflow-hidden cursor-pointer"
-                              onClick={() => navigate(`/admin/product/${product.slug}`)}
+                              onClick={() => navigate(withAdminContext(`/admin/product/${product.slug}`))}
                             >
                               <CardContent className="p-0">
                                 <div className="flex items-center gap-3 p-3">
@@ -2264,6 +2669,15 @@ export function ProductOverview() {
           </DialogHeader>
 
           <div className="space-y-4">
+            {dialogProduct && getProductPriceHealth(dialogProduct).tone === "warning" && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>
+                  Produktet har 0 Matrix-prisrækker. Lejere kan modtage produktet uden pris-preview, indtil priserne er lagt ind.
+                </p>
+              </div>
+            )}
+
             <Input
               placeholder="Søg efter lejer..."
               value={tenantFilter}

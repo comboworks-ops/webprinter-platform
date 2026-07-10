@@ -4,13 +4,24 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { deliveryFee } from "@/utils/productPricing";
-import { Download, CheckCircle2, ExternalLink, Sparkles } from "lucide-react";
+import { Download, CheckCircle2, ExternalLink, Sparkles, PenTool, Upload } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import jsPDF from "jspdf";
 import { cn } from "@/lib/utils";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { DEFAULT_BRANDING, mergeBrandingWithDefaults, type BrandingData } from "@/lib/branding";
-import { stageSiteCheckoutTransfer, writeSiteCheckoutSession, type SiteCheckoutState } from "@/lib/checkout/siteCheckoutSession";
+import {
+  isSiteCheckoutDesignReady,
+  readSiteCheckoutSession,
+  stageSiteCheckoutTransfer,
+  writeSiteCheckoutSession,
+  type SiteCheckoutState,
+} from "@/lib/checkout/siteCheckoutSession";
+import type { DesignerTemplateLaunch } from "@/lib/designer/productTemplateLinks";
+import {
+  resolveStorefrontProductFlow,
+  type StorefrontProductFlow,
+} from "@/lib/sites/storefrontProductFlow";
 
 type ProductPricePanelProps = {
   productId: string;
@@ -34,6 +45,8 @@ type ProductPricePanelProps = {
   designHeightMm?: number;
   designBleedMm?: number;
   designSafeAreaMm?: number;
+  designerTemplateLaunch?: DesignerTemplateLaunch | null;
+  productFlow?: StorefrontProductFlow | null;
   externalDeliveryEnabled?: boolean;
   externalDeliveryMethods?: DeliveryMethod[];
   externalDeliveryLoading?: boolean;
@@ -118,6 +131,15 @@ const DEFAULT_DELIVERY_METHODS: DeliveryMethod[] = [
   }
 ];
 
+const TENANT_CONTEXT_QUERY_KEYS = ["force_domain", "tenantId", "siteId", "sitePreview", "preview_mode"];
+
+const copyTenantContextParams = (target: URLSearchParams, source: URLSearchParams) => {
+  TENANT_CONTEXT_QUERY_KEYS.forEach((key) => {
+    const value = source.get(key);
+    if (value) target.set(key, value);
+  });
+};
+
 const MotionButton = motion(Button);
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -201,6 +223,8 @@ export function ProductPricePanel({
   designHeightMm,
   designBleedMm,
   designSafeAreaMm,
+  designerTemplateLaunch,
+  productFlow,
   externalDeliveryEnabled,
   externalDeliveryMethods,
   externalDeliveryLoading,
@@ -214,6 +238,16 @@ export function ProductPricePanel({
   const [shippingSelected, setShippingSelected] = useState<string>("standard");
   const [designReady, setDesignReady] = useState(false);
   const [now, setNow] = useState<Date>(() => new Date());
+  const activeProductFlow = useMemo(
+    () => productFlow || resolveStorefrontProductFlow({ name: productName }),
+    [productFlow, productName],
+  );
+  const templateDownloadName = useMemo(() => {
+    if (!designerTemplateLaunch?.name) return "produkt-skabelon.pdf";
+    return designerTemplateLaunch.name.toLowerCase().endsWith(".pdf")
+      ? designerTemplateLaunch.name
+      : `${designerTemplateLaunch.name}.pdf`;
+  }, [designerTemplateLaunch?.name]);
   const activeBranding = useMemo(() => {
     if (isPreviewMode && previewBranding) {
       return mergeBrandingWithDefaults(previewBranding);
@@ -641,12 +675,6 @@ export function ProductPricePanel({
   }, [baseTotal, shippingSelected, activeDeliveryMethod, onShippingChange]);
 
   useEffect(() => {
-    if (!productId) return;
-    const key = `order-design:${productId}`;
-    setDesignReady(sessionStorage.getItem(key) === "1");
-  }, [productId]);
-
-  useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(interval);
   }, []);
@@ -898,8 +926,24 @@ export function ProductPricePanel({
       selectedVariant,
       productName,
       productSlug,
+      designerMode: activeProductFlow.designerMode,
+      pricingModel: activeProductFlow.pricingModel,
+      productFlowLabel: activeProductFlow.badgeLabel,
+      productFlowHelpText: activeProductFlow.customerHelpText,
+      checkoutTitle: activeProductFlow.checkoutTitle,
+      checkoutUploadTitle: activeProductFlow.checkoutUploadTitle,
+      checkoutUploadHelpText: activeProductFlow.checkoutUploadHelpText,
       selectedFormat,
       linkedTemplateId: linkedTemplateId ?? null,
+      templatePdfName: designerTemplateLaunch?.name || null,
+      templatePdfUrl: designerTemplateLaunch?.pdfUrl || null,
+      templateDownloadedAt: (() => {
+        const existingSession = readSiteCheckoutSession();
+        if (!existingSession || !designerTemplateLaunch?.pdfUrl) return null;
+        return existingSession.templatePdfUrl === designerTemplateLaunch.pdfUrl
+          ? existingSession.templateDownloadedAt || null
+          : null;
+      })(),
       designWidthMm: designWidthMm ?? null,
       designHeightMm: designHeightMm ?? null,
       designBleedMm: designBleedMm ?? null,
@@ -938,10 +982,45 @@ export function ProductPricePanel({
     return checkoutState;
   };
 
+  useEffect(() => {
+    if (!productId) return;
+    setDesignReady(isSiteCheckoutDesignReady(productId, buildCheckoutState()));
+  }, [
+    productId,
+    quantity,
+    productPrice,
+    extraPrice,
+    totalPrice,
+    summary,
+    optionSelections,
+    selectedVariant,
+    productName,
+    productSlug,
+    selectedFormat,
+    linkedTemplateId,
+    designerTemplateLaunch?.name,
+    designerTemplateLaunch?.pdfUrl,
+    designWidthMm,
+    designHeightMm,
+    designBleedMm,
+    designSafeAreaMm,
+    activeDeliveryMethod?.id,
+    activeShippingCost,
+    pricingQuote,
+    activeProductFlow.badgeLabel,
+    activeProductFlow.checkoutTitle,
+    activeProductFlow.checkoutUploadHelpText,
+    activeProductFlow.checkoutUploadTitle,
+    activeProductFlow.customerHelpText,
+    activeProductFlow.designerMode,
+    activeProductFlow.pricingModel,
+  ]);
+
   return (
     <div
       data-branding-id="productPage.pricePanel.box"
-      className="space-y-4 overflow-hidden border p-4 sm:p-6 lg:sticky lg:top-24"
+      data-storefront-order-panel="price"
+      className="storefront-order-price-panel space-y-4 overflow-hidden border p-4 sm:p-6 lg:sticky lg:top-24"
       style={pricePanelStyles.containerStyle}
     >
       <style>{`
@@ -1149,6 +1228,17 @@ export function ProductPricePanel({
         </div>
       )}
 
+      <div className="price-panel-option rounded-md border px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="price-panel-badge rounded-sm border px-2 py-0.5 text-[11px] font-semibold">
+            {activeProductFlow.badgeLabel}
+          </span>
+          <span className="price-panel-muted text-xs">
+            {activeProductFlow.customerHelpText}
+          </span>
+        </div>
+      </div>
+
       {/* Product price */}
       <div className="space-y-3">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -1163,50 +1253,100 @@ export function ProductPricePanel({
           </div>
           {hasStableSelection && (
             <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto">
-              <MotionButton
-                {...orderButtonMotionProps}
-                data-surface={orderButtonMotion.surfaceStyle}
-                data-branding-id={designReady ? "productPage.orderButtons.selected" : "productPage.orderButtons.secondary"}
-                variant="outline"
-                size="lg"
-                className={cn(
-                  "min-h-12 w-full touch-manipulation gap-2 py-5 border-2",
-                  designReady
-                    ? "order-selected-button"
-                    : "order-secondary-button border-dashed border-2"
-                )}
-                style={designReady ? selectedButtonCssVars : secondaryButtonCssVars}
-                onClick={() => {
-                  const params = new URLSearchParams();
-                  params.set('productId', productId);
-                  if (selectedFormat) params.set('format', selectedFormat);
-                  if (linkedTemplateId) params.set('templateId', linkedTemplateId);
-                  if (selectedVariant) params.set('variant', selectedVariant);
-                  if (typeof designWidthMm === "number" && designWidthMm > 0 && typeof designHeightMm === "number" && designHeightMm > 0) {
-                    params.set('widthMm', String(designWidthMm));
-                    params.set('heightMm', String(designHeightMm));
-                  }
-                  if (typeof designBleedMm === "number" && designBleedMm >= 0) {
-                    params.set('bleedMm', String(designBleedMm));
-                  }
-                  if (typeof designSafeAreaMm === "number" && designSafeAreaMm >= 0) {
-                    params.set('safeMm', String(designSafeAreaMm));
-                  }
-                  params.set('order', '1');
-                  params.set('returnTo', `/produkt/${productSlug}`);
-                  navigate(`/designer?${params.toString()}`);
-                }}
-              >
-                {designReady ? (
-                  <CheckCircle2 className="h-5 w-5" />
-                ) : (
-                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                    <path d="M3 9h18M9 21V9" />
-                  </svg>
-                )}
-                {designReady ? "Design klar" : "Design online"}
-              </MotionButton>
+              {activeProductFlow.showDesignerButton && (
+                <MotionButton
+                  {...orderButtonMotionProps}
+                  data-surface={orderButtonMotion.surfaceStyle}
+                  data-branding-id={designReady ? "productPage.orderButtons.selected" : "productPage.orderButtons.secondary"}
+                  variant="outline"
+                  size="lg"
+                  className={cn(
+                    "min-h-12 w-full touch-manipulation gap-2 py-5 border-2",
+                    designReady
+                      ? "order-selected-button"
+                      : "order-secondary-button border-dashed border-2"
+                  )}
+                  style={designReady ? selectedButtonCssVars : secondaryButtonCssVars}
+                  onClick={() => {
+                    persistCheckoutState({ crossTab: true });
+                    const currentSearchParams = new URLSearchParams(
+                      typeof window !== "undefined" ? window.location.search : ""
+                    );
+                    const params = new URLSearchParams();
+                    copyTenantContextParams(params, currentSearchParams);
+                    params.set('productId', productId);
+                    if (activeProductFlow.designerMode) params.set('designerMode', activeProductFlow.designerMode);
+                    if (activeProductFlow.pricingModel) params.set('pricingModel', activeProductFlow.pricingModel);
+                    if (selectedFormat) params.set('format', selectedFormat);
+                    if (linkedTemplateId) params.set('templateId', linkedTemplateId);
+                    if (selectedVariant) params.set('variant', selectedVariant);
+                    const launchWidthMm = designerTemplateLaunch?.widthMm;
+                    const launchHeightMm = designerTemplateLaunch?.heightMm;
+                    const launchBleedMm = designerTemplateLaunch?.bleedMm;
+                    const launchSafeMm = designerTemplateLaunch?.safeMm;
+
+                    const resolvedWidthMm = typeof launchWidthMm === "number" && launchWidthMm > 0 ? launchWidthMm : designWidthMm;
+                    const resolvedHeightMm = typeof launchHeightMm === "number" && launchHeightMm > 0 ? launchHeightMm : designHeightMm;
+                    const resolvedBleedMm = typeof launchBleedMm === "number" && launchBleedMm >= 0 ? launchBleedMm : designBleedMm;
+                    const resolvedSafeMm = typeof launchSafeMm === "number" && launchSafeMm >= 0 ? launchSafeMm : designSafeAreaMm;
+
+                    if (designerTemplateLaunch?.pdfUrl) {
+                      params.set('templatePdfUrl', designerTemplateLaunch.pdfUrl);
+                      params.set('templatePdfName', designerTemplateLaunch.name);
+                    }
+                    if (typeof resolvedWidthMm === "number" && resolvedWidthMm > 0 && typeof resolvedHeightMm === "number" && resolvedHeightMm > 0) {
+                      params.set('widthMm', String(resolvedWidthMm));
+                      params.set('heightMm', String(resolvedHeightMm));
+                    }
+                    if (typeof resolvedBleedMm === "number" && resolvedBleedMm >= 0) {
+                      params.set('bleedMm', String(resolvedBleedMm));
+                    }
+                    if (typeof resolvedSafeMm === "number" && resolvedSafeMm >= 0) {
+                      params.set('safeMm', String(resolvedSafeMm));
+                    }
+                    params.set('order', '1');
+                    const returnParams = new URLSearchParams();
+                    copyTenantContextParams(returnParams, currentSearchParams);
+                    const returnQuery = returnParams.toString();
+                    params.set('returnTo', `/produkt/${productSlug}${returnQuery ? `?${returnQuery}` : ""}`);
+                    navigate(`/designer?${params.toString()}`);
+                  }}
+                >
+                  {designReady ? (
+                    <CheckCircle2 className="h-5 w-5" />
+                  ) : (
+                    <PenTool className="h-5 w-5" />
+                  )}
+                  {designReady ? "Design klar" : activeProductFlow.designerCtaLabel}
+                </MotionButton>
+              )}
+              {designerTemplateLaunch?.pdfUrl && activeProductFlow.showTemplateDownload && (
+                <Button
+                  asChild
+                  variant="outline"
+                  size="lg"
+                  className="min-h-12 w-full touch-manipulation gap-2 border-dashed py-5"
+                  style={secondaryButtonCssVars}
+                >
+                  <a
+                    href={designerTemplateLaunch.pdfUrl}
+                    download={templateDownloadName}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      const checkoutState = {
+                        ...buildCheckoutState(),
+                        templateDownloadedAt: new Date().toISOString(),
+                      };
+                      writeSiteCheckoutSession(checkoutState);
+                      stageSiteCheckoutTransfer(checkoutState);
+                    }}
+                  >
+                    <Download className="h-5 w-5" />
+                    Download skabelon
+                  </a>
+                </Button>
+              )}
               {canvaOffer?.enabled && canvaOffer.launchUrl ? (
                 <>
                   <MotionButton
@@ -1242,7 +1382,8 @@ export function ProductPricePanel({
                 onClick={handleOrderClick}
                 disabled={!canOrder}
               >
-                Bestil nu!
+                <Upload className="h-5 w-5" />
+                {activeProductFlow.orderCtaLabel}
               </MotionButton>
               {!canOrder && orderValidationError && (
                 <p className="text-xs text-destructive max-w-[260px]">

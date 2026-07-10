@@ -108,8 +108,9 @@ const AnimatedRoutes = () => {
   const shouldReduceMotion = useReducedMotion();
   const shopSettings = useShopSettings();
   const pageTransitionStyle = String((shopSettings.data?.branding as any)?.themeSettings?.pageTransitionStyle || "subtle-fade");
+  const isAccountRoute = location.pathname === "/mine-ordrer" || location.pathname.startsWith("/min-konto");
   const isHeavyAppRoute = location.pathname.startsWith("/admin") || location.pathname.startsWith("/designer");
-  const transition = getPageTransition(pageTransitionStyle, Boolean(shouldReduceMotion || isHeavyAppRoute));
+  const transition = getPageTransition(pageTransitionStyle, Boolean(shouldReduceMotion || isHeavyAppRoute || isAccountRoute));
 
   return (
     <AnimatePresence mode="wait" initial={false}>

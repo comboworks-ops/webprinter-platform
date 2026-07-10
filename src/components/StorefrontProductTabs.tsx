@@ -86,8 +86,21 @@ const withCategoryLandingTarget = (
   overview: ProductOverviewRecord | undefined,
   category: TaxonomyCategory | undefined,
   subcategory?: TaxonomyCategory | undefined,
+  display?: {
+    idSuffix?: string;
+    name?: string;
+    description?: string;
+    displayPrice?: string;
+  },
 ): StorefrontProduct => ({
   ...product,
+  id: display?.idSuffix ? `${product.id}:${display.idSuffix}` : product.id,
+  name: display?.name || product.name,
+  icon_text: display?.name || product.icon_text,
+  description: display?.description ?? product.description,
+  displayPrice: display?.displayPrice ?? product.displayPrice,
+  tooltip_product: null,
+  tooltip_price: null,
   technical_specs: {
     ...(product.technical_specs || {}),
     category_landing: {
@@ -101,6 +114,11 @@ const withCategoryLandingTarget = (
     },
   },
 });
+
+const buildCategoryTileDescription = (count: number, categoryName: string) => {
+  const productWord = count === 1 ? "produkt" : "produkter";
+  return `${count} ${productWord} i ${categoryName}`;
+};
 
 export function StorefrontProductTabs({
   columns = 4,
@@ -217,6 +235,7 @@ export function StorefrontProductTabs({
   const directProductCountByCategoryId = useMemo(() => {
     const map = new Map<string, number>();
     visibleProducts.forEach((product) => {
+      if (isCategoryLandingProduct(product)) return;
       if (!product.categoryId) return;
       map.set(product.categoryId, (map.get(product.categoryId) || 0) + 1);
     });
@@ -283,10 +302,9 @@ export function StorefrontProductTabs({
 
   const rootCategories = useMemo(() => {
     if (!hierarchyEnabled) return [];
-    if (selectedOverviewId === ALL_OVERVIEWS_ID) return [];
     return normalizedCategories.filter(
       (category) =>
-        category.overview_id === selectedOverviewId
+        (selectedOverviewId === ALL_OVERVIEWS_ID || category.overview_id === selectedOverviewId)
         && !category.parent_category_id
         && (branchProductCountByCategoryId.get(category.id) || 0) > 0,
     );
@@ -325,29 +343,81 @@ export function StorefrontProductTabs({
     [selectedOverviewId, visibleOverviews],
   );
   const rootCategoryLeadProducts = useMemo(() => {
-    if (!hierarchyEnabled || !selectedOverview) return [];
+    if (!hierarchyEnabled) return [];
 
     return rootCategories
       .map((category) => {
-        if (!category.frontend_product_id) return null;
-        const product = productById.get(category.frontend_product_id);
+        const descendantIds = new Set(descendantIdsByCategoryId.get(category.id) || [category.id]);
+        const configuredProduct = category.frontend_product_id
+          ? productById.get(category.frontend_product_id)
+          : null;
+        const fallbackProduct = visibleProducts.find((candidate) =>
+          !isCategoryLandingProduct(candidate) && candidate.categoryId === category.id,
+        ) || visibleProducts.find((candidate) =>
+          !isCategoryLandingProduct(candidate)
+          && Boolean(candidate.categoryId)
+          && descendantIds.has(candidate.categoryId as string),
+        );
+        const product = configuredProduct || fallbackProduct;
         if (!product) return null;
-        return withCategoryLandingTarget(product, selectedOverview, category);
+        const overviewForCategory = selectedOverview
+          || normalizedOverviews.find((overview) => overview.id === category.overview_id)
+          || buildFallbackOverview();
+        const productCount = branchProductCountByCategoryId.get(category.id) || 0;
+        return withCategoryLandingTarget(product, overviewForCategory, category, undefined, {
+          idSuffix: `category-${category.id}`,
+          name: category.name,
+          description: buildCategoryTileDescription(productCount, category.name),
+          displayPrice: `${productCount} ${productCount === 1 ? "produkt" : "produkter"}`,
+        });
       })
       .filter((product): product is StorefrontProduct => Boolean(product));
-  }, [hierarchyEnabled, productById, rootCategories, selectedOverview]);
+  }, [
+    branchProductCountByCategoryId,
+    descendantIdsByCategoryId,
+    hierarchyEnabled,
+    normalizedOverviews,
+    productById,
+    rootCategories,
+    selectedOverview,
+    visibleProducts,
+  ]);
   const childCategoryLeadProducts = useMemo(() => {
     if (!selectedOverview || !selectedRootCategory || childCategories.length === 0) return [];
 
     return childCategories
       .map((category) => {
-        if (!category.frontend_product_id) return null;
-        const product = productById.get(category.frontend_product_id);
+        const descendantIds = new Set(descendantIdsByCategoryId.get(category.id) || [category.id]);
+        const configuredProduct = category.frontend_product_id
+          ? productById.get(category.frontend_product_id)
+          : null;
+        const fallbackProduct = visibleProducts.find((candidate) =>
+          !isCategoryLandingProduct(candidate) && candidate.categoryId === category.id,
+        ) || visibleProducts.find((candidate) =>
+          !isCategoryLandingProduct(candidate)
+          && Boolean(candidate.categoryId)
+          && descendantIds.has(candidate.categoryId as string),
+        );
+        const product = configuredProduct || fallbackProduct;
         if (!product) return null;
-        return withCategoryLandingTarget(product, selectedOverview, selectedRootCategory, category);
+        const productCount = branchProductCountByCategoryId.get(category.id) || 0;
+        return withCategoryLandingTarget(product, selectedOverview, selectedRootCategory, category, {
+          idSuffix: `subcategory-${category.id}`,
+          name: category.name,
+          description: buildCategoryTileDescription(productCount, category.name),
+          displayPrice: `${productCount} ${productCount === 1 ? "produkt" : "produkter"}`,
+        });
       })
       .filter((product): product is StorefrontProduct => Boolean(product));
-  }, [childCategories, productById, selectedOverview, selectedRootCategory]);
+  }, [
+    branchProductCountByCategoryId,
+    childCategories,
+    descendantIdsByCategoryId,
+    productById,
+    selectedOverview,
+    selectedRootCategory,
+    visibleProducts,
+  ]);
 
   useEffect(() => {
     if (!selectedRootCategory) {
@@ -468,7 +538,7 @@ export function StorefrontProductTabs({
   }) as CSSProperties, [categoryTabRadius]);
 
   const categoryTabBaseClassName = cn(
-    "border px-4 py-2 text-sm transition-colors duration-200",
+    "min-h-11 touch-manipulation border px-4 py-2 text-sm transition-colors duration-200",
     "bg-[var(--category-tab-bg)] text-[var(--category-tab-text)] border-[var(--category-tab-border)]",
     "hover:bg-[var(--category-tab-hover-bg)] hover:text-[var(--category-tab-hover-text)]",
   );
@@ -701,7 +771,7 @@ export function StorefrontProductTabs({
                 data-branding-id="forside.products.categories.button"
                 style={categoryTabStyleVars}
                 className={cn(
-                  "border px-3 py-1.5 text-xs transition-colors",
+                  "min-h-11 touch-manipulation border px-4 py-2 text-xs transition-colors",
                   "bg-[var(--category-tab-bg)] text-[var(--category-tab-text)] border-[var(--category-tab-border)]",
                   "hover:bg-[var(--category-tab-hover-bg)] hover:text-[var(--category-tab-hover-text)]",
                   !selectedSubcategoryId && "bg-[var(--category-tab-active-bg)] text-[var(--category-tab-active-text)] border-[var(--category-tab-active-border)] hover:bg-[var(--category-tab-active-bg)] hover:text-[var(--category-tab-active-text)]",
@@ -717,7 +787,7 @@ export function StorefrontProductTabs({
                 data-branding-id="forside.products.categories.button"
                 style={categoryTabStyleVars}
                 className={cn(
-                  "border px-3 py-1.5 text-xs transition-colors",
+                  "min-h-11 touch-manipulation border px-4 py-2 text-xs transition-colors",
                   "bg-[var(--category-tab-bg)] text-[var(--category-tab-text)] border-[var(--category-tab-border)]",
                   "hover:bg-[var(--category-tab-hover-bg)] hover:text-[var(--category-tab-hover-text)]",
                   selectedSubcategoryId === category.id && "bg-[var(--category-tab-active-bg)] text-[var(--category-tab-active-text)] border-[var(--category-tab-active-border)] hover:bg-[var(--category-tab-active-bg)] hover:text-[var(--category-tab-active-text)]",

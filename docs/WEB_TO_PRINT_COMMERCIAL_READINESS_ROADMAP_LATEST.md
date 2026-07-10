@@ -197,6 +197,11 @@ Current order trace support:
   for explicit confirmation before saving. The `Klar` marker uses the same
   warning-only confirmation, and master-tenant release/send-to-tenant actions
   now warn before distributing a Matrix product whose price preview has no rows.
+- Product overview also shows a read-only storefront category-readiness strip:
+  forside-knapper, hovedkategorier, underkategorier, empty categories, invalid
+  front-card selections, and submenu categories without visible children. The
+  storefront category tiles fall back to the first usable product in the branch
+  when a configured front-card product is missing or unpublished.
 - The commercial readiness cockpit mirrors order/file readiness at tenant level
   in `Ordredrift signaler`, reading existing `orders` and current `order_files`
   to show total orders, file-ready orders, problem/reupload pressure, and
@@ -607,6 +612,11 @@ Implemented first read-only version:
 - latest proof layer: `Salgsmæssig bevismappe` maps pitch claims to current
   proof, missing gaps, and admin evidence links so the platform is sold from
   evidence rather than assumptions.
+- latest automated proof scope: `npm run check:commercial-proof` now covers 12
+  read-only checks, including Webprinter Aluminium order/upload, Banner Builder
+  Pro site-package preview with its embedded repo bundle, Salgsmapper category
+  and PDF-template/designer handoff, and Onlinetryksager category plus Flyers
+  order/upload.
 - latest navigation layer: the cockpit has a compact jump bar with anchored
   links to launch board, commercial-ready scorecard, sales proof, SEO proof,
   demo gate, demo runbook, pilot order, sales package, pilot offer, decisions,
@@ -628,6 +638,10 @@ Implemented first read-only version:
   that still block a real sales/demo promise: Onlinetryksager first product,
   checkout/payment pilot, Salgsmapper template standard, old WMD publication,
   Pixart rigids approval, and the print-house sales story.
+- latest category proof layer: the automated commercial proof now includes
+  Salgsmapper and Onlinetryksager category landing drilldowns, so the front-page
+  product-category navigation is part of the 11-check release evidence rather
+  than only a visual/admin convention.
 
 ## Decisions Needed
 

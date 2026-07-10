@@ -43,6 +43,18 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
   const ddCfg = opt.dropdown ?? {};
   const cbCfg = opt.checkbox ?? {};
   const primaryColor = (activeBranding as any)?.colors?.primary || "#0EA5E9";
+  const headingFont = (activeBranding as any)?.fonts?.heading || undefined;
+  const bodyFont = (activeBranding as any)?.fonts?.body || undefined;
+  const headingTextColor = (activeBranding as any)?.colors?.headingText || undefined;
+  const bodyTextColor = (activeBranding as any)?.colors?.bodyText || undefined;
+  const groupLabelStyle: React.CSSProperties = {
+    fontFamily: headingFont ? `'${headingFont}', sans-serif` : undefined,
+    color: headingTextColor,
+  };
+  const groupDescriptionStyle: React.CSSProperties = {
+    fontFamily: bodyFont ? `'${bodyFont}', sans-serif` : undefined,
+    color: bodyTextColor,
+  };
 
   const [groups, setGroups] = useState<OptionGroup[]>([]);
   const [options, setOptions] = useState<Record<string, ProductOption[]>>({});
@@ -241,7 +253,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
               onClick={() => handleSelect(group.id, option.id)}
               style={buttonStyle}
               className={cn(
-                "inline-flex items-center justify-center font-medium transition-all",
+                "inline-flex min-h-11 min-w-[min(10rem,100%)] flex-1 touch-manipulation items-center justify-center text-center font-medium leading-tight transition-all sm:flex-none",
                 !isSelected && "hover:opacity-80",
                 isSelected ? "shadow-md" : "shadow-sm bg-muted hover:shadow"
               )}
@@ -260,7 +272,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
                 align="end"
                 sideOffset={8}
               >
-                <p className="text-sm">{option.description}</p>
+                <p className="text-sm" style={groupDescriptionStyle}>{option.description}</p>
               </PopoverContent>
             </Popover>
           );
@@ -276,7 +288,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
     const selectedRing = imgCfg.selectedRingColor || primaryColor;
 
     return (
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
         {options[group.id]?.map(option => {
           const isSelected = selections[group.id] === option.id;
           const cardStyle: React.CSSProperties = {
@@ -302,7 +314,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
               key={option.id}
               onClick={() => handleSelect(group.id, option.id)}
               className={cn(
-                "group flex flex-col items-center gap-2 p-2 shadow-sm transition-all",
+                "group flex min-h-11 touch-manipulation flex-col items-center gap-2 p-2 shadow-sm transition-all",
                 isSelected ? "shadow-md" : "bg-muted hover:shadow",
                 imgCfg.hoverRingEnabled && !isSelected && "hover:outline hover:outline-2 hover:outline-offset-2"
               )}
@@ -313,12 +325,12 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
                   src={option.icon_url}
                   alt={option.label}
                   className="w-full object-contain transition-transform duration-150 group-hover:scale-[1.03]"
-                  style={{ height: `${sizePx}px` }}
+                  style={{ height: `min(${sizePx}px, 38vw)` }}
                 />
               ) : (
                 <div
                   className="w-full bg-muted rounded flex items-center justify-center text-muted-foreground text-xs"
-                  style={{ height: `${sizePx}px` }}
+                  style={{ height: `min(${sizePx}px, 38vw)` }}
                 >
                   Intet ikon
                 </div>
@@ -340,7 +352,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
             <Popover key={option.id} open={isSelected}>
               <PopoverTrigger asChild>{inner}</PopoverTrigger>
               <PopoverContent className="max-w-xs" side="top" align="end" sideOffset={8}>
-                <p className="text-sm">{option.description}</p>
+                <p className="text-sm" style={groupDescriptionStyle}>{option.description}</p>
               </PopoverContent>
             </Popover>
           );
@@ -362,7 +374,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
         value={selections[group.id] || ""}
         onValueChange={(val) => handleSelect(group.id, val)}
       >
-        <SelectTrigger className="w-full max-w-sm" style={triggerStyle}>
+        <SelectTrigger className="min-h-11 w-full max-w-sm" style={triggerStyle}>
           <SelectValue placeholder="Vælg..." />
         </SelectTrigger>
         <SelectContent>
@@ -432,10 +444,10 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
   }
 
   return (
-    <div className="space-y-6" data-branding-id="productPage.optionSelectors">
+    <div className="storefront-order-options space-y-6" data-branding-id="productPage.optionSelectors" data-storefront-order-panel="options">
       {groups.map(group => (
         <div key={group.id}>
-          <label className="text-base font-semibold mb-3 block">{group.label}</label>
+          <label className="text-base font-semibold mb-3 block" style={groupLabelStyle}>{group.label}</label>
 
           {group.display_type === 'buttons' && renderButtons(group)}
           {group.display_type === 'icon_grid' && renderIconGrid(group)}
@@ -443,7 +455,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
           {group.display_type === 'checkboxes' && renderCheckboxes(group)}
 
           {group.description && (
-            <p className="text-sm text-muted-foreground mt-3">{group.description}</p>
+            <p className="text-sm text-muted-foreground mt-3" style={groupDescriptionStyle}>{group.description}</p>
           )}
         </div>
       ))}

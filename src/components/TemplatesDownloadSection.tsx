@@ -235,7 +235,7 @@ export function TemplatesDownloadSection({ currentTenantId, defaultOpen = false 
                                                         variant="outline"
                                                         size="sm"
                                                         asChild
-                                                        className="gap-1"
+                                                        className="h-11 gap-1"
                                                     >
                                                         <a
                                                             data-branding-id="colors.primary"

@@ -4,10 +4,18 @@
  * Floating glass cards with blur effects and gradient backgrounds.
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type ImgHTMLAttributes } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { BANNER2_ICON_MAP } from '@/components/branding/banner2Icons';
 import type { Banner2Props } from '@/lib/themes/types';
+
+type ImageFetchPriority = "high" | "low" | "auto";
+
+const banner2ImageLoadingProps: ImgHTMLAttributes<HTMLImageElement> & { fetchpriority: ImageFetchPriority } = {
+    loading: "eager",
+    decoding: "async",
+    fetchpriority: "high",
+};
 
 export function GlassBanner2({ branding, banner2 }: Banner2Props) {
     const [activeBannerSlide, setActiveBannerSlide] = useState(0);
@@ -85,7 +93,9 @@ export function GlassBanner2({ branding, banner2 }: Banner2Props) {
                 {/* Glass Cards Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     {slide.items?.map((item, index) => {
-                        const IconComponent = item.icon ? BANNER2_ICON_MAP[item.icon] : null;
+                        const iconName = (item as any).iconName || item.icon;
+                        const imageUrl = (item as any).iconType === "image" ? (item as any).iconUrl : null;
+                        const IconComponent = iconName ? BANNER2_ICON_MAP[iconName] : null;
                         return (
                             <div
                                 key={item.id}
@@ -98,7 +108,7 @@ export function GlassBanner2({ branding, banner2 }: Banner2Props) {
                                     animationDelay: `${index * 100}ms`,
                                 }}
                             >
-                                {IconComponent && (
+                                {(imageUrl || IconComponent) && (
                                     <div
                                         className="w-14 h-14 mx-auto mb-4 rounded-xl flex items-center justify-center transition-transform group-hover:scale-110"
                                         style={{
@@ -106,7 +116,18 @@ export function GlassBanner2({ branding, banner2 }: Banner2Props) {
                                             boxShadow: `0 4px 20px ${primaryColor}40`,
                                         }}
                                     >
-                                        <IconComponent className="w-7 h-7 text-white" />
+                                        {imageUrl ? (
+                                            <img
+                                                src={imageUrl}
+                                                alt={item.title || "Banner billede"}
+                                                width={56}
+                                                height={56}
+                                                className="h-10 w-10 object-contain"
+                                                {...banner2ImageLoadingProps}
+                                            />
+                                        ) : IconComponent ? (
+                                            <IconComponent className="w-7 h-7 text-white" />
+                                        ) : null}
                                     </div>
                                 )}
                                 <h3

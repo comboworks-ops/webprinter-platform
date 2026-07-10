@@ -86,6 +86,15 @@ dist-ssr
 !scripts/apply-product-content-package.js
 !scripts/apply-product-label-translations.js
 !scripts/check-supabase-migration-grants.js
+!scripts/check-commercial-readiness-bindings.js
+!scripts/check-commercial-application-source.mjs
+!scripts/check-commercial-supabase.mjs
+!scripts/check-commercial-changeset.mjs
+!scripts/check-commercial-proof.mjs
+!scripts/check-commercial-proof-report.mjs
+!scripts/check-commercial-release.mjs
+!scripts/check-commercial-release-report.mjs
+!scripts/check-tenant-proof-routes.mjs
 !scripts/supabase-cli.mjs
 !scripts/supabase-cli
 !scripts/product-import/

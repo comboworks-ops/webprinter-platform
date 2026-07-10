@@ -11,6 +11,10 @@ import {
   type ProductOverviewRecord,
   type ResolvedProductCategory,
 } from "@/utils/productCategories";
+import {
+  isSiteExclusiveProduct,
+  isProductAssignedToSite,
+} from "@/lib/sites/productSiteFrontends";
 
 export interface StorefrontProduct {
   id: string;
@@ -128,6 +132,47 @@ const writeProductCache = (key: string, payload: ProductCachePayload) => {
   }
 };
 
+const getFastDisplayPrice = (product: Partial<StorefrontProduct>): string | undefined => {
+  const existing = typeof product.displayPrice === "string" ? product.displayPrice.trim() : "";
+  if (existing) return existing;
+
+  const priceFrom = (product.banner_config as any)?.price_from;
+  if (priceFrom !== undefined && priceFrom !== null && String(priceFrom).trim() !== "") {
+    return `${priceFrom} kr`;
+  }
+
+  return undefined;
+};
+
+const withFastDisplayPrices = (
+  products: Array<Omit<StorefrontProduct, "displayPrice"> | StorefrontProduct>,
+): StorefrontProduct[] => {
+  return products.map((product) => ({
+    ...(product as StorefrontProduct),
+    displayPrice: getFastDisplayPrice(product as StorefrontProduct),
+  }));
+};
+
+const filterProductsForActiveSite = (
+  products: StorefrontProduct[],
+  activeSiteId?: string | null,
+): StorefrontProduct[] => {
+  if (activeSiteId) {
+    return products.filter((product) => isProductAssignedToSite(product.technical_specs, activeSiteId));
+  }
+
+  return products.filter((product) => !isSiteExclusiveProduct(product.technical_specs));
+};
+
+const resolveDisplayPrices = async (products: StorefrontProduct[]): Promise<StorefrontProduct[]> => {
+  return Promise.all(
+    products.map(async (product) => ({
+      ...product,
+      displayPrice: await getProductDisplayPrice(product as any),
+    })),
+  );
+};
+
 export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) {
   const { enabled = true } = options;
   const [products, setProducts] = useState<StorefrontProduct[]>([]);
@@ -145,12 +190,35 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
       return;
     }
 
+    let cancelled = false;
+
+    const applyCatalog = (payload: ProductCachePayload, options?: { warningMessage?: string | null }) => {
+      if (cancelled) return;
+      setProducts(payload.products);
+      setCategories(payload.categories);
+      setCategoryRecords(payload.categoryRecords || []);
+      setOverviews(payload.overviews || []);
+      setErrorMessage(null);
+      setWarningMessage(options?.warningMessage ?? null);
+      setLoading(false);
+    };
+
     const fetchCatalog = async () => {
       if (settings.isLoading) return;
-      setLoading(true);
 
       const tenantId = settings.data?.id || "00000000-0000-0000-0000-000000000000";
-      const tenantCacheKey = cacheKeyForTenant(tenantId);
+      const activeSiteId = typeof settings.data?.site_frontends?.activeSiteId === "string"
+        ? settings.data.site_frontends.activeSiteId
+        : null;
+      const tenantCacheKey = `${cacheKeyForTenant(tenantId)}:site:${activeSiteId || "default"}`;
+      const cachedCatalog = readProductCache(tenantCacheKey);
+      const hasCachedCatalog = Boolean(cachedCatalog?.products?.length);
+
+      if (hasCachedCatalog && cachedCatalog) {
+        applyCatalog(cachedCatalog);
+      } else {
+        setLoading(true);
+      }
 
       try {
         setErrorMessage(null);
@@ -164,22 +232,28 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
           });
 
           if (apiResult?.success && Array.isArray(apiResult.products) && Array.isArray(apiResult.categories) && Array.isArray(apiResult.overviews)) {
-            const productsWithPrices = await Promise.all(
-              (apiResult.products as Array<Omit<StorefrontProduct, "displayPrice">>).map(async (product) => ({
-                ...product,
-                displayPrice: await getProductDisplayPrice(product as any),
-              })),
+            const fastProducts = filterProductsForActiveSite(
+              withFastDisplayPrices(apiResult.products as Array<Omit<StorefrontProduct, "displayPrice">>),
+              activeSiteId,
             );
 
             const visibleCategories = buildVisibleProductCategories(
-              productsWithPrices.map((product) => product.category),
+              fastProducts.map((product) => product.category),
               (apiResult.categories as ProductCategoryRecord[]) || [],
             );
 
-            setProducts(productsWithPrices);
-            setCategories(visibleCategories);
-            setCategoryRecords((apiResult.categories as ProductCategoryRecord[]) || []);
-            setOverviews((apiResult.overviews as ProductOverviewRecord[]) || []);
+            const fastPayload: ProductCachePayload = {
+              at: Date.now(),
+              tenantId,
+              categories: visibleCategories,
+              categoryRecords: (apiResult.categories as ProductCategoryRecord[]) || [],
+              overviews: (apiResult.overviews as ProductOverviewRecord[]) || [],
+              products: fastProducts,
+            };
+            applyCatalog(fastPayload);
+
+            const productsWithPrices = await resolveDisplayPrices(fastProducts);
+            if (cancelled) return;
 
             const payload: ProductCachePayload = {
               at: Date.now(),
@@ -189,6 +263,7 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
               overviews: (apiResult.overviews as ProductOverviewRecord[]) || [],
               products: productsWithPrices,
             };
+            applyCatalog(payload);
             writeProductCache(tenantCacheKey, payload);
             return;
           }
@@ -257,8 +332,8 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
           : ((overviewsResponse.data as ProductOverviewRecord[]) || []);
         const productsData = ((productsResponse.data as any[]) || []) as Array<Omit<StorefrontProduct, "displayPrice" | "categoryKey" | "categoryLabel">>;
 
-        const productsWithPrices = await Promise.all(
-          productsData.map(async (product) => {
+        const fastProducts = filterProductsForActiveSite(withFastDisplayPrices(
+          productsData.map((product) => {
             const resolvedCategory = resolveProductCategory(product.category, categoryRows);
             return {
               ...product,
@@ -269,20 +344,27 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
               categoryOverviewId: resolvedCategory.overviewId ?? null,
               categoryParentId: resolvedCategory.parentCategoryId ?? null,
               categoryNavigationMode: resolvedCategory.navigationMode ?? null,
-              displayPrice: await getProductDisplayPrice(product as any),
             };
           }),
-        );
+        ), activeSiteId);
 
         const visibleCategories = buildVisibleProductCategories(
-          productsWithPrices.map((product) => product.category),
+          fastProducts.map((product) => product.category),
           categoryRows,
         );
 
-        setProducts(productsWithPrices);
-        setCategories(visibleCategories);
-        setCategoryRecords(categoryRows);
-        setOverviews(overviewRows);
+        const fastPayload: ProductCachePayload = {
+          at: Date.now(),
+          tenantId,
+          categories: visibleCategories,
+          categoryRecords: categoryRows,
+          overviews: overviewRows,
+          products: fastProducts,
+        };
+        applyCatalog(fastPayload);
+
+        const productsWithPrices = await resolveDisplayPrices(fastProducts);
+        if (cancelled) return;
 
         const payload: ProductCachePayload = {
           at: Date.now(),
@@ -292,20 +374,21 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
           overviews: overviewRows,
           products: productsWithPrices,
         };
+        applyCatalog(payload);
         writeProductCache(tenantCacheKey, payload);
       } catch (error) {
         console.error("Error fetching storefront catalog:", error);
         if (isTransportError(error)) {
           const tenantCache = readProductCache(tenantCacheKey);
-          const isFresh = !!tenantCache && (Date.now() - tenantCache.at) <= PRODUCT_CACHE_TTL_MS;
-          if (isFresh && tenantCache) {
-            setProducts(tenantCache.products);
-            setCategories(tenantCache.categories);
-            setCategoryRecords(tenantCache.categoryRecords || []);
-            setOverviews(tenantCache.overviews || []);
-            setWarningMessage("Viser senest gemte produkter, fordi backend-forbindelsen fejler midlertidigt.");
-            setErrorMessage(null);
+          if (tenantCache) {
+            const isFresh = (Date.now() - tenantCache.at) <= PRODUCT_CACHE_TTL_MS;
+            applyCatalog(tenantCache, {
+              warningMessage: isFresh
+                ? "Viser senest gemte produkter, fordi backend-forbindelsen fejler midlertidigt."
+                : "Viser gemte produkter, mens backend-forbindelsen fejler midlertidigt.",
+            });
           } else {
+            if (cancelled) return;
             setProducts([]);
             setCategories([]);
             setCategoryRecords([]);
@@ -314,6 +397,7 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
             setErrorMessage("Kunne ikke hente produkter lige nu. Backend-forbindelsen fejler midlertidigt.");
           }
         } else {
+          if (cancelled) return;
           setProducts([]);
           setCategories([]);
           setCategoryRecords([]);
@@ -322,12 +406,18 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
           setErrorMessage("Kunne ikke hente produkter.");
         }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
     fetchCatalog();
-  }, [enabled, settings.data?.id, settings.isLoading]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, settings.data?.id, settings.data?.site_frontends?.activeSiteId, settings.isLoading]);
 
   return {
     products,

@@ -60,6 +60,8 @@ export function Dashboard() {
     const { isMasterAdmin } = useUserRole();
 
     const [chartData, setChartData] = useState<{ name: string, total: number }[]>([]);
+    const cardClassName = "rounded-xl border-slate-200/80 bg-white shadow-sm transition-shadow duration-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/70";
+    const quickActionClassName = "h-auto w-full justify-start rounded-xl border-slate-200 bg-white py-4 text-left transition-colors hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900";
 
     useEffect(() => {
         const tenantId = settings.data?.id;
@@ -203,17 +205,17 @@ export function Dashboard() {
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">
-                        Hej, {settings.data?.tenant_name || "Shop Ejer"} 👋
+                        Dashboard
                     </h1>
                     <p className="text-muted-foreground mt-1">
-                        Her er overblikket over din forretning i dag.
+                        Overblik for {settings.data?.tenant_name || "din shop"} med ordrer, omsætning og hurtige handlinger.
                     </p>
                 </div>
             </div>
 
             {/* Stats Cards */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Card>
+                <Card className={cardClassName}>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Total Omsætning</CardTitle>
                         <CreditCard className="h-4 w-4 text-muted-foreground" />
@@ -227,7 +229,7 @@ export function Dashboard() {
                         </p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className={cardClassName}>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Nye Ordrer</CardTitle>
                         <ShoppingBag className="h-4 w-4 text-muted-foreground" />
@@ -239,7 +241,7 @@ export function Dashboard() {
                         </p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className={cardClassName}>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Aktive Kunder</CardTitle>
                         <Users className="h-4 w-4 text-muted-foreground" />
@@ -251,7 +253,7 @@ export function Dashboard() {
                         </p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className={cardClassName}>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Afventer Handling</CardTitle>
                         <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -267,7 +269,7 @@ export function Dashboard() {
 
             {/* Charts & Activity */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <Card className="col-span-4">
+                <Card className={`${cardClassName} md:col-span-2 lg:col-span-4`}>
                     <CardHeader>
                         <div className="flex flex-col md:flex-row items-center justify-between gap-4">
                             <div>
@@ -362,7 +364,7 @@ export function Dashboard() {
                     </CardContent>
                 </Card>
 
-                <Card className="col-span-3">
+                <Card className={`${cardClassName} md:col-span-2 lg:col-span-3`}>
                     <CardHeader>
                         <CardTitle>Hurtige Handlinger</CardTitle>
                         <CardDescription>
@@ -370,7 +372,7 @@ export function Dashboard() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="grid gap-4">
-                        <Button variant="outline" className="w-full justify-start h-auto py-4" onClick={() => navigate('/admin/create-product')}>
+                        <Button variant="outline" className={quickActionClassName} onClick={() => navigate('/admin/create-product')}>
                             <div className="bg-primary/10 dark:bg-primary/20 p-2 rounded-full mr-4">
                                 <Package className="h-5 w-5 text-primary" />
                             </div>
@@ -381,7 +383,7 @@ export function Dashboard() {
                             <ArrowRight className="ml-auto h-4 w-4" />
                         </Button>
 
-                        <Button variant="outline" className="w-full justify-start h-auto py-4" onClick={() => navigate('/admin/branding-v2')}>
+                        <Button variant="outline" className={quickActionClassName} onClick={() => navigate('/admin/branding-v2')}>
                             <div className="bg-blue-100 dark:bg-blue-900/30 p-2 rounded-full mr-4">
                                 <ExternalLink className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                             </div>
@@ -392,7 +394,7 @@ export function Dashboard() {
                             <ArrowRight className="ml-auto h-4 w-4" />
                         </Button>
 
-                        <Button variant="outline" className="w-full justify-start h-auto py-4" onClick={() => navigate('/admin/kunder')}>
+                        <Button variant="outline" className={quickActionClassName} onClick={() => navigate('/admin/kunder')}>
                             <div className="bg-orange-100 dark:bg-orange-900/30 p-2 rounded-full mr-4">
                                 <ShoppingBag className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                             </div>

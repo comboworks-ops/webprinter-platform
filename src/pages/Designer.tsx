@@ -38,18 +38,21 @@ import LayerPanel from "@/components/designer/LayerPanel";
 import PropertiesPanel from "@/components/designer/PropertiesPanel";
 import PreflightPanel from "@/components/designer/PreflightPanel";
 import ColorProofingPanel from "@/components/designer/ColorProofingPanel";
-import PDFImportModal, { PDFImportData } from "@/components/designer/PDFImportModal";
+import PDFImportModal, { PDFImportData, PDFImportInitialSource } from "@/components/designer/PDFImportModal";
+import PdfToolsPanel, { SelectedPdfMeta } from "@/components/designer/PdfToolsPanel";
 import { DesignLibraryDrawer } from "@/components/designer/DesignLibraryDrawer";
 import { ExportDialog } from "@/components/designer/ExportDialog";
 import { runDesignerExport } from "@/lib/designer/export/exportActions";
-import { buildVectorPdfBackgroundPdf, detectPdfBackground } from "@/lib/designer/export/exportVectorPdfBackground";
+import { withHiddenGuides } from "@/lib/designer/export/hideExportGuides";
+import { buildVectorPdfBackgroundPdf, detectPdfBackground, hasOverlayObjects } from "@/lib/designer/export/exportVectorPdfBackground";
 import type { ExportOptions } from "@/lib/designer/export/types";
 import { mmToPx } from "@/utils/unitConversions";
 import { runPreflightChecks, PreflightWarning } from "@/utils/preflightChecks";
 import { useColorProofing } from "@/hooks/useColorProofing";
 import { useProductColorProfile } from "@/hooks/useProductColorProfile";
 import { getImageDpi } from "@/utils/imageMetadata";
-import { readSiteCheckoutSession, writeSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
+import { markSiteCheckoutDesignReady, readSiteCheckoutSession, writeSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
+import { runDesignerPdfService, type DesignerPdfServiceReport } from "@/lib/designer/pdfService";
 import { ptToMm } from "@/utils/unitConversions";
 import {
     Loader2,
@@ -81,7 +84,11 @@ import {
     ZoomOut,
     Hand,
     Maximize,
-    Scissors
+    Scissors,
+    FileText,
+    Smartphone,
+    Monitor,
+    Tablet
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -94,13 +101,110 @@ const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 3;
 const ZOOM_STEP = 0.1;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PHONE_DESIGNER_BREAKPOINT_PX = 700;
+
+type DesignerOrderFlowNotice = {
+    title: string;
+    body: string;
+    detail: string;
+    toneClassName: string;
+};
+
+const getDesignerOrderFlowNotice = (
+    designerMode?: string | null,
+    productFlowLabel?: string | null,
+    pricingModel?: string | null,
+    hasCheckoutUpload = false,
+): DesignerOrderFlowNotice => {
+    const mode = String(designerMode || "").trim();
+    const label = String(productFlowLabel || "Ordredesigner").trim();
+    const pricing = pricingModel ? `Prismodel: ${pricingModel}` : "Pris og antal kommer fra bestillingen.";
+
+    if (mode === "pdf_template") {
+        return {
+            title: "Designer med PDF-skabelon",
+            body: "Placer grafik i forhold til skabelonens fold, ryg, beskæring og sikkerhedszone.",
+            detail: "Skabelonlinjer er til kontrol og skal ikke bruges som trykbar grafik.",
+            toneClassName: "border-sky-200 bg-sky-50 text-sky-950",
+        };
+    }
+
+    if (mode === "storformat" || mode === "signage") {
+        return {
+            title: mode === "signage" ? "Skilt/facade designer" : "Storformat designer",
+            body: "Canvas følger de valgte mål fra bestillingen, så motivet kan kontrolleres mod størrelse og bleed.",
+            detail: hasCheckoutUpload ? "Den uploadede fil indsættes automatisk, når den kan hentes sikkert." : pricing,
+            toneClassName: "border-emerald-200 bg-emerald-50 text-emerald-950",
+        };
+    }
+
+    if (mode === "apparel") {
+        return {
+            title: "Tekstiltryk designer",
+            body: "Brug designeren til placering af motivet. Størrelser og antal styres stadig af ordreflowet.",
+            detail: pricing,
+            toneClassName: "border-amber-200 bg-amber-50 text-amber-950",
+        };
+    }
+
+    if (mode === "upload_only") {
+        return {
+            title: "Manuel kontrol for upload-produkt",
+            body: "Produktet er sat til upload-only. Designeren er her kun som ekstra visuel kontrol.",
+            detail: "Gå tilbage til bestilling, når filen er kontrolleret.",
+            toneClassName: "border-slate-200 bg-slate-50 text-slate-900",
+        };
+    }
+
+    return {
+        title: label,
+        body: hasCheckoutUpload
+            ? "Den uploadede fil indsættes på canvas, så du kan kontrollere placering før bestilling."
+            : "Brug designeren til at placere grafik og kontrollere bleed, sikkerhedszone og eksport.",
+        detail: pricing,
+        toneClassName: "border-sky-200 bg-sky-50 text-sky-950",
+    };
+};
 
 interface CheckoutImportPlacement {
     left: number;
     top: number;
     scaleMultiplier: number;
     markAsCheckoutImport?: boolean;
+    replaceObject?: fabric.Object;
+    originX?: fabric.OriginX;
+    originY?: fabric.OriginY;
+    angle?: number;
+    scaleX?: number;
+    scaleY?: number;
 }
+
+const getPdfMetaFromObject = (obj: fabric.Object | null | undefined): SelectedPdfMeta | null => {
+    const data = (obj as any)?.data;
+    if (data?.kind !== "pdf_page_background") return null;
+
+    return {
+        originalFileName: data.originalFileName,
+        pageIndex: typeof data.pageIndex === "number" ? data.pageIndex : 0,
+        totalPages: typeof data.totalPages === "number" ? data.totalPages : undefined,
+        pdfWidthMm: typeof data.pdfWidthMm === "number" ? data.pdfWidthMm : undefined,
+        pdfHeightMm: typeof data.pdfHeightMm === "number" ? data.pdfHeightMm : undefined,
+        renderWidthPx: typeof data.renderWidthPx === "number" ? data.renderWidthPx : undefined,
+        renderHeightPx: typeof data.renderHeightPx === "number" ? data.renderHeightPx : undefined,
+        vectorReady: Boolean(data.originalPdfBytes),
+    };
+};
+
+const getPdfInitialSourceFromObject = (obj: fabric.Object | null | undefined): PDFImportInitialSource | null => {
+    const data = (obj as any)?.data;
+    if (data?.kind !== "pdf_page_background" || !data.originalPdfBytes) return null;
+
+    return {
+        bytes: data.originalPdfBytes.slice(0),
+        fileName: data.originalFileName || "Importeret PDF",
+        pageNumber: (typeof data.pageIndex === "number" ? data.pageIndex : 0) + 1,
+    };
+};
 
 const STANDARD_FORMATS: Record<string, { width: number; height: number; bleed?: number }> = {
     "A0": { width: 841, height: 1189 },
@@ -120,7 +224,106 @@ const STANDARD_FORMATS: Record<string, { width: number; height: number; bleed?: 
     "100x70": { width: 100, height: 70 },
 };
 
+function useIsPhoneDesignerViewport() {
+    const getIsPhone = useCallback(() => {
+        if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+        return window.matchMedia(`(max-width: ${PHONE_DESIGNER_BREAKPOINT_PX - 1}px)`).matches;
+    }, []);
+    const [isPhone, setIsPhone] = useState(getIsPhone);
+
+    useEffect(() => {
+        if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+        const query = window.matchMedia(`(max-width: ${PHONE_DESIGNER_BREAKPOINT_PX - 1}px)`);
+        const update = () => setIsPhone(query.matches);
+        update();
+        query.addEventListener("change", update);
+        return () => query.removeEventListener("change", update);
+    }, []);
+
+    return isPhone;
+}
+
+function DesignerPhoneUnsupported() {
+    const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const returnTo = searchParams.get("returnTo");
+    const safeReturnTo = returnTo && returnTo.startsWith("/") ? returnTo : null;
+
+    return (
+        <div className="min-h-screen bg-slate-50 text-slate-950">
+            <SEO title="Print Designer virker bedst på større skærme" />
+            <main className="mx-auto flex min-h-screen w-full max-w-lg flex-col px-5 py-6">
+                <div className="flex items-center justify-between">
+                    <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
+                        <ArrowLeft className="mr-2 h-4 w-4" />
+                        Tilbage
+                    </Button>
+                </div>
+
+                <section className="flex flex-1 items-center py-8">
+                    <div className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                        <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
+                            <Smartphone className="h-7 w-7" />
+                        </div>
+                        <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-amber-700">
+                            Telefon understøttes ikke
+                        </p>
+                        <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
+                            Designeren virker bedst på computer eller iPad
+                        </h1>
+                        <p className="mt-3 text-sm leading-6 text-slate-600">
+                            Printdesigneren bruger et præcist canvas med zoom, lag, preflight, bleed og filplacering.
+                            På en telefon er skærmen for lille til at redigere tryksager sikkert.
+                        </p>
+
+                        <div className="mt-6 grid gap-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                            <div className="flex gap-3">
+                                <Monitor className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
+                                <div>
+                                    <p className="font-medium text-slate-900">Anbefalet</p>
+                                    <p>Brug en computer til fuld designer, upload, preflight og eksport.</p>
+                                </div>
+                            </div>
+                            <div className="flex gap-3">
+                                <Tablet className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
+                                <div>
+                                    <p className="font-medium text-slate-900">iPad/tablet</p>
+                                    <p>Kan bruges på større skærme, men computer er stadig bedst til præcis redigering.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex flex-col gap-3">
+                            {safeReturnTo && (
+                                <Button className="min-h-12 w-full" onClick={() => navigate(safeReturnTo)}>
+                                    Tilbage til checkout
+                                </Button>
+                            )}
+                            <Button
+                                variant={safeReturnTo ? "outline" : "default"}
+                                className="min-h-12 w-full"
+                                onClick={() => navigate(-1)}
+                            >
+                                Gå tilbage
+                            </Button>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+    );
+}
+
 export function Designer() {
+    const isPhoneViewport = useIsPhoneDesignerViewport();
+    if (isPhoneViewport) {
+        return <DesignerPhoneUnsupported />;
+    }
+
+    return <DesignerWorkspace />;
+}
+
+function DesignerWorkspace() {
     const queryClient = useQueryClient();
     const { variantId } = useParams<{ variantId?: string }>();
     const [searchParams, setSearchParams] = useSearchParams();
@@ -143,8 +346,22 @@ export function Designer() {
     const format = searchParams.get("format");
     const variant = searchParams.get("variant");
     const orderMode = searchParams.get("order") === "1" || searchParams.get("mode") === "order";
+    const directTemplatePdfUrl = searchParams.get("templatePdfUrl") || searchParams.get("templatePdf") || (orderMode ? checkoutSession?.templatePdfUrl || null : null);
+    const directTemplatePdfName = searchParams.get("templatePdfName") || (orderMode ? checkoutSession?.templatePdfName || null : null);
+    const designerMode = searchParams.get("designerMode") || checkoutSession?.designerMode || null;
+    const pricingModel = searchParams.get("pricingModel") || checkoutSession?.pricingModel || null;
+    const productFlowLabel = checkoutSession?.productFlowLabel || null;
     const returnTo = searchParams.get("returnTo");
     const safeReturnTo = returnTo && returnTo.startsWith("/") ? returnTo : null;
+    const designerOrderFlowNotice = useMemo(
+        () => getDesignerOrderFlowNotice(
+            designerMode,
+            productFlowLabel,
+            pricingModel,
+            Boolean(checkoutSession?.siteUpload?.fileUrl),
+        ),
+        [checkoutSession?.siteUpload?.fileUrl, designerMode, pricingModel, productFlowLabel],
+    );
     const parseDimension = (value: string | null) => {
         if (!value) return null;
         const parsed = Number(value);
@@ -170,10 +387,13 @@ export function Designer() {
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
     const [layers, setLayers] = useState<LayerInfo[]>([]);
     const [selectedProps, setSelectedProps] = useState<SelectedObjectProps | null>(null);
+    const [selectedPdfMeta, setSelectedPdfMeta] = useState<SelectedPdfMeta | null>(null);
+    const [pdfServiceReport, setPdfServiceReport] = useState<DesignerPdfServiceReport | null>(null);
+    const [pdfServiceRunning, setPdfServiceRunning] = useState(false);
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
     const [zoomLevel, setZoomLevel] = useState(1);
     const [pendingCutContour, setPendingCutContour] = useState<string | null>(null);
-    const [pendingTemplatePdf, setPendingTemplatePdf] = useState<string | null>(null);
+    const [pendingTemplatePdf, setPendingTemplatePdf] = useState<string | null>(directTemplatePdfUrl);
     const [pendingTemplateEditorJson, setPendingTemplateEditorJson] = useState<any | null>(null);
     const [linkedTemplateFetchComplete, setLinkedTemplateFetchComplete] = useState(() => !templateId);
     const [checkoutUploadImported, setCheckoutUploadImported] = useState(false);
@@ -181,7 +401,7 @@ export function Designer() {
     // Keep URL-first initialization to avoid A4 flash before async spec loads.
     const [documentSpec, setDocumentSpec] = useState(() => {
         const defaultSpec = {
-            name: "Uden titel",
+            name: directTemplatePdfName || "Uden titel",
             width_mm: 210,
             height_mm: 297,
             bleed_mm: 3,
@@ -223,7 +443,7 @@ export function Designer() {
     });
     const [canvasAreaSize, setCanvasAreaSize] = useState({ width: 0, height: 0 });
     const [selectedTool, setSelectedTool] = useState<string>("select");
-    const [activeTab, setActiveTab] = useState<'layers' | 'properties' | 'preflight' | 'proofing'>('layers');
+    const [activeTab, setActiveTab] = useState<'layers' | 'properties' | 'pdf' | 'preflight' | 'proofing'>('layers');
     const isUuid = useCallback((value: string | null) => {
         if (!value) return false;
         return UUID_REGEX.test(value);
@@ -231,6 +451,9 @@ export function Designer() {
 
     // PDF Import
     const [showPDFImport, setShowPDFImport] = useState(false);
+    const [pdfImportInitialSource, setPdfImportInitialSource] = useState<PDFImportInitialSource | null>(null);
+    const pdfImportModeRef = useRef<'add' | 'replace-selected'>('add');
+    const pdfReplaceTargetRef = useRef<fabric.Object | null>(null);
     const [isDraggingFile, setIsDraggingFile] = useState(false);
     const dragCounterRef = useRef(0);
 
@@ -242,7 +465,8 @@ export function Designer() {
     const [isLibraryOpen, setIsLibraryOpen] = useState(false);
 
     // Show landing page when no parameters are provided
-    const showLanding = !variantId && !productId && !templateId && !designId && !format;
+    const hasCustomFormat = customWidthMm !== null && customHeightMm !== null;
+    const showLanding = !variantId && !productId && !templateId && !designId && !format && !hasCustomFormat && !directTemplatePdfUrl;
 
     // Unsaved changes navigation guard
     const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
@@ -414,7 +638,7 @@ export function Designer() {
                     const widthMm = customWidthMm;
                     const heightMm = customHeightMm;
                     let resolvedProductId = productId || variantId || null;
-                    let productName = "Design: Tilpasset format";
+                    let productName = directTemplatePdfName || "Design: Tilpasset format";
                     let specs: any = null;
 
                     if (resolvedProductId) {
@@ -817,8 +1041,60 @@ export function Designer() {
 
     const markDesignReady = useCallback(() => {
         if (!documentSpec.product_id) return;
-        sessionStorage.setItem(`order-design:${documentSpec.product_id}`, "1");
+        markSiteCheckoutDesignReady(documentSpec.product_id, readSiteCheckoutSession());
     }, [documentSpec.product_id]);
+
+    const buildCanvasOrderPdfBlob = useCallback(async (fabricCanvas: fabric.Canvas) => {
+        const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId)
+            || OUTPUT_PROFILES[0];
+        const bleedPx = (documentSpec.bleed_mm || 0) * displayMmToPx;
+        const pdfWidth = documentSpec.width_mm + ((documentSpec.bleed_mm || 0) * 2);
+        const pdfHeight = documentSpec.height_mm + ((documentSpec.bleed_mm || 0) * 2);
+
+        const proofedRgbDataUrl = await withHiddenGuides(
+            fabricCanvas,
+            async () => {
+                const result = await colorProofing.exportCMYK(
+                    SRGB_PROFILE_URL,
+                    profile.url,
+                    productProfile.profileBytes,
+                    {
+                        left: pasteboardPaddingPx,
+                        top: pasteboardPaddingPx,
+                        width: (documentSpec.width_mm * displayMmToPx) + (bleedPx * 2),
+                        height: (documentSpec.height_mm * displayMmToPx) + (bleedPx * 2),
+                    }
+                );
+
+                return result.proofedRgbDataUrl;
+            }
+        );
+
+        const doc = new jsPDF({
+            orientation: pdfWidth > pdfHeight ? 'landscape' : 'portrait',
+            unit: 'mm',
+            format: [pdfWidth, pdfHeight],
+        });
+
+        doc.addImage(proofedRgbDataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'SLOW');
+        doc.setProperties({
+            title: documentSpec.name,
+            subject: 'Trykklar PDF',
+            creator: 'Webprinter Designer',
+            keywords: `CMYK, ${profile.name}, Print`,
+        });
+
+        return {
+            blob: doc.output('blob') as Blob,
+            filename: `${documentSpec.name.replace(/[^a-z0-9_.-]/gi, '_')}.pdf`,
+        };
+    }, [
+        colorProofing,
+        displayMmToPx,
+        documentSpec,
+        pasteboardPaddingPx,
+        productProfile.profileBytes,
+    ]);
 
     const handleReturnToOrder = useCallback(() => {
         const completeReturn = () => {
@@ -840,28 +1116,40 @@ export function Designer() {
             const fabricCanvas = editorRef.current?.getCanvas();
             const pdfBackgroundMeta = detectPdfBackground(fabricCanvas || null);
 
-            if (!fabricCanvas || !pdfBackgroundMeta) {
+            if (!fabricCanvas || (!pdfBackgroundMeta && !hasOverlayObjects(fabricCanvas))) {
                 completeReturn();
                 return;
             }
 
             setReturningToOrder(true);
             try {
-                const { pdfBytes, filename } = await buildVectorPdfBackgroundPdf({
-                    documentSpec,
-                    fabricCanvas,
-                    pdfBackgroundMeta,
-                    includeBleed: true,
-                });
+                const productionFile = pdfBackgroundMeta
+                    ? await (async () => {
+                        const { pdfBytes, filename } = await buildVectorPdfBackgroundPdf({
+                            documentSpec,
+                            fabricCanvas,
+                            pdfBackgroundMeta,
+                            includeBleed: true,
+                        });
+
+                        return {
+                            blob: new Blob([pdfBytes], { type: "application/pdf" }),
+                            filename,
+                            sourceMode: "vector_pdf" as const,
+                        };
+                    })()
+                    : {
+                        ...(await buildCanvasOrderPdfBlob(fabricCanvas)),
+                        sourceMode: "print_pdf" as const,
+                    };
 
                 const productRef = documentSpec.product_id || productId || "designer";
-                const safeFileName = filename.replace(/[^a-z0-9_.-]/gi, "_");
+                const safeFileName = productionFile.filename.replace(/[^a-z0-9_.-]/gi, "_");
                 const filePath = `designer-production/${productRef}-${Date.now()}-${safeFileName}`;
-                const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: "application/pdf" });
 
                 const { error: uploadError } = await supabase.storage
                     .from("order-files")
-                    .upload(filePath, blob, {
+                    .upload(filePath, productionFile.blob, {
                         contentType: "application/pdf",
                         upsert: false,
                     });
@@ -876,11 +1164,11 @@ export function Designer() {
                 writeSiteCheckoutSession({
                     ...existingSession,
                     designerExport: {
-                        name: filename,
+                        name: productionFile.filename,
                         mimeType: "application/pdf",
                         fileUrl: publicUrl,
                         filePath,
-                        sourceMode: "vector_pdf",
+                        sourceMode: productionFile.sourceMode,
                         generatedAt: new Date().toISOString(),
                     },
                 });
@@ -888,14 +1176,14 @@ export function Designer() {
                 completeReturn();
             } catch (error) {
                 console.error("[Designer] Failed to prepare production PDF for checkout:", error);
-                toast.error("Kunne ikke lave produktionsfil til checkout. Bliv i designeren og prov igen.");
+                toast.error("Kunne ikke lave produktionsfil til checkout. Bliv i designeren og prøv igen.");
             } finally {
                 setReturningToOrder(false);
             }
         };
 
         void prepareDesignerOrderFile();
-    }, [documentSpec, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo]);
+    }, [buildCanvasOrderPdfBlob, documentSpec, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo]);
 
     // Save and then navigate back
     const handleSaveAndLeave = useCallback(async () => {
@@ -956,12 +1244,29 @@ export function Designer() {
     const handleSelectionChange = useCallback((hasSel: boolean, props?: SelectedObjectProps) => {
         setHasSelection(hasSel);
         setSelectedProps(hasSel && props ? props : null);
-        if (hasSel) setActiveTab('properties');
+        const activeObject = editorRef.current?.getCanvas()?.getActiveObject();
+        const pdfMeta = hasSel ? getPdfMetaFromObject(activeObject) : null;
+        setSelectedPdfMeta(pdfMeta);
+        if (!pdfMeta) setPdfServiceReport(null);
+        if (hasSel) setActiveTab(pdfMeta ? 'pdf' : 'properties');
     }, []);
 
     // Handle layers change
     const handleLayersChange = useCallback((newLayers: LayerInfo[]) => {
         setLayers(newLayers);
+    }, []);
+
+    const resetPdfImportMode = useCallback(() => {
+        pdfImportModeRef.current = 'add';
+        pdfReplaceTargetRef.current = null;
+        setPdfImportInitialSource(null);
+    }, []);
+
+    const openPdfImportForAdd = useCallback((initialSource: PDFImportInitialSource | null = null) => {
+        pdfImportModeRef.current = 'add';
+        pdfReplaceTargetRef.current = null;
+        setPdfImportInitialSource(initialSource);
+        setShowPDFImport(true);
     }, []);
 
     // Tool actions
@@ -972,7 +1277,7 @@ export function Designer() {
             return;
         }
         if (toolId === 'pdf') {
-            setShowPDFImport(true);
+            openPdfImportForAdd();
             return;
         }
 
@@ -1007,7 +1312,7 @@ export function Designer() {
                 setSelectedTool('select');
                 break;
         }
-    }, []);
+    }, [openPdfImportForAdd]);
 
     // Handle image upload
     const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1175,13 +1480,16 @@ export function Designer() {
 
         // Add the image with correct scaling
         fabric.Image.fromURL(data.imageDataUrl, (img) => {
+            const replaceObject = placement?.replaceObject || null;
+            const replaceIndex = replaceObject ? canvas.getObjects().indexOf(replaceObject) : -1;
             img.set({
                 left: placement?.left ?? canvasWidth / 2,
                 top: placement?.top ?? canvasHeight / 2,
-                originX: 'center',
-                originY: 'center',
-                scaleX: scale,
-                scaleY: scale,
+                originX: placement?.originX ?? 'center',
+                originY: placement?.originY ?? 'center',
+                angle: placement?.angle ?? 0,
+                scaleX: placement?.scaleX ?? scale,
+                scaleY: placement?.scaleY ?? scale,
             });
 
             // Store PDF metadata for vector export preservation
@@ -1191,6 +1499,7 @@ export function Designer() {
                     originalPdfBytes: data.originalPdfBytes,
                     pageIndex: data.pageNumber - 1,  // Convert to 0-based index
                     originalFileName: data.originalFileName,
+                    totalPages: data.totalPages,
                     renderWidthPx: data.renderedWidth,
                     renderHeightPx: data.renderedHeight,
                     pdfWidthMm: data.widthMm,
@@ -1201,13 +1510,66 @@ export function Designer() {
                 (img as any).__isCheckoutImported = true;
             }
 
-            canvas.add(img);
+            if (replaceObject) {
+                canvas.remove(replaceObject);
+            }
+            if (replaceIndex >= 0 && typeof (canvas as any).insertAt === 'function') {
+                (canvas as any).insertAt(img, replaceIndex, false);
+            } else {
+                canvas.add(img);
+            }
             canvas.setActiveObject(img);
             canvas.renderAll();
+            setSelectedPdfMeta(getPdfMetaFromObject(img));
+            setPdfServiceReport(null);
+            setActiveTab('pdf');
+            setHasChanges(true);
 
             console.log(`[PDF Import] ${Math.round(data.widthMm)}×${Math.round(data.heightMm)}mm rendered at scale ${scale.toFixed(3)}`);
         }, { crossOrigin: 'anonymous' });
-    }, [displayDpi]);
+    }, [canvasHeight, canvasWidth, displayDpi]);
+
+    const renderPdfPageToImportData = useCallback(async (
+        sourceBytes: ArrayBuffer,
+        pageIndex: number,
+        fileName?: string,
+    ): Promise<PDFImportData> => {
+        const pdfjsLib = await import("pdfjs-dist");
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+        const originalPdfBytes = sourceBytes.slice(0);
+        const pdf = await pdfjsLib.getDocument({ data: sourceBytes.slice(0) }).promise;
+        const safePageIndex = Math.min(Math.max(0, pageIndex), pdf.numPages - 1);
+        const page = await pdf.getPage(safePageIndex + 1);
+        const baseViewport = page.getViewport({ scale: 1 });
+        const renderScale = 3;
+        const viewport = page.getViewport({ scale: renderScale });
+
+        const offscreenCanvas = document.createElement("canvas");
+        offscreenCanvas.width = Math.round(viewport.width);
+        offscreenCanvas.height = Math.round(viewport.height);
+        const context = offscreenCanvas.getContext("2d");
+        if (!context) throw new Error("Kunne ikke oprette PDF-preview");
+
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+        await page.render({
+            canvasContext: context,
+            viewport,
+        }).promise;
+
+        return {
+            imageDataUrl: offscreenCanvas.toDataURL("image/png", 1.0),
+            pageNumber: safePageIndex + 1,
+            totalPages: pdf.numPages,
+            widthMm: ptToMm(baseViewport.width),
+            heightMm: ptToMm(baseViewport.height),
+            renderedWidth: offscreenCanvas.width,
+            renderedHeight: offscreenCanvas.height,
+            originalPdfBytes,
+            originalFileName: fileName,
+        };
+    }, []);
 
     const rerenderPdfBackgroundForQuality = useCallback(async (pdfObject: fabric.Image, viewportScale: number) => {
         const data = (pdfObject as any).data;
@@ -1657,12 +2019,17 @@ export function Designer() {
                 height: (documentSpec.height_mm * displayMmToPx) + (bleedPx * 2)
             };
 
-            // 1. Transform to CMYK and get proofed RGB (Cropped to Bleed Box)
-            const { cmykData, proofedRgbDataUrl, width, height } = await colorProofing.exportCMYK(
-                SRGB_PROFILE_URL,
-                profile.url,
-                productProfile.profileBytes,
-                cropOptions
+            // 1. Transform to CMYK and get proofed RGB (Cropped to Bleed Box).
+            // Template PDFs, fold guides, safe zones and document backgrounds are editor-only
+            // objects and must not be captured in the printable export.
+            const { cmykData, proofedRgbDataUrl, width, height } = await withHiddenGuides(
+                fabricCanvas,
+                () => colorProofing.exportCMYK(
+                    SRGB_PROFILE_URL,
+                    profile.url,
+                    productProfile.profileBytes,
+                    cropOptions
+                )
             );
 
             if (cmykData.length === 0) {
@@ -1875,6 +2242,194 @@ export function Designer() {
         editorRef.current?.selectLayer(id);
     }, []);
 
+    const getActivePdfObject = useCallback((): fabric.Object | null => {
+        const activeObject = editorRef.current?.getCanvas()?.getActiveObject() || null;
+        return getPdfMetaFromObject(activeObject) ? activeObject : null;
+    }, []);
+
+    const getPdfReplacementPlacement = useCallback((target: fabric.Object): CheckoutImportPlacement => ({
+        left: target.left ?? canvasWidth / 2,
+        top: target.top ?? canvasHeight / 2,
+        scaleMultiplier: 1,
+        markAsCheckoutImport: Boolean((target as any).__isCheckoutImported),
+        replaceObject: target,
+        originX: target.originX as fabric.OriginX,
+        originY: target.originY as fabric.OriginY,
+        angle: target.angle,
+        scaleX: target.scaleX,
+        scaleY: target.scaleY,
+    }), [canvasHeight, canvasWidth]);
+
+    const updateActivePdfMeta = useCallback(() => {
+        const activeObject = editorRef.current?.getCanvas()?.getActiveObject() || null;
+        setSelectedPdfMeta(getPdfMetaFromObject(activeObject));
+    }, []);
+
+    const handleCenterSelectedPdf = useCallback(() => {
+        const canvas = editorRef.current?.getCanvas();
+        const pdfObject = getActivePdfObject();
+        if (!canvas || !pdfObject) {
+            toast.error("Vælg en importeret PDF først");
+            return;
+        }
+
+        pdfObject.set({
+            originX: "center",
+            originY: "center",
+            left: pasteboardPaddingPx + (docWidth / 2),
+            top: pasteboardPaddingPx + (docHeight / 2),
+        });
+        canvas.setActiveObject(pdfObject);
+        canvas.requestRenderAll();
+        canvas.fire("object:modified", { target: pdfObject });
+        setHasChanges(true);
+        updateActivePdfMeta();
+        toast.success("PDF centreret på dokumentet");
+    }, [docHeight, docWidth, getActivePdfObject, pasteboardPaddingPx, updateActivePdfMeta]);
+
+    const handleFitSelectedPdfToDocument = useCallback(() => {
+        const canvas = editorRef.current?.getCanvas();
+        const pdfObject = getActivePdfObject();
+        if (!canvas || !pdfObject) {
+            toast.error("Vælg en importeret PDF først");
+            return;
+        }
+
+        const baseWidth = Math.max(1, pdfObject.width || 1);
+        const baseHeight = Math.max(1, pdfObject.height || 1);
+        const fitScale = Math.min(docWidth / baseWidth, docHeight / baseHeight);
+        const safeScale = Number.isFinite(fitScale) && fitScale > 0 ? fitScale : 1;
+
+        pdfObject.set({
+            originX: "center",
+            originY: "center",
+            left: pasteboardPaddingPx + (docWidth / 2),
+            top: pasteboardPaddingPx + (docHeight / 2),
+            scaleX: safeScale,
+            scaleY: safeScale,
+        });
+        canvas.setActiveObject(pdfObject);
+        canvas.requestRenderAll();
+        canvas.fire("object:modified", { target: pdfObject });
+        setHasChanges(true);
+        updateActivePdfMeta();
+        toast.success("PDF tilpasset dokumentområdet");
+    }, [docHeight, docWidth, getActivePdfObject, pasteboardPaddingPx, updateActivePdfMeta]);
+
+    const handleImportNewPdfFromPanel = useCallback(() => {
+        const pdfObject = getActivePdfObject();
+        if (!pdfObject) {
+            toast.error("Vælg en importeret PDF først");
+            return;
+        }
+
+        pdfImportModeRef.current = 'replace-selected';
+        pdfReplaceTargetRef.current = pdfObject;
+        setPdfImportInitialSource(null);
+        setShowPDFImport(true);
+    }, [getActivePdfObject]);
+
+    const handleEditSelectedPdfFromPanel = useCallback(() => {
+        const pdfObject = getActivePdfObject();
+        const initialSource = getPdfInitialSourceFromObject(pdfObject);
+        if (!pdfObject || !initialSource) {
+            toast.error("Den valgte PDF mangler original kilde");
+            return;
+        }
+
+        pdfImportModeRef.current = 'replace-selected';
+        pdfReplaceTargetRef.current = pdfObject;
+        setPdfImportInitialSource(initialSource);
+        setShowPDFImport(true);
+    }, [getActivePdfObject]);
+
+    const handleChangeSelectedPdfPage = useCallback(async (direction: -1 | 1) => {
+        const pdfObject = getActivePdfObject();
+        const data = (pdfObject as any)?.data;
+        if (!pdfObject || data?.kind !== 'pdf_page_background' || !data.originalPdfBytes) {
+            toast.error("Vælg en importeret PDF først");
+            return;
+        }
+
+        const totalPages = typeof data.totalPages === "number" ? data.totalPages : 1;
+        const currentPageIndex = typeof data.pageIndex === "number" ? data.pageIndex : 0;
+        const nextPageIndex = Math.min(Math.max(0, currentPageIndex + direction), totalPages - 1);
+        if (nextPageIndex === currentPageIndex) return;
+
+        try {
+            const importData = await renderPdfPageToImportData(
+                data.originalPdfBytes.slice(0),
+                nextPageIndex,
+                data.originalFileName,
+            );
+            handlePDFImport(importData, getPdfReplacementPlacement(pdfObject));
+            toast.success(`Skiftet til PDF-side ${nextPageIndex + 1}`);
+        } catch (error) {
+            console.error("[Designer] Failed to switch PDF page:", error);
+            toast.error("Kunne ikke skifte PDF-side");
+        }
+    }, [getActivePdfObject, getPdfReplacementPlacement, handlePDFImport, renderPdfPageToImportData]);
+
+    const handleRunSelectedPdfServiceScan = useCallback(async () => {
+        const pdfObject = getActivePdfObject();
+        const data = (pdfObject as any)?.data;
+        if (!pdfObject || data?.kind !== 'pdf_page_background' || !data.originalPdfBytes) {
+            toast.error("Vælg en importeret PDF med original kilde først");
+            return;
+        }
+
+        setPdfServiceRunning(true);
+        try {
+            const report = await runDesignerPdfService({
+                runtime: "browser",
+                operation: "inspect",
+                bytes: data.originalPdfBytes.slice(0),
+                fileName: data.originalFileName,
+                expected: {
+                    widthMm: documentSpec.width_mm,
+                    heightMm: documentSpec.height_mm,
+                    bleedMm: documentSpec.bleed_mm,
+                },
+            });
+            setPdfServiceReport(report);
+            if (report.status === "ok") {
+                toast.success("PDF-service scan gennemført");
+            } else if (report.status === "warning") {
+                toast.warning("PDF-service scan fandt advarsler");
+            } else {
+                toast.error("PDF-service scan fandt fejl");
+            }
+        } catch (error) {
+            console.error("[Designer] PDF service scan failed:", error);
+            toast.error("PDF-service scan fejlede");
+        } finally {
+            setPdfServiceRunning(false);
+        }
+    }, [documentSpec.bleed_mm, documentSpec.height_mm, documentSpec.width_mm, getActivePdfObject]);
+
+    const handlePDFImportFromModal = useCallback((data: PDFImportData) => {
+        const replaceTarget = pdfImportModeRef.current === 'replace-selected'
+            ? pdfReplaceTargetRef.current
+            : null;
+
+        if (replaceTarget) {
+            handlePDFImport(data, getPdfReplacementPlacement(replaceTarget));
+        } else {
+            handlePDFImport(data);
+        }
+
+        resetPdfImportMode();
+    }, [getPdfReplacementPlacement, handlePDFImport, resetPdfImportMode]);
+
+    const handlePDFImportOpenChange = useCallback((open: boolean) => {
+        setShowPDFImport(open);
+        if (!open) resetPdfImportMode();
+    }, [resetPdfImportMode]);
+
+    const handleOpenVectorExportFromPanel = useCallback(() => {
+        setIsExportDialogOpen(true);
+    }, []);
+
     // Preflight actions
     const handleDismissWarning = useCallback((id: string) => {
         setDismissedWarnings(prev => new Set([...prev, id]));
@@ -1908,6 +2463,10 @@ export function Designer() {
         () => layers.some((layer) => (layer.object as any).data?.kind === "pdf_page_background" && (layer.object as any).data?.originalPdfBytes),
         [layers]
     );
+    const hasPdfTemplateOverlay = useMemo(
+        () => layers.some((layer) => Boolean((layer.object as any).__isPdfTemplate)),
+        [layers]
+    );
     const hasCutContourOnCanvas = useMemo(
         () => layers.some((layer) => Boolean((layer.object as any).__isCutContour)),
         [layers]
@@ -1930,6 +2489,17 @@ export function Designer() {
     const designerReadinessInfos = useMemo<PreflightWarning[]>(() => {
         const infos: PreflightWarning[] = [];
 
+        if (hasPdfTemplateOverlay) {
+            infos.push({
+                id: "designer-pdf-template-non-printing",
+                type: "info",
+                code: "PDF_TEMPLATE_NON_PRINTING",
+                message: "PDF-skabelon er ikke-printbar",
+                details: "Skabelonen vises over designet som hjælp til fold, ryg, beskæring og sikkerhedszone, men skjules automatisk ved print/proof eksport.",
+                canIgnore: false,
+            });
+        }
+
         if (hasVectorPdfBase) {
             infos.push({
                 id: "designer-vector-pdf-ready",
@@ -1938,6 +2508,23 @@ export function Designer() {
                 message: "PDF-base er klar til vektor eksport",
                 details: "Den importerede PDF bevares som vektor i Vektor PDF-eksport. Live canvas-previewet vises stadig som renderet billede under redigering.",
                 canIgnore: false,
+            });
+        }
+
+        if (pdfServiceReport) {
+            infos.push({
+                id: "designer-pdf-service-report",
+                type: pdfServiceReport.status === "error" ? "warning" : "info",
+                code: "PDF_SERVICE_REPORT",
+                message: pdfServiceReport.status === "ok"
+                    ? "PDF-service scan er gennemført"
+                    : "PDF-service scan kræver opmærksomhed",
+                details: [
+                    `${pdfServiceReport.runtime} scan`,
+                    typeof pdfServiceReport.pageCount === "number" ? `${pdfServiceReport.pageCount} sider` : null,
+                    pdfServiceReport.warnings[0] || pdfServiceReport.errors[0] || null,
+                ].filter(Boolean).join(" · "),
+                canIgnore: pdfServiceReport.status !== "error",
             });
         }
 
@@ -1971,7 +2558,7 @@ export function Designer() {
         }
 
         return infos;
-    }, [hasVectorPdfBase, hasCutContourOnCanvas, detectedPdfCutContour]);
+    }, [hasPdfTemplateOverlay, hasVectorPdfBase, hasCutContourOnCanvas, detectedPdfCutContour, pdfServiceReport]);
     const combinedPreflightInfos = useMemo(
         () => [...preflightInfos, ...designerReadinessInfos],
         [preflightInfos, designerReadinessInfos]
@@ -2073,16 +2660,12 @@ export function Designer() {
 
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
             const file = e.dataTransfer.files[0];
-            if (file.type === 'application/pdf') {
-                // Determine if this is dropping onto the main area or just general
-                // For now, any drop opens the modal
-                setShowPDFImport(true);
-                // We'll need to pass the file to the modal, but the modal logic currently handles "Select file"
-                // Ideally we update PDFImportModal to accept a pre-selected file prop
-                // For now, we'll just open the modal and let user select (or we'll improve it later)
+            if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+                (window as any).__pendingPdfFile = file;
+                openPdfImportForAdd();
             }
         }
-    }, []);
+    }, [openPdfImportForAdd]);
 
     // Prevent browser default drag behavior on window
     useEffect(() => {
@@ -2316,6 +2899,13 @@ export function Designer() {
                         </span>
                     )}
 
+                    {orderMode && (productFlowLabel || designerMode || pricingModel) && (
+                        <span className="hidden items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2 py-1 text-xs text-primary md:flex">
+                            <FileText className="h-3.5 w-3.5" />
+                            {[productFlowLabel, designerMode, pricingModel].filter(Boolean).join(" / ")}
+                        </span>
+                    )}
+
                     <div className="h-4 w-px bg-border mx-2" />
 
                     {!orderMode && (
@@ -2353,13 +2943,32 @@ export function Designer() {
                 </div>
             </div>
 
+            {orderMode && (
+                <div className={`border-b px-4 py-3 ${designerOrderFlowNotice.toneClassName}`}>
+                    <div className="mx-auto flex max-w-7xl flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div className="flex min-w-0 items-start gap-3">
+                            <FileText className="mt-0.5 h-4 w-4 shrink-0" />
+                            <div className="min-w-0">
+                                <p className="text-sm font-semibold">{designerOrderFlowNotice.title}</p>
+                                <p className="text-xs leading-5 opacity-80">{designerOrderFlowNotice.body}</p>
+                            </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2 text-xs opacity-80">
+                            <FileCheck className="h-3.5 w-3.5" />
+                            <span>{designerOrderFlowNotice.detail}</span>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="flex-1 flex overflow-hidden">
                 {/* PDF Import Modal */}
                 <PDFImportModal
                     open={showPDFImport}
-                    onOpenChange={setShowPDFImport}
-                    onImport={handlePDFImport}
+                    onOpenChange={handlePDFImportOpenChange}
+                    onImport={handlePDFImportFromModal}
                     onImportAsTemplate={handlePDFImportAsTemplate}
+                    initialSource={pdfImportInitialSource}
                     allowedWidthMm={documentSpec.width_mm}
                     allowedHeightMm={documentSpec.height_mm}
                 />
@@ -2634,6 +3243,17 @@ export function Designer() {
                         >
                             Egenskaber
                         </button>
+                        {selectedPdfMeta && (
+                            <button
+                                onClick={() => setActiveTab('pdf')}
+                                className={`flex-1 py-2 text-sm font-medium transition-colors ${activeTab === 'pdf'
+                                    ? 'bg-primary/10 text-primary border-b-2 border-primary'
+                                    : 'text-muted-foreground hover:bg-muted/50'
+                                    }`}
+                            >
+                                PDF
+                            </button>
+                        )}
                         <button
                             onClick={() => setActiveTab('preflight')}
                             className={`flex-1 py-2 text-sm font-medium transition-colors relative ${activeTab === 'preflight'
@@ -2685,6 +3305,23 @@ export function Designer() {
                                 onSendToBack={() => editorRef.current?.sendToBack()}
                             />
                         )}
+                        {activeTab === 'pdf' && (
+                            <PdfToolsPanel
+                                pdfMeta={selectedPdfMeta}
+                                pdfServiceReport={pdfServiceReport}
+                                pdfServiceRunning={pdfServiceRunning}
+                                preflightIssueCount={Math.max(0, preflightErrors.length + preflightWarnings.length)}
+                                onFitToDocument={handleFitSelectedPdfToDocument}
+                                onCenterOnDocument={handleCenterSelectedPdf}
+                                onImportNewPdf={handleImportNewPdfFromPanel}
+                                onEditPdf={handleEditSelectedPdfFromPanel}
+                                onChangePage={handleChangeSelectedPdfPage}
+                                onRunPdfServiceScan={handleRunSelectedPdfServiceScan}
+                                onExtractCutContour={handleCutContourAction}
+                                onOpenExport={handleOpenVectorExportFromPanel}
+                                onOpenPreflight={() => setActiveTab('preflight')}
+                            />
+                        )}
                         {activeTab === 'preflight' && (
                             <PreflightPanel
                                 warnings={preflightWarnings}
@@ -2721,7 +3358,7 @@ export function Designer() {
                             <Button variant="outline" size="sm" className="h-10 p-0" onClick={() => handleToolClick('image')} title="Billede">
                                 <Upload className="h-4 w-4" />
                             </Button>
-                            <Button variant="outline" size="sm" className="h-10 p-0" onClick={() => setShowPDFImport(true)} title="PDF">
+                            <Button variant="outline" size="sm" className="h-10 p-0" onClick={() => openPdfImportForAdd()} title="PDF">
                                 <FileUp className="h-4 w-4" />
                             </Button>
                             <Button variant="outline" size="sm" className="h-10 p-0" onClick={() => handleToolClick('rectangle')} title="Rektangel">

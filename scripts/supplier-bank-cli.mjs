@@ -5882,7 +5882,7 @@ function getSupplierBankImportGate({ product, snapshotStats, latestReview, impor
     if (!latestReview) {
       return {
         state: "blocked",
-        reason: "Opret og gennemgaa prisreview foer import.",
+        reason: "Opret og gennemgå prisreview før import.",
       };
     }
 
@@ -5903,7 +5903,7 @@ function getSupplierBankImportGate({ product, snapshotStats, latestReview, impor
     if (latestReview.status === "reviewed") {
       return {
         state: "blocked",
-        reason: "Prisreview skal accepteres foer import.",
+        reason: "Prisreview skal accepteres før import.",
       };
     }
 
@@ -5926,7 +5926,7 @@ function getSupplierBankImportGate({ product, snapshotStats, latestReview, impor
   if (product.status !== "approved") {
     return {
       state: "needs_approval",
-      reason: `Bank status er ${product.status}; admin-import vil kraeve godkendelse foerst.`,
+      reason: `Bank status er ${product.status}; admin-import vil kræve godkendelse først.`,
     };
   }
 
@@ -6713,9 +6713,9 @@ function getNextSupportedPixartExpansionFamily(missingFamilies) {
 function getCoverageNextAction({ supplierSlug, missingFamilies, stagedFamilies, readiness, supplierEnabled }) {
   if ((readiness?.blocked || 0) > 0) {
     if (hasStorformatConversionBlock(readiness)) {
-      return "Koer Pixart storformat dry-run og brug den eksplicitte draft-import, hvis previewet er godkendt.";
+      return "Kør Pixart storformat dry-run og brug den eksplicitte draft-import, hvis previewet er godkendt.";
     }
-    return "Loes blokeret bankprodukt foerst: gennemgaa prisreview eller snapshot-kvalitet foer flere familier importeres.";
+    return "Løs blokeret bankprodukt først: gennemgå prisreview eller snapshot-kvalitet før flere familier importeres.";
   }
 
   if ((readiness?.ready || 0) > 0) {
@@ -6723,7 +6723,7 @@ function getCoverageNextAction({ supplierSlug, missingFamilies, stagedFamilies, 
   }
 
   if ((readiness?.needsApproval || 0) > 0) {
-    return "Godkend reviewed bankprodukt i banken foer draft-import eller videre supplier-udvidelse.";
+    return "Godkend reviewed bankprodukt i banken før draft-import eller videre supplier-udvidelse.";
   }
 
   if ((readiness?.imported || 0) > 0 && missingFamilies.length === 0) {
@@ -6734,19 +6734,19 @@ function getCoverageNextAction({ supplierSlug, missingFamilies, stagedFamilies, 
     if (supplierSlug === "pixartprinting") {
       const supportedFamily = getNextSupportedPixartExpansionFamily(missingFamilies);
       if (supportedFamily) {
-        return `Udvid med naeste understoettede Pixart dry extraction: ${supportedFamily}.`;
+        return `Udvid med næste understøttede Pixart dry extraction: ${supportedFamily}.`;
       }
       return `Pixart mangler ${missingFamilies.join(", ")}, men den nuvaerende adapter understoetter kun stickers og signs.`;
     }
-    return `Udvid med naeste dry extraction: ${missingFamilies[0]}.`;
+    return `Udvid med næste dry extraction: ${missingFamilies[0]}.`;
   }
 
   if (missingFamilies.length > 0) {
-    const prefix = supplierEnabled ? "Start foerste dry extraction" : "Planlaeg foerste kandidat-slice";
+    const prefix = supplierEnabled ? "Start første dry extraction" : "Planlæg første kandidat-slice";
     return `${prefix}: ${missingFamilies[0]}. Vent med bank write til previewet er godkendt.`;
   }
 
-  return "Daekning ser komplet ud. Hold fokus paa refresh/review-flow og produktkontrol.";
+  return "Dækning ser komplet ud. Hold fokus på refresh/review-flow og produktkontrol.";
 }
 
 function getExpansionActionKind(row) {
@@ -10790,18 +10790,18 @@ function buildSupplierBankExecutiveSummaryMarkdown({
     "",
     "## Kort status",
     "",
-    `- Leverandoerer i registry: ${coverage.summary.sources}; seeded i bank: ${coverage.summary.seeded}.`,
-    `- Produktfamilier daekket: ${coverage.summary.coveredFamilies}/${coverage.summary.expectedFamilies}; mangler: ${coverage.summary.missingFamilies}.`,
+    `- Leverandører i registry: ${coverage.summary.sources}; seeded i bank: ${coverage.summary.seeded}.`,
+    `- Produktfamilier dækket: ${coverage.summary.coveredFamilies}/${coverage.summary.expectedFamilies}; mangler: ${coverage.summary.missingFamilies}.`,
     `- Bankprodukter tjekket: ${eligibility.summary.checked}; allerede importeret som drafts: ${eligibility.summary.alreadyImported}; blokeret: ${eligibility.summary.blocked}.`,
     `- Importerede drafts QA: ${importedDraftQa.summary.ok} OK, ${importedDraftQa.summary.warnings} advarsler, ${importedDraftQa.summary.errors} fejl; publicerede targets: ${importedDraftQa.summary.published}.`,
-    `- Aabne beslutninger: ${decisions.length}; high/medium/low: ${highDecisions.length}/${mediumDecisions.length}/${decisions.filter((decision) => decision.priority === "low").length}.`,
+    `- Åbne beslutninger: ${decisions.length}; high/medium/low: ${highDecisions.length}/${mediumDecisions.length}/${decisions.filter((decision) => decision.priority === "low").length}.`,
     "",
     "## CEO-konklusion",
     "",
     "- Supplierbanken fungerer som staging- og review-lag, ikke som automatisk webshop-publisher.",
     "- De importerede drafts er strukturelt rene og upublicerede i den seneste QA.",
     "- Den vigtigste forretningsbeslutning er stadig Pixart rigids: hold Plastic-only snapshot i review, eller godkend den forbedrede Plastic+Plexiglass kandidat som bank-only snapshot.",
-    "- Naeste udvidelser boer starte som lokale/no-write previews, ikke som produktpublicering.",
+    "- Næste udvidelser bør starte som lokale/no-write previews, ikke som produktpublicering.",
     "",
     "## Aktuel evidenspakke",
     "",
@@ -10815,7 +10815,7 @@ function buildSupplierBankExecutiveSummaryMarkdown({
     `- Pixart rigids no-write preflight: \`${latestReports?.pixartRigidsPreflight || "missing"}\``,
     `- Print.com placemats no-write preflight: \`${latestReports?.printComPlacematsPreflight || "missing"}\``,
     "",
-    "## Naeste beslutning",
+    "## Næste beslutning",
     "",
   ];
 
@@ -10863,15 +10863,15 @@ function buildSupplierBankExecutiveSummaryMarkdown({
   }
 
   lines.push(
-    "## Naeste praktiske trin",
+    "## Næste praktiske trin",
     "",
     "1. Afklar Pixart rigids beslutningen med udgangspunkt i candidate packet og storformat-review.",
     "2. Hvis den forbedrede kandidat godkendes, skriv kun supplier-bank snapshot og opret derefter draft delta review.",
-    "3. Hold Pixart rigids paa STORFORMAT-sporet; brug ikke generic Matrix import for wide-format/pladematerialer.",
+    "3. Hold Pixart rigids på STORFORMAT-sporet; brug ikke generic Matrix import for wide-format/pladematerialer.",
     "4. Gennemgaa de 10 importerede drafts i produktadmin, men publicer ikke automatisk.",
-    "5. Efter Pixart gate er loest, vaelg naeste local/no-write preview for Pixart banners/labels/posters/rollups eller Print.com other.",
+    "5. Efter Pixart gate er løst, vælg næste local/no-write preview for Pixart banners/labels/posters/rollups eller Print.com other.",
     "",
-    "## Leverandoerstatus",
+    "## Leverandørstatus",
     ""
   );
 
@@ -10883,7 +10883,7 @@ function buildSupplierBankExecutiveSummaryMarkdown({
       `  - I banken: ${formatFamilyList(row.stagedFamilies)}`,
       `  - Mangler: ${formatFamilyList(row.missingFamilies)}`,
       `  - Readiness: ${formatReadinessSummary(row.readiness)}`,
-      `  - Naeste: ${row.nextAction}`
+      `  - Næste: ${row.nextAction}`
     );
   });
 

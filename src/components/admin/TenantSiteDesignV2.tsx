@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { SiteDesignEditorV2 } from "@/components/admin/SiteDesignEditorV2";
 import { useSidebar } from "@/components/ui/sidebar";
@@ -67,6 +67,13 @@ export function TenantSiteDesignV2() {
         };
     }, []);
 
+    const adapter = useMemo(
+        () => tenant?.id
+            ? createTenantAdapter(tenant.id, tenant.tenant_name || 'Min Shop')
+            : null,
+        [tenant?.id, tenant?.tenant_name],
+    );
+
     if (isLoading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
@@ -84,8 +91,6 @@ export function TenantSiteDesignV2() {
             </div>
         );
     }
-
-    const adapter = createTenantAdapter(tenant.id, tenant.tenant_name || 'Min Shop');
 
     return (
         <SiteDesignEditorV2

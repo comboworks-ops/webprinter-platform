@@ -4,9 +4,11 @@
  * Utility to temporarily hide guide objects (trim line, safe zone, document background)
  * during export so they don't appear in the final PDF.
  * 
- * Guide objects are identified by:
+ * Non-printing editor objects are identified by:
  * - __isGuide = true (trim and safe zone rectangles)
+ * - __isGuideLabel = true (guide labels)
  * - __isDocumentBackground = true (white paper background)
+ * - __isPdfTemplate = true (technical PDF template overlays)
  */
 
 import { fabric } from 'fabric';
@@ -27,9 +29,11 @@ export function hideGuides(canvas: fabric.Canvas | null): GuideState[] {
     canvas.getObjects().forEach((obj: any) => {
         // Check for guide markers
         const isGuide = obj.__isGuide === true;
+        const isGuideLabel = obj.__isGuideLabel === true;
         const isDocBg = obj.__isDocumentBackground === true;
+        const isPdfTemplate = obj.__isPdfTemplate === true;
 
-        if (isGuide || isDocBg) {
+        if (isGuide || isGuideLabel || isDocBg || isPdfTemplate) {
             hiddenGuides.push({
                 object: obj,
                 wasVisible: obj.visible !== false

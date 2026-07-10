@@ -14,7 +14,12 @@ import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { StripePaymentForm } from "@/components/checkout/StripePaymentForm";
 import { cloneStandardDeliveryMethods, resolveDeliveryMethodCost } from "@/lib/delivery/defaults";
-import { readSiteCheckoutSession, writeSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
+import {
+    clearSiteCheckoutDesignReady,
+    isSiteCheckoutDesignReady,
+    readSiteCheckoutSession,
+    writeSiteCheckoutSession,
+} from "@/lib/checkout/siteCheckoutSession";
 import { deleteCheckoutCustomerProfile, readCheckoutCustomerProfiles, upsertCheckoutCustomerProfile, type CheckoutCustomerProfile } from "@/lib/checkout/customerProfiles";
 import { ptToMm } from "@/utils/unitConversions";
 import {
@@ -119,6 +124,104 @@ interface PdfContourScanResult {
     summary: string;
     note: string;
 }
+
+type CheckoutFlowNotice = {
+    title: string;
+    body: string;
+    checklist: string[];
+    tone: "blue" | "amber" | "emerald" | "slate";
+    designerActionLabel: string;
+    showDesignerAction: boolean;
+};
+
+const getCheckoutFlowNotice = (
+    designerMode?: string | null,
+    productFlowLabel?: string | null,
+    requiresCutContour = false,
+): CheckoutFlowNotice => {
+    const mode = String(designerMode || "").trim();
+    const label = String(productFlowLabel || "Fil-tjek").trim();
+
+    if (mode === "pdf_template") {
+        return {
+            title: "Skabelonprodukt",
+            body: "Brug upload til en færdig trykfil, eller åbn designeren når filen skal placeres oven på produktets skabelon.",
+            checklist: [
+                "Skabelonlinjer bruges kun som visuel kontrol.",
+                "Fold, ryg, beskæring og sikkerhedszone skal passe før betaling.",
+                "Skabelonens hjælpelinjer må ikke ende som trykbar grafik.",
+            ],
+            tone: "blue",
+            designerActionLabel: "Åbn designer med skabelon",
+            showDesignerAction: true,
+        };
+    }
+
+    if (mode === "upload_only") {
+        return {
+            title: "Kun upload og fil-tjek",
+            body: "Dette produkt er sat op til færdige trykfiler. Upload filen her og brug korrekturvinduet til sidste kontrol.",
+            checklist: [
+                "Designknappen skjules på produktsiden.",
+                "Korrektur kontrollerer størrelse, bleed og sikkerhedszone.",
+                "Fuld designer bruges kun som manuel ekstra-kontrol.",
+            ],
+            tone: "slate",
+            designerActionLabel: "Åbn manuel designerkontrol",
+            showDesignerAction: true,
+        };
+    }
+
+    if (mode === "storformat" || mode === "signage") {
+        return {
+            title: mode === "signage" ? "Skilt/facade flow" : "Storformat flow",
+            body: "Upload en produktionsklar fil, eller brug designeren til at kontrollere motivet mod de valgte mål.",
+            checklist: [
+                "Motivet kontrolleres mod bredde, højde og bleed.",
+                requiresCutContour ? "CutContour bør kontrolleres, hvis produktet kræver udskæring." : "Brug PDF for mest stabil filkontrol.",
+                "Store rasterfiler skal have nok opløsning ved valgt størrelse.",
+            ],
+            tone: "emerald",
+            designerActionLabel: mode === "signage" ? "Åbn skiltdesigner" : "Åbn storformatdesigner",
+            showDesignerAction: true,
+        };
+    }
+
+    if (mode === "apparel") {
+        return {
+            title: "Tekstiltryk flow",
+            body: "Upload motivet her. Størrelser og antal håndteres i ordreflowet, mens designeren kan bruges til placering af trykfelt.",
+            checklist: [
+                "Motivet skal være klart og i høj opløsning.",
+                "Størrelsesfordeling skal matche det samlede antal.",
+                "Designer er bedst til placering, ikke til prisændringer.",
+            ],
+            tone: "amber",
+            designerActionLabel: "Åbn trykfeltdesigner",
+            showDesignerAction: true,
+        };
+    }
+
+    return {
+        title: label,
+        body: "Upload en trykklar fil, eller brug designeren hvis du vil placere eller kontrollere filen visuelt.",
+        checklist: [
+            "PDF anbefales til trykklare filer.",
+            "Korrektur viser størrelse, bleed og sikkerhedszone.",
+            "Du kan gå tilbage til produktet uden at miste konfigurationen.",
+        ],
+        tone: "blue",
+        designerActionLabel: "Åbn fuld designer",
+        showDesignerAction: true,
+    };
+};
+
+const checkoutFlowNoticeClasses: Record<CheckoutFlowNotice["tone"], string> = {
+    blue: "border-sky-200 bg-sky-50 text-sky-950",
+    amber: "border-amber-200 bg-amber-50 text-amber-950",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-950",
+    slate: "border-slate-200 bg-slate-50 text-slate-900",
+};
 
 interface CheckoutSavedAddress {
     id: string;
@@ -525,6 +628,24 @@ const FileUploadConfiguration = () => {
     const rawCheckoutState = (location.state as any) || persistedCheckoutState;
     const hasCheckoutState = Boolean(rawCheckoutState);
     const state = rawCheckoutState || {};
+    const checkoutTitle = String(state?.checkoutTitle || "Konfigurer dit design");
+    const productFlowLabel = String(state?.productFlowLabel || "Fil-tjek");
+    const productFlowHelpText = String(state?.productFlowHelpText || "");
+    const activeDesignerMode = typeof state?.designerMode === "string" ? state.designerMode : null;
+    const checkoutTemplatePdfUrl = typeof state?.templatePdfUrl === "string" && state.templatePdfUrl.trim()
+        ? state.templatePdfUrl.trim()
+        : null;
+    const checkoutTemplatePdfName = typeof state?.templatePdfName === "string" && state.templatePdfName.trim()
+        ? state.templatePdfName.trim()
+        : "Produktskabelon";
+    const checkoutTemplateDownloadName = checkoutTemplatePdfName.toLowerCase().endsWith(".pdf")
+        ? checkoutTemplatePdfName
+        : `${checkoutTemplatePdfName}.pdf`;
+    const checkoutUploadTitle = String(state?.checkoutUploadTitle || "Upload trykfil");
+    const checkoutUploadHelpText = String(
+        state?.checkoutUploadHelpText
+        || "Upload en trykklar PDF eller brug fuld designer til at placere filen på formatet.",
+    );
     const shopSettings = useShopSettings();
     const branding = shopSettings.data?.branding;
     const tenantName = String(
@@ -538,6 +659,7 @@ const FileUploadConfiguration = () => {
     const initialBasePrice = Math.round(Number(state?.productPrice || 0) + Number(state?.extraPrice || 0));
     const initialOrderSubtotal = Math.max(0, initialTotalPrice - initialShippingCost) || initialBasePrice || initialTotalPrice;
     const persistedSiteUpload = state?.siteUpload;
+    const persistedDesignerExport = state?.designerExport;
 
     const [loading, setLoading] = useState(true);
     const [product, setProduct] = useState<any>(null);
@@ -546,6 +668,13 @@ const FileUploadConfiguration = () => {
     const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadDropActive, setUploadDropActive] = useState(false);
     const [uploadedFile, setUploadedFile] = useState<{ name: string; url: string; path: string } | null>(() => {
+        if (persistedDesignerExport?.fileUrl) {
+            return {
+                name: String(persistedDesignerExport.name || "designer-production.pdf"),
+                url: String(persistedDesignerExport.fileUrl),
+                path: String(persistedDesignerExport.filePath || ""),
+            };
+        }
         if (!persistedSiteUpload?.fileUrl || !persistedSiteUpload?.filePath) return null;
         return {
             name: String(persistedSiteUpload.name || "upload"),
@@ -555,6 +684,17 @@ const FileUploadConfiguration = () => {
     });
     const [checkoutUserId, setCheckoutUserId] = useState<string | null>(null);
     const [savedCustomerProfiles, setSavedCustomerProfiles] = useState<CheckoutCustomerProfile[]>([]);
+
+    const markTemplateDownloaded = () => {
+        if (!checkoutTemplatePdfUrl) return;
+        const existingSession = readSiteCheckoutSession() || state;
+        writeSiteCheckoutSession({
+            ...existingSession,
+            templatePdfName: checkoutTemplatePdfName,
+            templatePdfUrl: checkoutTemplatePdfUrl,
+            templateDownloadedAt: new Date().toISOString(),
+        });
+    };
     const [selectedCustomerProfileId, setSelectedCustomerProfileId] = useState(String(state?.checkoutCustomer?.selectedCustomerProfileId || "new"));
     const [customerProfileLabel, setCustomerProfileLabel] = useState("");
     const [customerEmail, setCustomerEmail] = useState(String(state?.checkoutCustomer?.customerEmail || ""));
@@ -636,7 +776,7 @@ const FileUploadConfiguration = () => {
     const [linkedTemplatePreview, setLinkedTemplatePreview] = useState<LinkedTemplatePreview | null>(null);
     const [pdfContourScan, setPdfContourScan] = useState<PdfContourScanResult | null>(null);
     const [proofingOpen, setProofingOpen] = useState(false);
-    const [proofingApproved, setProofingApproved] = useState(false);
+    const [proofingApproved, setProofingApproved] = useState(Boolean(persistedDesignerExport?.fileUrl));
     const [proofingScale, setProofingScale] = useState(100);
     const [proofingOffset, setProofingOffset] = useState({ x: 0, y: 0 });
     const [proofingDragging, setProofingDragging] = useState(false);
@@ -1246,6 +1386,27 @@ const FileUploadConfiguration = () => {
                 : senderMode === "custom"
                     ? (senderName.trim() || customerCompany.trim() || resolvedCustomerName)
                     : "Standard WebPrinter-afsender";
+            const latestCheckoutSession = readSiteCheckoutSession();
+            const productionFlow = latestCheckoutSession?.designerExport?.fileUrl
+                ? "Designer online"
+                : uploadedFile
+                    ? "Uploadet fil"
+                    : latestCheckoutSession?.templateDownloadedAt
+                        ? "Downloadet skabelon til eget design"
+                        : "Ingen produktionsfil ved ordreoprettelse";
+            const templatePdfName = latestCheckoutSession?.templatePdfName || null;
+            const templatePdfUrl = latestCheckoutSession?.templatePdfUrl || null;
+            const templateSummary = templatePdfName || templatePdfUrl
+                ? [
+                    templatePdfName || "Produktskabelon",
+                    templatePdfUrl ? `(${templatePdfUrl})` : null,
+                  ].filter(Boolean).join(" ")
+                : null;
+            const productFlowSummary = [
+                latestCheckoutSession?.productFlowLabel ? `type=${latestCheckoutSession.productFlowLabel}` : null,
+                latestCheckoutSession?.designerMode ? `designer=${latestCheckoutSession.designerMode}` : null,
+                latestCheckoutSession?.pricingModel ? `pris=${latestCheckoutSession.pricingModel}` : null,
+            ].filter(Boolean).join(", ");
             const supplementalOrderNotes = [
                 customerPhone.trim() ? `[TELEFON] ${customerPhone.trim()}` : null,
                 customerCompany.trim() ? `[FIRMA] ${customerCompany.trim()}` : null,
@@ -1256,6 +1417,10 @@ const FileUploadConfiguration = () => {
                 selectedDeliveryLabel ? `[LEVERINGSMETODE] ${selectedDeliveryLabel}` : null,
                 senderMode === "blind" ? "[BLIND_SHIPPING] Ja" : null,
                 senderSummary ? `[AFSENDER] ${senderSummary}` : null,
+                productFlowSummary ? `[PRODUKTFLOW] ${productFlowSummary}` : null,
+                `[PRODUKTIONSFLOW] ${productionFlow}`,
+                templateSummary ? `[SKABELON] ${templateSummary}` : null,
+                latestCheckoutSession?.templateDownloadedAt ? `[SKABELON-DOWNLOAD] ${latestCheckoutSession.templateDownloadedAt}` : null,
             ].filter(Boolean).join("\n");
 
             let includeProductConfigurationColumn = !!productConfigurationText;
@@ -1329,7 +1494,6 @@ const FileUploadConfiguration = () => {
 
             setCreatedOrderNumber(insertedOrder.order_number);
 
-            const latestCheckoutSession = readSiteCheckoutSession();
             const finalOrderFile = latestCheckoutSession?.designerExport?.fileUrl
                 ? {
                     name: String(latestCheckoutSession.designerExport.name || "designer-production.pdf"),
@@ -1363,6 +1527,9 @@ const FileUploadConfiguration = () => {
                         notes: [
                             productConfigurationText ? `Konfiguration: ${productConfigurationText}` : null,
                             latestCheckoutSession?.designerExport?.fileUrl ? "Kilde: designer production export" : null,
+                            !latestCheckoutSession?.designerExport?.fileUrl && uploadedFile ? "Kilde: kundeupload" : null,
+                            productFlowSummary ? `Produktflow: ${productFlowSummary}` : null,
+                            templateSummary ? `Skabelon: ${templateSummary}` : null,
                         ].filter(Boolean).join(" | ") || null,
                     });
 
@@ -1596,6 +1763,7 @@ const FileUploadConfiguration = () => {
     // should surface CutContour status/warnings in the upload previews. Admin opts in
     // via `technical_specs.requires_cut_contour` in ProductPriceManager.
     const requiresCutContour = Boolean((product?.technical_specs as any)?.requires_cut_contour);
+    const checkoutFlowNotice = getCheckoutFlowNotice(activeDesignerMode, productFlowLabel, requiresCutContour);
     const podPreflightAutoFix = (product?.technical_specs as any)?.pod_preflight_auto_fix ?? true;
     // NOTE: We used to gate checkout on the server-side preflight result, but per
     // product direction we now keep that preflight silent (background autoFix only)
@@ -1607,6 +1775,35 @@ const FileUploadConfiguration = () => {
         () => getReadableFormatLabel(state?.selectedFormat || locationSearchParams.get("format"), specs),
         [state?.selectedFormat, locationSearchParams, specs]
     );
+    const availableTemplateFiles = useMemo<TemplateFile[]>(() => {
+        const byUrl = new Map<string, TemplateFile>();
+
+        if (checkoutTemplatePdfUrl) {
+            byUrl.set(checkoutTemplatePdfUrl, {
+                name: checkoutTemplatePdfName,
+                url: checkoutTemplatePdfUrl,
+                path: "",
+                format: resolvedFormatLabel || "Valgt format",
+                uploadedAt: state?.templateDownloadedAt || "",
+            });
+        }
+
+        const productTemplates = Array.isArray(product?.template_files)
+            ? product.template_files
+            : [];
+        productTemplates.forEach((template: TemplateFile) => {
+            if (!template?.url || byUrl.has(template.url)) return;
+            byUrl.set(template.url, template);
+        });
+
+        return Array.from(byUrl.values());
+    }, [
+        checkoutTemplatePdfName,
+        checkoutTemplatePdfUrl,
+        product?.template_files,
+        resolvedFormatLabel,
+        state?.templateDownloadedAt,
+    ]);
     const targetWidth = specs ? specs.width_mm + (specs.bleed_mm * 2) : 0;
     const targetHeight = specs ? specs.height_mm + (specs.bleed_mm * 2) : 0;
     const safeAreaMm = specs?.safe_area_mm ?? 2;
@@ -1684,6 +1881,11 @@ const FileUploadConfiguration = () => {
     // never surfaced to customers directly.
     const originalFilePrimaryIssue = preflightResults?.issues?.[0] || null;
     const proofingPlacementPrimaryIssue = proofingPlacementIssues[0] || null;
+    const activeDesignerProductionFile = Boolean(
+        uploadedFile?.url
+        && persistedDesignerExport?.fileUrl
+        && uploadedFile.url === persistedDesignerExport.fileUrl
+    );
     const proofingApprovalPending = Boolean(uploadedFile) && !proofingApproved;
     const proofingDpiWarning = Boolean(proofingEffectiveDpi && specs?.min_dpi && proofingEffectiveDpi < specs.min_dpi);
     const proofingPhysicalMismatch = false;
@@ -1692,7 +1894,11 @@ const FileUploadConfiguration = () => {
         || proofingPlacementPrimaryIssue
     );
     const quickApproveAvailable = Boolean(proofingApprovalPending && !proofingRequiresModalReview);
-    const proofingFileKindLabel = proofingPreview?.fileType === "image" ? "Rasterfil" : "PDF / vektor";
+    const proofingFileKindLabel = activeDesignerProductionFile
+        ? "Designer-PDF"
+        : proofingPreview?.fileType === "image"
+            ? "Rasterfil"
+            : "PDF / vektor";
     const proofingApprovalLabel = proofingApproved ? "Godkendt" : "Afventer godkendelse";
 
     useEffect(() => {
@@ -1870,7 +2076,7 @@ const FileUploadConfiguration = () => {
             try {
                 // Use specific columns to avoid any issues with missing columns in schema
                 let query = supabase.from("products")
-                    .select("id, slug, name, description, image_url, technical_specs, banner_config");
+                    .select("id, slug, name, description, image_url, technical_specs, banner_config, template_files");
 
                 if (state.productId) {
                     query = query.eq("id", state.productId);
@@ -2032,11 +2238,10 @@ const FileUploadConfiguration = () => {
     useEffect(() => {
         const productKey = state?.productId;
         if (!productKey) return;
-        const readyFlag = sessionStorage.getItem(`order-design:${productKey}`);
-        if (!readyFlag) return;
+        if (!isSiteCheckoutDesignReady(productKey, state)) return;
         setProofingApproved(true);
         setProofingOpen(false);
-    }, [state?.productId]);
+    }, [state]);
 
     useEffect(() => {
         const tenantId = shopSettings.data?.id;
@@ -2244,7 +2449,7 @@ const FileUploadConfiguration = () => {
         setPdfContourScan(null);
         resetProofingAdjustments();
         if (state?.productId) {
-            sessionStorage.removeItem(`order-design:${state.productId}`);
+            clearSiteCheckoutDesignReady(state.productId);
         }
 
         try {
@@ -2562,7 +2767,13 @@ const FileUploadConfiguration = () => {
 
         const params = new URLSearchParams(location.search);
         if (state?.productId) params.set("productId", String(state.productId));
+        if (state?.designerMode) params.set("designerMode", String(state.designerMode));
+        if (state?.pricingModel) params.set("pricingModel", String(state.pricingModel));
         if (state?.linkedTemplateId) params.set("templateId", String(state.linkedTemplateId));
+        if (checkoutTemplatePdfUrl) {
+            params.set("templatePdfUrl", checkoutTemplatePdfUrl);
+            params.set("templatePdfName", checkoutTemplatePdfName);
+        }
         if (resolvedFormatLabel && resolvedFormatLabel !== "Standard") {
             params.set("format", String(resolvedFormatLabel));
         } else if (specs) {
@@ -2581,11 +2792,14 @@ const FileUploadConfiguration = () => {
             branding={branding}
             tenantName={tenantName}
         >
-            <main className="flex-1 container mx-auto px-4 py-12">
+            <main
+                className="storefront-order-flow storefront-checkout-flow flex-1 container mx-auto px-4 py-12"
+                data-storefront-order-flow="checkout"
+            >
                 <div className="max-w-5xl mx-auto">
                     <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                         <h1 className="text-2xl font-heading font-semibold tracking-tight text-slate-900 md:text-[28px]">
-                            Konfigurer dit design
+                            {checkoutTitle}
                         </h1>
                         <div className="flex flex-wrap gap-3">
                             <Button
@@ -2615,7 +2829,36 @@ const FileUploadConfiguration = () => {
                                     <div className="pb-4 border-b border-black/5">
                                         <h4 className="font-bold text-lg">{displayProductName}</h4>
                                         <p className="text-sm text-muted-foreground">{state.summary}</p>
-                                        <div className="mt-2 space-y-1">
+                                            <div className="mt-2 space-y-1">
+                                            <div className="mb-3 flex flex-wrap items-center gap-2">
+                                                <Badge variant="secondary" className="rounded-sm">
+                                                    {productFlowLabel}
+                                                </Badge>
+                                            {productFlowHelpText ? (
+                                                <span className="text-xs text-muted-foreground">
+                                                    {productFlowHelpText}
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                        <div className={`mb-3 rounded-lg border px-3 py-3 text-sm ${checkoutFlowNoticeClasses[checkoutFlowNotice.tone]}`}>
+                                            <div className="flex items-start gap-2">
+                                                <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                                                <div className="space-y-2">
+                                                    <div>
+                                                        <p className="font-semibold">{checkoutFlowNotice.title}</p>
+                                                        <p className="text-xs opacity-80">{checkoutFlowNotice.body}</p>
+                                                    </div>
+                                                    <div className="grid gap-1 text-xs opacity-85 md:grid-cols-3">
+                                                        {checkoutFlowNotice.checklist.map((item) => (
+                                                            <span key={item} className="flex items-start gap-1.5">
+                                                                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                                                {item}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                             {Object.values(nonSizeOptionSelections).map((opt: CheckoutOptionSelection, idx: number) => (
                                                 <p key={idx} className="text-xs text-slate-500 flex items-center gap-1">
                                                     <span className="w-1.5 h-1.5 bg-primary/40 rounded-full" />
@@ -3258,8 +3501,8 @@ const FileUploadConfiguration = () => {
                                 <CardHeader className="bg-primary/5">
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <CardTitle>Fil Upload</CardTitle>
-                                            <CardDescription>Trykklar PDF</CardDescription>
+                                            <CardTitle>{checkoutUploadTitle}</CardTitle>
+                                            <CardDescription>{checkoutUploadHelpText}</CardDescription>
                                         </div>
                                         {uploading ? (
                                             <Loader2 className="h-8 w-8 animate-spin text-primary/70" />
@@ -3269,6 +3512,82 @@ const FileUploadConfiguration = () => {
                                     </div>
                                 </CardHeader>
                                 <CardContent className="pt-6 space-y-6">
+                                    <div className={`rounded-lg border px-4 py-3 text-sm ${checkoutFlowNoticeClasses[checkoutFlowNotice.tone]}`}>
+                                        <div className="flex items-start gap-3">
+                                            <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+                                            <div className="min-w-0 flex-1">
+                                                <p className="font-semibold">{checkoutFlowNotice.title}</p>
+                                                <p className="mt-1 text-xs leading-5 opacity-80">{checkoutFlowNotice.body}</p>
+                                            </div>
+                                            <div className="hidden shrink-0 flex-col gap-2 md:flex">
+                                                {checkoutTemplatePdfUrl && (
+                                                    <Button
+                                                        asChild
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-9 bg-white/80"
+                                                    >
+                                                        <a
+                                                            href={checkoutTemplatePdfUrl}
+                                                            download={checkoutTemplateDownloadName}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            onClick={markTemplateDownloaded}
+                                                        >
+                                                            <Download className="mr-2 h-4 w-4" />
+                                                            Download skabelon
+                                                        </a>
+                                                    </Button>
+                                                )}
+                                                {checkoutFlowNotice.showDesignerAction && (
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-9 bg-white/80"
+                                                        onClick={handleOpenFullDesigner}
+                                                    >
+                                                        {checkoutFlowNotice.designerActionLabel}
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="mt-3 grid gap-2 md:hidden">
+                                            {checkoutTemplatePdfUrl && (
+                                                <Button
+                                                    asChild
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-10 w-full bg-white/80"
+                                                >
+                                                    <a
+                                                        href={checkoutTemplatePdfUrl}
+                                                        download={checkoutTemplateDownloadName}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        onClick={markTemplateDownloaded}
+                                                    >
+                                                        <Download className="mr-2 h-4 w-4" />
+                                                        Download skabelon
+                                                    </a>
+                                                </Button>
+                                            )}
+                                            {checkoutFlowNotice.showDesignerAction && (
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-10 w-full bg-white/80"
+                                                    onClick={handleOpenFullDesigner}
+                                                >
+                                                    {checkoutFlowNotice.designerActionLabel}
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </div>
+
                                     {!uploadedFile ? (
                                         <div
                                             className={`cursor-pointer rounded-xl border-2 border-dashed px-6 py-8 text-center transition-all group shadow-sm ${
@@ -3292,7 +3611,7 @@ const FileUploadConfiguration = () => {
                                                     {uploadDropActive ? "Slip filen her" : "Klik eller træk fil hertil"}
                                                 </h3>
                                                 <p className="mx-auto max-w-xs text-xs text-muted-foreground">
-                                                    PDF, JPG eller TIFF. Maksimal filstørrelse 50MB. Vi anbefaler 300 DPI for bedste resultat.
+                                                    PDF, JPG eller TIFF. Maksimal filstørrelse 50MB. Brug PDF når produktet har foldelinjer, skabelon eller CutContour.
                                                 </p>
                                             </div>
                                             <input
@@ -3313,7 +3632,11 @@ const FileUploadConfiguration = () => {
                                                             {uploadedFile.name}
                                                         </p>
                                                         <p className="text-xs text-green-700">
-                                                            {proofingApproved ? "Godkendt til ordre" : "Klar til korrektur"}
+                                                            {activeDesignerProductionFile
+                                                                ? "Genereret i designeren og klar til ordre"
+                                                                : proofingApproved
+                                                                    ? "Godkendt til ordre"
+                                                                    : "Klar til korrektur"}
                                                         </p>
                                                     </div>
                                                 </div>
@@ -3321,7 +3644,7 @@ const FileUploadConfiguration = () => {
                                                     <span className="font-medium text-green-900">
                                                         {proofingApprovalLabel}
                                                     </span>
-                                                    {proofingPreview && (
+                                                    {(proofingPreview || activeDesignerProductionFile) && (
                                                         <span className="text-slate-600">
                                                             {proofingFileKindLabel}
                                                         </span>
@@ -3331,7 +3654,7 @@ const FileUploadConfiguration = () => {
                                                         size="sm"
                                                         onClick={() => {
                                                             if (state?.productId) {
-                                                                sessionStorage.removeItem(`order-design:${state.productId}`);
+                                                                clearSiteCheckoutDesignReady(state.productId);
                                                             }
                                                             const existingSession = readSiteCheckoutSession();
                                                             if (existingSession?.designerExport) {
@@ -3576,19 +3899,25 @@ const FileUploadConfiguration = () => {
                                             <div className="rounded-lg bg-muted/50 p-4 shadow-sm">
                                                 <h4 className="mb-2 text-sm font-semibold">Download skabeloner</h4>
                                                 <div className="space-y-2">
-                                                    {product?.template_files?.map((template: TemplateFile, idx: number) => (
+                                                    {availableTemplateFiles.map((template: TemplateFile, idx: number) => (
                                                         <a
                                                             key={idx}
                                                             href={template.url}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
+                                                            download={template.name?.toLowerCase().endsWith(".pdf") ? template.name : `${template.name || "produktskabelon"}.pdf`}
                                                             className="flex items-center gap-2 text-xs text-primary hover:underline"
+                                                            onClick={() => {
+                                                                if (template.url === checkoutTemplatePdfUrl) {
+                                                                    markTemplateDownloaded();
+                                                                }
+                                                            }}
                                                         >
                                                             <Download className="h-4 w-4" />
                                                             {template.name} ({template.format || 'Standard'})
                                                         </a>
                                                     ))}
-                                                    {(!product?.template_files || product.template_files.length === 0) && (
+                                                    {availableTemplateFiles.length === 0 && (
                                                         <p className="text-xs italic text-muted-foreground">Ingen skabeloner tilgængelige lige nu.</p>
                                                     )}
                                                 </div>
@@ -3880,7 +4209,7 @@ const FileUploadConfiguration = () => {
                                 </div>
                                 <div>
                                     <p className="text-xs text-slate-500">
-                                        Brug fuld designer for nøjagtig soft proof og finjustering. Denne korrektur viser størrelse, bleed og sikkerhedszone.
+                                        {checkoutUploadHelpText} Denne korrektur viser størrelse, bleed og sikkerhedszone.
                                     </p>
                                 </div>
                             </div>
@@ -3890,7 +4219,7 @@ const FileUploadConfiguration = () => {
                                     Godkend fil og fortsæt
                                 </Button>
                                 <Button type="button" variant="outline" onClick={handleOpenFullDesigner}>
-                                    Åbn fuld designer
+                                    {checkoutFlowNotice.designerActionLabel}
                                 </Button>
                                 <Button type="button" variant="outline" onClick={() => setProofingOpen(false)}>
                                     Luk korrektur

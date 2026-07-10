@@ -88,7 +88,12 @@ Current active direction:
   warning-only confirmation. Master-tenant release/send-to-tenant actions now
   reuse that price-health signal and warn before distributing a Matrix product
   with `0` price rows. It does not change pricing and only links to
-  existing admin areas.
+  existing admin areas. Product overview also has a read-only storefront
+  category-readiness strip that counts forside-knapper, hovedkategorier and
+  underkategorier, and flags empty categories, invalid front-card selections
+  and submenu categories without visible children. Storefront category cards
+  now fall back to the first usable product in the category when the selected
+  front-card product is missing or unpublished.
   `Pilot-gennemgang` is the practical read-only rehearsal list for the exact
   proof paths to witness before a print-house conversation: Webprinter
   product/price, designer or upload, order into admin, Salgsmapper
@@ -190,6 +195,85 @@ Current active direction:
   manual route with tenant-safe links for the internal browser rehearsal.
   `Bevisfangst for generalprøve` adds capture, acceptance and stop rules for
   each route step without creating a write path.
+  `Automatiseret browserbevis` is now part of `Bevisflow pr. tenant`. It points
+  to `npm run check:commercial-proof`, a combined read-only gate that checks
+  the commercial-readiness cockpit bindings and then runs Playwright against
+  Webprinter Aluminium, Banner Builder Pro site-package preview, Salgsmapper
+  category landing, Salgsmapper PDF/template/designer, Onlinetryksager category
+  landing, and Onlinetryksager Flyers proof flows on localhost. It must remain
+  a verification path only and
+  must not write products, prices, orders, SEO, POD or Supplier Bank data.
+  `npm run check:commercial-proof:write` runs the same gate and writes only the
+  local report `docs/COMMERCIAL_PROOF_LATEST.md`.
+  `npm run check:commercial-proof-report` verifies that report without
+  rerunning the browser smoke. `npm run check:commercial-release` is the local
+  pre-demo/pre-deploy gate that writes the report, verifies it, and runs the
+  Vite production build. It also writes `docs/COMMERCIAL_RELEASE_LATEST.md`.
+  `npm run check:commercial-release-report` verifies that release summary. The
+  summary includes a read-only `git status --short --branch` snapshot and
+  dirty-entry count, so local work-in-progress is visible in the proof trail.
+  `npm run check:commercial-changeset`, `npm run check:commercial-changeset:write`
+  and `npm run check:commercial-changeset-report` generate/verify
+  `docs/COMMERCIAL_CHANGESET_LATEST.md`, which groups the dirty paths into
+  review buckets with suggested review order and bucket-specific verification
+  commands before any push/deploy decision. It also lists the first commercial
+  proof-chain review packet with exact candidate files and hold reasons for the
+  other buckets, plus read-only staging, staged-file validation and rollback
+  command previews. `npm run check:commercial-application-source:write`
+  writes/verifies `docs/COMMERCIAL_APPLICATION_SOURCE_LATEST.md`, the second
+  runtime review packet. It groups app-source changes by pricing/product,
+  designer/PDF/template, tenant storefront/SEO/design, admin, checkout/account
+  and build/config risk, and `npm run check:commercial-application-source-report`
+  verifies that report without writing products, prices, orders, SEO, POD or
+  Supplier Bank data. `npm run check:commercial-supabase:write` writes/verifies
+  `docs/COMMERCIAL_SUPABASE_LATEST.md`, the Supabase review packet. It runs the
+  existing grant/function exposure checks, lists migrations, Edge Functions,
+  temp/config duplicates and local Supabase artifacts separately, and
+  `npm run check:commercial-supabase-report` verifies that report without
+  deploying or mutating database/function state. `npm run check:commercial-staged-packet`,
+  `npm run check:commercial-staged-packet:write` and
+  `npm run check:commercial-staged-packet-report` verify
+  `docs/COMMERCIAL_STAGED_PACKET_LATEST.md`, the git-index safety packet that
+  keeps forbidden local Supabase/debug artifacts, core pricing source, POD
+  source and local tooling out of a commit/push/deploy packet unless explicitly
+  approved. `npm run check:commercial-branch-freshness`,
+  `npm run check:commercial-branch-freshness:write` and
+  `npm run check:commercial-branch-freshness-report` verify
+  `docs/COMMERCIAL_BRANCH_FRESHNESS_LATEST.md`, the upstream safety packet that
+  lists upstream-only commits/files and staged-packet overlap without fetching,
+  pulling, merging, rebasing, committing, pushing or deploying. `npm run check:commercial-upstream-reconciliation`,
+  `npm run check:commercial-upstream-reconciliation:write` and
+  `npm run check:commercial-upstream-reconciliation-report` verify
+  `docs/COMMERCIAL_UPSTREAM_RECONCILIATION_LATEST.md`, the overlap interpretation
+  packet that classifies upstream/staged overlap as exact, represented,
+  superseded or unresolved while staying read-only. `npm run check:commercial-owner-merge-readiness`,
+  `npm run check:commercial-owner-merge-readiness:write` and
+  `npm run check:commercial-owner-merge-readiness-report` verify
+  `docs/COMMERCIAL_OWNER_MERGE_READINESS_LATEST.md`, the release-owner dry-run
+  packet that uses a temporary Git index to overlay the staged packet on the
+  upstream tree without pulling, rebasing, merging, staging, committing, pushing
+  or deploying. `npm run check:commercial-release-owner-sequence`,
+  `npm run check:commercial-release-owner-sequence:write` and
+  `npm run check:commercial-release-owner-sequence-report` verify
+  `docs/COMMERCIAL_RELEASE_OWNER_SEQUENCE_LATEST.md`, the ordered human
+  branch-freshness, commit, deploy and stop-rule handoff. `npm run check:commercial-deploy-readiness`,
+  `npm run check:commercial-deploy-readiness:write` and
+  `npm run check:commercial-deploy-readiness-report` verify
+  `docs/COMMERCIAL_DEPLOY_READINESS_LATEST.md`, the read-only push/deploy
+  decision report. That report may intentionally show `HOLD` when branch
+  freshness, unstaged leftovers, held local artifacts, Supabase deploy scope or
+  human release ownership still need a decision. `npm run check:commercial-release-handoff`,
+  `npm run check:commercial-release-handoff:write` and
+  `npm run check:commercial-release-handoff-report` verify
+  `docs/COMMERCIAL_RELEASE_HANDOFF_LATEST.md`, the release-owner handoff packet
+  with suggested commit text, owner decisions, Supabase deploy scope, rollback
+  note template and post-deploy tenant smoke routes. `npm run check:commercial-release-packet`,
+  `npm run check:commercial-release-packet:write` and
+  `npm run check:commercial-release-packet-report` verify
+  `docs/COMMERCIAL_RELEASE_PACKET_LATEST.md`, the read-only open-first index
+  over the whole commercial release packet. It remains read-only. The tenant proof runner retries once after the app's short
+  Supabase transport cooldown only when a route reports the known temporary
+  Supabase pause message.
   `Ekstern demo-grænse` is the read-only safety boundary for the first
   print-house conversation. It separates what may be shown externally, what is
   pilot-only, and what must stay internal, including Supplier Bank, SEO,

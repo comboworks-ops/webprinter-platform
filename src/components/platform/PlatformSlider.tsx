@@ -40,11 +40,11 @@ function SlideImage({ slide }: SlideImageProps) {
 }
 
 const DOCK_CONFIG = {
-    baseSize: 122,
-    imageSize: 112,
-    maxScale: 1.52,
-    effectRadius: 210,
-    spacing: 38,
+    baseSize: 108,
+    imageSize: 98,
+    maxScale: 1.42,
+    effectRadius: 190,
+    spacing: 32,
     loopSeconds: 34,
 };
 
@@ -170,7 +170,7 @@ export function PlatformSlider() {
 
     return (
         <div
-            className="relative mb-12 w-full overflow-hidden py-8"
+            className="relative mb-8 w-full overflow-hidden py-5 sm:mb-10 sm:py-6"
             style={{
                 ["--platform-slider-fade-left" as any]: "color-mix(in srgb, hsl(var(--primary)) 5%, hsl(var(--background)))",
                 ["--platform-slider-fade-right" as any]: "color-mix(in srgb, hsl(var(--secondary)) 10%, hsl(var(--background)))",

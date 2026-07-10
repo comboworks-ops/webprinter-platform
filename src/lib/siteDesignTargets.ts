@@ -57,7 +57,7 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
     if (!rawId || typeof rawId !== "string") return null;
 
     if (rawId === "header.logo") {
-        return { rawId, sectionId: "logo", label: "Logo" };
+        return { rawId, sectionId: "logo", label: "Logo", focusTargetId: "site-design-focus-logo" };
     }
 
     if (rawId === "header.menu.text") {

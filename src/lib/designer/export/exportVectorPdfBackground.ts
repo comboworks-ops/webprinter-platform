@@ -91,10 +91,12 @@ export function hasOverlayObjects(fabricCanvas: fabric.Canvas | null): boolean {
     for (const obj of objects) {
         const isBackground = (obj as any).__isDocumentBackground === true;
         const isGuide = (obj as any).__isGuide === true;
+        const isGuideLabel = (obj as any).__isGuideLabel === true;
+        const isPdfTemplate = (obj as any).__isPdfTemplate === true;
         const isPdfBackground = (obj as any).data?.kind === 'pdf_page_background';
         const isCutContour = (obj as any).__isCutContour === true;
 
-        if (!isBackground && !isGuide && !isPdfBackground && !isCutContour) {
+        if (!isBackground && !isGuide && !isGuideLabel && !isPdfTemplate && !isPdfBackground && !isCutContour) {
             return true;
         }
     }
@@ -471,10 +473,12 @@ async function renderOverlaysOnly(
         for (const obj of objects) {
             const isBackground = (obj as any).__isDocumentBackground === true;
             const isGuide = (obj as any).__isGuide === true;
+            const isGuideLabel = (obj as any).__isGuideLabel === true;
+            const isPdfTemplate = (obj as any).__isPdfTemplate === true;
             const isPdfBackground = (obj as any).data?.kind === 'pdf_page_background';
             const isCutContour = (obj as any).__isCutContour === true;
 
-            if (isBackground || isGuide || isPdfBackground || isCutContour) {
+            if (isBackground || isGuide || isGuideLabel || isPdfTemplate || isPdfBackground || isCutContour) {
                 hiddenObjects.push({
                     obj,
                     wasVisible: obj.visible !== false,

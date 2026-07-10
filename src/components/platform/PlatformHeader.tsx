@@ -14,6 +14,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Menu, X, LogOut, User, Shield, ChevronDown } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { platformNavLink } from "@/lib/platform/context";
 import {
@@ -38,10 +39,12 @@ const FUNKTIONER_PAGES = [
 
 const PlatformHeader = () => {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [mobileFeaturesOpen, setMobileFeaturesOpen] = useState(true);
     const [user, setUser] = useState<SupabaseUser | null>(null);
     const location = useLocation();
     const { toast } = useToast();
     const { isAdmin } = useUserRole();
+    const shouldReduceMotion = useReducedMotion();
     const headerRef = useRef<HTMLElement>(null);
 
     useEffect(() => {
@@ -73,6 +76,19 @@ const PlatformHeader = () => {
     };
 
     const isActive = (path: string) => location.pathname === path;
+
+    useEffect(() => {
+        setMobileMenuOpen(false);
+    }, [location.pathname, location.search]);
+
+    useEffect(() => {
+        if (!mobileMenuOpen) return;
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        return () => {
+            document.body.style.overflow = previousOverflow;
+        };
+    }, [mobileMenuOpen]);
 
     // DK Blue color used across the platform
     const DK_BLUE = "#0EA5E9";
@@ -169,7 +185,7 @@ const PlatformHeader = () => {
                                         <>
                                             <DropdownMenuSeparator />
                                             <DropdownMenuItem asChild>
-                                                <Link to="/admin" className="cursor-pointer">
+                                                <Link to={platformNavLink("/admin")} className="cursor-pointer">
                                                     <Shield className="mr-2 h-4 w-4" />
                                                     Admin
                                                 </Link>
@@ -205,62 +221,119 @@ const PlatformHeader = () => {
             </div>
 
             {/* Mobile Menu */}
-            {mobileMenuOpen && (
-                <div className="lg:hidden absolute top-full left-0 right-0 bg-white border-b shadow-lg">
-                    <nav className="container mx-auto px-4 py-4 flex flex-col gap-2">
-                        <Link
-                            to={platformNavLink("/platform")}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isActive('/platform') ? 'bg-primary/10 text-primary' : 'text-gray-700 hover:bg-gray-100'
-                                }`}
+            <AnimatePresence>
+                {mobileMenuOpen && (
+                    <>
+                        <motion.button
+                            type="button"
+                            aria-label="Luk menu"
+                            className="fixed inset-0 z-[49] bg-slate-950/20 backdrop-blur-[2px] lg:hidden"
+                            initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={shouldReduceMotion ? { opacity: 1 } : { opacity: 0 }}
+                            transition={{ duration: shouldReduceMotion ? 0 : 0.18 }}
                             onClick={() => setMobileMenuOpen(false)}
+                        />
+                        <motion.nav
+                            className="fixed left-3 right-3 top-20 z-[60] max-h-[calc(100dvh-5.75rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-2xl backdrop-blur-xl lg:hidden"
+                            initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: -8, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: -8, scale: 0.98 }}
+                            transition={{ duration: shouldReduceMotion ? 0 : 0.22, ease: [0.16, 1, 0.3, 1] }}
                         >
-                            Platform
-                        </Link>
+                            <div className="max-h-[inherit] overflow-y-auto overscroll-contain p-3">
+                                <div className="space-y-1 rounded-xl bg-slate-50 p-1">
+                                    <Link
+                                        to={platformNavLink("/platform")}
+                                        className={`flex min-h-12 items-center rounded-lg px-3 text-base font-medium transition-colors ${isActive('/platform') ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white hover:text-primary'
+                                            }`}
+                                        onClick={() => setMobileMenuOpen(false)}
+                                    >
+                                        Platform
+                                    </Link>
 
-                        {/* Funktioner items in mobile */}
-                        <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Funktioner</div>
-                        {FUNKTIONER_PAGES.map((page) => (
-                            <Link
-                                key={page.path}
-                                to={platformNavLink(page.path)}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isActive(page.path) ? 'bg-primary/10 text-primary' : 'text-gray-700 hover:bg-gray-100'
-                                    }`}
-                                onClick={() => setMobileMenuOpen(false)}
-                            >
-                                {page.label}
-                            </Link>
-                        ))}
+                                    <button
+                                        type="button"
+                                        className="flex min-h-12 w-full touch-manipulation items-center justify-between rounded-lg px-3 text-left text-base font-medium text-slate-800 transition-colors hover:bg-white hover:text-primary"
+                                        onClick={() => setMobileFeaturesOpen((open) => !open)}
+                                        aria-expanded={mobileFeaturesOpen}
+                                    >
+                                        <span>Funktioner</span>
+                                        <ChevronDown className={`h-4 w-4 transition-transform ${mobileFeaturesOpen ? "rotate-180" : ""}`} />
+                                    </button>
 
-                        <Link
-                            to={platformNavLink("/priser")}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isActive('/priser') ? 'bg-primary/10 text-primary' : 'text-gray-700 hover:bg-gray-100'
-                                }`}
-                            onClick={() => setMobileMenuOpen(false)}
-                        >
-                            Priser
-                        </Link>
+                                    <AnimatePresence initial={false}>
+                                        {mobileFeaturesOpen && (
+                                            <motion.div
+                                                initial={shouldReduceMotion ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
+                                                animate={{ height: "auto", opacity: 1 }}
+                                                exit={shouldReduceMotion ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
+                                                transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: [0.16, 1, 0.3, 1] }}
+                                                className="overflow-hidden"
+                                            >
+                                                <div className="grid gap-1 px-1 pb-1 sm:grid-cols-2">
+                                                    {FUNKTIONER_PAGES.map((page) => (
+                                                        <Link
+                                                            key={page.path}
+                                                            to={platformNavLink(page.path)}
+                                                            className={`flex min-h-11 touch-manipulation items-center rounded-lg px-3 text-sm font-medium transition-colors ${isActive(page.path) ? 'bg-primary/10 text-primary' : 'text-slate-600 hover:bg-white hover:text-primary'
+                                                                }`}
+                                                            onClick={() => setMobileMenuOpen(false)}
+                                                        >
+                                                            {page.label}
+                                                        </Link>
+                                                    ))}
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
 
-                        <Link
-                            to={platformNavLink("/kontakt")}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isActive('/kontakt') ? 'bg-primary/10 text-primary' : 'text-gray-700 hover:bg-gray-100'
-                                }`}
-                            onClick={() => setMobileMenuOpen(false)}
-                        >
-                            Kontakt
-                        </Link>
+                                    <Link
+                                        to={platformNavLink("/priser")}
+                                        className={`flex min-h-12 items-center rounded-lg px-3 text-base font-medium transition-colors ${isActive('/priser') ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white hover:text-primary'
+                                            }`}
+                                        onClick={() => setMobileMenuOpen(false)}
+                                    >
+                                        Priser
+                                    </Link>
 
-                        <div className="border-t my-2" />
-                        <Link to={platformNavLink("/opret-shop")} onClick={() => setMobileMenuOpen(false)}>
-                            <Button className="w-full">Start gratis</Button>
-                        </Link>
-                        {!user && (
-                            <Link to="/admin/login" onClick={() => setMobileMenuOpen(false)}>
-                                <Button className="w-full border-transparent bg-slate-900 text-white shadow-none hover:bg-slate-800 hover:text-white">Log ind</Button>
-                            </Link>
-                        )}
-                    </nav>
-                </div>
-            )}
+                                    <Link
+                                        to={platformNavLink("/kontakt")}
+                                        className={`flex min-h-12 items-center rounded-lg px-3 text-base font-medium transition-colors ${isActive('/kontakt') ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white hover:text-primary'
+                                            }`}
+                                        onClick={() => setMobileMenuOpen(false)}
+                                    >
+                                        Kontakt
+                                    </Link>
+                                </div>
+
+                                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                    <Link to={platformNavLink("/opret-shop")} onClick={() => setMobileMenuOpen(false)}>
+                                        <Button className="min-h-12 w-full">Start gratis</Button>
+                                    </Link>
+                                    {!user ? (
+                                        <Link to="/admin/login" onClick={() => setMobileMenuOpen(false)}>
+                                            <Button className="min-h-12 w-full border-transparent bg-slate-900 text-white shadow-none hover:bg-slate-800 hover:text-white">Log ind</Button>
+                                        </Link>
+                                    ) : (
+                                        <Button
+                                            variant="outline"
+                                            className="min-h-12 w-full"
+                                            onClick={() => {
+                                                handleLogout();
+                                                setMobileMenuOpen(false);
+                                            }}
+                                        >
+                                            <LogOut className="mr-2 h-4 w-4" />
+                                            Log ud
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        </motion.nav>
+                    </>
+                )}
+            </AnimatePresence>
         </header>
     );
 };

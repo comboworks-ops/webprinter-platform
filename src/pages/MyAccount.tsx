@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, User, Package, MapPin, LayoutDashboard, Clock, Truck, CheckCircle, AlertCircle, ArrowRight, Plus, Settings, MessageCircle, CheckCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { AccountLoadingShell } from '@/components/account/AccountLoadingShell';
 
 interface Order {
     id: string;
@@ -181,15 +182,7 @@ export default function MyAccount() {
     };
 
     if (loading) {
-        return (
-            <div className="min-h-screen flex flex-col">
-                <Header />
-                <div className="flex-1 flex items-center justify-center">
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                </div>
-                <Footer />
-            </div>
-        );
+        return <AccountLoadingShell />;
     }
 
     const defaultAddress = addresses.find(a => a.is_default);
@@ -198,22 +191,22 @@ export default function MyAccount() {
         <div className="min-h-screen flex flex-col">
             <Header />
 
-            <main className="flex-1 bg-background">
-                <div className="container mx-auto px-4 py-8">
+            <main className="flex-1 bg-slate-50/70">
+                <div className="container mx-auto max-w-7xl px-4 py-6 sm:py-8">
                     {/* Page Header */}
-                    <div className="mb-8">
-                        <h1 className="text-3xl font-bold">
+                    <div className="mb-6 rounded-2xl border bg-white px-5 py-5 shadow-sm sm:mb-8 sm:px-6">
+                        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
                             Velkommen{profile?.first_name ? `, ${profile.first_name}` : ''}!
                         </h1>
-                        <p className="text-muted-foreground mt-1">
+                        <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
                             Her kan du se dine ordrer, administrere dine adresser og opdatere dine oplysninger.
                         </p>
                     </div>
 
-                    <div className="flex flex-col lg:flex-row gap-8">
+                    <div className="flex flex-col gap-6 lg:flex-row">
                         {/* Sidebar */}
-                        <aside className="lg:w-64 flex-shrink-0">
-                            <nav className="space-y-1 sticky top-24">
+                        <aside className="flex-shrink-0 lg:w-72">
+                            <nav className="grid grid-cols-1 gap-1 rounded-2xl border bg-white/95 p-2 shadow-sm backdrop-blur sm:grid-cols-2 lg:sticky lg:top-24 lg:grid-cols-1">
                                 {sidebarItems.map((item) => {
                                     const Icon = item.icon;
                                     const isActive = item.end
@@ -224,11 +217,12 @@ export default function MyAccount() {
                                         <Link
                                             key={item.path}
                                             to={item.path}
+                                            aria-current={isActive ? 'page' : undefined}
                                             className={cn(
-                                                "flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium",
+                                                "flex min-h-12 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200",
                                                 isActive
-                                                    ? "bg-primary text-primary-foreground"
-                                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                                    ? "bg-primary !text-white shadow-sm ring-1 ring-primary/20 hover:!text-white [&_svg]:!text-white"
+                                                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                                             )}
                                         >
                                             <Icon className="h-5 w-5" />
@@ -285,9 +279,9 @@ export default function MyAccount() {
                             </div>
 
                             {/* Recent Orders */}
-                            <Card>
+                            <Card className="shadow-sm">
                                 <CardHeader>
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                         <div>
                                             <CardTitle className="flex items-center gap-2">
                                                 <Package className="h-5 w-5" />
@@ -375,9 +369,9 @@ export default function MyAccount() {
                             </Card>
 
                             {/* Addresses Section */}
-                            <Card>
+                            <Card className="shadow-sm">
                                 <CardHeader>
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                         <div>
                                             <CardTitle className="flex items-center gap-2">
                                                 <MapPin className="h-5 w-5" />
@@ -440,9 +434,9 @@ export default function MyAccount() {
                             </Card>
 
                             {/* Quick Profile Info */}
-                            <Card>
+                            <Card className="shadow-sm">
                                 <CardHeader>
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                         <div>
                                             <CardTitle className="flex items-center gap-2">
                                                 <User className="h-5 w-5" />

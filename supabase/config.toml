@@ -88,10 +88,10 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.pricing-read]
-verify_jwt = true
+verify_jwt = false
 
 [functions.product-detail-read]
-verify_jwt = true
+verify_jwt = false
 
 [functions.search-console]
 verify_jwt = true

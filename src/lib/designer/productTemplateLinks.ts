@@ -1,9 +1,20 @@
 export type ProductTemplateFile = {
   name: string;
   url: string;
+  pdfUrl?: string | null;
+  fileUrl?: string | null;
+  downloadUrl?: string | null;
   format?: string | null;
   designerUrl?: string | null;
   designerLabel?: string | null;
+  widthMm?: number | null;
+  heightMm?: number | null;
+  bleedMm?: number | null;
+  safeMm?: number | null;
+  width_mm?: number | null;
+  height_mm?: number | null;
+  bleed_mm?: number | null;
+  safe_area_mm?: number | null;
   uploadedAt?: string | null;
 };
 
@@ -78,6 +89,40 @@ const readNumberParam = (params: URLSearchParams, key: string) => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
+const readPositiveTemplateNumber = (...values: Array<number | string | null | undefined>) => {
+  for (const value of values) {
+    const parsed = typeof value === "number" ? value : Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+
+  return undefined;
+};
+
+const readNonNegativeTemplateNumber = (...values: Array<number | string | null | undefined>) => {
+  for (const value of values) {
+    const parsed = typeof value === "number" ? value : Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+
+  return undefined;
+};
+
+const readTemplatePdfUrl = (template: ProductTemplateFile) => {
+  return String(template.pdfUrl || template.url || template.fileUrl || template.downloadUrl || "").trim();
+};
+
+const looksLikePdfTemplate = (value: string) => {
+  if (!value) return false;
+
+  try {
+    const url = new URL(value, "http://local.template");
+    const pathname = url.pathname.toLowerCase();
+    return pathname.endsWith(".pdf") || url.searchParams.get("templatePdfUrl")?.toLowerCase().includes(".pdf") === true;
+  } catch {
+    return value.toLowerCase().split("?")[0].endsWith(".pdf");
+  }
+};
+
 export const templateFileToDesignerLaunch = (template: ProductTemplateFile): DesignerTemplateLaunch | null => {
   const designerUrl = String(template.designerUrl || "");
   if (designerUrl) {
@@ -111,7 +156,17 @@ export const templateFileToDesignerLaunch = (template: ProductTemplateFile): Des
     };
   }
 
-  return null;
+  const pdfUrl = readTemplatePdfUrl(template);
+  if (!looksLikePdfTemplate(pdfUrl)) return null;
+
+  return {
+    name: template.name || pdfUrl.split("/").pop() || "Produktskabelon",
+    pdfUrl,
+    widthMm: readPositiveTemplateNumber(template.widthMm, template.width_mm),
+    heightMm: readPositiveTemplateNumber(template.heightMm, template.height_mm),
+    bleedMm: readNonNegativeTemplateNumber(template.bleedMm, template.bleed_mm),
+    safeMm: readNonNegativeTemplateNumber(template.safeMm, template.safe_area_mm),
+  };
 };
 
 export const resolveSelectedDesignerTemplateLaunch = ({

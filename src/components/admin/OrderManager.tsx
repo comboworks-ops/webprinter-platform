@@ -55,9 +55,11 @@ const readOrderTag = (note: string | null | undefined, tag: string): string | nu
 
 interface OrderFile {
     id: string;
+    order_id?: string | null;
     file_name: string;
     file_url: string;
     file_type: string | null;
+    notes?: string | null;
     uploaded_at: string;
     is_current: boolean;
 }
@@ -72,13 +74,26 @@ const statusConfig: Record<string, { label: string; color: string; icon: any }> 
     problem: { label: 'Problem', color: 'bg-red-100 text-red-800', icon: AlertCircle },
 };
 
+type ProductionFlowKind = 'designer' | 'upload' | 'template' | 'missing' | 'untracked' | 'other';
+type ProductionFlowFilter = 'all' | ProductionFlowKind;
+type ProductionReadinessKind = 'problem' | 'reupload' | 'in-production' | 'closed' | 'file-ready' | 'awaiting-file' | 'missing-file' | 'untracked';
+type ProductionReadinessFilter = 'all' | ProductionReadinessKind;
+type OrderFileSummary = {
+    totalCount: number;
+    currentCount: number;
+    currentNotes: string[];
+};
+
 export function OrderManager() {
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [orderFiles, setOrderFiles] = useState<OrderFile[]>([]);
+    const [orderFileSummaryByOrderId, setOrderFileSummaryByOrderId] = useState<Record<string, OrderFileSummary>>({});
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
+    const [flowFilter, setFlowFilter] = useState<ProductionFlowFilter>('all');
+    const [readinessFilter, setReadinessFilter] = useState<ProductionReadinessFilter>('all');
     const [saving, setSaving] = useState(false);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [companyProfile, setCompanyProfile] = useState<{
@@ -150,12 +165,55 @@ export function OrderManager() {
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
-            setOrders(data || []);
+            const fetchedOrders = data || [];
+            setOrders(fetchedOrders);
+            await fetchOrderFileSummary(fetchedOrders.map((order: any) => order.id).filter(Boolean));
         } catch (error) {
             console.error('Error fetching orders:', error);
+            setOrderFileSummaryByOrderId({});
             toast.error('Kunne ikke hente ordrer');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchOrderFileSummary = async (orderIds: string[]) => {
+        if (orderIds.length === 0) {
+            setOrderFileSummaryByOrderId({});
+            return;
+        }
+
+        try {
+            const { data, error } = await supabase
+                .from('order_files' as any)
+                .select('order_id, is_current, notes')
+                .in('order_id', orderIds);
+
+            if (error) throw error;
+
+            const summary = (data || []).reduce<Record<string, OrderFileSummary>>((acc, file: any) => {
+                const orderId = String(file.order_id || '');
+                if (!orderId) return acc;
+
+                if (!acc[orderId]) {
+                    acc[orderId] = { totalCount: 0, currentCount: 0, currentNotes: [] };
+                }
+
+                acc[orderId].totalCount += 1;
+                if (file.is_current) {
+                    acc[orderId].currentCount += 1;
+                    if (file.notes) {
+                        acc[orderId].currentNotes.push(String(file.notes));
+                    }
+                }
+
+                return acc;
+            }, {});
+
+            setOrderFileSummaryByOrderId(summary);
+        } catch (error) {
+            console.error('Error fetching order file summary:', error);
+            setOrderFileSummaryByOrderId({});
         }
     };
 
@@ -302,16 +360,193 @@ export function OrderManager() {
         }
     };
 
+    const getOrderProductionFlow = (order: Order) => {
+        return readOrderTag(order.status_note, 'PRODUKTIONSFLOW');
+    };
+
+    const getOrderProductionFlowKind = (order: Order): ProductionFlowKind => {
+        const productionFlow = getOrderProductionFlow(order);
+        const normalized = String(productionFlow || '').toLowerCase();
+
+        if (!productionFlow) {
+            return 'untracked';
+        }
+        if (normalized.includes('designer')) {
+            return 'designer';
+        }
+        if (normalized.includes('upload')) {
+            return 'upload';
+        }
+        if (normalized.includes('skabelon') || normalized.includes('template')) {
+            return 'template';
+        }
+        if (normalized.includes('ingen')) {
+            return 'missing';
+        }
+
+        return 'other';
+    };
+
+    const getOrderProductionFlowMeta = (order: Order) => {
+        const productionFlow = getOrderProductionFlow(order);
+        const kind = getOrderProductionFlowKind(order);
+
+        if (kind === 'designer') {
+            return { label: 'Designer', color: 'bg-indigo-100 text-indigo-800' };
+        }
+        if (kind === 'upload') {
+            return { label: 'Upload', color: 'bg-emerald-100 text-emerald-800' };
+        }
+        if (kind === 'template') {
+            return { label: 'Skabelon', color: 'bg-amber-100 text-amber-800' };
+        }
+        if (kind === 'missing') {
+            return { label: 'Ingen fil', color: 'bg-red-100 text-red-800' };
+        }
+        if (kind === 'untracked') {
+            return { label: 'Ikke sporet', color: 'bg-slate-100 text-slate-600' };
+        }
+
+        return {
+            label: productionFlow || 'Andet',
+            color: 'bg-slate-100 text-slate-800',
+        };
+    };
+
+    const getOrderFileSummary = (orderId: string): OrderFileSummary => {
+        return orderFileSummaryByOrderId[orderId] || { totalCount: 0, currentCount: 0, currentNotes: [] };
+    };
+
+    const getOrderProductionReadinessKind = (order: Order): ProductionReadinessKind => {
+        const fileSummary = getOrderFileSummary(order.id);
+        const flowKind = getOrderProductionFlowKind(order);
+
+        if (order.has_problem || order.status === 'problem') {
+            return 'problem';
+        }
+        if (order.requires_file_reupload) {
+            return 'reupload';
+        }
+        if (order.status === 'shipped' || order.status === 'delivered' || order.status === 'cancelled') {
+            return 'closed';
+        }
+        if (order.status === 'production') {
+            return 'in-production';
+        }
+        if (fileSummary.currentCount > 0) {
+            return 'file-ready';
+        }
+        if (flowKind === 'template') {
+            return 'awaiting-file';
+        }
+        if (flowKind === 'missing') {
+            return 'missing-file';
+        }
+
+        return 'untracked';
+    };
+
+    const getOrderProductionReadinessMeta = (order: Order) => {
+        const kind = getOrderProductionReadinessKind(order);
+
+        if (kind === 'problem') {
+            return { label: 'Problem', color: 'bg-red-100 text-red-800' };
+        }
+        if (kind === 'reupload') {
+            return { label: 'Ny fil kræves', color: 'bg-orange-100 text-orange-800' };
+        }
+        if (kind === 'in-production') {
+            return { label: 'I produktion', color: 'bg-purple-100 text-purple-800' };
+        }
+        if (kind === 'closed') {
+            return { label: 'Afsluttet', color: 'bg-slate-100 text-slate-700' };
+        }
+        if (kind === 'file-ready') {
+            return { label: 'Fil klar', color: 'bg-green-100 text-green-800' };
+        }
+        if (kind === 'awaiting-file') {
+            return { label: 'Afventer kundens fil', color: 'bg-amber-100 text-amber-800' };
+        }
+        if (kind === 'missing-file') {
+            return { label: 'Mangler fil', color: 'bg-red-100 text-red-800' };
+        }
+
+        return { label: 'Mangler kontrol', color: 'bg-slate-100 text-slate-600' };
+    };
+
+    const getOrderProductionNextAction = (order: Order) => {
+        const kind = getOrderProductionReadinessKind(order);
+
+        if (kind === 'problem') {
+            return 'Læs problembeskrivelsen, afklar fil eller ordredata, og behold ordren uden for produktion indtil problemet er lukket.';
+        }
+        if (kind === 'reupload') {
+            return 'Afvent kundens nye fil. Når en ny aktuel fil er modtaget, fjernes genupload-kravet og filen kontrolleres.';
+        }
+        if (kind === 'in-production') {
+            return 'Følg produktion, leveringsdato og tracking. Filgrundlaget er ikke næste flaskehals.';
+        }
+        if (kind === 'closed') {
+            return 'Ordren er afsluttet eller annulleret. Brug den kun som historik eller salgsbevis.';
+        }
+        if (kind === 'file-ready') {
+            return 'Kontroller den aktuelle produktionsfil og flyt ordren videre til behandling eller produktion, hvis alt er godkendt.';
+        }
+        if (kind === 'awaiting-file') {
+            return 'Kunden har valgt skabelon/eget design. Afvent filupload eller kontakt kunden, før ordren sendes videre.';
+        }
+        if (kind === 'missing-file') {
+            return 'Der er ingen produktionsfil på ordren. Kontakt kunden eller bed om upload, før ordren behandles.';
+        }
+
+        return 'Kontroller ordre, prisvalg og filgrundlag manuelt, før den flyttes videre i produktion.';
+    };
+
+    const getProductionStatusWarning = (order: Order): string | null => {
+        const kind = getOrderProductionReadinessKind(order);
+
+        if (kind === 'file-ready' || kind === 'in-production') {
+            return null;
+        }
+        if (kind === 'problem') {
+            return 'Ordren er markeret som problem. Løs problemet før den sættes under produktion.';
+        }
+        if (kind === 'reupload') {
+            return 'Kunden skal uploade en ny fil. Sæt først ordren under produktion når en ny aktuel fil er modtaget og kontrolleret.';
+        }
+        if (kind === 'awaiting-file') {
+            return 'Kunden har valgt skabelon/eget design, men der er endnu ingen aktuel produktionsfil på ordren.';
+        }
+        if (kind === 'missing-file') {
+            return 'Der mangler en produktionsfil. Kontroller eller indhent fil før produktion.';
+        }
+        if (kind === 'closed') {
+            return 'Ordren er afsluttet eller annulleret. Kontroller hvorfor den skal genåbnes før produktion.';
+        }
+
+        return 'Ordren mangler manuel kontrol af filgrundlag, før den sættes under produktion.';
+    };
+
     const filteredOrders = orders.filter(order => {
+        const productionFlow = getOrderProductionFlow(order);
+        const productionFlowMeta = getOrderProductionFlowMeta(order);
+        const productionFlowKind = getOrderProductionFlowKind(order);
+        const readinessMeta = getOrderProductionReadinessMeta(order);
+        const readinessKind = getOrderProductionReadinessKind(order);
         const matchesSearch =
             order.order_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
             order.customer_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
             (order.customer_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-            order.product_name.toLowerCase().includes(searchTerm.toLowerCase());
+            order.product_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            productionFlowMeta.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            readinessMeta.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (productionFlow?.toLowerCase() || '').includes(searchTerm.toLowerCase());
 
         const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+        const matchesFlow = flowFilter === 'all' || productionFlowKind === flowFilter;
+        const matchesReadiness = readinessFilter === 'all' || readinessKind === readinessFilter;
 
-        return matchesSearch && matchesStatus;
+        return matchesSearch && matchesStatus && matchesFlow && matchesReadiness;
     });
 
     const formatDate = (dateString: string) => {
@@ -367,7 +602,7 @@ export function OrderManager() {
             </div>
 
             {/* Stats cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <Card>
                     <CardContent className="pt-6">
                         <div className="text-2xl font-bold">{orders.length}</div>
@@ -388,6 +623,14 @@ export function OrderManager() {
                             {orders.filter(o => o.status === 'production').length}
                         </div>
                         <p className="text-xs text-muted-foreground">I produktion</p>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardContent className="pt-6">
+                        <div className="text-2xl font-bold text-green-600">
+                            {orders.filter(o => getOrderProductionReadinessKind(o) === 'file-ready').length}
+                        </div>
+                        <p className="text-xs text-muted-foreground">Fil klar</p>
                     </CardContent>
                 </Card>
                 <Card>
@@ -430,6 +673,36 @@ export function OrderManager() {
                                 <SelectItem value="cancelled">Annulleret</SelectItem>
                             </SelectContent>
                         </Select>
+                        <Select value={flowFilter} onValueChange={(value) => setFlowFilter(value as ProductionFlowFilter)}>
+                            <SelectTrigger className="w-[180px]">
+                                <SelectValue placeholder="Filter flow" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">Alle flow</SelectItem>
+                                <SelectItem value="designer">Designer</SelectItem>
+                                <SelectItem value="upload">Upload</SelectItem>
+                                <SelectItem value="template">Skabelon</SelectItem>
+                                <SelectItem value="missing">Ingen fil</SelectItem>
+                                <SelectItem value="untracked">Ikke sporet</SelectItem>
+                                <SelectItem value="other">Andet</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Select value={readinessFilter} onValueChange={(value) => setReadinessFilter(value as ProductionReadinessFilter)}>
+                            <SelectTrigger className="w-[210px]">
+                                <SelectValue placeholder="Filter klarhed" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">Alle klarheder</SelectItem>
+                                <SelectItem value="file-ready">Fil klar</SelectItem>
+                                <SelectItem value="awaiting-file">Afventer kundens fil</SelectItem>
+                                <SelectItem value="missing-file">Mangler fil</SelectItem>
+                                <SelectItem value="reupload">Ny fil kræves</SelectItem>
+                                <SelectItem value="problem">Problem</SelectItem>
+                                <SelectItem value="in-production">I produktion</SelectItem>
+                                <SelectItem value="closed">Afsluttet</SelectItem>
+                                <SelectItem value="untracked">Mangler kontrol</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
                 </CardContent>
             </Card>
@@ -446,6 +719,8 @@ export function OrderManager() {
                                 <TableHead>Ordre #</TableHead>
                                 <TableHead>Kunde</TableHead>
                                 <TableHead>Produkt</TableHead>
+                                <TableHead>Flow</TableHead>
+                                <TableHead>Klarhed</TableHead>
                                 <TableHead>Beløb</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead>Dato</TableHead>
@@ -455,6 +730,8 @@ export function OrderManager() {
                         <TableBody>
                             {filteredOrders.map((order) => {
                                 const status = statusConfig[order.status] || statusConfig.pending;
+                                const productionFlow = getOrderProductionFlowMeta(order);
+                                const productionReadiness = getOrderProductionReadinessMeta(order);
                                 return (
                                     <TableRow key={order.id} className={order.has_problem ? 'bg-red-50' : ''}>
                                         <TableCell className="font-medium">
@@ -470,6 +747,16 @@ export function OrderManager() {
                                         <TableCell>
                                             <div>{order.product_name}</div>
                                             <div className="text-xs text-muted-foreground">x{order.quantity}</div>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Badge className={`${productionFlow.color} whitespace-nowrap`}>
+                                                {productionFlow.label}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Badge className={`${productionReadiness.color} whitespace-nowrap`}>
+                                                {productionReadiness.label}
+                                            </Badge>
                                         </TableCell>
                                         <TableCell>{formatPrice(order.total_price)}</TableCell>
                                         <TableCell>
@@ -488,7 +775,7 @@ export function OrderManager() {
                             })}
                             {filteredOrders.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                                    <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                                         Ingen ordrer fundet
                                     </TableCell>
                                 </TableRow>
@@ -593,12 +880,76 @@ export function OrderManager() {
                                                 {getOrderConfigurationText(selectedOrder)}
                                             </p>
                                         )}
+                                        {(() => {
+                                            const note = selectedOrder.status_note;
+                                            const productionFlow = readOrderTag(note, 'PRODUKTIONSFLOW');
+                                            const template = readOrderTag(note, 'SKABELON');
+                                            const templateDownload = readOrderTag(note, 'SKABELON-DOWNLOAD');
+
+                                            if (!productionFlow && !template && !templateDownload) return null;
+
+                                            return (
+                                                <div className="mt-3 space-y-1 rounded-md border border-slate-200 bg-white/70 p-3 text-xs text-slate-700">
+                                                    {productionFlow && (
+                                                        <p>
+                                                            <span className="font-semibold">Produktionsflow:</span> {productionFlow}
+                                                        </p>
+                                                    )}
+                                                    {template && (
+                                                        <p>
+                                                            <span className="font-semibold">Skabelon:</span> {template}
+                                                        </p>
+                                                    )}
+                                                    {templateDownload && (
+                                                        <p>
+                                                            <span className="font-semibold">Skabelon hentet:</span> {templateDownload}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                     <div>
                                         <Label className="text-muted-foreground">Beløb</Label>
                                         <p className="text-xl font-bold">{formatPrice(selectedOrder.total_price)}</p>
                                     </div>
                                 </div>
+
+                                {(() => {
+                                    const flow = getOrderProductionFlowMeta(selectedOrder);
+                                    const readiness = getOrderProductionReadinessMeta(selectedOrder);
+                                    const fileSummary = getOrderFileSummary(selectedOrder.id);
+                                    const currentDetailFiles = orderFiles.filter((file) => file.is_current).length;
+                                    const currentFileCount = Math.max(fileSummary.currentCount, currentDetailFiles);
+
+                                    return (
+                                        <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <Label className="text-muted-foreground mr-1">Produktionsklarhed</Label>
+                                                <Badge className={`${flow.color} whitespace-nowrap`}>
+                                                    {flow.label}
+                                                </Badge>
+                                                <Badge className={`${readiness.color} whitespace-nowrap`}>
+                                                    {readiness.label}
+                                                </Badge>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3 text-sm">
+                                                <div>
+                                                    <p className="text-xs text-muted-foreground">Aktuelle filer</p>
+                                                    <p className="font-medium">{currentFileCount}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs text-muted-foreground">Alle filer</p>
+                                                    <p className="font-medium">{Math.max(fileSummary.totalCount, orderFiles.length)}</p>
+                                                </div>
+                                            </div>
+                                            <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-700">
+                                                <span className="font-medium">Næste handling:</span>{' '}
+                                                {getOrderProductionNextAction(selectedOrder)}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
 
                                 {/* Status editing */}
                                 <div className="space-y-4">
@@ -629,6 +980,21 @@ export function OrderManager() {
                                             />
                                         </div>
                                     </div>
+
+                                    {editStatus === 'production' && (() => {
+                                        const warning = getProductionStatusWarning(selectedOrder);
+                                        if (!warning) return null;
+
+                                        return (
+                                            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                                                <div>
+                                                    <p className="font-medium">Kontroller produktionsklarhed</p>
+                                                    <p>{warning}</p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
@@ -712,7 +1078,12 @@ export function OrderManager() {
                                                 >
                                                     <div className="flex items-center gap-2">
                                                         <FileText className="h-4 w-4" />
-                                                        <span className="text-sm">{file.file_name}</span>
+                                                        <div>
+                                                            <span className="text-sm">{file.file_name}</span>
+                                                            {file.notes && (
+                                                                <p className="text-xs text-muted-foreground">{file.notes}</p>
+                                                            )}
+                                                        </div>
                                                         {file.is_current && (
                                                             <Badge variant="secondary" className="text-xs">Aktuel</Badge>
                                                         )}

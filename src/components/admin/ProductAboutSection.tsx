@@ -17,6 +17,8 @@ interface TemplateFile {
   url: string;
   path: string;
   format?: string;
+  designerUrl?: string | null;
+  designerLabel?: string | null;
   uploadedAt: string;
 }
 
@@ -337,6 +339,8 @@ export function ProductAboutSection({
         url: t.url,
         path: t.path,
         format: t.format || null,
+        designerUrl: t.designerUrl || null,
+        designerLabel: t.designerLabel || null,
         uploadedAt: t.uploadedAt
       }));
 
@@ -842,6 +846,11 @@ export function ProductAboutSection({
                         <Button variant="outline" size="sm" onClick={() => window.open(template.url, '_blank')}>
                           <Download className="h-4 w-4" />
                         </Button>
+                        {template.designerUrl && (
+                          <Button variant="outline" size="sm" onClick={() => window.open(String(template.designerUrl), '_blank')}>
+                            Design
+                          </Button>
+                        )}
                         <Button variant="destructive" size="sm" onClick={() => handleRemoveTemplate(index)}>
                           <X className="h-4 w-4" />
                         </Button>

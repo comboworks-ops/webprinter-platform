@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ImgHTMLAttributes } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,14 @@ import type { Banner2Animation, Banner2Item, Banner2Settings } from "@/hooks/use
 interface Banner2ShowcaseProps {
     banner2?: Banner2Settings | null;
 }
+
+type ImageFetchPriority = "high" | "low" | "auto";
+
+const banner2ImageLoadingProps: ImgHTMLAttributes<HTMLImageElement> & { fetchpriority: ImageFetchPriority } = {
+    loading: "eager",
+    decoding: "async",
+    fetchpriority: "high",
+};
 
 function getAnimationClass(animation: Banner2Animation, isActive: boolean) {
     const base = "transition-all duration-700";
@@ -99,10 +107,13 @@ function Banner2ItemCard({
                         <img
                             src={item.iconUrl}
                             alt={item.title || "Banner billede"}
+                            width={isLogoShowcase ? 160 : 40}
+                            height={isLogoShowcase ? 72 : 40}
                             className={cn(
                                 "object-contain",
                                 isLogoShowcase ? "max-h-14 w-auto max-w-full" : "h-10 w-10"
                             )}
+                            {...banner2ImageLoadingProps}
                         />
                     ) : IconComponent ? (
                         <IconComponent className={cn("text-white", iconAnimationClass, isLogoShowcase ? "h-10 w-10" : "h-6 w-6")} />

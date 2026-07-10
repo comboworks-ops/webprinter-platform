@@ -12,7 +12,11 @@ import {
 import { cn } from "@/lib/utils";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { useStorefrontCatalog, type StorefrontProduct } from "@/hooks/useStorefrontCatalog";
-import { normalizeProductCategoryKey } from "@/utils/productCategories";
+import {
+  findProductCategoryRecord,
+  getProductCategoryDescendantIds,
+  normalizeProductCategoryKey,
+} from "@/utils/productCategories";
 import { useShopSettings } from "@/hooks/useShopSettings";
 
 interface ProductGridProps {
@@ -109,11 +113,22 @@ const ProductGrid = ({
   const categoryRecords = catalog.categoryRecords;
   const overviews = catalog.overviews;
 
+  const normalizedCategory = normalizeProductCategoryKey(category);
+  const requestedCategory = category === "__all__"
+    ? null
+    : findProductCategoryRecord(category, categoryRecords);
+  const requestedCategoryIds = requestedCategory?.id
+    ? new Set(getProductCategoryDescendantIds(categoryRecords, requestedCategory.id))
+    : null;
   const filteredProducts = category === "__all__"
     ? products
     : products.filter((product) => {
+      if (requestedCategoryIds?.size && product.categoryId) {
+        return requestedCategoryIds.has(product.categoryId);
+      }
+
       const productCategory = product.categoryKey || normalizeProductCategoryKey(product.category);
-      return productCategory === normalizeProductCategoryKey(category);
+      return productCategory === normalizedCategory;
     });
 
   if (loading) {
@@ -128,10 +143,10 @@ const ProductGrid = ({
   const cardWidthClass = layoutStyle === "slim"
     ? "max-w-none"
     : columns === 5
-      ? "max-w-[240px]"
+      ? "max-w-full sm:max-w-[240px]"
       : columns === 3
-        ? "max-w-[320px]"
-        : "max-w-[280px]";
+        ? "max-w-full sm:max-w-[320px]"
+        : "max-w-full sm:max-w-[280px]";
   const buttonStyle = buttonConfig?.style ?? "default";
   const buttonStyles = {
     bgColor: buttonConfig?.bgColor ?? "#0EA5E9",
@@ -304,6 +319,8 @@ const ProductGrid = ({
                 <img
                   src={getProductImage(product.slug, product.image_url)}
                   alt={product.name}
+                  loading="lazy"
+                  decoding="async"
                   className={`w-full h-full object-contain transition-all duration-300 ${!hoverImageUrl ? 'hover:scale-110' : 'group-hover:opacity-0'}`}
                   style={{
                     filter: 'var(--product-filter)',
@@ -315,6 +332,8 @@ const ProductGrid = ({
                   <img
                     src={hoverImageUrl}
                     alt={`${product.name} hover`}
+                    loading="lazy"
+                    decoding="async"
                     className="absolute inset-0 m-auto w-full h-full object-contain opacity-0 group-hover:opacity-100 transition-opacity duration-300"
                     style={{
                       filter: 'var(--product-filter)',
@@ -448,7 +467,7 @@ const ProductGrid = ({
                               : "bg-[var(--btn-bg)] text-[var(--btn-text)] hover:bg-[var(--btn-hover-bg)] hover:text-[var(--btn-hover-text)]",
                             effectiveButtonStyle === "bar" ? "w-full rounded-none py-5" : "px-4",
                             effectiveButtonStyle === "center" ? "min-w-[220px] py-5" : "",
-                            isSlimLayout ? "h-8 px-3 text-xs" : "",
+                            isSlimLayout ? "min-h-11 px-4 text-xs" : "min-h-11",
                             buttonAnimationClass
                           )}
                           style={{

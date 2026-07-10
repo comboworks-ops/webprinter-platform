@@ -180,6 +180,9 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
     const textCardFocused = focusTargetId === "site-design-focus-banner-title"
         || focusTargetId === "site-design-focus-banner-subtitle"
         || focusTargetId === "site-design-focus-banner-buttons";
+    const isBannerFocusMode = Boolean(focusTargetId?.startsWith("site-design-focus-banner"));
+    const shouldShowBannerTarget = (...targetIds: string[]) => !isBannerFocusMode || Boolean(focusTargetId && targetIds.includes(focusTargetId));
+    const shouldShowBannerTextPart = (...targetIds: string[]) => !isBannerFocusMode || Boolean(focusTargetId && targetIds.includes(focusTargetId));
 
     // Ensure hero has all defaults
     const hero: HeroSettings = {
@@ -709,6 +712,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
     return (
         <div className="space-y-6">
             {/* Combined Banner Media Card */}
+            {shouldShowBannerTarget("site-design-focus-banner-media", "site-design-focus-banner-overlay") && (
             <div id="site-design-focus-banner-media" className={cn(mediaCardFocused && "rounded-xl ring-2 ring-primary/50 ring-offset-2")}>
                 <CollapsibleCard
                     key={`banner-media-${mediaCardFocused ? focusTargetId : "default"}`}
@@ -1407,8 +1411,10 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                 </div>
                 </CollapsibleCard>
             </div>
+            )}
 
             {/* Banner Text & Buttons */}
+            {shouldShowBannerTarget("site-design-focus-banner-title", "site-design-focus-banner-subtitle", "site-design-focus-banner-buttons") && (
             <div id="site-design-focus-banner-text" className={cn(textCardFocused && "rounded-xl ring-2 ring-primary/50 ring-offset-2")}>
                 <CollapsibleCard
                     key={`banner-text-${textCardFocused ? focusTargetId : "default"}`}
@@ -1483,6 +1489,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
 
                             {/* Banner Title with color, font, and per-banner toggle */}
                             {/* Banner Title with color, font, and per-banner toggle */}
+                            {shouldShowBannerTextPart("site-design-focus-banner-title") && (
                             <div id="site-design-focus-banner-title" className="space-y-3">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                     <Label>Banner Overskrift</Label>
@@ -1552,8 +1559,10 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                                     placeholder="Din fængende overskrift her..."
                                 />
                             </div>
+                            )}
 
                             {/* Banner Subtitle with color and font - same toggle as title */}
+                            {shouldShowBannerTextPart("site-design-focus-banner-subtitle") && (
                             <div id="site-design-focus-banner-subtitle" className="space-y-3">
                                 <Label>Banner Undertitel</Label>
 
@@ -1615,12 +1624,14 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                                     rows={2}
                                 />
                             </div>
+                            )}
 
 
 
 
 
                             {/* Text Animation Preset */}
+                            {!isBannerFocusMode && (
                             <div className="space-y-4 border-t pt-3">
                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                     <div className="flex min-w-0 items-center gap-2">
@@ -1690,6 +1701,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                                     })}
                                 </div>
                             </div>
+                            )}
                         </div>
                     )}
 
@@ -1700,9 +1712,10 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                         </div>
                     )}
 
-                    <Separator />
+                    {!isBannerFocusMode && <Separator />}
 
                     {/* Per-Banner Buttons */}
+                    {shouldShowBannerTextPart("site-design-focus-banner-buttons") && (
                     <div id="site-design-focus-banner-buttons" className="space-y-4">
                         <div className="flex items-center justify-between">
                             <div>
@@ -2006,9 +2019,11 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
                             </div>
                         )}
                     </div>
+                    )}
                     </div>
                 </CollapsibleCard >
             </div>
+            )}
         </div >
     );
 }

@@ -49,6 +49,10 @@ export function ProductMarquee() {
                                 <img
                                     src={product.image_url}
                                     alt={product.name}
+                                    width={96}
+                                    height={96}
+                                    loading="lazy"
+                                    decoding="async"
                                     className="w-full h-full object-contain drop-shadow-sm"
                                     style={{ filter: 'var(--product-filter)' }}
                                 />

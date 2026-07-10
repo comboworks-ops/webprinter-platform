@@ -6,6 +6,7 @@ import {
     EyeOff,
     ChevronUp,
     ChevronDown,
+    FileUp,
     Type,
     Image,
     Square,
@@ -23,7 +24,12 @@ interface LayerPanelProps {
     onToggleVisibility: (id: string) => void;
 }
 
-const getLayerIcon = (type: string) => {
+const getLayerIcon = (layer: LayerInfo) => {
+    if ((layer.object as any).data?.kind === 'pdf_page_background') {
+        return FileUp;
+    }
+
+    const type = layer.type;
     switch (type) {
         case 'i-text':
         case 'text':
@@ -73,7 +79,7 @@ export function LayerPanel({
 
             <div className="space-y-1 max-h-60 overflow-y-auto">
                 {layers.map((layer, index) => {
-                    const Icon = getLayerIcon(layer.type);
+                    const Icon = getLayerIcon(layer);
                     const isSelected = layer.id === selectedLayerId;
 
                     return (

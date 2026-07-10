@@ -16,6 +16,11 @@ const localOnlyFunctions = new Set([
   "test-env",
 ]);
 
+const publicReadFunctions = new Set([
+  "pricing-read",
+  "product-detail-read",
+]);
+
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const functionNames = fs
@@ -27,10 +32,34 @@ const functionNames = fs
 const config = fs.readFileSync(configPath, "utf8");
 const failures = [];
 
+const readFunctionConfigSection = (functionName) => {
+  const sectionHeader = `[functions.${functionName}]`;
+  const start = config.indexOf(sectionHeader);
+  if (start < 0) return "";
+  const nextStart = config.indexOf("\n[functions.", start + sectionHeader.length);
+  return config.slice(start, nextStart < 0 ? undefined : nextStart);
+};
+
 for (const functionName of functionNames) {
   const sectionPattern = new RegExp(`\\[functions\\.${escapeRegExp(functionName)}\\]`);
   if (!sectionPattern.test(config)) {
     failures.push(`${functionName}: missing explicit [functions.${functionName}] config section`);
+  }
+}
+
+for (const functionName of publicReadFunctions) {
+  const section = readFunctionConfigSection(functionName);
+  if (!/verify_jwt\s*=\s*false(?:\s|$)/.test(section)) {
+    failures.push(`${functionName}: public storefront read function must set verify_jwt = false for browser CORS preflight`);
+  }
+
+  const indexPath = path.join(functionsDir, functionName, "index.ts");
+  const source = fs.readFileSync(indexPath, "utf8");
+  if (!source.includes('req.method === "OPTIONS"')) {
+    failures.push(`${functionName}: missing explicit OPTIONS preflight response`);
+  }
+  if (!source.includes('"Access-Control-Allow-Methods"')) {
+    failures.push(`${functionName}: missing explicit Access-Control-Allow-Methods header`);
   }
 }
 

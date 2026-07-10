@@ -62,6 +62,8 @@ const MAX_PERSISTED_GENERATOR_PRICE_ENTRIES = 1500;
 // Preset quantities for oplag
 const PRESET_QUANTITIES = [10, 25, 50, 100, 250, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000];
 const MAX_PREVIEW_ROWS = 500;
+const MAX_AUTO_RESTORE_PUBLISHED_PRICE_ROWS = 25000;
+const PUBLISHED_PRICE_PAGE_FALLBACK_SIZES = [1000, 500, 250, 100, 50] as const;
 
 function parsePublishedPriceCount(fingerprint?: string | null): number | null {
     if (!fingerprint || typeof fingerprint !== 'string') return null;
@@ -1427,6 +1429,8 @@ export function ProductAttributeBuilder({
     const storageTrimWarnedRef = useRef(false);
     const storageQuotaWarnedRef = useRef(false);
     const [publishedPreviewReady, setPublishedPreviewReady] = useState(false);
+    const [publishedPriceLoadSkippedCount, setPublishedPriceLoadSkippedCount] = useState<number | null>(null);
+    const [loadingPublishedPrices, setLoadingPublishedPrices] = useState(false);
     const pendingLocalGeneratorCacheRef = useRef<{
         generatorPrices: Record<string, any>;
         publishedPricesFingerprint: string | null;
@@ -1446,51 +1450,172 @@ export function ProductAttributeBuilder({
 
     const fetchAllGenericProductPrices = useCallback(async () => {
         if (!productId) return [] as any[];
-        const pageSize = 1000;
-        let offset = 0;
-        const allRows: any[] = [];
+        let lastError: unknown = null;
 
-        while (true) {
-            const { data, error } = await supabase
-                .from('generic_product_prices')
-                .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
-                .eq('product_id', productId)
-                .order('id', { ascending: true })
-                .range(offset, offset + pageSize - 1);
+        const fetchAllGenericProductPricesWithPageSize = async (pageSize: number): Promise<any[]> => {
+            let offset = 0;
+            const allRows: any[] = [];
 
-            if (error) throw error;
-            if (!data || data.length === 0) break;
+            while (true) {
+                const { data, error } = await supabase
+                    .from('generic_product_prices')
+                    .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
+                    .eq('product_id', productId)
+                    .order('quantity', { ascending: true })
+                    .order('id', { ascending: true })
+                    .range(offset, offset + pageSize - 1);
 
-            allRows.push(...data);
-            if (data.length < pageSize) break;
-            offset += pageSize;
+                if (error) throw error;
+                if (!data || data.length === 0) break;
+
+                allRows.push(...data);
+                if (data.length < pageSize) break;
+                offset += pageSize;
+            }
+
+            return allRows;
+        };
+
+        for (const pageSize of PUBLISHED_PRICE_PAGE_FALLBACK_SIZES) {
+            try {
+                const data = await fetchAllGenericProductPricesWithPageSize(pageSize);
+                return Array.from(
+                    new Map(
+                        data.map((row) => [
+                            row.id ?? `${row.variant_name}|${row.variant_value}|${row.quantity}|${JSON.stringify(row.extra_data || {})}`,
+                            row,
+                        ])
+                    ).values()
+                );
+            } catch (error) {
+                lastError = error;
+                console.warn('[ProductAttributeBuilder] fetchAllGenericProductPrices failed for page size', pageSize, error);
+            }
         }
 
-        return Array.from(
-            new Map(
-                allRows.map((row) => [
-                    row.id ?? `${row.variant_name}|${row.variant_value}|${row.quantity}|${JSON.stringify(row.extra_data || {})}`,
-                    row,
-                ])
-            ).values()
-        );
+        if (lastError) throw lastError;
+        return [];
     }, [productId]);
+
+    const toIdArray = (value: unknown): string[] => {
+        if (Array.isArray(value)) {
+            return value.flatMap(item => toIdArray(item));
+        }
+        if (value == null) return [];
+        if (typeof value === 'object' && 'id' in (value as Record<string, unknown>)) {
+            const id = (value as Record<string, unknown>).id;
+            if (id == null) return [];
+            return [String(id)];
+        }
+        return [String(value)].filter(Boolean);
+    };
+
+    const resolveFormatMaterialFromPublishedRow = useCallback((
+        row: any,
+        formatValueIds: Set<string>,
+        materialValueIds: Set<string>,
+    ): { formatId?: string; materialId?: string } => {
+        const extra = row?.extra_data || {};
+        const selectionMap = (extra?.selectionMap && typeof extra.selectionMap === 'object')
+            ? extra.selectionMap
+            : {};
+
+        const pickMatchingId = (value: unknown, allowed: Set<string>) => {
+            return toIdArray(value).find((id) => allowed.has(id));
+        };
+
+        let formatId = String(extra.formatId || extra.format_id || '').trim();
+        if (!formatId) {
+            formatId = pickMatchingId(
+                [selectionMap.format, selectionMap.size, selectionMap.formatId, selectionMap.format_id, extra.verticalAxisValueId, extra.verticalAxis_value_id],
+                formatValueIds
+            ) || '';
+        }
+
+        let materialId = String(extra.materialId || extra.material_id || '').trim();
+
+        if (!materialId) {
+            materialId = pickMatchingId(
+                [selectionMap.material, selectionMap.materialId, selectionMap.material_id],
+                materialValueIds
+            ) || '';
+        }
+
+        if (!materialId) {
+            materialId = pickMatchingId(
+                [selectionMap.verticalAxis, selectionMap.verticalAxisValueId, selectionMap.verticalAxis_value_id, extra.verticalAxisValueId, extra.verticalAxis_value_id],
+                materialValueIds
+            ) || '';
+        }
+
+        if (!formatId || !materialId) {
+            const fallbackFromSelectionEntries = Object.entries(selectionMap)
+                .filter(([key]) => {
+                    const normalizedKey = String(key || '').toLowerCase();
+                    return !['format', 'material', 'variant', 'variantvalueids', 'variant_value_ids', 'formatid', 'materialid', 'format_id', 'material_id', 'size', 'sizeid', 'size_id'].includes(normalizedKey);
+                })
+                .flatMap(([, value]) => toIdArray(value));
+
+            if (!formatId) {
+                const selectionFormatCandidate = fallbackFromSelectionEntries.find((id) => formatValueIds.has(id));
+                if (selectionFormatCandidate) formatId = selectionFormatCandidate;
+            }
+
+            if (!materialId) {
+                const selectionMaterialCandidate = fallbackFromSelectionEntries.find((id) => materialValueIds.has(id));
+                if (selectionMaterialCandidate) materialId = selectionMaterialCandidate;
+            }
+        }
+
+        if (!formatId && row?.variant_name) {
+            const candidateFormatIds = String(row.variant_name)
+                .split('|')
+                .map(part => String(part).trim())
+                .filter(Boolean)
+                .filter((id) => formatValueIds.has(id));
+            if (candidateFormatIds.length > 0) formatId = candidateFormatIds[0];
+        }
+
+        if (!materialId && row?.variant_value) {
+            const candidate = String(row.variant_value).trim();
+            if (candidate && materialValueIds.has(candidate)) {
+                materialId = candidate;
+            }
+        }
+
+        if (!materialId && row?.variant_name) {
+            const candidateMaterialIds = String(row.variant_name)
+                .split('|')
+                .map(part => String(part).trim())
+                .filter(Boolean)
+                .filter((id) => materialValueIds.has(id));
+            if (candidateMaterialIds.length > 0) materialId = candidateMaterialIds[0];
+        }
+
+        return {
+            formatId: formatId || undefined,
+            materialId: materialId || undefined,
+        };
+    }, []);
 
     const resolveVariantIdFromPublishedRow = useCallback((
         row: any,
         formatValueIds: Set<string>,
         materialValueIds: Set<string>,
+        forcedFormatId?: string,
+        forcedMaterialId?: string,
     ): string => {
         const extra = row?.extra_data || {};
         const selectionMap = (extra?.selectionMap && typeof extra.selectionMap === 'object')
             ? extra.selectionMap
             : {};
 
-        const toIdArray = (value: unknown): string[] => {
-            if (Array.isArray(value)) return value.map(v => String(v)).filter(Boolean);
-            if (value == null) return [];
-            return [String(value)].filter(Boolean);
-        };
+        const isAxisValue = (id: string) => (
+            formatValueIds.has(id)
+            || materialValueIds.has(id)
+            || (!!forcedFormatId && id === forcedFormatId)
+            || (!!forcedMaterialId && id === forcedMaterialId)
+        );
 
         const normalizeVariantIds = (ids: string[]) =>
             Array.from(new Set(ids.map(id => String(id)).filter(Boolean))).sort();
@@ -1503,7 +1628,7 @@ export function ProductAttributeBuilder({
             ...toIdArray(selectionMap.variantValueIds),
         ];
         const filteredVariantValueIds = rawVariantValueIds.filter(
-            (id: string) => !formatValueIds.has(id) && !materialValueIds.has(id),
+            (id: string) => !isAxisValue(id),
         );
         if (filteredVariantValueIds.length > 0) {
             return normalizeVariantIds(filteredVariantValueIds).join('|');
@@ -1525,7 +1650,7 @@ export function ProductAttributeBuilder({
                 }
                 return toIdArray(value);
             })
-            .filter((id: string) => !formatValueIds.has(id) && !materialValueIds.has(id));
+            .filter((id: string) => !isAxisValue(id));
         if (selectionMapDerivedIds.length > 0) {
             return normalizeVariantIds(selectionMapDerivedIds).join('|');
         }
@@ -1535,7 +1660,7 @@ export function ProductAttributeBuilder({
             .split('|')
             .map(part => part.trim())
             .filter(Boolean)
-            .filter((id: string) => !formatValueIds.has(id) && !materialValueIds.has(id));
+            .filter((id: string) => !isAxisValue(id));
         if (variantNameDerivedIds.length > 0) {
             return normalizeVariantIds(variantNameDerivedIds).join('|');
         }
@@ -1739,6 +1864,25 @@ export function ProductAttributeBuilder({
 
     // Load persisted config on mount. Generator prices are only restored if the
     // browser cache was created from the same published price set.
+    useEffect(() => {
+        if (!productId) return;
+
+        hasLoadedStructureRef.current = false;
+        hasLoadedPublishedPricesRef.current = false;
+        pendingLocalGeneratorCacheRef.current = null;
+
+        setGeneratorPrices({});
+        setPublishedPreviewReady(false);
+        setPublishedPriceLoadSkippedCount(null);
+        setLoadingPublishedPrices(false);
+        setSelectedSectionValues({});
+        setSelectedOplag([]);
+        setPreviewAmountPage(0);
+        setGenSelectedFormat('');
+        setGenSelectedMaterial('');
+        setGenSelectedVariant('');
+    }, [productId]);
+
     useEffect(() => {
         const storageKey = CONFIG_STORAGE_KEY + productId;
         let stored: string | null = null;
@@ -2410,6 +2554,88 @@ export function ProductAttributeBuilder({
         }
     }, [hasUsableLocalGeneratorPrices]);
 
+    const loadPublishedPricesIntoGenerator = useCallback(async (options?: { manual?: boolean }) => {
+        setLoadingPublishedPrices(true);
+        setPublishedPriceLoadSkippedCount(null);
+
+        let data: any[] = [];
+        try {
+            data = await fetchAllGenericProductPrices();
+        } catch {
+            if (options?.manual) {
+                toast.error('Kunne ikke indlæse eksisterende priser til redigering');
+            }
+            hasLoadedPublishedPricesRef.current = true;
+            setPublishedPreviewReady(true);
+            setLoadingPublishedPrices(false);
+            return;
+        }
+
+        if (!data || data.length === 0) {
+            hasLoadedPublishedPricesRef.current = true;
+            setPublishedPreviewReady(true);
+            setLoadingPublishedPrices(false);
+            return;
+        }
+
+        const formatValueIds = new Set<string>();
+        const materialValueIds = new Set<string>();
+        productAttrs.groups.forEach(group => {
+            if (group.kind === 'format') {
+                (group.values || []).forEach(value => formatValueIds.add(value.id));
+            }
+            if (group.kind === 'material') {
+                (group.values || []).forEach(value => materialValueIds.add(value.id));
+            }
+        });
+
+        const fallbackPrices: Record<string, any> = {};
+        const fallbackOplag = new Set<number>();
+        data.forEach((row: any) => {
+            const extra = row.extra_data || {};
+            const { formatId, materialId } = resolveFormatMaterialFromPublishedRow(row, formatValueIds, materialValueIds);
+            const variantId = resolveVariantIdFromPublishedRow(
+                row,
+                formatValueIds,
+                materialValueIds,
+                formatId,
+                materialId
+            );
+            if (!formatId || !materialId) return;
+            const qty = Number(row.quantity);
+            const price = Number(row.price_dkk);
+            if (!qty || !price) return;
+            const key = `${formatId}::${materialId}::${variantId || 'none'}::${qty}`;
+            fallbackPrices[key] = { price, markup: 0, isLocked: true };
+            fallbackOplag.add(qty);
+        });
+
+            const fallbackOplagSorted = Array.from(fallbackOplag).sort((a, b) => a - b);
+
+            if (Object.keys(fallbackPrices).length > 0) {
+                // Merge published prices into local draft cache so missing combinations
+                // are restored without overwriting in-progress local edits.
+                setGeneratorPrices(prev => {
+                    const merged = {
+                        ...fallbackPrices,
+                        ...(prev || {}),
+                    };
+                    return normalizeGeneratorPrices(merged);
+                });
+                setSelectedOplag(prev => {
+                    const intersection = prev.filter((qty) => fallbackOplag.has(qty)).sort((a, b) => a - b);
+                    if (intersection.length > 0) return intersection;
+                    return fallbackOplagSorted;
+                });
+                if (options?.manual) {
+                    toast.success(`Indlæste ${Object.keys(fallbackPrices).length.toLocaleString('da-DK')} priser til redigering`);
+                }
+            }
+        hasLoadedPublishedPricesRef.current = true;
+        setPublishedPreviewReady(true);
+        setLoadingPublishedPrices(false);
+    }, [fetchAllGenericProductPrices, normalizeGeneratorPrices, productAttrs.groups, resolveVariantIdFromPublishedRow]);
+
     useEffect(() => {
         if (!productId || productAttrs.loading) return;
         if (hasLoadedPublishedPricesRef.current) {
@@ -2427,69 +2653,23 @@ export function ProductAttributeBuilder({
             setPublishedPreviewReady(false);
         }
 
-        const loadPublishedPrices = async () => {
-            let data: any[] = [];
-            try {
-                data = await fetchAllGenericProductPrices();
-            } catch {
-                hasLoadedPublishedPricesRef.current = true;
-                setPublishedPreviewReady(true);
-                return;
-            }
-
-            if (!data || data.length === 0) {
-                hasLoadedPublishedPricesRef.current = true;
-                setPublishedPreviewReady(true);
-                return;
-            }
-
-            const formatValueIds = new Set<string>();
-            const materialValueIds = new Set<string>();
-            productAttrs.groups.forEach(group => {
-                if (group.kind === 'format') {
-                    (group.values || []).forEach(value => formatValueIds.add(value.id));
-                }
-                if (group.kind === 'material') {
-                    (group.values || []).forEach(value => materialValueIds.add(value.id));
-                }
-            });
-
-            const fallbackPrices: Record<string, any> = {};
-            const fallbackOplag = new Set<number>();
-            data.forEach((row: any) => {
-                const extra = row.extra_data || {};
-                const formatId = extra.formatId || extra.selectionMap?.format;
-                const materialId = extra.materialId || extra.selectionMap?.material;
-                const variantId = resolveVariantIdFromPublishedRow(row, formatValueIds, materialValueIds);
-                if (!formatId || !materialId) return;
-                const qty = Number(row.quantity);
-                const price = Number(row.price_dkk);
-                if (!qty || !price) return;
-                const key = `${formatId}::${materialId}::${variantId || 'none'}::${qty}`;
-                fallbackPrices[key] = { price, markup: 0, isLocked: false };
-                fallbackOplag.add(qty);
-            });
-
-            if (Object.keys(fallbackPrices).length > 0) {
-                // Merge published prices into local draft cache so missing combinations
-                // are restored without overwriting in-progress local edits.
-                setGeneratorPrices(prev => {
-                    const merged = {
-                        ...fallbackPrices,
-                        ...(prev || {}),
-                    };
-                    return normalizeGeneratorPrices(merged);
-                });
-                if (selectedOplag.length === 0) {
-                    setSelectedOplag(Array.from(fallbackOplag).sort((a, b) => a - b));
-                }
+        const expectedPublishedRowCount = parsePublishedPriceCount(publishedPricesFingerprint);
+        if (
+            expectedPublishedRowCount
+            && expectedPublishedRowCount > MAX_AUTO_RESTORE_PUBLISHED_PRICE_ROWS
+            && !hasUsableLocalGeneratorPrices
+        ) {
+            if (Object.keys(generatorPrices).length > 0 && Object.keys(generatorPrices).length < expectedPublishedRowCount) {
+                setGeneratorPrices({});
             }
             hasLoadedPublishedPricesRef.current = true;
+            setPublishedPriceLoadSkippedCount(expectedPublishedRowCount);
             setPublishedPreviewReady(true);
-        };
+            return;
+        }
 
-        loadPublishedPrices();
-    }, [fetchAllGenericProductPrices, productId, productAttrs.loading, generatorPrices, hasUsableLocalGeneratorPrices, normalizeGeneratorPrices, resolveVariantIdFromPublishedRow, selectedOplag.length]);
+        loadPublishedPricesIntoGenerator();
+    }, [generatorPrices, hasUsableLocalGeneratorPrices, loadPublishedPricesIntoGenerator, productAttrs.loading, productId, publishedPricesFingerprint]);
 
     // Transition for non-blocking updates (prevents UI blinking)
     const [isPending, startTransition] = useTransition();
@@ -4602,6 +4782,112 @@ export function ProductAttributeBuilder({
     const getGenPriceKey = (formatId: string, materialId: string, variantKey: string, qty: number) =>
         `${formatId}::${materialId}::${variantKey || 'none'}::${qty}`;
 
+    const splitVariantKeyToIds = (variantKey: string): string[] => Array.from(
+        new Set(
+            String(variantKey || 'none')
+                .split('|')
+                .map(id => String(id || '').trim())
+                .filter(Boolean)
+        )
+    ).sort();
+
+    const getVariantMatchScore = (requested: string[], candidate: string[]): number => {
+        const requestedSet = new Set(requested);
+        if (requestedSet.size === 0 && candidate.length === 0) return 100;
+        if (requestedSet.size === 0) return 20;
+
+        if (candidate.length === 0) return -1;
+
+        let overlap = 0;
+        for (const id of candidate) {
+            if (requestedSet.has(id)) overlap += 1;
+        }
+        if (overlap === 0) return -1;
+
+        const missing = requestedSet.size - overlap;
+        const extras = candidate.length - overlap;
+        let score = overlap * 20 - missing * 10 - extras * 2;
+        if (missing === 0 && extras === 0) {
+            score += 100;
+        }
+        return score;
+    };
+
+    const resolvePriceLookup = (
+        source: Record<string, any>,
+        formatId: string,
+        materialId: string,
+        variantId: string,
+        qty: number
+    ): { key: string; variantId: string } | null => {
+        const normalizedRequestedVariantId = splitVariantKeyToIds(variantId).join('|') || 'none';
+        const requestedVariantIds = splitVariantKeyToIds(normalizedRequestedVariantId);
+        const exactKey = getGenPriceKey(formatId, materialId, normalizedRequestedVariantId, qty);
+        const exact = source[exactKey];
+        const exactPrice = typeof exact === 'number' ? exact : Number(exact?.price || 0);
+        const exactExcluded = exact && typeof exact === 'object' && exact.excludeFromCurve && (!exactPrice || exactPrice <= 0);
+        if (exactPrice > 0 && !exactExcluded) {
+            return { key: exactKey, variantId: normalizedRequestedVariantId };
+        }
+
+        if (normalizedRequestedVariantId !== 'none') {
+            const noneKey = getGenPriceKey(formatId, materialId, 'none', qty);
+            const noneValue = source[noneKey];
+            const nonePrice = typeof noneValue === 'number' ? noneValue : Number(noneValue?.price || 0);
+            const noneExcluded = noneValue && typeof noneValue === 'object' && noneValue.excludeFromCurve && (!nonePrice || nonePrice <= 0);
+            if (nonePrice > 0 && !noneExcluded) {
+                return { key: noneKey, variantId: 'none' };
+            }
+        }
+
+        let sameQtyBest:
+            | { score: number; key: string; variantId: string; qty: number }
+            | null = null;
+        let anyQtyBest:
+            | { score: number; key: string; variantId: string; qty: number }
+            | null = null;
+
+        Object.entries(source).forEach(([lookupKey, value]) => {
+            const parts = lookupKey.split('::');
+            if (parts.length < 4) return;
+            const [lookupFormatId, lookupMaterialId, lookupVariantId, lookupQty] = parts;
+            if (lookupFormatId !== formatId || lookupMaterialId !== materialId) return;
+
+            const candidateQty = Number(lookupQty);
+            if (!Number.isFinite(candidateQty) || candidateQty <= 0) return;
+
+            const candidateVariantId = (lookupVariantId || 'none');
+            const candidatePrice = typeof value === 'number' ? value : Number(value?.price || 0);
+            const candidateExcluded = value && typeof value === 'object' && value.excludeFromCurve && (!candidatePrice || candidatePrice <= 0);
+            if (candidatePrice <= 0 || candidateExcluded) return;
+
+            const candidateScore = getVariantMatchScore(
+                requestedVariantIds,
+                splitVariantKeyToIds(candidateVariantId)
+            );
+            if (candidateScore < 0) return;
+
+            const candidate = {
+                key: lookupKey,
+                variantId: candidateVariantId,
+                score: candidateScore,
+                qty: candidateQty
+            };
+
+            if (candidateQty === qty) {
+                if (!sameQtyBest || candidate.score > sameQtyBest.score) {
+                    sameQtyBest = candidate;
+                }
+            } else if (!anyQtyBest || candidate.score > anyQtyBest.score) {
+                anyQtyBest = candidate;
+            }
+        });
+
+        if (sameQtyBest) return { key: sameQtyBest.key, variantId: sameQtyBest.variantId };
+        if (anyQtyBest) return { key: anyQtyBest.key, variantId: anyQtyBest.variantId };
+        return null;
+    };
+
     // Get anchor data for current format+material+variant at a specific qty
     const getAnchorData = (qty: number) => {
         const key = getGenPriceKey(activeGenFormat, activeGenMaterial, activeGenVariant, qty);
@@ -4661,12 +4947,15 @@ export function ProductAttributeBuilder({
         prodMarkup: number;
         source: 'manual' | 'interpolated';
     } | null {
-        const priceKey = getGenPriceKey(formatId, materialId, variantId, qty);
+        const resolved = resolvePriceLookup(generatorPrices, formatId, materialId, variantId, qty);
+        if (!resolved) return null;
+
+        const { key: priceKey, variantId: resolvedVariantId } = resolved;
         const data = generatorPrices[priceKey];
         if (data?.excludeFromCurve && (!data.price || data.price <= 0)) return null;
 
         const localMarkup = Number(data?.markup) || 0;
-        const markupKey = `${formatId}::${materialId}${variantId !== 'none' ? `::${variantId}` : ''}`;
+        const markupKey = `${formatId}::${materialId}${resolvedVariantId !== 'none' ? `::${resolvedVariantId}` : ''}`;
         const prodMarkup = productMarkups[markupKey] || 0;
         const gm = Number(masterMarkup) || 0;
         const rnd = Number(genRounding) || 1;
@@ -4684,7 +4973,7 @@ export function ProductAttributeBuilder({
             };
         }
 
-        const anchors = getAnchorsForContext(formatId, materialId, variantId);
+        const anchors = getAnchorsForContext(formatId, materialId, resolvedVariantId);
         if (anchors.length >= 2) {
             const beforeAnchor = anchors.filter(a => a.quantity < qty).pop();
             const afterAnchor = anchors.find(a => a.quantity > qty);
@@ -4720,12 +5009,15 @@ export function ProductAttributeBuilder({
         prodMarkup: number;
         source: 'manual' | 'interpolated';
     } | null {
-        const priceKey = getGenPriceKey(formatId, materialId, variantId, qty);
+        const resolved = resolvePriceLookup(sourcePrices, formatId, materialId, variantId, qty);
+        if (!resolved) return null;
+
+        const { key: priceKey, variantId: resolvedVariantId } = resolved;
         const data = sourcePrices[priceKey];
-        if (data?.excludeFromCurve && (!data.price || data.price <= 0)) return null;
+        if (data?.excludeFromCurve && (!data?.price || data.price <= 0)) return null;
 
         const localMarkup = Number(data?.markup) || 0;
-        const markupKey = `${formatId}::${materialId}${variantId !== 'none' ? `::${variantId}` : ''}`;
+        const markupKey = `${formatId}::${materialId}${resolvedVariantId !== 'none' ? `::${resolvedVariantId}` : ''}`;
         const prodMarkup = productMarkups[markupKey] || 0;
         const gm = Number(masterMarkup) || 0;
         const rnd = Number(genRounding) || 1;
@@ -4759,7 +5051,7 @@ export function ProductAttributeBuilder({
             const parts = key.split('::');
             if (parts.length < 4) return;
             const [fId, mId, vId, qtyStr] = parts;
-            if (fId !== formatId || mId !== materialId || (vId || 'none') !== (variantId || 'none')) return;
+            if (fId !== formatId || mId !== materialId || (vId || 'none') !== (resolvedVariantId || 'none')) return;
             const q = parseInt(qtyStr, 10);
             if (Number.isNaN(q)) return;
             if (value && typeof value !== 'number' && value.isLocked && value.price > 0 && !value.excludeFromCurve) {
@@ -5064,15 +5356,20 @@ export function ProductAttributeBuilder({
                     const fallbackOplag = new Set<number>();
                     data.forEach((row: any) => {
                         const extra = row.extra_data || {};
-                        const formatId = extra.formatId || extra.selectionMap?.format;
-                        const materialId = extra.materialId || extra.selectionMap?.material;
-                        const variantId = resolveVariantIdFromPublishedRow(row, formatValueIds, materialValueIds);
+                        const { formatId, materialId } = resolveFormatMaterialFromPublishedRow(row, formatValueIds, materialValueIds);
+                        const variantId = resolveVariantIdFromPublishedRow(
+                            row,
+                            formatValueIds,
+                            materialValueIds,
+                            formatId,
+                            materialId
+                        );
                         if (!formatId || !materialId) return;
                         const qty = Number(row.quantity);
                         const price = Number(row.price_dkk);
                         if (!qty || !price) return;
                         const key = `${formatId}::${materialId}::${variantId || 'none'}::${qty}`;
-                        fallbackPrices[key] = { price, markup: 0, isLocked: false };
+                        fallbackPrices[key] = { price, markup: 0, isLocked: true };
                         fallbackOplag.add(qty);
                     });
 
@@ -5359,9 +5656,14 @@ export function ProductAttributeBuilder({
                 const fallbackOplag = new Set<number>();
                 data.forEach((row: any) => {
                     const extra = row.extra_data || {};
-                    const formatId = extra.formatId || extra.selectionMap?.format;
-                    const materialId = extra.materialId || extra.selectionMap?.material;
-                    const variantId = resolveVariantIdFromPublishedRow(row, formatValueIds, materialValueIds);
+                    const { formatId, materialId } = resolveFormatMaterialFromPublishedRow(row, formatValueIds, materialValueIds);
+                    const variantId = resolveVariantIdFromPublishedRow(
+                        row,
+                        formatValueIds,
+                        materialValueIds,
+                        formatId,
+                        materialId
+                    );
                     if (!formatId || !materialId) return;
                     const qty = Number(row.quantity);
                     const price = Number(row.price_dkk);
@@ -7324,6 +7626,43 @@ export function ProductAttributeBuilder({
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
+                                {(publishedPriceLoadSkippedCount || loadingPublishedPrices) && (
+                                    <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                            <div className="flex items-start gap-2">
+                                                {loadingPublishedPrices ? (
+                                                    <Loader2 className="mt-0.5 h-4 w-4 animate-spin shrink-0" />
+                                                ) : (
+                                                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                                                )}
+                                                <div>
+                                                    <p className="text-sm font-medium">
+                                                        {loadingPublishedPrices
+                                                            ? 'Indlæser stor prisliste'
+                                                            : 'Stor prisliste åbnet i let tilstand'}
+                                                    </p>
+                                                    <p className="text-xs opacity-90">
+                                                        {loadingPublishedPrices
+                                                            ? 'Eksisterende priser hentes ind i redigeringsfladen.'
+                                                            : `${publishedPriceLoadSkippedCount?.toLocaleString('da-DK')} prisrækker blev ikke auto-indlæst for at holde admin hurtig.`}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            {publishedPriceLoadSkippedCount && !loadingPublishedPrices && (
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="bg-background"
+                                                    onClick={() => loadPublishedPricesIntoGenerator({ manual: true })}
+                                                >
+                                                    Indlæs priser til redigering
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Master Markup Slider */}
                                 <div className="bg-muted/30 p-3 rounded-md flex items-center gap-4 border border-border/50">
                                     <Label className="text-sm font-medium whitespace-nowrap">Master Markup:</Label>

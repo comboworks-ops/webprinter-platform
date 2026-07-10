@@ -1,0 +1,26 @@
+node_modules
+.git
+.vercel
+.vite
+.playwright-cli
+.playwright-mcp
+.claude
+.codex
+.agents
+
+dist
+dist 2
+dist-check
+dist-check*
+output
+tmp
+pricing_raw
+pricing_clean
+
+*.log
+*.local
+.env
+.env.local
+.env.production
+.env.*.local
+.DS_Store

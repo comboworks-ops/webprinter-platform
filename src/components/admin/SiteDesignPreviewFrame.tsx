@@ -54,7 +54,12 @@ const ALLOWED_PREVIEW_PATHS = [
     '/produkt/',
     '/kontakt',
     '/om-os',
+    '/grafisk-vejledning',
     '/betingelser',
+    '/vilkaar',
+    '/cookies',
+    '/cookiepolitik',
+    '/privatliv',
 ];
 
 export function SiteDesignPreviewFrame({
@@ -271,8 +276,6 @@ export function SiteDesignPreviewFrame({
         }
         setCurrentPath("/");
         onPreviewPathChange?.("/");
-        // Also refresh to ensure we're on frontpage
-        handleRefresh();
     };
 
     const openInNewTab = async () => {

@@ -170,6 +170,25 @@ interface EvidenceItem {
   missing: string;
 }
 
+interface AutomatedProofChainItem {
+  tenantName: string;
+  product: string;
+  status: Status;
+  route: string;
+  proofType: string;
+  verifies: string[];
+  href: string;
+}
+
+interface CommercialReleaseArtifact {
+  title: string;
+  status: Status;
+  path: string;
+  command: string;
+  description: string;
+  verifies: string[];
+}
+
 interface ExecutiveAction {
   tenantName: string;
   status: Status;
@@ -784,6 +803,7 @@ const cockpitSectionLinks = [
   { label: "Generalprøve", href: "#manual-rehearsal-route" },
   { label: "Bevisfangst", href: "#rehearsal-proof-capture" },
   { label: "Pilottest", href: "#pilot-proof-run" },
+  { label: "Browserbevis", href: "#automated-proof-chain" },
   { label: "Pilotdrift", href: "#pilot-operations-runbook" },
   { label: "Ordresignal", href: "#order-operations-signals" },
   { label: "Betaling", href: "#payment-checkout-signals" },
@@ -866,10 +886,214 @@ const tenantPilots: TenantPilot[] = [
     name: "Onlinetryksager",
     domain: "onlinetryksager.dk",
     focus: "General print-tenant med katalog, SEO og standardprodukter.",
-    firstProduct: "Prioriteret standardprodukt vælges",
-    firstProductSlug: null,
-    storefrontPath: "/?force_domain=www.onlinetryksager.dk",
-    adminPath: "/admin/products?force_domain=www.onlinetryksager.dk",
+    firstProduct: "Flyers",
+    firstProductSlug: "flyer-demand",
+    storefrontPath: "/produkt/flyer-demand?force_domain=www.onlinetryksager.dk",
+    adminPath: "/admin/product/flyer-demand?force_domain=www.onlinetryksager.dk",
+  },
+];
+
+const automatedProofChain: AutomatedProofChainItem[] = [
+  {
+    tenantName: "Webprinter",
+    product: "Aluminium",
+    status: "klar",
+    route: "/produkt/aluminium?force_domain=webprinter.dk",
+    proofType: "Ordre/upload",
+    verifies: [
+      "Produktet loader på Webprinter-kontekst.",
+      "Storformat-pris bliver aktiv, og Bestil nu er klikbar.",
+      "Checkout/upload åbner med produkt, pris, format og session.",
+    ],
+    href: "/produkt/aluminium?force_domain=webprinter.dk",
+  },
+  {
+    tenantName: "Salgsmapper",
+    product: "Standard salgsmappe",
+    status: "klar",
+    route: "/produkt/standard-sales-mapper-kopi-2?force_domain=www.salgsmapper.dk",
+    proofType: "Template/designer",
+    verifies: [
+      "PDF-skabelonen serveres som application/pdf.",
+      "Download skabelon peger på den rigtige salgsmappefil.",
+      "Design online åbner designer med templatePdfUrl og produktkontekst.",
+    ],
+    href: "/produkt/standard-sales-mapper-kopi-2?force_domain=www.salgsmapper.dk",
+  },
+  {
+    tenantName: "Onlinetryksager",
+    product: "Flyers",
+    status: "klar",
+    route: "/produkt/flyer-demand?force_domain=www.onlinetryksager.dk",
+    proofType: "Ordre/upload",
+    verifies: [
+      "Flyers loader på Onlinetryksager-kontekst.",
+      "A5 / 50 stk prisvalg er aktivt med reel pris.",
+      "Checkout/upload åbner med Flyers, A5, 50 stk og session.",
+    ],
+    href: "/produkt/flyer-demand?force_domain=www.onlinetryksager.dk",
+  },
+];
+
+const commercialReleaseArtifacts: CommercialReleaseArtifact[] = [
+  {
+    title: "Release packet index",
+    status: "qa",
+    path: "docs/COMMERCIAL_RELEASE_PACKET_LATEST.md",
+    command: "npm run check:commercial-release-packet-report",
+    description: "Read-only startpunkt for release-ejeren: samler alle proof-, review-, branch-, deploy- og handoffrapporter i én åbne-først oversigt.",
+    verifies: [
+      "Release proof, tenant browserproof, staged packet og owner merge simulation vises som PASS/not proven.",
+      "Branch, Supabase, deploy og handoff HOLD vises som ejerbeslutninger.",
+      "Rapporten skaber ingen commit, push, pull, merge, rebase, Vercel-deploy eller Supabase-deploy.",
+    ],
+  },
+  {
+    title: "Detaljeret proof-rapport",
+    status: "klar",
+    path: "docs/COMMERCIAL_PROOF_LATEST.md",
+    command: "npm run check:commercial-proof-report",
+    description: "Viser de konkrete browserproofs for de tre ejede tenants og PDF-skabelonen.",
+    verifies: [
+      "9/9 tenant proof checks er PASS.",
+      "Read-only sikkerhedsteksten er til stede.",
+      "Webprinter, Salgsmapper og Onlinetryksager er dækket.",
+    ],
+  },
+  {
+    title: "Release summary",
+    status: "klar",
+    path: "docs/COMMERCIAL_RELEASE_LATEST.md",
+    command: "npm run check:commercial-release-report",
+    description: "Kompakt pre-demo/pre-deploy status for proof, ændringssæt, app-source review, rapportkontrol og production build.",
+    verifies: [
+      "Release status er PASSED.",
+      "Proof gate, ændringssætrapport, application-source review, rapportverifier og production build er PASS.",
+      "Rapporten peger tilbage på proof-, ændringssæt- og application-source rapporterne.",
+    ],
+  },
+  {
+    title: "App-source review",
+    status: "qa",
+    path: "docs/COMMERCIAL_APPLICATION_SOURCE_LATEST.md",
+    command: "npm run check:commercial-application-source-report",
+    description: "Read-only reviewpakke for runtime-koden efter proof-chain: pricing/product, designer/PDF, tenant storefront, admin og checkout.",
+    verifies: [
+      "Runtime app-kode grupperes efter risikoområde.",
+      "Core pricing, POD, designer/PDF og untracked runtime-filer vises som guardrails.",
+      "Rapporten kræver build og tenant proof, men skriver ikke produkter, priser, ordrer, SEO, POD eller Supplier Bank-data.",
+    ],
+  },
+  {
+    title: "Supabase review",
+    status: "qa",
+    path: "docs/COMMERCIAL_SUPABASE_LATEST.md",
+    command: "npm run check:commercial-supabase-report",
+    description: "Read-only reviewpakke for Supabase-migrationer, Edge Functions, lokale dubletfiler og eksplicit Data API/function exposure.",
+    verifies: [
+      "Supabase grant-check og function exposure-check er PASS.",
+      "Migrationer, Edge Functions, temp-filer og space-suffixed dubletter vises separat.",
+      "Rapporten skriver ikke database, functions, produkter, priser, ordrer, SEO, POD eller Supplier Bank-data.",
+    ],
+  },
+  {
+    title: "Staged packet review",
+    status: "klar",
+    path: "docs/COMMERCIAL_STAGED_PACKET_LATEST.md",
+    command: "npm run check:commercial-staged-packet-report",
+    description: "Read-only kontrol af det der faktisk er lagt i git-index før commit, push eller deploy.",
+    verifies: [
+      "Forbudte lokale Supabase-/debugfiler er ikke staged.",
+      "Core pricing, POD og lokale tooling-filer holdes ude af releasepakken.",
+      "Deployable Supabase-filer og holdte lokale artifacts vises separat.",
+    ],
+  },
+  {
+    title: "Branch freshness review",
+    status: "qa",
+    path: "docs/COMMERCIAL_BRANCH_FRESHNESS_LATEST.md",
+    command: "npm run check:commercial-branch-freshness-report",
+    description: "Read-only review af upstream-commits, remote ændrede filer og overlap med staged packet før push/deploy.",
+    verifies: [
+      "Remote-only commits og filer listes uden fetch, pull, merge eller rebase.",
+      "Overlap mellem upstream-delta og staged packet gøres synligt som release-HOLD.",
+      "Rapporten skaber ingen commit, push, pull, merge, Vercel-deploy eller Supabase-deploy.",
+    ],
+  },
+  {
+    title: "Upstream reconciliation",
+    status: "qa",
+    path: "docs/COMMERCIAL_UPSTREAM_RECONCILIATION_LATEST.md",
+    command: "npm run check:commercial-upstream-reconciliation-report",
+    description: "Read-only review der viser om remote-overlap er exakt, repræsenteret, superseded eller uløst i staged packet.",
+    verifies: [
+      "Remote-overlap klassificeres uden pull, merge eller rebase.",
+      "Uløste overlap tælles separat fra branch-HOLD.",
+      "Rapporten skaber ingen commit, push, pull, merge, Vercel-deploy eller Supabase-deploy.",
+    ],
+  },
+  {
+    title: "Owner merge-readiness",
+    status: "qa",
+    path: "docs/COMMERCIAL_OWNER_MERGE_READINESS_LATEST.md",
+    command: "npm run check:commercial-owner-merge-readiness-report",
+    description: "Read-only temp-index bevis for at den staged releasepakke kan lægges oven på upstream-træet før release-ejeren frisker branchen op.",
+    verifies: [
+      "Et midlertidigt git-index bygges fra upstream og overlayes med staged packet.",
+      "Temp-træet kan skrives uden at ændre branch, worktree eller rigtigt git-index.",
+      "Rapporten skaber ingen commit, push, pull, merge, rebase, Vercel-deploy eller Supabase-deploy.",
+    ],
+  },
+  {
+    title: "Release-owner sequence",
+    status: "qa",
+    path: "docs/COMMERCIAL_RELEASE_OWNER_SEQUENCE_LATEST.md",
+    command: "npm run check:commercial-release-owner-sequence-report",
+    description: "Read-only rækkefølge for release-ejeren: frisk branch, bevar staged packet, commit kun reviewed packet, deploy og stopregler.",
+    verifies: [
+      "Releasebevis, staged packet, upstream reconciliation og owner merge-readiness samles i én ejersekvens.",
+      "Sekvensen viser konkrete stopregler for branch freshness, commit, Vercel og Supabase.",
+      "Rapporten skaber ingen commit, push, pull, merge, rebase, Vercel-deploy eller Supabase-deploy.",
+    ],
+  },
+  {
+    title: "Deploy-readiness review",
+    status: "qa",
+    path: "docs/COMMERCIAL_DEPLOY_READINESS_LATEST.md",
+    command: "npm run check:commercial-deploy-readiness-report",
+    description: "Read-only go/no-go rapport for push/deploy: releasebevis, staged packet, branch, unstaged arbejde, Supabase-scope og release-ejer.",
+    verifies: [
+      "Releasebevis og staged packet er kontrolleret før deploybeslutning.",
+      "Branch bag remote, unstaged arbejde og holdte lokale artifacts vises som HOLD i stedet for at blive skjult.",
+      "Rapporten skaber ingen commit, push, pull, merge, Vercel-deploy eller Supabase-deploy.",
+    ],
+  },
+  {
+    title: "Release handoff",
+    status: "qa",
+    path: "docs/COMMERCIAL_RELEASE_HANDOFF_LATEST.md",
+    command: "npm run check:commercial-release-handoff-report",
+    description: "Read-only overdragelse til release-ejer med commitforslag, ejerbeslutninger, Supabase-scope, rollbacknote og post-deploy røgtest.",
+    verifies: [
+      "Committekst og verifikationslinjer er samlet som forslag, ikke udført.",
+      "Rollbacknote og post-deploy livebevis er synlige før ekstern brug.",
+      "Rapporten skaber ingen commit, push, pull, merge, Vercel-deploy eller Supabase-deploy.",
+    ],
+  },
+  {
+    title: "Ændringssæt til review",
+    status: "qa",
+    path: "docs/COMMERCIAL_CHANGESET_LATEST.md",
+    command: "npm run check:commercial-changeset-report",
+    description: "Read-only oversigt over dirty worktree grupperet i review-buckets før push/deploy.",
+    verifies: [
+      "Dirty entries tælles og vises samlet.",
+      "App-kode, Supabase, dokumentation og proof-chain grupperes separat.",
+      "Review-rækkefølge og bucket-kommandoer vises før push/deploy.",
+      "Første reviewpakke viser præcis hvilke proof-chain filer der bør gennemgås samlet.",
+      "Staging-preview, staged-file kontrol og rollback-kommando vises uden at ændre git index.",
+      "Rapporten gør branch-behind og reviewpunkter synlige uden at stage eller pushe.",
+    ],
   },
 ];
 
@@ -965,12 +1189,12 @@ const nextActions: ActionItem[] = [
 
 const commercialDecisions: CommercialDecision[] = [
   {
-    title: "Vælg første bevisprodukt for Onlinetryksager",
+    title: "Bekræft Flyers som første bevisprodukt for Onlinetryksager",
     owner: "Produkt",
-    status: "planlagt",
-    impact: "Onlinetryksager kan ikke indgå som fuld pilot før et konkret produktflow er valgt.",
-    decision: "Vælg et standardprodukt og gør det til første bevisflow.",
-    href: "/admin/products?force_domain=www.onlinetryksager.dk",
+    status: "qa",
+    impact: "Onlinetryksager har nu Flyers som sekundært proof; den skal stadig holdes ude af hovedpitch indtil ordre/admin-bevis er gennemgået.",
+    decision: "Brug Flyers som første standardflow og bekræft pris, upload/checkout og adminordre før den løftes fra sekundær pilot.",
+    href: "/admin/product/flyer-demand?force_domain=www.onlinetryksager.dk",
   },
   {
     title: "Afklar checkout og betalingspilot",
@@ -1014,6 +1238,8 @@ const commercialDecisions: CommercialDecision[] = [
   },
 ];
 
+const commercialDecisionsQueue = commercialDecisions;
+
 function getCommercialDecisionOptionCards(
   decisions: CommercialDecision[],
 ): CommercialDecisionOptionCard[] {
@@ -1021,13 +1247,13 @@ function getCommercialDecisionOptionCards(
     if (decision.title.includes("Onlinetryksager")) {
       return {
         ...decision,
-        recommended: "Vælg ét simpelt standardprodukt som sekundært proof og hold det ude af hovedpitch, indtil pris, designer/upload og ordrevej er set.",
+        recommended: "Brug Flyers som simpelt sekundært proof og hold det ude af hovedpitch, indtil pris, upload/checkout og ordrevej er bevidnet i admin.",
         alternatives: [
           "Vente med Onlinetryksager og fokusere al QA på Webprinter + Salgsmapper.",
-          "Vælge en bred kategori først, men først gøre produktet salgbart senere.",
+          "Skifte proof til en anden bred standardkategori, hvis Flyers ikke matcher første salgsfortælling.",
         ],
-        deferCost: "Onlinetryksager bliver ved med at være en tenant uden tydelig proof-rolle i salgsfortællingen.",
-        decisionRule: "Vælg produktet når det kan forklares på én linje og testes uden ny prislogik.",
+        deferCost: "Hvis Flyers ikke følges op med ordre/admin-bevis, bliver Onlinetryksager stadig kun en visuel tenant i salgsfortællingen.",
+        decisionRule: "Behold Flyers som proof når det kan forklares på én linje og testes uden ny prislogik.",
       };
     }
 
@@ -3098,7 +3324,9 @@ function getPrintHouseDemoRunbook(
       title: "7. Hold Onlinetryksager som sekundær pilot",
       status: onlinetryksager?.firstProductSlug ? "qa" : "planlagt",
       duration: "1 min",
-      description: "Nævn Onlinetryksager som næste generelle print-tenant, men lad den ikke bære hoveddemoen før første produkt er valgt.",
+      description: onlinetryksager?.firstProductSlug
+        ? `Nævn Onlinetryksager som næste generelle print-tenant med ${onlinetryksager.firstProduct} som sekundært proof, men lad den ikke bære hoveddemoen endnu.`
+        : "Nævn Onlinetryksager som næste generelle print-tenant, men lad den ikke bære hoveddemoen før første produkt er valgt.",
       href: onlinetryksager?.adminPath || "/admin/products?force_domain=www.onlinetryksager.dk",
     },
   ];
@@ -3583,6 +3811,7 @@ function getThirtyDayPlanItems(
   const salgsmapper = getTenantByDomain(readinessRows, "salgsmapper.dk");
   const onlinetryksager = getTenantByDomain(readinessRows, "onlinetryksager.dk");
   const selectedPilotPaths = readinessRows.filter((tenant) => tenant.firstProductSlug && tenant.signal?.tenantId);
+  const missingPilotPaths = readinessRows.filter((tenant) => !tenant.firstProductSlug || !tenant.signal?.tenantId);
   const allPilotsSelected = selectedPilotPaths.length === readinessRows.length;
   const webprinterPriceReady = Boolean(webprinter?.signal?.firstProductPriceRows && webprinter.signal.firstProductPriceRows > 0);
   const webprinterOrderReady = pilotOrderPlan.some((step) => step.title.includes("Kør kontrolleret ordre") && step.status === "klar");
@@ -3599,8 +3828,8 @@ function getThirtyDayPlanItems(
       status: allPilotsSelected ? "qa" : "planlagt",
       proof: allPilotsSelected
         ? `${formatCount(selectedPilotPaths.length)} pilotflows er valgt i cockpitdata.`
-        : `${formatCount(selectedPilotPaths.length)}/${formatCount(readinessRows.length)} pilotflows er valgt; Onlinetryksager mangler stadig et første produkt.`,
-      next: allPilotsSelected ? "Gennemgå alle tre manuelt i storefront." : "Vælg første standardprodukt for Onlinetryksager.",
+        : `${formatCount(selectedPilotPaths.length)}/${formatCount(readinessRows.length)} pilotflows er valgt; mangler: ${missingPilotPaths.map((tenant) => tenant.name).join(", ") || "ukendt"}.`,
+      next: allPilotsSelected ? "Gennemgå alle tre manuelt i storefront." : "Vælg eller ret første standardprodukt for de manglende tenants.",
       href: onlinetryksager?.adminPath || "/admin/products?force_domain=www.onlinetryksager.dk",
     },
     {
@@ -4172,7 +4401,7 @@ function getPrintHouseMeetingPack(
       status: demoReadySteps >= 3 ? "qa" : "blokeret",
       purpose: "Hold demoen på Webprinter platform, produkt/pris, Salgsmapper template, adminordre og Supplier Bank som staging.",
       say: `Vis ${formatCount(demoReadySteps)}/${formatCount(demoRunbook.length)} demo-trin som enten bevist eller kræver QA.`,
-      evidence: "Demo-køreplanen bestemmer rækkefølgen og holder Onlinetryksager som sekundær pilot indtil første produkt er valgt.",
+      evidence: "Demo-køreplanen bestemmer rækkefølgen og holder Onlinetryksager som sekundær pilot med Flyers-proof, ikke som hoveddemo.",
       href: "/admin/commercial-readiness?force_domain=webprinter.dk#demo-runbook",
     },
     {
@@ -10648,6 +10877,226 @@ export default function CommercialReadiness() {
           <ClipboardCheck className="h-5 w-5 text-slate-600" />
           <h2 className="text-xl font-semibold">Bevisflow pr. tenant</h2>
         </div>
+        <section id="automated-proof-chain" className="scroll-mt-24 space-y-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-slate-600" />
+              <h3 className="text-lg font-semibold">Automatiseret browserbevis</h3>
+            </div>
+            <Badge variant="outline" className={statusClassNames.klar}>
+              {automatedProofChain.length}/{automatedProofChain.length} flows dækket
+            </Badge>
+          </div>
+          <Card>
+            <CardContent className="flex flex-col gap-3 p-4 text-sm leading-6 text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                Den samlede proof-gate kontrollerer cockpit-bindingerne og kører derefter de tre ejede
+                proof-flows på localhost med tenantkontekst, produktvalg, template/designer eller
+                ordre/upload-handoff. Den ændrer ikke produkter, priser, ordrer, SEO eller Supplier Bank.
+                Rapportversionen skriver kun til docs/COMMERCIAL_PROOF_LATEST.md, og release-gaten
+                skriver docs/COMMERCIAL_RELEASE_LATEST.md, docs/COMMERCIAL_CHANGESET_LATEST.md og
+                docs/COMMERCIAL_APPLICATION_SOURCE_LATEST.md, docs/COMMERCIAL_SUPABASE_LATEST.md og
+                docs/COMMERCIAL_STAGED_PACKET_LATEST.md samt
+                docs/COMMERCIAL_BRANCH_FRESHNESS_LATEST.md og
+                docs/COMMERCIAL_UPSTREAM_RECONCILIATION_LATEST.md og
+                docs/COMMERCIAL_OWNER_MERGE_READINESS_LATEST.md og
+                docs/COMMERCIAL_RELEASE_OWNER_SEQUENCE_LATEST.md. Derefter skriver den
+                docs/COMMERCIAL_DEPLOY_READINESS_LATEST.md som go/no-go beslutningsrapport og
+                docs/COMMERCIAL_RELEASE_HANDOFF_LATEST.md som release-overdragelse med rollbacknote og
+                docs/COMMERCIAL_RELEASE_PACKET_LATEST.md som åbne-først indeks for releasepakken.
+                Rapporterne kan kontrolleres separat.
+              </div>
+              <div className="flex flex-col gap-2">
+                <code className="w-fit rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
+                  npm run check:commercial-release
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-proof
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-proof:write
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-proof-report
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-changeset
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-changeset:write
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-changeset-report
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-application-source:write
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-application-source-report
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-supabase:write
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-supabase-report
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-staged-packet
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-staged-packet:write
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-staged-packet-report
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-branch-freshness
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-branch-freshness:write
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-branch-freshness-report
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-upstream-reconciliation
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-upstream-reconciliation:write
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-upstream-reconciliation-report
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-owner-merge-readiness
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-owner-merge-readiness:write
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-owner-merge-readiness-report
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-release-owner-sequence
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-release-owner-sequence:write
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-release-owner-sequence-report
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-deploy-readiness
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-deploy-readiness:write
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-deploy-readiness-report
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-release-handoff
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-release-handoff:write
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-release-handoff-report
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-release-packet
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-release-packet:write
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-release-packet-report
+                </code>
+                <code className="w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  npm run check:commercial-release-report
+                </code>
+              </div>
+            </CardContent>
+          </Card>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {commercialReleaseArtifacts.map((artifact) => (
+              <Card key={artifact.path}>
+                <CardHeader className="space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <FileText className="h-4 w-4 text-slate-600" />
+                        {artifact.title}
+                      </CardTitle>
+                      <CardDescription>{artifact.description}</CardDescription>
+                    </div>
+                    <StatusBadge status={artifact.status} />
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className={statusClassNames.klar}>Lokal bevisfil</Badge>
+                    <Badge variant="secondary">Read-only</Badge>
+                  </div>
+                  <div className="space-y-2">
+                    <code className="block rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                      {artifact.path}
+                    </code>
+                    <code className="block rounded-md bg-slate-100 px-3 py-2 text-xs font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                      {artifact.command}
+                    </code>
+                  </div>
+                  <div className="space-y-2 text-sm leading-6 text-muted-foreground">
+                    {artifact.verifies.map((proof) => (
+                      <div key={proof} className="flex gap-2">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                        <span>{proof}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <div className="grid gap-4 xl:grid-cols-3">
+            {automatedProofChain.map((item) => (
+              <Card key={`${item.tenantName}-${item.product}-automated-proof`}>
+                <CardHeader className="space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <CardTitle>{item.tenantName}</CardTitle>
+                      <CardDescription>{item.product}</CardDescription>
+                    </div>
+                    <StatusBadge status={item.status} />
+                  </div>
+                </CardHeader>
+                <CardContent className="flex h-full flex-col gap-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">{item.proofType}</Badge>
+                    <Badge variant="outline" className={statusClassNames.klar}>Browserproof</Badge>
+                  </div>
+                  <div className="rounded-md border bg-slate-50 p-3 text-xs text-muted-foreground dark:bg-slate-950">
+                    {item.route}
+                  </div>
+                  <div className="space-y-2 text-sm leading-6 text-muted-foreground">
+                    {item.verifies.map((proof) => (
+                      <div key={proof} className="flex gap-2">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                        <span>{proof}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <Button asChild variant="ghost" size="sm" className="mt-auto h-8 justify-between px-0">
+                    <Link to={item.href}>
+                      Åbn proof-flow
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
         <div className="grid gap-4 xl:grid-cols-3">
           {proofFlowRows.map(({ tenant, steps }) => (
             <Card key={`${tenant.domain}-proof-flow`}>

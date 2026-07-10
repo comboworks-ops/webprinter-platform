@@ -6,17 +6,19 @@ import { Download, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
+import {
+  getSalgsmapperFallbackTemplates,
+  mergeProductTemplates,
+  templateMatchesSelectedFormat,
+  type ProductTemplateFile,
+} from "@/lib/designer/productTemplateLinks";
 
-type TemplateFile = {
-  name: string;
-  url: string;
-  format?: string; // Optional format association (e.g., "A4", "A5")
-  uploadedAt: string;
-};
+type TemplateFile = ProductTemplateFile;
 
 type StaticProductInfoProps = {
   productId: string;
   selectedFormat?: string;
+  selectedFormatLabel?: string;
 };
 
 type GalleryEffect = "fade" | "fade-zoom" | "fade-up";
@@ -146,7 +148,7 @@ function ProductInfoGallery({
   );
 }
 
-export function StaticProductInfo({ productId, selectedFormat }: StaticProductInfoProps) {
+export function StaticProductInfo({ productId, selectedFormat, selectedFormatLabel }: StaticProductInfoProps) {
   const shopSettings = useShopSettings();
   const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
   const activeBranding = (isPreviewMode && previewBranding) ? previewBranding : shopSettings.data?.branding;
@@ -186,6 +188,8 @@ export function StaticProductInfo({ productId, selectedFormat }: StaticProductIn
     title: string | null;
     description: string | null;
     imageUrl: string | null;
+    productName: string | null;
+    slug: string | null;
     templates: TemplateFile[];
     infoV2: ProductInfoV2Config;
   } | null>(null);
@@ -199,7 +203,7 @@ export function StaticProductInfo({ productId, selectedFormat }: StaticProductIn
 
         let query = supabase
           .from('products')
-          .select('about_title, about_description, about_image_url, template_files, technical_specs');
+          .select('name, slug, about_title, about_description, about_image_url, template_files, technical_specs');
 
         query = isUuid
           ? query.eq('id', productId)
@@ -218,6 +222,8 @@ export function StaticProductInfo({ productId, selectedFormat }: StaticProductIn
             title: data.about_title,
             description: data.about_description,
             imageUrl: data.about_image_url,
+            productName: data.name,
+            slug: data.slug,
             templates: (data.template_files as TemplateFile[]) || [],
             infoV2,
           });
@@ -234,12 +240,22 @@ export function StaticProductInfo({ productId, selectedFormat }: StaticProductIn
     }
   }, [productId]);
 
+  const salgsmapperFallbackTemplates = useMemo<TemplateFile[]>(() => {
+    return getSalgsmapperFallbackTemplates({
+      productId,
+      productName: aboutData?.productName,
+      productSlug: aboutData?.slug,
+    });
+  }, [aboutData?.productName, aboutData?.slug, productId]);
+
+  const availableTemplates = useMemo(() => {
+    return mergeProductTemplates(aboutData?.templates, salgsmapperFallbackTemplates);
+  }, [aboutData?.templates, salgsmapperFallbackTemplates]);
+
   // Filter templates by format if selectedFormat is provided
-  const filteredTemplates = aboutData?.templates.filter(template => {
-    if (!selectedFormat) return true;
-    if (!template.format) return true; // Show templates without format association
-    return template.format === selectedFormat;
-  }) || [];
+  const filteredTemplates = availableTemplates.filter(template => {
+    return templateMatchesSelectedFormat(template.format, selectedFormat, selectedFormatLabel);
+  });
 
   const hasRenderableBlocks = useMemo(() => {
     if (!aboutData?.infoV2?.useSections) return false;
@@ -479,16 +495,20 @@ export function StaticProductInfo({ productId, selectedFormat }: StaticProductIn
             </p>
             <div className="flex flex-wrap gap-3">
               {filteredTemplates.map((template, index) => (
-                <Button
-                  key={index}
-                  variant="outline"
-                  onClick={() => window.open(template.url, '_blank')}
-                  className="gap-2"
-                >
-                  <FileText className="h-4 w-4" />
-                  {template.format ? `${template.name} (${template.format})` : template.name}
-                  <Download className="h-4 w-4" />
-                </Button>
+                <div key={`${template.url}-${index}`} className="flex flex-wrap items-center gap-2 rounded-md border border-border p-2">
+                  <div className="flex min-w-[180px] items-center gap-2 px-1 text-sm font-medium">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <span>{template.format ? `${template.name} (${template.format})` : template.name}</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => window.open(template.url, '_blank')}
+                    className="h-11 touch-manipulation gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download PDF
+                  </Button>
+                </div>
               ))}
             </div>
           </div>

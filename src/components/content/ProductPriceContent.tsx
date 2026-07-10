@@ -13,6 +13,7 @@ import { getProductBySlug } from "@/utils/productMetadata";
 import { getProductImage } from "@/utils/productImages";
 import { supabase } from "@/integrations/supabase/client";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { ProductSchema, BreadcrumbSchema } from "@/components/ProductSchema";
 import {
     type MatrixData
@@ -33,6 +34,7 @@ import {
     // calculateFoilPrice, // Unused
     getGenericMatrixDataFromDB
 } from "@/utils/pricingDatabase";
+import { resolveStorefrontProductFlow } from "@/lib/sites/storefrontProductFlow";
 
 // Product configurations
 const productConfigs: Record<string, {
@@ -134,6 +136,8 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
     const { slug: paramSlug } = useParams<{ slug: string }>();
     const [searchParams] = useSearchParams();
     const shopSettings = useShopSettings();
+    const { branding: previewBranding } = usePreviewBranding();
+    const activeBranding = (previewBranding || shopSettings.data?.branding || {}) as any;
 
     // Use propSlug if available (for Preview), otherwise fallback to paramSlug
     const slug = propSlug || paramSlug;
@@ -157,7 +161,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
     const [dbProductId, setDbProductId] = useState<string | null>(null);
     const [genericVariantNames, setGenericVariantNames] = useState<string[]>([]);
     const [selectedVariantName, setSelectedVariantName] = useState<string>("");
-    const [dbProduct, setDbProduct] = useState<{ id: string; name: string; description: string; image_url: string | null; pricing_type?: string; technical_specs?: any; banner_config?: any } | null>(null);
+    const [dbProduct, setDbProduct] = useState<{ id: string; name: string; description: string; image_url: string | null; category?: string | null; pricing_type?: string; technical_specs?: any; banner_config?: any } | null>(null);
     const [pricingStructure, setPricingStructure] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [valueNameById, setValueNameById] = useState<Record<string, string>>({});
@@ -232,6 +236,12 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
     }, [dbProduct?.technical_specs]);
 
     const sizeDistributionFields = sizeDistributionConfig?.fields || [];
+    const productFlow = useMemo(() => resolveStorefrontProductFlow({
+        name: dbProduct?.name || product?.name,
+        category: dbProduct?.category || (product as any)?.category || null,
+        pricing_type: dbProduct?.pricing_type || null,
+        technical_specs: dbProduct?.technical_specs || null,
+    }), [dbProduct?.category, dbProduct?.name, dbProduct?.pricing_type, dbProduct?.technical_specs, product]);
 
     useEffect(() => {
         if (!sizeDistributionConfig) {
@@ -570,7 +580,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
             // Cast to any because pricing_structure is not in auto-generated types yet
             let query = supabase
                 .from('products')
-                .select('id, name, description, image_url, technical_specs, pricing_structure, pricing_type, banner_config' as any)
+                .select('id, name, description, image_url, category, technical_specs, pricing_structure, pricing_type, banner_config' as any)
                 .eq('slug', slug);
 
             if (resolvedTenantId) {
@@ -1014,6 +1024,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                             designHeightMm={designDimensions.height}
                             designBleedMm={designDimensions.bleed}
                             designSafeAreaMm={designSafeAreaMm}
+                            productFlow={productFlow}
                             externalDeliveryEnabled={podShippingEnabled}
                             externalDeliveryMethods={podShippingMethods}
                             externalDeliveryLoading={podShippingLoading}
@@ -1062,6 +1073,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                             externalDeliveryLoading={podShippingLoading}
                             externalDeliveryError={podShippingError}
                             externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+                            productFlow={productFlow}
                             summary={[
                                 product?.name,
                                 selectedCell?.row,
@@ -1167,6 +1179,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                                 designHeightMm={designDimensions.height}
                                 designBleedMm={designDimensions.bleed}
                                 designSafeAreaMm={designSafeAreaMm}
+                                productFlow={productFlow}
                                 externalDeliveryEnabled={podShippingEnabled}
                                 externalDeliveryMethods={podShippingMethods}
                                 externalDeliveryLoading={podShippingLoading}
@@ -1206,10 +1219,54 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                     { name: product.name, url: `/produkt/${slug}` }
                 ]}
             />
-            <div className="flex flex-col md:flex-row gap-6 mb-8">
+            <div className="flex flex-col md:flex-row gap-6 mb-8" data-branding-id="productPage.heading">
                 <div className="flex-1">
-                    <h1 data-branding-id="typography.heading" className="text-3xl md:text-4xl font-heading font-bold mb-2">{product.name}</h1>
-                    <p data-branding-id="typography.body" className="text-muted-foreground">{product.description}</p>
+                    {(() => {
+                        const headingConfig = activeBranding?.productPage?.heading;
+                        const headingText = headingConfig?.customText?.trim() || product.name;
+                        const headingFont = headingConfig?.font || "inherit";
+                        const headingSize = headingConfig?.sizePx ? `${headingConfig.sizePx}px` : undefined;
+                        const headingColor = headingConfig?.color || activeBranding?.colors?.headingText || undefined;
+                        const subtext = headingConfig?.subtext;
+                        const bodyFont = activeBranding?.fonts?.body || "inherit";
+                        const bodyColor = activeBranding?.colors?.bodyText || undefined;
+
+                        return (
+                            <>
+                                <h1
+                                    className="text-3xl md:text-4xl font-heading font-bold mb-2 leading-tight"
+                                    style={{
+                                        fontFamily: headingFont !== "inherit" ? `'${headingFont}', sans-serif` : undefined,
+                                        fontSize: headingSize,
+                                        color: headingColor,
+                                    }}
+                                >
+                                    {headingText}
+                                </h1>
+                                {subtext?.enabled && subtext?.text?.trim() && (
+                                    <p
+                                        className="font-bold mb-2"
+                                        style={{
+                                            fontFamily: subtext.font && subtext.font !== "inherit" ? `'${subtext.font}', sans-serif` : undefined,
+                                            fontSize: subtext.sizePx ? `${subtext.sizePx}px` : undefined,
+                                            color: subtext.color || bodyColor,
+                                        }}
+                                    >
+                                        {subtext.text}
+                                    </p>
+                                )}
+                                <p
+                                    className="text-muted-foreground"
+                                    style={{
+                                        fontFamily: bodyFont !== "inherit" ? `'${bodyFont}', sans-serif` : undefined,
+                                        color: bodyColor,
+                                    }}
+                                >
+                                    {product.description}
+                                </p>
+                            </>
+                        );
+                    })()}
                 </div>
                 {product && (
                     <div data-branding-id="icons.product-images" className="w-full md:w-48 h-48 flex-shrink-0">

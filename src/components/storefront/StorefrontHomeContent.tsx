@@ -1,4 +1,5 @@
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
+import { Helmet } from "react-helmet-async";
 
 import { Truck, Award, Phone, Shield, Clock, Star, Heart, Check } from "lucide-react";
 
@@ -20,6 +21,75 @@ const USP_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> 
   heart: Heart,
   check: Check,
 };
+
+function isPreloadableImageUrl(url?: string | null) {
+  const normalized = String(url || "").trim();
+  return Boolean(normalized)
+    && !normalized.startsWith("data:")
+    && !normalized.startsWith("blob:");
+}
+
+function pushUniqueImageUrl(urls: string[], url?: string | null) {
+  const normalized = String(url || "").trim();
+  if (isPreloadableImageUrl(normalized) && !urls.includes(normalized)) {
+    urls.push(normalized);
+  }
+}
+
+function getCriticalStorefrontImageUrls(branding: BrandingData) {
+  const urls: string[] = [];
+  const hero = branding.hero;
+  const showHero = branding.forside?.showBanner ?? true;
+
+  if (showHero && hero) {
+    if (hero.mediaType === "video") {
+      const firstVideo = [...(hero.videos || [])].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))[0];
+      pushUniqueImageUrl(urls, firstVideo?.posterUrl);
+    } else {
+      const firstImage = [...(hero.images || [])]
+        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+        .find((image) => isPreloadableImageUrl(image?.url));
+      pushUniqueImageUrl(urls, firstImage?.url || hero.media?.find(isPreloadableImageUrl));
+    }
+  }
+
+  const banner2 = branding.forside?.banner2;
+  if (banner2?.enabled !== false) {
+    const firstSlide = (banner2?.slides || [])
+      .find((slide) => slide.enabled && slide.items?.some((item) => item.enabled));
+    const maxColumns = banner2.mode === "logo-showcase" ? 6 : 4;
+    const visibleItemCount = Math.max(1, Math.min(banner2.itemsPerRow || maxColumns, maxColumns));
+
+    firstSlide?.items
+      ?.filter((item) => item.enabled)
+      .slice(0, visibleItemCount)
+      .forEach((item) => {
+        if (item.iconType === "image") {
+          pushUniqueImageUrl(urls, item.iconUrl);
+        }
+      });
+  }
+
+  return urls.slice(0, 8);
+}
+
+function getPreconnectOrigins(urls: string[]) {
+  const baseOrigin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+  const origins = new Set<string>();
+
+  urls.forEach((url) => {
+    try {
+      const parsed = new URL(url, baseOrigin);
+      if ((parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.origin !== baseOrigin) {
+        origins.add(parsed.origin);
+      }
+    } catch {
+      // Ignore invalid admin-entered image URLs.
+    }
+  });
+
+  return Array.from(origins);
+}
 
 function getUSPAnimationName(animation?: USPStripSettings["animation"]) {
   switch (animation) {
@@ -118,6 +188,14 @@ export function StorefrontHomeContent({
   const productLayoutStyle = productsSection?.layoutStyle;
   const showStorformatTab = productsSection?.showStorformatTab ?? true;
   const featuredProductConfig = productsSection?.featuredProductConfig;
+  const criticalImageUrls = useMemo(
+    () => getCriticalStorefrontImageUrls(resolvedBranding),
+    [resolvedBranding],
+  );
+  const preconnectOrigins = useMemo(
+    () => getPreconnectOrigins(criticalImageUrls),
+    [criticalImageUrls],
+  );
 
   const headerSettings = resolvedBranding.header || {};
   const transparentOverHero = headerSettings.transparentOverHero ?? true;
@@ -126,6 +204,15 @@ export function StorefrontHomeContent({
 
   return (
     <main className="flex-1" style={{ marginTop: mainMargin }}>
+      <Helmet>
+        {preconnectOrigins.map((origin) => (
+          <link key={`preconnect-${origin}`} rel="preconnect" href={origin} crossOrigin="" />
+        ))}
+        {criticalImageUrls.map((url) => (
+          <link key={`preload-${url}`} rel="preload" as="image" href={url} />
+        ))}
+      </Helmet>
+
       <Theme.HeroSlider
         branding={resolvedBranding}
         tenantName={resolvedTenantName}
@@ -196,6 +283,8 @@ export function StorefrontHomeContent({
                   <img
                     src={block.imageUrl}
                     alt={block.heading || "Content image"}
+                    loading="lazy"
+                    decoding="async"
                     className="rounded-lg max-h-64 object-cover mx-auto"
                   />
                 </div>
@@ -264,6 +353,10 @@ export function StorefrontHomeContent({
                         <img
                           src={item.customIconUrl}
                           alt={item.title}
+                          width={isAnimated ? 32 : 48}
+                          height={isAnimated ? 32 : 48}
+                          loading="lazy"
+                          decoding="async"
                           className={isAnimated ? "h-8 w-auto max-w-full object-contain" : "h-12 w-12 object-contain"}
                         />
                       ) : IconComponent ? (

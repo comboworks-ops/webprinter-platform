@@ -1,9 +1,11 @@
 import { Helmet } from "react-helmet-async";
+import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { supabase } from "@/integrations/supabase/client";
+import { syncPrimarySeoTags } from "@/lib/seo/domHead";
 import {
   DEFAULT_ROOT_DOMAIN,
   resolveStorefrontSeoMeta,
@@ -53,18 +55,6 @@ export function StorefrontSeo() {
     staleTime: 5 * 60 * 1000,
   });
 
-  if (!shouldApply) {
-    return null;
-  }
-
-  if (pageSeoLoading && !isPreviewMode) {
-    return null;
-  }
-
-  if (!isPreviewMode && !pageSeoOverride) {
-    return null;
-  }
-
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const baseMeta = resolveStorefrontSeoMeta({
     pathname,
@@ -80,6 +70,45 @@ export function StorefrontSeo() {
 
   const aiSeo = (settings as Record<string, unknown>)?.ai_seo as Record<string, unknown> | undefined;
   const faqSchema = aiSeo ? buildAiFaqSchema(aiSeo) : null;
+
+  useEffect(() => {
+    if (!shouldApply) return;
+    if (pageSeoLoading && !isPreviewMode) return;
+    if (!isPreviewMode && !pageSeoOverride) return;
+
+    syncPrimarySeoTags({
+      title: meta.title,
+      description: meta.description,
+      canonicalUrl: meta.canonicalUrl,
+      author: meta.author,
+      imageUrl: meta.imageUrl,
+      ogUrl: meta.ogUrl,
+      type: "website",
+    });
+  }, [
+    shouldApply,
+    pageSeoLoading,
+    isPreviewMode,
+    pageSeoOverride,
+    meta.title,
+    meta.description,
+    meta.canonicalUrl,
+    meta.author,
+    meta.imageUrl,
+    meta.ogUrl,
+  ]);
+
+  if (!shouldApply) {
+    return null;
+  }
+
+  if (pageSeoLoading && !isPreviewMode) {
+    return null;
+  }
+
+  if (!isPreviewMode && !pageSeoOverride) {
+    return null;
+  }
 
   return (
     <Helmet>

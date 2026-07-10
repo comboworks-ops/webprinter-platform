@@ -3,7 +3,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Image as ImageIcon, Upload, Trash2, Loader2 } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
+import { Upload, Trash2, Loader2, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { FontSelector } from "./FontSelector";
@@ -17,6 +18,7 @@ interface LogoSectionProps {
     savedSwatches?: string[];
     onSaveSwatch?: (color: string) => void;
     onRemoveSwatch?: (color: string) => void;
+    focusTargetId?: string | null;
 }
 
 export function LogoSection({
@@ -26,8 +28,19 @@ export function LogoSection({
     savedSwatches,
     onSaveSwatch,
     onRemoveSwatch,
+    focusTargetId,
 }: LogoSectionProps) {
     const [uploading, setUploading] = useState(false);
+    const logoHeightPx = Math.min(120, Math.max(24, Number(draft.header.logoHeightPx) || 40));
+    const updateLogoHeight = (heightPx: number) => {
+        const nextHeight = Math.min(120, Math.max(24, Math.round(heightPx)));
+        updateDraft({
+            header: {
+                ...draft.header,
+                logoHeightPx: nextHeight,
+            },
+        });
+    };
 
     // Handle logo upload
     const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -66,7 +79,7 @@ export function LogoSection({
     };
 
     return (
-        <div className="space-y-4">
+        <div id="site-design-focus-logo" className={focusTargetId === "site-design-focus-logo" ? "space-y-4 rounded-xl ring-2 ring-primary/50 ring-offset-2" : "space-y-4"}>
             {/* Logo Type Toggle */}
             <div className="flex gap-2">
                 <Button
@@ -197,6 +210,48 @@ export function LogoSection({
                     <p className="text-xs text-muted-foreground">
                         Anbefalet: PNG eller SVG. Logoet skaleres automatisk til at passe i headeren.
                     </p>
+                    <div className="space-y-3 rounded-lg border bg-background/60 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <Label>Logo størrelse</Label>
+                                <p className="text-xs text-muted-foreground">Styrer højden på det uploadede logo i headeren.</p>
+                            </div>
+                            <span className="rounded-md bg-muted px-2 py-1 text-xs tabular-nums text-muted-foreground">
+                                {logoHeightPx}px
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8 shrink-0"
+                                onClick={() => updateLogoHeight(logoHeightPx - 4)}
+                                disabled={logoHeightPx <= 24}
+                                aria-label="Gør logo mindre"
+                            >
+                                <Minus className="h-4 w-4" />
+                            </Button>
+                            <Slider
+                                min={24}
+                                max={120}
+                                step={2}
+                                value={[logoHeightPx]}
+                                onValueChange={([value]) => updateLogoHeight(value)}
+                            />
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8 shrink-0"
+                                onClick={() => updateLogoHeight(logoHeightPx + 4)}
+                                disabled={logoHeightPx >= 120}
+                                aria-label="Gør logo større"
+                            >
+                                <Plus className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

@@ -99,6 +99,8 @@ export function PreviewBrandingProvider({
     const [tenantName, setTenantName] = useState(initialTenantName);
     const [isPreviewMode, setIsPreviewMode] = useState(false);
     const [isReady, setIsReady] = useState(!!initialBranding);
+    const [editMode, setEditMode] = useState(false);
+    const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
 
     // Update state when initial props change
     useEffect(() => {
@@ -163,6 +165,17 @@ export function PreviewBrandingProvider({
                     [productId]: event.data.pricingStructure || null,
                 }));
             }
+
+            if (event.data?.type === "SET_EDIT_MODE") {
+                setEditMode(Boolean(event.data.enabled));
+                if (!event.data.enabled) {
+                    setSelectedElementId(null);
+                }
+            }
+
+            if (event.data?.type === "CLEAR_SELECTION") {
+                setSelectedElementId(null);
+            }
         };
 
         window.addEventListener("message", handleMessage);
@@ -173,6 +186,97 @@ export function PreviewBrandingProvider({
         }
 
         return () => window.removeEventListener("message", handleMessage);
+    }, [isPreviewMode]);
+
+    useEffect(() => {
+        if (!isPreviewMode) return;
+
+        document.documentElement.setAttribute("data-site-design-edit-mode", editMode ? "true" : "false");
+
+        const handleClick = (event: MouseEvent) => {
+            if (!editMode) return;
+
+            const target = event.target as HTMLElement | null;
+            const brandingElement = target?.closest?.(
+                "[data-site-design-target], [data-branding-id], [data-click-to-edit]",
+            ) as HTMLElement | null;
+
+            if (!brandingElement) return;
+
+            const sectionId = brandingElement.getAttribute("data-site-design-target")
+                || brandingElement.getAttribute("data-branding-id")
+                || brandingElement.getAttribute("data-click-to-edit");
+
+            if (!sectionId) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+
+            setSelectedElementId(sectionId);
+            brandingElement.setAttribute("data-selected", "true");
+
+            window.parent.postMessage({ type: "EDIT_SECTION", sectionId }, "*");
+            window.parent.postMessage({ type: "ELEMENT_CLICKED", sectionId }, "*");
+        };
+
+        document.addEventListener("click", handleClick, true);
+
+        return () => {
+            document.removeEventListener("click", handleClick, true);
+            document.documentElement.removeAttribute("data-site-design-edit-mode");
+        };
+    }, [isPreviewMode, editMode]);
+
+    useEffect(() => {
+        if (!isPreviewMode) return;
+
+        document.querySelectorAll("[data-selected='true']").forEach((element) => {
+            if (
+                element.getAttribute("data-site-design-target") !== selectedElementId
+                && element.getAttribute("data-branding-id") !== selectedElementId
+                && element.getAttribute("data-click-to-edit") !== selectedElementId
+            ) {
+                element.removeAttribute("data-selected");
+            }
+        });
+
+        if (!selectedElementId) return;
+
+        const selected = document.querySelector(
+            `[data-site-design-target="${CSS.escape(selectedElementId)}"], [data-branding-id="${CSS.escape(selectedElementId)}"], [data-click-to-edit="${CSS.escape(selectedElementId)}"]`,
+        );
+        selected?.setAttribute("data-selected", "true");
+    }, [isPreviewMode, selectedElementId]);
+
+    useEffect(() => {
+        if (!isPreviewMode) return;
+
+        const styleId = "site-design-preview-click-to-edit-styles";
+        if (document.getElementById(styleId)) return;
+
+        const style = document.createElement("style");
+        style.id = styleId;
+        style.textContent = `
+            [data-site-design-edit-mode="true"] [data-site-design-target],
+            [data-site-design-edit-mode="true"] [data-branding-id],
+            [data-site-design-edit-mode="true"] [data-click-to-edit] {
+                cursor: pointer;
+            }
+
+            [data-site-design-edit-mode="true"] [data-site-design-target]:hover,
+            [data-site-design-edit-mode="true"] [data-branding-id]:hover,
+            [data-site-design-edit-mode="true"] [data-click-to-edit]:hover,
+            [data-site-design-edit-mode="true"] [data-selected="true"] {
+                outline: 2px solid hsl(var(--primary));
+                outline-offset: 4px;
+            }
+        `;
+        document.head.appendChild(style);
+
+        return () => {
+            style.remove();
+        };
     }, [isPreviewMode]);
 
     // Listen for broadcasted branding updates (opened in new window)

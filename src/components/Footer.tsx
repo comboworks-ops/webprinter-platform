@@ -5,6 +5,7 @@ import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { DEFAULT_FOOTER } from "@/hooks/useBrandingDraft";
 import type { FooterSettings } from "@/hooks/useBrandingDraft";
 import { useCookieConsent } from "@/components/consent";
+import { appendStorefrontTenantContext } from "@/lib/storefrontTenantContext";
 
 // Small link component to open cookie settings
 const CookieSettingsLink = ({ className }: { className?: string }) => {
@@ -12,7 +13,7 @@ const CookieSettingsLink = ({ className }: { className?: string }) => {
   return (
     <button
       onClick={openSettings}
-      className={`hover:underline text-xs ${className || ''}`}
+      className={`inline-flex min-h-11 items-center hover:underline text-xs ${className || ''}`}
     >
       Cookieindstillinger
     </button>
@@ -100,9 +101,9 @@ const Footer = () => {
                 {visibleLinks.map(link => (
                   <Link
                     key={link.id}
-                    to={link.href}
+                    to={appendStorefrontTenantContext(link.href)}
                     data-branding-id="footer.links"
-                    className={`${textColorClass} hover:opacity-80 transition-opacity text-sm`}
+                    className={`${textColorClass} inline-flex min-h-11 items-center hover:opacity-80 transition-opacity text-sm`}
                   >
                     {link.label}
                   </Link>
@@ -113,22 +114,22 @@ const Footer = () => {
             {hasAnySocialIcon && (
               <div className="flex gap-4" data-branding-id="footer.social">
                 {footerSettings.social.facebook.enabled && footerSettings.social.facebook.url && (
-                  <a data-branding-id="footer.social" href={footerSettings.social.facebook.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} hover:opacity-80 transition-opacity`} aria-label="Facebook">
+                  <a data-branding-id="footer.social" href={footerSettings.social.facebook.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} inline-flex h-11 w-11 items-center justify-center hover:opacity-80 transition-opacity`} aria-label="Facebook">
                     <Facebook className="h-5 w-5" />
                   </a>
                 )}
                 {footerSettings.social.instagram.enabled && footerSettings.social.instagram.url && (
-                  <a data-branding-id="footer.social" href={footerSettings.social.instagram.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} hover:opacity-80 transition-opacity`} aria-label="Instagram">
+                  <a data-branding-id="footer.social" href={footerSettings.social.instagram.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} inline-flex h-11 w-11 items-center justify-center hover:opacity-80 transition-opacity`} aria-label="Instagram">
                     <Instagram className="h-5 w-5" />
                   </a>
                 )}
                 {footerSettings.social.linkedin.enabled && footerSettings.social.linkedin.url && (
-                  <a data-branding-id="footer.social" href={footerSettings.social.linkedin.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} hover:opacity-80 transition-opacity`} aria-label="LinkedIn">
+                  <a data-branding-id="footer.social" href={footerSettings.social.linkedin.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} inline-flex h-11 w-11 items-center justify-center hover:opacity-80 transition-opacity`} aria-label="LinkedIn">
                     <Linkedin className="h-5 w-5" />
                   </a>
                 )}
                 {footerSettings.social.youtube.enabled && footerSettings.social.youtube.url && (
-                  <a data-branding-id="footer.social" href={footerSettings.social.youtube.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} hover:opacity-80 transition-opacity`} aria-label="YouTube">
+                  <a data-branding-id="footer.social" href={footerSettings.social.youtube.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} inline-flex h-11 w-11 items-center justify-center hover:opacity-80 transition-opacity`} aria-label="YouTube">
                     <Youtube className="h-5 w-5" />
                   </a>
                 )}
@@ -148,9 +149,9 @@ const Footer = () => {
                 {visibleLinks.map(link => (
                   <Link
                     key={link.id}
-                    to={link.href}
+                    to={appendStorefrontTenantContext(link.href)}
                     data-branding-id="footer.links"
-                    className={`${textColorClass} hover:opacity-80 transition-opacity text-sm`}
+                    className={`${textColorClass} inline-flex min-h-11 items-center hover:opacity-80 transition-opacity text-sm`}
                   >
                     {link.label}
                   </Link>
@@ -161,22 +162,22 @@ const Footer = () => {
             {hasAnySocialIcon && (
               <div className="flex justify-center gap-4" data-branding-id="footer.social">
                 {footerSettings.social.facebook.enabled && footerSettings.social.facebook.url && (
-                  <a data-branding-id="footer.social" href={footerSettings.social.facebook.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} hover:opacity-80 transition-opacity`} aria-label="Facebook">
+                  <a data-branding-id="footer.social" href={footerSettings.social.facebook.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} inline-flex h-11 w-11 items-center justify-center hover:opacity-80 transition-opacity`} aria-label="Facebook">
                     <Facebook className="h-5 w-5" />
                   </a>
                 )}
                 {footerSettings.social.instagram.enabled && footerSettings.social.instagram.url && (
-                  <a data-branding-id="footer.social" href={footerSettings.social.instagram.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} hover:opacity-80 transition-opacity`} aria-label="Instagram">
+                  <a data-branding-id="footer.social" href={footerSettings.social.instagram.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} inline-flex h-11 w-11 items-center justify-center hover:opacity-80 transition-opacity`} aria-label="Instagram">
                     <Instagram className="h-5 w-5" />
                   </a>
                 )}
                 {footerSettings.social.linkedin.enabled && footerSettings.social.linkedin.url && (
-                  <a data-branding-id="footer.social" href={footerSettings.social.linkedin.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} hover:opacity-80 transition-opacity`} aria-label="LinkedIn">
+                  <a data-branding-id="footer.social" href={footerSettings.social.linkedin.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} inline-flex h-11 w-11 items-center justify-center hover:opacity-80 transition-opacity`} aria-label="LinkedIn">
                     <Linkedin className="h-5 w-5" />
                   </a>
                 )}
                 {footerSettings.social.youtube.enabled && footerSettings.social.youtube.url && (
-                  <a data-branding-id="footer.social" href={footerSettings.social.youtube.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} hover:opacity-80 transition-opacity`} aria-label="YouTube">
+                  <a data-branding-id="footer.social" href={footerSettings.social.youtube.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} inline-flex h-11 w-11 items-center justify-center hover:opacity-80 transition-opacity`} aria-label="YouTube">
                     <Youtube className="h-5 w-5" />
                   </a>
                 )}
@@ -203,7 +204,7 @@ const Footer = () => {
               <ul className="space-y-2">
                 {visibleLinks.map(link => (
                   <li key={link.id}>
-                    <Link data-branding-id="footer.links" to={link.href} className={`${textColorClass} hover:opacity-80 transition-opacity text-sm`}>
+                    <Link data-branding-id="footer.links" to={appendStorefrontTenantContext(link.href)} className={`${textColorClass} inline-flex min-h-11 items-center hover:opacity-80 transition-opacity text-sm`}>
                       {link.label}
                     </Link>
                   </li>
@@ -237,22 +238,22 @@ const Footer = () => {
                 {hasAnySocialIcon && (
                   <li className="mt-4 flex gap-4" data-branding-id="footer.social">
                     {footerSettings.social.facebook.enabled && footerSettings.social.facebook.url && (
-                      <a data-branding-id="footer.social" href={footerSettings.social.facebook.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} hover:opacity-80 transition-opacity`} aria-label="Facebook">
+                      <a data-branding-id="footer.social" href={footerSettings.social.facebook.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} inline-flex h-11 w-11 items-center justify-center hover:opacity-80 transition-opacity`} aria-label="Facebook">
                         <Facebook className="h-5 w-5" />
                       </a>
                     )}
                     {footerSettings.social.instagram.enabled && footerSettings.social.instagram.url && (
-                      <a data-branding-id="footer.social" href={footerSettings.social.instagram.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} hover:opacity-80 transition-opacity`} aria-label="Instagram">
+                      <a data-branding-id="footer.social" href={footerSettings.social.instagram.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} inline-flex h-11 w-11 items-center justify-center hover:opacity-80 transition-opacity`} aria-label="Instagram">
                         <Instagram className="h-5 w-5" />
                       </a>
                     )}
                     {footerSettings.social.linkedin.enabled && footerSettings.social.linkedin.url && (
-                      <a data-branding-id="footer.social" href={footerSettings.social.linkedin.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} hover:opacity-80 transition-opacity`} aria-label="LinkedIn">
+                      <a data-branding-id="footer.social" href={footerSettings.social.linkedin.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} inline-flex h-11 w-11 items-center justify-center hover:opacity-80 transition-opacity`} aria-label="LinkedIn">
                         <Linkedin className="h-5 w-5" />
                       </a>
                     )}
                     {footerSettings.social.youtube.enabled && footerSettings.social.youtube.url && (
-                      <a data-branding-id="footer.social" href={footerSettings.social.youtube.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} hover:opacity-80 transition-opacity`} aria-label="YouTube">
+                      <a data-branding-id="footer.social" href={footerSettings.social.youtube.url} target="_blank" rel="noopener noreferrer" className={`${textColorClass} inline-flex h-11 w-11 items-center justify-center hover:opacity-80 transition-opacity`} aria-label="YouTube">
                         <Youtube className="h-5 w-5" />
                       </a>
                     )}

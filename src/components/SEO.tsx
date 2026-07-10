@@ -13,6 +13,7 @@ import {
     shouldUseTenantStorefrontSeo,
     type StorefrontSettings,
 } from '@/lib/storefront/seo';
+import { syncPrimarySeoTags } from '@/lib/seo/domHead';
 
 interface SEOProps {
     title?: string;
@@ -20,6 +21,7 @@ interface SEOProps {
     image?: string;
     type?: string;
     structuredData?: object;
+    forceRender?: boolean;
 }
 
 export function SEO({
@@ -27,7 +29,8 @@ export function SEO({
     description: defaultDescription = 'Få professionelt tryk af foldere, flyers og visitkort til markedets bedste priser. Hurtig levering og høj kvalitet.',
     image: defaultImage = '/og-image.png',
     type = 'website',
-    structuredData
+    structuredData,
+    forceRender = false
 }: SEOProps) {
     const location = useLocation();
     const hostname = typeof window !== "undefined" ? window.location.hostname : "";
@@ -102,16 +105,40 @@ export function SEO({
         settings.id,
     ]);
 
+    const siteUrl = window.location.origin;
+    const currentUrl = `${siteUrl}${normalizedPathname}`;
+    const resolvedImage = metadata.image.startsWith('http') ? metadata.image : `${siteUrl}${metadata.image}`;
+
+    useEffect(() => {
+        if (platformManagedRoute) return;
+        if (tenantScopedSeo && !forceRender) return;
+
+        syncPrimarySeoTags({
+            title: metadata.title,
+            description: metadata.description,
+            canonicalUrl: currentUrl,
+            imageUrl: resolvedImage,
+            ogUrl: currentUrl,
+            type,
+        });
+    }, [
+        platformManagedRoute,
+        tenantScopedSeo,
+        forceRender,
+        metadata.title,
+        metadata.description,
+        currentUrl,
+        resolvedImage,
+        type,
+    ]);
+
     if (platformManagedRoute) {
         return null;
     }
 
-    if (tenantScopedSeo) {
+    if (tenantScopedSeo && !forceRender) {
         return null;
     }
-
-    const siteUrl = window.location.origin;
-    const currentUrl = `${siteUrl}${normalizedPathname}`;
 
     return (
         <Helmet>
@@ -125,14 +152,14 @@ export function SEO({
             <meta property="og:url" content={currentUrl} />
             <meta property="og:title" content={metadata.title} />
             <meta property="og:description" content={metadata.description} />
-            <meta property="og:image" content={metadata.image.startsWith('http') ? metadata.image : `${siteUrl}${metadata.image}`} />
+            <meta property="og:image" content={resolvedImage} />
 
             {/* Twitter */}
             <meta property="twitter:card" content="summary_large_image" />
             <meta property="twitter:url" content={currentUrl} />
             <meta property="twitter:title" content={metadata.title} />
             <meta property="twitter:description" content={metadata.description} />
-            <meta property="twitter:image" content={metadata.image.startsWith('http') ? metadata.image : `${siteUrl}${metadata.image}`} />
+            <meta property="twitter:image" content={resolvedImage} />
 
             {/* Structured Data (JSON-LD) */}
             {metadata.structuredData && (

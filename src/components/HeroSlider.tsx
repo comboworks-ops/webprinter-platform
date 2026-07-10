@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ImgHTMLAttributes } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
@@ -66,6 +66,14 @@ const DEFAULT_SLIDES = [
 ];
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+type ImageFetchPriority = "high" | "low" | "auto";
+type PriorityImageProps = ImgHTMLAttributes<HTMLImageElement> & { fetchpriority: ImageFetchPriority };
+
+const getHeroImageLoadingProps = (isPriority: boolean): PriorityImageProps => ({
+  loading: isPriority ? "eager" : "lazy",
+  decoding: "async",
+  fetchpriority: isPriority ? "high" : "auto",
+});
 
 // Helper to get button link
 function getButtonLink(button: BannerButton): string {
@@ -540,7 +548,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
     <section
       ref={containerRef}
       data-branding-id="forside.hero.media"
-      className="relative h-[500px] md:h-[600px] overflow-hidden"
+      className="relative h-[420px] overflow-hidden sm:h-[500px] md:h-[600px]"
       style={{
         backgroundColor: hero.overlay_color || '#000',
       }}
@@ -568,23 +576,26 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
             <img
               src={slide.image}
               alt={slide.headline}
+              width={1920}
+              height={600}
+              sizes="100vw"
               className="w-full h-full object-cover"
               style={{
                 objectFit: 'cover',
                 objectPosition: 'center',
               }}
-              loading={index === 0 ? "eager" : "lazy"}
+              {...getHeroImageLoadingProps(index === 0)}
             />
           </div>
           {/* Per-slide content with entrance animations */}
           <div className="absolute inset-0 z-20 flex items-center">
-            <div className="container mx-auto px-4 md:px-8 lg:px-16">
+            <div className="container mx-auto px-4 sm:px-6 md:px-8 lg:px-16">
               {/* Content wrapper with margin for spacing from edges */}
-              <div className="max-w-2xl ml-4 md:ml-8 lg:ml-12 mt-16 md:mt-20">
+              <div className="mt-14 max-w-[min(42rem,calc(100vw-2rem))] sm:ml-4 md:ml-8 md:mt-20 lg:ml-12">
                 {/* Title with fade-up animation */}
                 <h1
                   data-branding-id="forside.hero.title"
-                  className={`text-4xl md:text-5xl lg:text-6xl font-extrabold mb-4 transition-all duration-700 ${index === currentSlide
+                  className={`mb-3 text-3xl font-extrabold leading-tight sm:text-4xl md:mb-4 md:text-5xl lg:text-6xl transition-all duration-700 ${index === currentSlide
                     ? 'opacity-100 translate-y-0'
                     : 'opacity-0 translate-y-8'
                     }`}
@@ -599,7 +610,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                 {/* Subtitle with fade-up animation (delayed) */}
                 <p
                   data-branding-id="forside.hero.subtitle"
-                  className={`text-xl md:text-2xl mb-8 transition-all duration-700 ${index === currentSlide
+                  className={`mb-6 text-base leading-relaxed sm:text-lg md:mb-8 md:text-2xl transition-all duration-700 ${index === currentSlide
                     ? 'opacity-100 translate-y-0'
                     : 'opacity-0 translate-y-8'
                     }`}
@@ -613,7 +624,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                 </p>
                 {/* CTA Button with fade-up animation (more delayed) */}
                 <div
-                  className={`flex flex-wrap gap-4 transition-all duration-700 ${index === currentSlide
+                  className={`flex flex-wrap gap-3 sm:gap-4 transition-all duration-700 ${index === currentSlide
                     ? 'opacity-100 translate-y-0'
                     : 'opacity-0 translate-y-8'
                     }`}
@@ -652,6 +663,9 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
             <img
               src={image.url}
               alt={image.alt || `Slide ${index + 1}`}
+              width={1920}
+              height={600}
+              sizes="100vw"
               className="w-full h-full"
               style={{
                 objectFit: 'cover',
@@ -659,19 +673,19 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                 width: '100%',
                 height: '100%',
               }}
-              loading={index === 0 ? "eager" : "lazy"}
+              {...getHeroImageLoadingProps(index === 0)}
             />
           </div>
           {/* Per-slide text content with animations */}
           {(image.headline || image.subline) && (
             <div className="absolute inset-0 z-20 flex items-center">
-              <div className="container mx-auto px-4 md:px-8 lg:px-16">
-                <div className="max-w-2xl ml-4 md:ml-8 lg:ml-12 mt-16 md:mt-20">
+              <div className="container mx-auto px-4 sm:px-6 md:px-8 lg:px-16">
+                <div className="mt-14 max-w-[min(42rem,calc(100vw-2rem))] sm:ml-4 md:ml-8 md:mt-20 lg:ml-12">
                   {/* Title with animation */}
                   {image.headline && (
                     <h1
                       data-branding-id="forside.hero.title"
-                      className={`text-4xl md:text-5xl lg:text-6xl font-extrabold mb-4 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
+                      className={`mb-3 text-3xl font-extrabold leading-tight sm:text-4xl md:mb-4 md:text-5xl lg:text-6xl ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
                         }`}
                       style={{
                         color: getSlideStyles(index).titleColor,
@@ -686,7 +700,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                   {image.subline && (
                     <p
                       data-branding-id="forside.hero.subtitle"
-                      className={`text-xl md:text-2xl mb-8 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
+                      className={`mb-6 text-base leading-relaxed sm:text-lg md:mb-8 md:text-2xl ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
                         }`}
                       style={{
                         color: getSlideStyles(index).subtitleColor,
@@ -700,7 +714,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                   {/* CTA Buttons with animation (more delayed) */}
                   {showButtons && (image.buttons !== undefined ? image.buttons.length > 0 : image.ctaText) && (
                     <div
-                      className={`flex flex-wrap gap-4 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
+                      className={`flex flex-wrap gap-3 sm:gap-4 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
                         }`}
                       style={{ transitionDelay: index === currentSlide ? '600ms' : '0ms' }}
                     >
@@ -775,13 +789,13 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
       {/* This allows for a global overlay when images don't have individual headlines */}
       {!useDefaults && !images.some(img => img.headline || img.subline) && (overlayTitle || overlaySubtitle || buttons.length > 0) && (
         <div className="absolute inset-0 z-20 flex items-center">
-          <div className="container mx-auto px-4 md:px-8 lg:px-16">
+          <div className="container mx-auto px-4 sm:px-6 md:px-8 lg:px-16">
             {/* Content wrapper with margin for spacing from edges */}
-            <div className="max-w-2xl ml-4 md:ml-8 lg:ml-12 mt-16 md:mt-20">
+            <div className="mt-14 max-w-[min(42rem,calc(100vw-2rem))] sm:ml-4 md:ml-8 md:mt-20 lg:ml-12">
               {overlayTitle && (
                 <h1
                   data-branding-id="forside.hero.title"
-                  className="text-4xl md:text-5xl lg:text-6xl font-extrabold mb-4"
+                  className="mb-3 text-3xl font-extrabold leading-tight sm:text-4xl md:mb-4 md:text-5xl lg:text-6xl"
                   style={{ color: globalTitleColor, fontFamily: `'${globalTitleFontId}', sans-serif` }}
                 >
                   {overlayTitle}
@@ -790,14 +804,14 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
               {overlaySubtitle && (
                 <p
                   data-branding-id="forside.hero.subtitle"
-                  className="text-xl md:text-2xl mb-8"
+                  className="mb-6 text-base leading-relaxed sm:text-lg md:mb-8 md:text-2xl"
                   style={{ color: globalSubtitleColor, fontFamily: `'${globalSubtitleFontId}', sans-serif` }}
                 >
                   {overlaySubtitle}
                 </p>
               )}
               {showButtons && buttons.length > 0 && (
-                <div className="flex flex-wrap gap-4">
+                <div className="flex flex-wrap gap-3 sm:gap-4">
                   {buttons.map((btn) => renderButton(btn))}
                 </div>
               )}
@@ -811,14 +825,14 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
         <>
           <button
             onClick={prevSlide}
-            className="absolute left-4 top-1/2 -translate-y-1/2 z-30 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full p-2 transition-colors"
+            className="absolute left-2 top-1/2 z-30 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm transition-colors hover:bg-white/30 sm:left-4"
             aria-label="Previous slide"
           >
             <ChevronLeft className="h-6 w-6 text-white" />
           </button>
           <button
             onClick={nextSlide}
-            className="absolute right-4 top-1/2 -translate-y-1/2 z-30 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full p-2 transition-colors"
+            className="absolute right-2 top-1/2 z-30 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm transition-colors hover:bg-white/30 sm:right-4"
             aria-label="Next slide"
           >
             <ChevronRight className="h-6 w-6 text-white" />
@@ -828,15 +842,19 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
 
       {/* Dots */}
       {totalSlides > 1 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex gap-2">
+        <div className="absolute bottom-4 left-1/2 z-30 flex -translate-x-1/2 gap-1 sm:bottom-6">
           {Array.from({ length: totalSlides }).map((_, index) => (
             <button
               key={index}
               onClick={() => setCurrentSlide(index)}
-              className={`w-2 h-2 rounded-full transition-all ${index === currentSlide ? "bg-white w-8" : "bg-white/50"
-                }`}
+              className="flex h-11 min-w-11 touch-manipulation items-center justify-center rounded-full transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/30"
               aria-label={`Go to slide ${index + 1}`}
-            />
+            >
+              <span
+                className={`h-2 rounded-full transition-all duration-300 ${index === currentSlide ? "w-8 bg-white" : "w-2 bg-white/50"
+                  }`}
+              />
+            </button>
           ))}
         </div>
       )}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Phone, Mail, MapPin, Building2 } from "lucide-react";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { sendContactMessage } from "@/lib/contact/sendContactMessage";
+import { appendStorefrontTenantContext } from "@/lib/storefrontTenantContext";
 
 export const ContactContent = () => {
     const [formData, setFormData] = useState({
@@ -28,6 +30,7 @@ export const ContactContent = () => {
     const contactAddress = typeof company.address === "string" ? company.address.trim() : "";
     const contactCvr = typeof company.cvr === "string" ? company.cvr.trim() : "";
     const addressLines = [contactName, contactAddress].filter(Boolean);
+    const privacyHref = appendStorefrontTenantContext("/privatliv");
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -240,8 +243,15 @@ export const ContactContent = () => {
                                     onCheckedChange={(checked) => setFormData({ ...formData, consent: checked as boolean })}
                                 />
                                 <Label htmlFor="consent" className="text-sm font-normal cursor-pointer leading-relaxed">
-                                    Jeg accepterer at mine oplysninger bruges til at behandle min henvendelse i henhold til
-                                    privatlivspolitikken.
+                                    Jeg accepterer at mine oplysninger bruges til at behandle min henvendelse i henhold til{" "}
+                                    <Link
+                                        to={privacyHref}
+                                        className="text-primary underline-offset-4 hover:underline"
+                                        onClick={(event) => event.stopPropagation()}
+                                    >
+                                        privatlivspolitikken
+                                    </Link>
+                                    .
                                 </Label>
                             </div>
 
