@@ -244,7 +244,9 @@ function isGeneratedCommercialReportPath(path) {
 function isApplicationSourcePath(path) {
   if (path === "src/pages/admin/CommercialReadiness.tsx") return false;
   if (path === "scripts/check-supabase-function-exposure.js") return false;
-  return path.startsWith("src/") || path === "vite.config.ts";
+  return path.startsWith("src/")
+    || path.startsWith("public/designer/")
+    || path === "vite.config.ts";
 }
 
 function isDeployableSupabaseEntry(path) {

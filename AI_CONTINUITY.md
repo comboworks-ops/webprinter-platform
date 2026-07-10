@@ -1133,6 +1133,26 @@ Known warnings:
 
 These warnings existed during successful deployment.
 
+Designer PDF processing (2026-07-10):
+- `designer-pdf-service` now has a disabled-by-default private Stirling-PDF
+  adapter for form flattening, repair, conservative compression, OCR, PDF/A,
+  permanent redaction, and gated text-editor conversion.
+- The edge function reads storage through the authenticated user's RLS context,
+  sends files to Stirling with a server-only API key, stores immutable outputs
+  under the user's ID, and returns a short-lived signed URL.
+- The designer never replaces the source automatically. The user must choose
+  `Brug i design` or download the result. Permanent redaction is rasterized and
+  labeled as such.
+- Fabric/vector PDF export remains authoritative. Stirling does not replace
+  PDF/X, bleed, font, output-intent, spot-colour, or overprint preflight.
+- Configuration and rollback: `docs/STIRLING_PDF_INTEGRATION.md`.
+- Vector PDF export now creates a page matching the document/print area and
+  embeds the selected original PDF page using the Fabric object's artboard
+  position, scale, and rotation. The screen preview may be rasterized, but the
+  uploaded PDF stays vector in the production PDF. For apparel designs with a
+  PDF base, that PDF is the primary order production file and PNG remains the
+  preview; non-PDF apparel designs keep the existing PNG-first behavior.
+
 ## If Continuing Visual Theme Work
 
 Check these first:

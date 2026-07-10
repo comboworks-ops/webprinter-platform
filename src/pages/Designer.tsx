@@ -44,6 +44,7 @@ import { DesignLibraryDrawer } from "@/components/designer/DesignLibraryDrawer";
 import { ExportDialog } from "@/components/designer/ExportDialog";
 import { runDesignerExport } from "@/lib/designer/export/exportActions";
 import { withHiddenGuides } from "@/lib/designer/export/hideExportGuides";
+import { withCanonicalExportViewport } from "@/lib/designer/export/withCanonicalExportViewport";
 import { buildVectorPdfBackgroundPdf, detectPdfBackground, hasOverlayObjects } from "@/lib/designer/export/exportVectorPdfBackground";
 import type { ExportOptions } from "@/lib/designer/export/types";
 import { mmToPx } from "@/utils/unitConversions";
@@ -52,8 +53,25 @@ import { useColorProofing } from "@/hooks/useColorProofing";
 import { useProductColorProfile } from "@/hooks/useProductColorProfile";
 import { getImageDpi } from "@/utils/imageMetadata";
 import { markSiteCheckoutDesignReady, readSiteCheckoutSession, writeSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
-import { runDesignerPdfService, type DesignerPdfServiceReport } from "@/lib/designer/pdfService";
+import {
+    downloadDesignerPdfServiceOutput,
+    runDesignerPdfService,
+    type DesignerPdfServiceOperation,
+    type DesignerPdfServiceOptions,
+    type DesignerPdfServiceReport,
+} from "@/lib/designer/pdfService";
 import { ptToMm } from "@/utils/unitConversions";
+import { cn } from "@/lib/utils";
+import {
+    APPAREL_COLOR_OPTIONS,
+    apparelSideLabel,
+    buildApparelDesignerConfig,
+    getApparelColorHex,
+    getApparelColorOption,
+    normalizeApparelSide,
+    type ApparelDesignerConfig,
+    type ApparelPrintSide,
+} from "@/lib/designer/apparelDesigner";
 import {
     Loader2,
     ArrowLeft,
@@ -86,9 +104,13 @@ import {
     Maximize,
     Scissors,
     FileText,
+    Layers3,
+    PanelRightClose,
     Smartphone,
     Monitor,
-    Tablet
+    Tablet,
+    Shirt,
+    type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -102,6 +124,8 @@ const ZOOM_MAX = 3;
 const ZOOM_STEP = 0.1;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PHONE_DESIGNER_BREAKPOINT_PX = 700;
+
+type DesignerPanelTab = 'layers' | 'properties' | 'apparel' | 'pdf' | 'preflight' | 'proofing';
 
 type DesignerOrderFlowNotice = {
     title: string;
@@ -314,6 +338,197 @@ function DesignerPhoneUnsupported() {
     );
 }
 
+function parseApparelSides(value: string | null): ApparelPrintSide[] {
+    if (!value) return [];
+    return value
+        .split(",")
+        .map((side) => normalizeApparelSide(side, ["front", "back", "sleeve"]))
+        .filter((side, index, list) => list.indexOf(side) === index);
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+    const [meta, payload] = dataUrl.split(",");
+    const mimeString = meta?.split(":")[1]?.split(";")[0] || "application/octet-stream";
+    const byteString = atob(payload || "");
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+    }
+    return new Blob([ab], { type: mimeString });
+}
+
+function ApparelMockupArtboard({
+    config,
+    viewportWidth,
+    viewportHeight,
+    mockupWidth,
+    mockupHeight,
+}: {
+    config: ApparelDesignerConfig;
+    viewportWidth: number;
+    viewportHeight: number;
+    mockupWidth: number;
+    mockupHeight: number;
+}) {
+    const mockupLeft = (viewportWidth - mockupWidth) / 2;
+    const mockupTop = (viewportHeight - mockupHeight) / 2;
+    const garmentColor = getApparelColorHex(config.garmentColor);
+
+    return (
+        <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 0 }}>
+            <div
+                role="img"
+                aria-label={`${config.mockupAlt}, ${config.garmentColor}`}
+                className="absolute"
+                style={{
+                    left: mockupLeft,
+                    top: mockupTop,
+                    width: mockupWidth,
+                    height: mockupHeight,
+                    maxWidth: "none",
+                    maxHeight: "none",
+                }}
+            >
+                <div
+                    aria-hidden="true"
+                    className="absolute inset-0"
+                    style={{
+                        backgroundColor: garmentColor,
+                        WebkitMaskImage: `url(${config.mockupSrc})`,
+                        maskImage: `url(${config.mockupSrc})`,
+                        WebkitMaskPosition: "center",
+                        maskPosition: "center",
+                        WebkitMaskRepeat: "no-repeat",
+                        maskRepeat: "no-repeat",
+                        WebkitMaskSize: "100% 100%",
+                        maskSize: "100% 100%",
+                    }}
+                />
+                <img
+                    src={config.mockupSrc}
+                    alt=""
+                    aria-hidden="true"
+                    className="absolute inset-0 h-full w-full object-fill"
+                    style={{ opacity: 0.42, mixBlendMode: "multiply", maxWidth: "none" }}
+                />
+            </div>
+        </div>
+    );
+}
+
+function ApparelDesignerPanel({
+    config,
+    onSideChange,
+    onColorChange,
+}: {
+    config: ApparelDesignerConfig;
+    onSideChange: (side: ApparelPrintSide) => void;
+    onColorChange: (color: string) => void;
+}) {
+    const selectedColorId = getApparelColorOption(config.garmentColor)?.id;
+
+    return (
+        <div className="p-4">
+            <div className="mb-4 flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-900 text-white">
+                    <Shirt className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                    <p className="text-sm font-semibold">Tekstiltryk</p>
+                    <p className="truncate text-xs text-slate-500">{config.productName}</p>
+                </div>
+            </div>
+
+            <div className="mb-4 rounded-md border border-sky-200 bg-sky-50 p-3 text-xs leading-5 text-sky-950">
+                T-shirten ligger nu i artboardet som visuel mockup. Kun selve printfeltet eksporteres som PNG først og PDF som backup.
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-md bg-slate-100 px-2 py-1.5">
+                    <span className="block text-slate-500">Farve</span>
+                    <span className="font-semibold">{config.garmentColor}</span>
+                </div>
+                <div className="rounded-md bg-slate-100 px-2 py-1.5">
+                    <span className="block text-slate-500">Metode</span>
+                    <span className="font-semibold">{config.printMethod}</span>
+                </div>
+                <div className="rounded-md bg-slate-100 px-2 py-1.5">
+                    <span className="block text-slate-500">Printfelt</span>
+                    <span className="font-semibold">{config.printWidthMm}x{config.printHeightMm} mm</span>
+                </div>
+                <div className="rounded-md bg-slate-100 px-2 py-1.5">
+                    <span className="block text-slate-500">Sikkerhed</span>
+                    <span className="font-semibold">{config.safeAreaMm} mm</span>
+                </div>
+                <div className="rounded-md bg-slate-100 px-2 py-1.5">
+                    <span className="block text-slate-500">Placering</span>
+                    <span className="font-semibold">{config.printAreaLabel}</span>
+                </div>
+                <div className="rounded-md bg-slate-100 px-2 py-1.5">
+                    <span className="block text-slate-500">Størrelse</span>
+                    <span className="font-semibold">
+                        {config.garmentSize && config.garmentWidthCm && config.garmentLengthCm
+                            ? `${config.garmentSize} · ${config.garmentWidthCm}x${config.garmentLengthCm} cm`
+                            : "Produktvalg"}
+                    </span>
+                </div>
+            </div>
+
+            <div className="mt-4">
+                <p className="mb-2 text-xs font-semibold text-slate-700">T-shirtfarve</p>
+                <div className="grid grid-cols-3 gap-2" role="group" aria-label="Vælg T-shirtfarve">
+                    {APPAREL_COLOR_OPTIONS.map((color) => {
+                        const isSelected = selectedColorId === color.id;
+                        const isLight = color.id === "white" || color.id === "yellow" || color.id === "sky-blue";
+                        return (
+                            <button
+                                key={color.id}
+                                type="button"
+                                aria-pressed={isSelected}
+                                aria-label={`${color.label}${color.pantone ? `, cirka Pantone ${color.pantone}` : ""}`}
+                                title={`${color.label}${color.pantone ? ` · ca. Pantone ${color.pantone}` : ""}`}
+                                onClick={() => onColorChange(color.label)}
+                                className={cn(
+                                    "relative flex min-h-14 touch-manipulation flex-col items-center justify-center gap-1 rounded-md border px-1.5 py-2 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2",
+                                    isSelected
+                                        ? "border-sky-600 bg-sky-50 font-semibold text-sky-950"
+                                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                                )}
+                            >
+                                <Shirt
+                                    className="h-6 w-6"
+                                    fill={color.hex}
+                                    strokeWidth={isSelected ? 2.5 : 1.8}
+                                    style={{ color: isLight ? "#475569" : color.hex }}
+                                />
+                                <span className="line-clamp-2 text-[10px] leading-tight">{color.label}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {config.sides.length > 1 && (
+                <div className="mt-3 flex gap-2">
+                    {config.sides.map((side) => (
+                        <Button
+                            key={side}
+                            type="button"
+                            size="sm"
+                            variant={config.activeSide === side ? "default" : "outline"}
+                            className="min-h-9 flex-1 text-xs"
+                            onClick={() => onSideChange(side)}
+                        >
+                            {apparelSideLabel(side)}
+                        </Button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export function Designer() {
     const isPhoneViewport = useIsPhoneDesignerViewport();
     if (isPhoneViewport) {
@@ -336,6 +551,8 @@ function DesignerWorkspace() {
     const pdfRerenderTimerRef = useRef<NodeJS.Timeout | null>(null);
     const pdfRerenderInFlightRef = useRef<Set<string>>(new Set());
     const canvasAreaRef = useRef<HTMLDivElement>(null);
+    const apparelDraftLoadKeyRef = useRef<string | null>(null);
+    const apparelSideChangeRef = useRef(false);
     const checkoutSession = useMemo(() => readSiteCheckoutSession(), []);
 
     const productId = searchParams.get("productId");
@@ -378,6 +595,37 @@ function DesignerWorkspace() {
     const customHeightMm = parseDimension(searchParams.get("heightMm"));
     const customBleedMm = parseNonNegative(searchParams.get("bleedMm"));
     const customSafeMm = parseNonNegative(searchParams.get("safeMm"));
+    const apparelConfig = useMemo(() => {
+        if (designerMode !== "apparel" && searchParams.get("apparel") !== "1" && !checkoutSession?.apparelConfig) {
+            return null;
+        }
+
+        const sessionConfig = checkoutSession?.apparelConfig || null;
+        const sides = parseApparelSides(searchParams.get("apparelSides") || null)
+            || [];
+
+        return buildApparelDesignerConfig({
+            productName: searchParams.get("apparelProduct") || sessionConfig?.productName || checkoutSession?.productName || null,
+            garmentColor: searchParams.get("apparelColor") || sessionConfig?.garmentColor || null,
+            printMethod: searchParams.get("apparelMethod") || sessionConfig?.printMethod || null,
+            printPosition: searchParams.get("apparelPosition") || sessionConfig?.printPositionId || null,
+            side: searchParams.get("apparelSide") || sessionConfig?.activeSide || null,
+            sides: sides.length > 0 ? sides : sessionConfig?.sides || null,
+            widthMm: customWidthMm ?? sessionConfig?.printWidthMm,
+            heightMm: customHeightMm ?? sessionConfig?.printHeightMm,
+            bleedMm: customBleedMm ?? sessionConfig?.bleedMm,
+            safeAreaMm: customSafeMm ?? sessionConfig?.safeAreaMm,
+        });
+    }, [
+        checkoutSession?.apparelConfig,
+        checkoutSession?.productName,
+        customBleedMm,
+        customHeightMm,
+        customSafeMm,
+        customWidthMm,
+        designerMode,
+        searchParams,
+    ]);
 
     // State
     const [loading, setLoading] = useState(true);
@@ -401,7 +649,9 @@ function DesignerWorkspace() {
     // Keep URL-first initialization to avoid A4 flash before async spec loads.
     const [documentSpec, setDocumentSpec] = useState(() => {
         const defaultSpec = {
-            name: directTemplatePdfName || "Uden titel",
+            name: apparelConfig
+                ? `${apparelConfig.productName} - ${apparelConfig.printAreaLabel} printfelt`
+                : directTemplatePdfName || "Uden titel",
             width_mm: 210,
             height_mm: 297,
             bleed_mm: 3,
@@ -414,6 +664,18 @@ function DesignerWorkspace() {
             tenant_id: queryTenantId,
             format: null as string | null,
         };
+
+        if (apparelConfig) {
+            return {
+                ...defaultSpec,
+                width_mm: apparelConfig.printWidthMm,
+                height_mm: apparelConfig.printHeightMm,
+                bleed_mm: apparelConfig.bleedMm,
+                safe_area_mm: apparelConfig.safeAreaMm,
+                dpi: 300,
+                format: "TEKSTIL",
+            };
+        }
 
         if (customWidthMm !== null && customHeightMm !== null) {
             const areaM2 = (customWidthMm * customHeightMm) / 1_000_000;
@@ -443,7 +705,36 @@ function DesignerWorkspace() {
     });
     const [canvasAreaSize, setCanvasAreaSize] = useState({ width: 0, height: 0 });
     const [selectedTool, setSelectedTool] = useState<string>("select");
-    const [activeTab, setActiveTab] = useState<'layers' | 'properties' | 'pdf' | 'preflight' | 'proofing'>('layers');
+    const [activeTab, setActiveTab] = useState<DesignerPanelTab>(() => apparelConfig ? 'apparel' : 'layers');
+    const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
+    const rightPanelTabs = useMemo<Array<{ id: DesignerPanelTab; label: string; Icon: LucideIcon }>>(() => {
+        const tabs: Array<{ id: DesignerPanelTab; label: string; Icon: LucideIcon }> = [
+            { id: 'layers', label: 'Lag', Icon: Layers3 },
+            { id: 'properties', label: 'Egenskaber', Icon: Settings2 },
+        ];
+
+        if (apparelConfig) tabs.push({ id: 'apparel', label: 'Tekstiltryk', Icon: Shirt });
+        if (selectedPdfMeta) tabs.push({ id: 'pdf', label: 'PDF-værktøjer', Icon: FileText });
+
+        tabs.push(
+            { id: 'preflight', label: 'Preflight', Icon: FileCheck },
+            { id: 'proofing', label: 'Farvevisning', Icon: Palette },
+        );
+
+        return tabs;
+    }, [apparelConfig, selectedPdfMeta]);
+    const activeRightPanel = rightPanelTabs.find((tab) => tab.id === activeTab) || rightPanelTabs[0];
+    const handleRightPanelTabClick = useCallback((tab: DesignerPanelTab) => {
+        if (tab === activeTab) {
+            setIsRightPanelOpen((open) => !open);
+            return;
+        }
+        setActiveTab(tab);
+    }, [activeTab]);
+
+    useEffect(() => {
+        setIsRightPanelOpen(true);
+    }, [activeTab]);
     const isUuid = useCallback((value: string | null) => {
         if (!value) return false;
         return UUID_REGEX.test(value);
@@ -465,6 +756,8 @@ function DesignerWorkspace() {
     const [isLibraryOpen, setIsLibraryOpen] = useState(false);
 
     // Show landing page when no parameters are provided
+    const productDbId = useMemo(() => (isUuid(productId) ? productId : null), [isUuid, productId]);
+    const variantDbId = useMemo(() => (isUuid(variantId || null) ? variantId || null : null), [isUuid, variantId]);
     const hasCustomFormat = customWidthMm !== null && customHeightMm !== null;
     const showLanding = !variantId && !productId && !templateId && !designId && !format && !hasCustomFormat && !directTemplatePdfUrl;
 
@@ -478,7 +771,7 @@ function DesignerWorkspace() {
     const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false);
 
     // Color Proofing & Profiles
-    const { profile: productProfile } = useProductColorProfile({ productId });
+    const { profile: productProfile } = useProductColorProfile({ productId: productDbId });
 
     const [fabricCanvas, setFabricCanvas] = useState<fabric.Canvas | null>(null);
     const displayDpi = useMemo(() => {
@@ -539,16 +832,31 @@ function DesignerWorkspace() {
     const docHeight = mmToPx(documentSpec.height_mm + (documentSpec.bleed_mm * 2), displayDpi);
     const canvasWidth = Math.round(docWidth + (pasteboardPaddingPx * 2));
     const canvasHeight = Math.round(docHeight + (pasteboardPaddingPx * 2));
+    const apparelPreviewWidth = apparelConfig
+        ? docWidth / Math.max(0.01, apparelConfig.mockupPlacement.widthPct / 100)
+        : canvasWidth;
+    const apparelPreviewHeight = apparelConfig
+        ? apparelPreviewWidth / (762 / 954)
+        : canvasHeight;
     const fitScale = useMemo(() => {
         const availableWidth = canvasAreaSize.width;
         const availableHeight = canvasAreaSize.height;
         if (!availableWidth || !availableHeight || !canvasWidth || !canvasHeight) return 1;
 
-        const scaleX = availableWidth / canvasWidth;
-        const scaleY = availableHeight / canvasHeight;
+        const visualWidth = Math.max(canvasWidth, apparelPreviewWidth);
+        const visualHeight = Math.max(canvasHeight, apparelPreviewHeight);
+        const scaleX = availableWidth / visualWidth;
+        const scaleY = availableHeight / visualHeight;
         const scale = Math.min(1, scaleX, scaleY);
         return Number.isFinite(scale) && scale > 0 ? scale : 1;
-    }, [canvasAreaSize.width, canvasAreaSize.height, canvasWidth, canvasHeight]);
+    }, [
+        apparelPreviewHeight,
+        apparelPreviewWidth,
+        canvasAreaSize.height,
+        canvasAreaSize.width,
+        canvasHeight,
+        canvasWidth,
+    ]);
     const zoomScale = useMemo(() => {
         if (!Number.isFinite(zoomLevel)) return 1;
         return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoomLevel));
@@ -561,11 +869,32 @@ function DesignerWorkspace() {
         return Math.max(1, canvasAreaSize.height || canvasHeight);
     }, [canvasAreaSize.height, canvasHeight]);
     const viewportOffsetX = useMemo(() => {
-        return (viewportWidth - canvasWidth * effectiveScale) / 2;
-    }, [viewportWidth, canvasWidth, effectiveScale]);
+        const baseOffset = (viewportWidth - canvasWidth * effectiveScale) / 2;
+        if (!apparelConfig) return baseOffset;
+        const previewDisplayWidth = apparelPreviewWidth * effectiveScale;
+        const desiredCenterPct = (
+            apparelConfig.mockupPlacement.leftPct
+            + (apparelConfig.mockupPlacement.widthPct / 2)
+        ) / 100;
+        return baseOffset + (previewDisplayWidth * (desiredCenterPct - 0.5));
+    }, [apparelConfig, apparelPreviewWidth, viewportWidth, canvasWidth, effectiveScale]);
+    const apparelDocumentOffsetX = viewportOffsetX - ((viewportWidth - canvasWidth * effectiveScale) / 2);
+    const apparelDocumentOffsetY = useMemo(() => {
+        if (!apparelConfig) return 0;
+        const placement = apparelConfig.mockupPlacement;
+        const previewDisplayHeight = apparelPreviewHeight * effectiveScale;
+        const documentDisplayHeight = docHeight * effectiveScale;
+        const garmentLengthMm = apparelConfig.garmentLengthCm
+            ? apparelConfig.garmentLengthCm * 10
+            : placement.referenceGarmentLengthMm || 745;
+        const topFraction = typeof placement.topOffsetMm === "number"
+            ? placement.topOffsetMm / Math.max(1, garmentLengthMm)
+            : placement.topPct / 100;
+        return (documentDisplayHeight / 2) - (previewDisplayHeight * (0.5 - topFraction));
+    }, [apparelConfig, apparelPreviewHeight, docHeight, effectiveScale]);
     const viewportOffsetY = useMemo(() => {
-        return (viewportHeight - canvasHeight * effectiveScale) / 2;
-    }, [viewportHeight, canvasHeight, effectiveScale]);
+        return ((viewportHeight - canvasHeight * effectiveScale) / 2) + apparelDocumentOffsetY;
+    }, [apparelDocumentOffsetY, viewportHeight, canvasHeight, effectiveScale]);
     const controlScale = useMemo(() => {
         const scale = fitScale > 0 ? 1 / fitScale : 1;
         return Math.max(1, Math.min(4, Math.round(scale * 10) / 10));
@@ -589,6 +918,137 @@ function DesignerWorkspace() {
         const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, nextZoom));
         setZoomLevel(Number.isFinite(clamped) ? clamped : 1);
     }, []);
+    const getApparelDraftKey = useCallback((side: ApparelPrintSide) => {
+        if (!apparelConfig) return null;
+        const productRef = documentSpec.product_id || productId || checkoutSession?.productSlug || apparelConfig.productName;
+        const dimensionRef = `${apparelConfig.printWidthMm}x${apparelConfig.printHeightMm}`;
+        return `wp_apparel_side_draft:${productRef}:${dimensionRef}:${side}`;
+    }, [apparelConfig, checkoutSession?.productSlug, documentSpec.product_id, productId]);
+
+    const getCurrentCanvasSnapshot = useCallback(() => {
+        return editorRef.current?.getJSON() as { objects?: any[] } | undefined;
+    }, []);
+
+    const buildEmptySideSnapshot = useCallback(() => {
+        const currentSnapshot = getCurrentCanvasSnapshot();
+        const systemObjects = Array.isArray(currentSnapshot?.objects)
+            ? currentSnapshot.objects.filter((obj) =>
+                Boolean(obj?.__isDocumentBackground || obj?.__isGuide || obj?.__isGuideLabel || obj?.__isStaticFrame)
+            )
+            : [];
+
+        return {
+            ...currentSnapshot,
+            version: (fabric as any).version,
+            objects: systemObjects,
+        };
+    }, [getCurrentCanvasSnapshot]);
+
+    const saveApparelSideDraft = useCallback((side: ApparelPrintSide) => {
+        const draftKey = getApparelDraftKey(side);
+        if (!draftKey || typeof sessionStorage === "undefined") return;
+        const snapshot = getCurrentCanvasSnapshot();
+        if (!snapshot) return;
+        sessionStorage.setItem(draftKey, JSON.stringify(snapshot));
+    }, [getApparelDraftKey, getCurrentCanvasSnapshot]);
+
+    const loadApparelSideDraft = useCallback(async (side: ApparelPrintSide, options: { clearIfMissing?: boolean } = {}) => {
+        const draftKey = getApparelDraftKey(side);
+        if (!draftKey || typeof sessionStorage === "undefined" || !editorRef.current) return false;
+
+        const rawDraft = sessionStorage.getItem(draftKey);
+        const shouldClear = options.clearIfMissing === true;
+        if (!rawDraft && !shouldClear) return false;
+
+        let snapshot: object | null = null;
+        if (rawDraft) {
+            try {
+                snapshot = JSON.parse(rawDraft);
+            } catch {
+                snapshot = null;
+            }
+        }
+        snapshot = snapshot || buildEmptySideSnapshot();
+
+        apparelSideChangeRef.current = true;
+        await editorRef.current.loadJSON(snapshot);
+        window.setTimeout(() => {
+            apparelSideChangeRef.current = false;
+            setLayers(editorRef.current?.getLayers() || []);
+        }, 150);
+        return true;
+    }, [buildEmptySideSnapshot, getApparelDraftKey]);
+
+    useEffect(() => {
+        if (!apparelConfig || !fabricCanvas || loading) return;
+        const draftKey = getApparelDraftKey(apparelConfig.activeSide);
+        if (!draftKey || apparelDraftLoadKeyRef.current === draftKey || typeof sessionStorage === "undefined") return;
+
+        apparelDraftLoadKeyRef.current = draftKey;
+        if (sessionStorage.getItem(draftKey)) {
+            void loadApparelSideDraft(apparelConfig.activeSide);
+        }
+    }, [apparelConfig, fabricCanvas, getApparelDraftKey, loadApparelSideDraft, loading]);
+
+    const handleApparelSideChange = useCallback((side: ApparelPrintSide) => {
+        if (!apparelConfig || apparelConfig.activeSide === side) return;
+
+        const nextPosition = side === "back"
+            ? "back-center"
+            : apparelConfig.printPositionId === "back-center"
+                ? "front-center"
+                : apparelConfig.printPositionId;
+        const nextConfig = buildApparelDesignerConfig({
+            productName: apparelConfig.productName,
+            garmentColor: apparelConfig.garmentColor,
+            printMethod: apparelConfig.printMethod,
+            printPosition: nextPosition,
+            side,
+            sides: apparelConfig.sides,
+            bleedMm: apparelConfig.bleedMm,
+            safeAreaMm: apparelConfig.safeAreaMm,
+        });
+
+        saveApparelSideDraft(apparelConfig.activeSide);
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.set("apparelSide", side);
+        nextParams.set("apparelPosition", nextConfig.printPositionId);
+        nextParams.set("widthMm", String(nextConfig.printWidthMm));
+        nextParams.set("heightMm", String(nextConfig.printHeightMm));
+        nextParams.set("bleedMm", String(nextConfig.bleedMm));
+        nextParams.set("safeMm", String(nextConfig.safeAreaMm));
+        setSearchParams(nextParams, { replace: true });
+        setDocumentSpec((current) => ({
+            ...current,
+            name: `${nextConfig.productName} - ${nextConfig.printAreaLabel} printfelt`,
+            width_mm: nextConfig.printWidthMm,
+            height_mm: nextConfig.printHeightMm,
+            bleed_mm: nextConfig.bleedMm,
+            safe_area_mm: nextConfig.safeAreaMm,
+        }));
+        window.setTimeout(() => {
+            void loadApparelSideDraft(side, { clearIfMissing: true });
+        }, 0);
+        toast.info(`Aktiv side: ${nextConfig.printAreaLabel}. Sider gemmes som separate printfelter i ordren.`);
+    }, [apparelConfig, loadApparelSideDraft, saveApparelSideDraft, searchParams, setSearchParams]);
+
+    const handleApparelColorChange = useCallback((color: string) => {
+        if (!apparelConfig || apparelConfig.garmentColor === color) return;
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.set("apparelColor", color);
+        setSearchParams(nextParams, { replace: true });
+
+        const existingSession = readSiteCheckoutSession();
+        if (existingSession?.apparelConfig) {
+            writeSiteCheckoutSession({
+                ...existingSession,
+                apparelConfig: {
+                    ...existingSession.apparelConfig,
+                    garmentColor: color,
+                },
+            });
+        }
+    }, [apparelConfig, searchParams, setSearchParams]);
 
     // Load spec
     useEffect(() => {
@@ -634,11 +1094,30 @@ function DesignerWorkspace() {
                     }
                 }
 
+                if (apparelConfig) {
+                    setDocumentSpec(prev => ({
+                        ...prev,
+                        name: `${apparelConfig.productName} - ${apparelConfig.printAreaLabel} printfelt`,
+                        width_mm: apparelConfig.printWidthMm,
+                        height_mm: apparelConfig.printHeightMm,
+                        bleed_mm: apparelConfig.bleedMm,
+                        safe_area_mm: apparelConfig.safeAreaMm,
+                        dpi: 300,
+                        color_profile: productProfile.name || prev.color_profile || "FOGRA39",
+                        product_id: productDbId || variantDbId || prev.product_id,
+                        format: "TEKSTIL",
+                    }));
+                    setLoading(false);
+                    return;
+                }
+
                 if (customWidthMm !== null && customHeightMm !== null) {
                     const widthMm = customWidthMm;
                     const heightMm = customHeightMm;
-                    let resolvedProductId = productId || variantId || null;
-                    let productName = directTemplatePdfName || "Design: Tilpasset format";
+                    let resolvedProductId = productDbId || variantDbId || null;
+                    let productName = apparelConfig
+                        ? `${apparelConfig.productName} - ${apparelConfig.printAreaLabel} printfelt`
+                        : directTemplatePdfName || "Design: Tilpasset format";
                     let specs: any = null;
 
                     if (resolvedProductId) {
@@ -649,7 +1128,9 @@ function DesignerWorkspace() {
                             .single();
 
                         if (product && !error) {
-                            productName = `Design til ${product.name}`;
+                            productName = apparelConfig
+                                ? `${product.name} - ${apparelConfig.printAreaLabel} printfelt`
+                                : `Design til ${product.name}`;
                             specs = product.technical_specs || null;
                             resolvedProductId = product.id;
                         }
@@ -690,8 +1171,8 @@ function DesignerWorkspace() {
                         .from('product_attribute_values' as any)
                         .select('id, name, width_mm, height_mm, product_id, meta')
                         .eq('id', format);
-                    if (productId) {
-                        formatQuery.eq('product_id', productId);
+                    if (productDbId) {
+                        formatQuery.eq('product_id', productDbId);
                     }
                     const { data: formatValue, error: formatError } = await formatQuery.maybeSingle();
 
@@ -707,11 +1188,11 @@ function DesignerWorkspace() {
                         const formatBleed = typeof formatMeta?.bleed_mm === "number" ? formatMeta.bleed_mm : null;
                         const formatSafeArea = typeof formatMeta?.safe_area_mm === "number" ? formatMeta.safe_area_mm : null;
                         let productName = formatValue.name;
-                        if (productId) {
+                        if (productDbId) {
                             const { data: product } = await supabase
                                 .from('products')
                                 .select('name')
-                                .eq('id', productId)
+                                .eq('id', productDbId)
                                 .single();
                             if (product) {
                                 productName = `${product.name} - ${formatValue.name}`;
@@ -733,7 +1214,7 @@ function DesignerWorkspace() {
                                 : typeof formatSafeArea === "number"
                                     ? formatSafeArea
                                     : prev.safe_area_mm || 3,
-                            product_id: productId || formatValue.product_id,
+                            product_id: productDbId || formatValue.product_id,
                             format: formatValue.name || null,
                         }));
                         setLoading(false);
@@ -745,11 +1226,11 @@ function DesignerWorkspace() {
                     const dims = STANDARD_FORMATS[format.toUpperCase()];
                     let productName = format.toUpperCase();
 
-                    if (productId) {
+                    if (productDbId) {
                         const { data: product } = await supabase
                             .from('products')
                             .select('name')
-                            .eq('id', productId)
+                            .eq('id', productDbId)
                             .single();
                         if (product) {
                             productName = `${product.name} - ${format.toUpperCase()}`;
@@ -763,15 +1244,15 @@ function DesignerWorkspace() {
                         height_mm: dims.height,
                         bleed_mm: typeof customBleedMm === "number" ? customBleedMm : (dims.bleed || 3),
                         safe_area_mm: typeof customSafeMm === "number" ? customSafeMm : (prev.safe_area_mm || 3),
-                        product_id: productId,
+                        product_id: productDbId,
                         format: format.toUpperCase(),
                     }));
                     setLoading(false);
                     return;
                 }
 
-                if (productId || variantId) {
-                    const pid = productId || variantId;
+                if (productDbId || variantDbId) {
+                    const pid = productDbId || variantDbId;
                     const { data: product, error } = await supabase
                         .from('products')
                         .select('id, name, technical_specs')
@@ -854,7 +1335,7 @@ function DesignerWorkspace() {
         };
 
         loadSpec();
-    }, [variantId, productId, templateId, designId, format, savedDesignId, customWidthMm, customHeightMm, customBleedMm, customSafeMm]);
+    }, [variantId, productId, productDbId, variantDbId, templateId, designId, format, savedDesignId, customWidthMm, customHeightMm, customBleedMm, customSafeMm, directTemplatePdfName, productProfile.name, apparelConfig]);
 
     useEffect(() => {
         const hasBaseSpecContext = Boolean(
@@ -1044,16 +1525,17 @@ function DesignerWorkspace() {
         markSiteCheckoutDesignReady(documentSpec.product_id, readSiteCheckoutSession());
     }, [documentSpec.product_id]);
 
-    const buildCanvasOrderPdfBlob = useCallback(async (fabricCanvas: fabric.Canvas) => {
+    const buildCanvasOrderPdfBlob = useCallback(async (fabricCanvas: fabric.Canvas, nameOverride?: string) => {
+        const exportName = nameOverride || documentSpec.name;
         const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId)
             || OUTPUT_PROFILES[0];
         const bleedPx = (documentSpec.bleed_mm || 0) * displayMmToPx;
         const pdfWidth = documentSpec.width_mm + ((documentSpec.bleed_mm || 0) * 2);
         const pdfHeight = documentSpec.height_mm + ((documentSpec.bleed_mm || 0) * 2);
 
-        const proofedRgbDataUrl = await withHiddenGuides(
+        const proofedRgbDataUrl = await withCanonicalExportViewport(
             fabricCanvas,
-            async () => {
+            () => withHiddenGuides(fabricCanvas, async () => {
                 const result = await colorProofing.exportCMYK(
                     SRGB_PROFILE_URL,
                     profile.url,
@@ -1067,7 +1549,7 @@ function DesignerWorkspace() {
                 );
 
                 return result.proofedRgbDataUrl;
-            }
+            }),
         );
 
         const doc = new jsPDF({
@@ -1078,7 +1560,7 @@ function DesignerWorkspace() {
 
         doc.addImage(proofedRgbDataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'SLOW');
         doc.setProperties({
-            title: documentSpec.name,
+            title: exportName,
             subject: 'Trykklar PDF',
             creator: 'Webprinter Designer',
             keywords: `CMYK, ${profile.name}, Print`,
@@ -1086,7 +1568,44 @@ function DesignerWorkspace() {
 
         return {
             blob: doc.output('blob') as Blob,
-            filename: `${documentSpec.name.replace(/[^a-z0-9_.-]/gi, '_')}.pdf`,
+            filename: `${exportName.replace(/[^a-z0-9_.-]/gi, '_')}.pdf`,
+        };
+    }, [
+        colorProofing,
+        displayMmToPx,
+        documentSpec,
+        pasteboardPaddingPx,
+        productProfile.profileBytes,
+    ]);
+
+    const buildCanvasOrderPngBlob = useCallback(async (fabricCanvas: fabric.Canvas, nameOverride?: string) => {
+        const exportName = nameOverride || documentSpec.name;
+        const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId)
+            || OUTPUT_PROFILES[0];
+        const bleedPx = (documentSpec.bleed_mm || 0) * displayMmToPx;
+
+        const proofedRgbDataUrl = await withCanonicalExportViewport(
+            fabricCanvas,
+            () => withHiddenGuides(fabricCanvas, async () => {
+                const result = await colorProofing.exportCMYK(
+                    SRGB_PROFILE_URL,
+                    profile.url,
+                    productProfile.profileBytes,
+                    {
+                        left: pasteboardPaddingPx,
+                        top: pasteboardPaddingPx,
+                        width: (documentSpec.width_mm * displayMmToPx) + (bleedPx * 2),
+                        height: (documentSpec.height_mm * displayMmToPx) + (bleedPx * 2),
+                    }
+                );
+
+                return result.proofedRgbDataUrl;
+            }),
+        );
+
+        return {
+            blob: dataUrlToBlob(proofedRgbDataUrl),
+            filename: `${exportName.replace(/[^a-z0-9_.-]/gi, '_')}.png`,
         };
     }, [
         colorProofing,
@@ -1116,13 +1635,173 @@ function DesignerWorkspace() {
             const fabricCanvas = editorRef.current?.getCanvas();
             const pdfBackgroundMeta = detectPdfBackground(fabricCanvas || null);
 
-            if (!fabricCanvas || (!pdfBackgroundMeta && !hasOverlayObjects(fabricCanvas))) {
+            if (!fabricCanvas || (!apparelConfig && !pdfBackgroundMeta && !hasOverlayObjects(fabricCanvas))) {
                 completeReturn();
                 return;
             }
 
             setReturningToOrder(true);
             try {
+                const productRef = documentSpec.product_id || productId || "designer";
+                const uploadProductionFile = async (
+                    file: { blob: Blob; filename: string },
+                    contentType: string,
+                    sourceMode: "vector_pdf" | "print_pdf" | "apparel_png",
+                ) => {
+                    const safeFileName = file.filename.replace(/[^a-z0-9_.-]/gi, "_");
+                    const filePath = `designer-production/${productRef}-${Date.now()}-${safeFileName}`;
+
+                    const { error: uploadError } = await supabase.storage
+                        .from("order-files")
+                        .upload(filePath, file.blob, {
+                            contentType,
+                            upsert: false,
+                        });
+
+                    if (uploadError) throw uploadError;
+
+                    const { data: { publicUrl } } = supabase.storage
+                        .from("order-files")
+                        .getPublicUrl(filePath);
+
+                    return {
+                        name: file.filename,
+                        mimeType: contentType,
+                        fileUrl: publicUrl,
+                        filePath,
+                        sourceMode,
+                    };
+                };
+
+                if (apparelConfig) {
+                    saveApparelSideDraft(apparelConfig.activeSide);
+
+                    const productionFiles: Array<{
+                        format: "png" | "pdf";
+                        apparelSide: ApparelPrintSide;
+                        isPrimary?: boolean;
+                        name?: string | null;
+                        mimeType?: string | null;
+                        fileUrl?: string | null;
+                        filePath?: string | null;
+                        sourceMode?: "vector_pdf" | "print_pdf" | "apparel_png" | null;
+                    }> = [];
+
+                    for (const side of apparelConfig.sides) {
+                        const draftLoaded = await loadApparelSideDraft(side, { clearIfMissing: side === apparelConfig.activeSide });
+                        if (!draftLoaded) continue;
+
+                        const sideCanvas = editorRef.current?.getCanvas();
+                        if (!sideCanvas || (!detectPdfBackground(sideCanvas) && !hasOverlayObjects(sideCanvas))) {
+                            continue;
+                        }
+
+                        const sidePosition = side === "back"
+                            ? "back-center"
+                            : apparelConfig.printPositionId === "back-center"
+                                ? "front-center"
+                                : apparelConfig.printPositionId;
+                        const sideConfig = buildApparelDesignerConfig({
+                            productName: apparelConfig.productName,
+                            garmentColor: apparelConfig.garmentColor,
+                            printMethod: apparelConfig.printMethod,
+                            printPosition: sidePosition,
+                            side,
+                            sides: apparelConfig.sides,
+                            bleedMm: apparelConfig.bleedMm,
+                            safeAreaMm: apparelConfig.safeAreaMm,
+                        });
+                        const sideName = `${sideConfig.productName} - ${sideConfig.printAreaLabel} printfelt`;
+                        const sidePdfBackgroundMeta = detectPdfBackground(sideCanvas);
+                        const isFirstProductionSide = productionFiles.length === 0;
+                        const pngFile = await buildCanvasOrderPngBlob(sideCanvas, sideName);
+                        const pngUpload = await uploadProductionFile(pngFile, "image/png", "apparel_png");
+                        productionFiles.push({
+                            format: "png",
+                            apparelSide: side,
+                            isPrimary: isFirstProductionSide && !sidePdfBackgroundMeta,
+                            ...pngUpload,
+                        });
+
+                        const pdfFile = sidePdfBackgroundMeta
+                            ? await (async () => {
+                                const { pdfBytes, filename } = await buildVectorPdfBackgroundPdf({
+                                    documentSpec: { ...documentSpec, name: sideName },
+                                    fabricCanvas: sideCanvas,
+                                    pdfBackgroundMeta: sidePdfBackgroundMeta,
+                                    includeBleed: true,
+                                    displayMetrics: {
+                                        mmToPx: displayMmToPx,
+                                        pasteboardPaddingPx,
+                                    },
+                                });
+
+                                return {
+                                    blob: new Blob([pdfBytes], { type: "application/pdf" }),
+                                    filename,
+                                    sourceMode: "vector_pdf" as const,
+                                };
+                            })()
+                            : {
+                                ...(await buildCanvasOrderPdfBlob(sideCanvas, sideName)),
+                                sourceMode: "print_pdf" as const,
+                            };
+                        const pdfUpload = await uploadProductionFile(pdfFile, "application/pdf", pdfFile.sourceMode);
+                        productionFiles.push({
+                            format: "pdf",
+                            apparelSide: side,
+                            isPrimary: isFirstProductionSide && Boolean(sidePdfBackgroundMeta),
+                            ...pdfUpload,
+                        });
+                    }
+
+                    await loadApparelSideDraft(apparelConfig.activeSide, { clearIfMissing: true });
+
+                    const primaryPngUpload = productionFiles.find((file) => file.format === "png") || null;
+                    if (!primaryPngUpload) {
+                        completeReturn();
+                        return;
+                    }
+
+                    const existingSession = readSiteCheckoutSession();
+                    writeSiteCheckoutSession({
+                        ...existingSession,
+                        apparelConfig: {
+                            ...existingSession?.apparelConfig,
+                            productName: apparelConfig.productName,
+                            garmentColor: apparelConfig.garmentColor,
+                            printMethod: apparelConfig.printMethod,
+                            printPositionId: apparelConfig.printPositionId,
+                            printAreaLabel: apparelConfig.printAreaLabel,
+                            activeSide: apparelConfig.activeSide,
+                            sides: apparelConfig.sides,
+                            printWidthMm: apparelConfig.printWidthMm,
+                            printHeightMm: apparelConfig.printHeightMm,
+                            bleedMm: apparelConfig.bleedMm,
+                            safeAreaMm: apparelConfig.safeAreaMm,
+                            garmentSize: apparelConfig.garmentSize,
+                            garmentWidthCm: apparelConfig.garmentWidthCm,
+                            garmentLengthCm: apparelConfig.garmentLengthCm,
+                        },
+                        designerExport: {
+                            name: primaryPngUpload.name,
+                            mimeType: primaryPngUpload.mimeType,
+                            fileUrl: primaryPngUpload.fileUrl,
+                            filePath: primaryPngUpload.filePath,
+                            sourceMode: primaryPngUpload.sourceMode,
+                            primaryFormat: "png",
+                            alternateFormats: ["pdf"],
+                            productionFiles,
+                            apparelSide: primaryPngUpload.apparelSide,
+                            apparelSides: apparelConfig.sides,
+                            generatedAt: new Date().toISOString(),
+                        },
+                    });
+
+                    completeReturn();
+                    return;
+                }
+
                 const productionFile = pdfBackgroundMeta
                     ? await (async () => {
                         const { pdfBytes, filename } = await buildVectorPdfBackgroundPdf({
@@ -1130,6 +1809,10 @@ function DesignerWorkspace() {
                             fabricCanvas,
                             pdfBackgroundMeta,
                             includeBleed: true,
+                            displayMetrics: {
+                                mmToPx: displayMmToPx,
+                                pasteboardPaddingPx,
+                            },
                         });
 
                         return {
@@ -1143,32 +1826,18 @@ function DesignerWorkspace() {
                         sourceMode: "print_pdf" as const,
                     };
 
-                const productRef = documentSpec.product_id || productId || "designer";
-                const safeFileName = productionFile.filename.replace(/[^a-z0-9_.-]/gi, "_");
-                const filePath = `designer-production/${productRef}-${Date.now()}-${safeFileName}`;
-
-                const { error: uploadError } = await supabase.storage
-                    .from("order-files")
-                    .upload(filePath, productionFile.blob, {
-                        contentType: "application/pdf",
-                        upsert: false,
-                    });
-
-                if (uploadError) throw uploadError;
-
-                const { data: { publicUrl } } = supabase.storage
-                    .from("order-files")
-                    .getPublicUrl(filePath);
+                const pdfUpload = await uploadProductionFile(productionFile, "application/pdf", productionFile.sourceMode);
 
                 const existingSession = readSiteCheckoutSession();
                 writeSiteCheckoutSession({
                     ...existingSession,
                     designerExport: {
-                        name: productionFile.filename,
-                        mimeType: "application/pdf",
-                        fileUrl: publicUrl,
-                        filePath,
-                        sourceMode: productionFile.sourceMode,
+                        ...pdfUpload,
+                        primaryFormat: "pdf",
+                        alternateFormats: [],
+                        productionFiles: [
+                            { format: "pdf", ...pdfUpload },
+                        ],
                         generatedAt: new Date().toISOString(),
                     },
                 });
@@ -1183,7 +1852,7 @@ function DesignerWorkspace() {
         };
 
         void prepareDesignerOrderFile();
-    }, [buildCanvasOrderPdfBlob, documentSpec, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo]);
+    }, [apparelConfig, buildCanvasOrderPdfBlob, buildCanvasOrderPngBlob, documentSpec, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo, saveApparelSideDraft]);
 
     // Save and then navigate back
     const handleSaveAndLeave = useCallback(async () => {
@@ -2022,14 +2691,17 @@ function DesignerWorkspace() {
             // 1. Transform to CMYK and get proofed RGB (Cropped to Bleed Box).
             // Template PDFs, fold guides, safe zones and document backgrounds are editor-only
             // objects and must not be captured in the printable export.
-            const { cmykData, proofedRgbDataUrl, width, height } = await withHiddenGuides(
+            const { cmykData, proofedRgbDataUrl, width, height } = await withCanonicalExportViewport(
                 fabricCanvas,
-                () => colorProofing.exportCMYK(
+                () => withHiddenGuides(
+                    fabricCanvas,
+                    () => colorProofing.exportCMYK(
                     SRGB_PROFILE_URL,
                     profile.url,
                     productProfile.profileBytes,
                     cropOptions
-                )
+                    ),
+                ),
             );
 
             if (cmykData.length === 0) {
@@ -2121,6 +2793,10 @@ function DesignerWorkspace() {
                 pdfSourceMeta: null, // No PDF source tracking yet
                 hasChanges,
                 pdfBackgroundMeta,
+                displayMetrics: {
+                    mmToPx: displayMmToPx,
+                    pasteboardPaddingPx,
+                },
             });
 
             if (result.success) {
@@ -2380,17 +3056,28 @@ function DesignerWorkspace() {
 
         setPdfServiceRunning(true);
         try {
-            const report = await runDesignerPdfService({
-                runtime: "browser",
-                operation: "inspect",
-                bytes: data.originalPdfBytes.slice(0),
-                fileName: data.originalFileName,
+            const request = {
+                operation: "inspect" as const,
+                bytes: data.originalPdfBytes.slice(0) as ArrayBuffer,
+                fileName: data.originalFileName as string | undefined,
                 expected: {
                     widthMm: documentSpec.width_mm,
                     heightMm: documentSpec.height_mm,
                     bleedMm: documentSpec.bleed_mm,
                 },
-            });
+            };
+            let report: DesignerPdfServiceReport;
+            try {
+                report = await runDesignerPdfService({ ...request, runtime: "edge" });
+            } catch (edgeError) {
+                console.info("[Designer] Edge PDF scan unavailable; using browser inspection", edgeError);
+                report = await runDesignerPdfService({ ...request, runtime: "browser" });
+                report.warnings = [
+                    "Den private PDF-service er ikke tilgængelig. Metadata er kontrolleret lokalt i browseren.",
+                    ...report.warnings,
+                ];
+                if (report.status === "ok") report.status = "warning";
+            }
             setPdfServiceReport(report);
             if (report.status === "ok") {
                 toast.success("PDF-service scan gennemført");
@@ -2406,6 +3093,107 @@ function DesignerWorkspace() {
             setPdfServiceRunning(false);
         }
     }, [documentSpec.bleed_mm, documentSpec.height_mm, documentSpec.width_mm, getActivePdfObject]);
+
+    const handleRunSelectedPdfServiceOperation = useCallback(async (
+        operation: DesignerPdfServiceOperation,
+        options?: DesignerPdfServiceOptions,
+    ) => {
+        const pdfObject = getActivePdfObject();
+        const data = (pdfObject as any)?.data;
+        if (!pdfObject || data?.kind !== 'pdf_page_background' || !data.originalPdfBytes) {
+            toast.error("Vælg en importeret PDF med original kilde først");
+            return;
+        }
+
+        if (
+            operation === "redact" &&
+            !window.confirm("Den nye fil bliver rasteriseret, så den valgte tekst fjernes permanent. Originalen bevares. Fortsæt?")
+        ) {
+            return;
+        }
+
+        setPdfServiceRunning(true);
+        try {
+            const report = await runDesignerPdfService({
+                runtime: "edge",
+                operation,
+                options,
+                bytes: data.originalPdfBytes.slice(0),
+                fileName: data.originalFileName || "designer.pdf",
+                expected: {
+                    widthMm: documentSpec.width_mm,
+                    heightMm: documentSpec.height_mm,
+                    bleedMm: documentSpec.bleed_mm,
+                },
+            });
+            setPdfServiceReport(report);
+            if (report.output) {
+                toast.success("PDF'en er behandlet. Kontrollér resultatet før du bruger det i designet.");
+            } else if (report.errors?.[0]) {
+                toast.error(report.errors[0]);
+            } else {
+                toast.warning("PDF-servicen returnerede ikke en ny fil");
+            }
+        } catch (error) {
+            console.error("[Designer] PDF processing failed:", error);
+            toast.error(error instanceof Error ? error.message : "PDF-behandlingen fejlede");
+        } finally {
+            setPdfServiceRunning(false);
+        }
+    }, [documentSpec.bleed_mm, documentSpec.height_mm, documentSpec.width_mm, getActivePdfObject]);
+
+    const handleApplyPdfServiceOutput = useCallback(async () => {
+        const pdfObject = getActivePdfObject();
+        if (!pdfObject || !pdfServiceReport?.output || pdfServiceReport.output.contentType !== "application/pdf") {
+            toast.error("Der er ikke et PDF-resultat at bruge");
+            return;
+        }
+
+        setPdfServiceRunning(true);
+        try {
+            const outputBytes = await downloadDesignerPdfServiceOutput(pdfServiceReport);
+            const currentPageIndex = Math.max(0, Math.min(
+                Number((pdfObject as any).data?.pageIndex) || 0,
+                Math.max(0, (pdfServiceReport.pageCount || 1) - 1),
+            ));
+            const importData = await renderPdfPageToImportData(
+                outputBytes.slice(0),
+                currentPageIndex,
+                pdfServiceReport.output.fileName,
+            );
+            handlePDFImport(importData, getPdfReplacementPlacement(pdfObject));
+            toast.success("Den behandlede PDF bruges nu i designet");
+        } catch (error) {
+            console.error("[Designer] Could not apply processed PDF:", error);
+            toast.error(error instanceof Error ? error.message : "Resultatet kunne ikke bruges i designet");
+        } finally {
+            setPdfServiceRunning(false);
+        }
+    }, [getActivePdfObject, getPdfReplacementPlacement, handlePDFImport, pdfServiceReport, renderPdfPageToImportData]);
+
+    const handleDownloadPdfServiceOutput = useCallback(async () => {
+        if (!pdfServiceReport?.output) {
+            toast.error("Der er ikke et resultat at hente");
+            return;
+        }
+
+        setPdfServiceRunning(true);
+        try {
+            const bytes = await downloadDesignerPdfServiceOutput(pdfServiceReport);
+            const blob = new Blob([bytes], { type: pdfServiceReport.output.contentType });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = pdfServiceReport.output.fileName;
+            anchor.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1_000);
+        } catch (error) {
+            console.error("[Designer] Could not download processed PDF:", error);
+            toast.error(error instanceof Error ? error.message : "Resultatet kunne ikke hentes");
+        } finally {
+            setPdfServiceRunning(false);
+        }
+    }, [pdfServiceReport]);
 
     const handlePDFImportFromModal = useCallback((data: PDFImportData) => {
         const replaceTarget = pdfImportModeRef.current === 'replace-selected'
@@ -3107,6 +3895,16 @@ function DesignerWorkspace() {
                             height: viewportHeight
                         }}
                     >
+                        {apparelConfig && (
+                            <ApparelMockupArtboard
+                                config={apparelConfig}
+                                viewportWidth={viewportWidth}
+                                viewportHeight={viewportHeight}
+                                mockupWidth={apparelPreviewWidth * effectiveScale}
+                                mockupHeight={apparelPreviewHeight * effectiveScale}
+                            />
+                        )}
+
                         <EditorCanvas
                             ref={editorRef}
                             width={documentSpec.width_mm}
@@ -3119,9 +3917,17 @@ function DesignerWorkspace() {
                             viewportWidth={viewportWidth}
                             viewportHeight={viewportHeight}
                             viewportScale={effectiveScale}
+                            viewportOffsetXAdjustment={apparelDocumentOffsetX}
+                            viewportOffsetYAdjustment={apparelDocumentOffsetY}
+                            pasteboardColor={apparelConfig ? 'transparent' : undefined}
+                            showPasteboardMasks={!apparelConfig}
+                            showDocumentGuideOverlay={Boolean(apparelConfig)}
+                            documentBackgroundFill={apparelConfig ? 'transparent' : undefined}
+                            documentBackgroundStroke={apparelConfig ? 'transparent' : undefined}
                             selectedTool={selectedTool}
                             onSelectionChange={handleSelectionChange}
                             onCanvasChange={() => {
+                                if (apparelSideChangeRef.current) return;
                                 setHasChanges(true);
                                 // Debounce auto-preflight
                                 if (autoPreflightTimerRef.current) clearTimeout(autoPreflightTimerRef.current);
@@ -3221,151 +4027,141 @@ function DesignerWorkspace() {
                     </div>
                 </main>
 
-                {/* Right Panel */}
-                <aside className="w-80 bg-background border-l flex flex-col">
-                    {/* Tab Switcher */}
-                    <div className="flex border-b">
-                        <button
-                            onClick={() => setActiveTab('layers')}
-                            className={`flex-1 py-2 text-sm font-medium transition-colors ${activeTab === 'layers'
-                                ? 'bg-primary/10 text-primary border-b-2 border-primary'
-                                : 'text-muted-foreground hover:bg-muted/50'
-                                }`}
+                {/* Right inspector */}
+                <aside className="flex shrink-0 bg-background" aria-label="Designerens sidepanel">
+                    {isRightPanelOpen && activeRightPanel && (
+                        <section
+                            id={`designer-panel-${activeRightPanel.id}`}
+                            className="flex w-80 flex-col border-l"
+                            aria-label={`${activeRightPanel.label}-panel`}
                         >
-                            Lag
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('properties')}
-                            className={`flex-1 py-2 text-sm font-medium transition-colors ${activeTab === 'properties'
-                                ? 'bg-primary/10 text-primary border-b-2 border-primary'
-                                : 'text-muted-foreground hover:bg-muted/50'
-                                }`}
-                        >
-                            Egenskaber
-                        </button>
-                        {selectedPdfMeta && (
-                            <button
-                                onClick={() => setActiveTab('pdf')}
-                                className={`flex-1 py-2 text-sm font-medium transition-colors ${activeTab === 'pdf'
-                                    ? 'bg-primary/10 text-primary border-b-2 border-primary'
-                                    : 'text-muted-foreground hover:bg-muted/50'
-                                    }`}
-                            >
-                                PDF
-                            </button>
-                        )}
-                        <button
-                            onClick={() => setActiveTab('preflight')}
-                            className={`flex-1 py-2 text-sm font-medium transition-colors relative ${activeTab === 'preflight'
-                                ? 'bg-primary/10 text-primary border-b-2 border-primary'
-                                : 'text-muted-foreground hover:bg-muted/50'
-                                }`}
-                        >
-                            Preflight
-                            {totalWarningsCount > 0 && (
-                                <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
-                                    {totalWarningsCount}
-                                </span>
-                            )}
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('proofing')}
-                            className={`flex-1 py-2 text-sm font-medium transition-colors relative ${activeTab === 'proofing'
-                                ? 'bg-primary/10 text-primary border-b-2 border-primary'
-                                : 'text-muted-foreground hover:bg-muted/50'
-                                }`}
-                        >
-                            <span className="flex items-center justify-center gap-1">
-                                <Palette className="h-3 w-3" />
-                                Farver
-                            </span>
-                            {colorProofing.settings.enabled && (
-                                <span className="absolute -top-1 -right-1 bg-purple-500 w-2 h-2 rounded-full" />
-                            )}
-                        </button>
-                    </div>
+                            <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+                                <activeRightPanel.Icon className="h-4 w-4 text-primary" aria-hidden="true" />
+                                <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                    {activeRightPanel.label}
+                                </h2>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-9 w-9"
+                                    onClick={() => setIsRightPanelOpen(false)}
+                                    aria-label={`Skjul ${activeRightPanel.label}`}
+                                    title={`Skjul ${activeRightPanel.label}`}
+                                >
+                                    <PanelRightClose className="h-4 w-4" />
+                                </Button>
+                            </header>
 
-                    {/* Panel Content */}
-                    <div className="flex-1 overflow-y-auto">
-                        {activeTab === 'layers' && (
-                            <LayerPanel
-                                layers={layers}
-                                selectedLayerId={selectedLayerId}
-                                onSelectLayer={handleSelectLayer}
-                                onMoveUp={(id) => editorRef.current?.moveLayerUp(id)}
-                                onMoveDown={(id) => editorRef.current?.moveLayerDown(id)}
-                                onToggleVisibility={(id) => editorRef.current?.toggleLayerVisibility(id)}
-                            />
-                        )}
-                        {activeTab === 'properties' && (
-                            <PropertiesPanel
-                                selectedObject={selectedProps}
-                                onUpdateProps={handleUpdateProps}
-                                onBringToFront={() => editorRef.current?.bringToFront()}
-                                onSendToBack={() => editorRef.current?.sendToBack()}
-                            />
-                        )}
-                        {activeTab === 'pdf' && (
-                            <PdfToolsPanel
-                                pdfMeta={selectedPdfMeta}
-                                pdfServiceReport={pdfServiceReport}
-                                pdfServiceRunning={pdfServiceRunning}
-                                preflightIssueCount={Math.max(0, preflightErrors.length + preflightWarnings.length)}
-                                onFitToDocument={handleFitSelectedPdfToDocument}
-                                onCenterOnDocument={handleCenterSelectedPdf}
-                                onImportNewPdf={handleImportNewPdfFromPanel}
-                                onEditPdf={handleEditSelectedPdfFromPanel}
-                                onChangePage={handleChangeSelectedPdfPage}
-                                onRunPdfServiceScan={handleRunSelectedPdfServiceScan}
-                                onExtractCutContour={handleCutContourAction}
-                                onOpenExport={handleOpenVectorExportFromPanel}
-                                onOpenPreflight={() => setActiveTab('preflight')}
-                            />
-                        )}
-                        {activeTab === 'preflight' && (
-                            <PreflightPanel
-                                warnings={preflightWarnings}
-                                errors={preflightErrors}
-                                infos={combinedPreflightInfos}
-                                onAcceptAll={handleAcceptAllWarnings}
-                                onHighlightObject={handleHighlightObject}
-                                onDismiss={handleDismissWarning}
-                                dismissed={dismissedWarnings}
-                            />
-                        )}
-                        {activeTab === 'proofing' && (
-                            <ColorProofingPanel
-                                settings={colorProofing.settings}
-                                isReady={true}
-                                isProcessing={colorProofing.isProcessing}
-                                error={colorProofing.error}
-                                onSetEnabled={colorProofing.setEnabled}
-                                onSetOutputProfile={colorProofing.setOutputProfile}
-                                onSetShowGamutWarning={colorProofing.setShowGamutWarning}
-                                hasCustomProfile={colorProofing.hasCustomProfile}
-                                productProfileId={productProfile.id || undefined}
-                                productProfileName={productProfile.name || undefined}
-                            />
-                        )}
-                    </div>
+                            <div className="min-h-0 flex-1 overflow-y-auto">
+                                {activeTab === 'layers' && (
+                                    <LayerPanel
+                                        layers={layers}
+                                        selectedLayerId={selectedLayerId}
+                                        onSelectLayer={handleSelectLayer}
+                                        onMoveUp={(id) => editorRef.current?.moveLayerUp(id)}
+                                        onMoveDown={(id) => editorRef.current?.moveLayerDown(id)}
+                                        onToggleVisibility={(id) => editorRef.current?.toggleLayerVisibility(id)}
+                                    />
+                                )}
+                                {activeTab === 'properties' && (
+                                    <PropertiesPanel
+                                        selectedObject={selectedProps}
+                                        onUpdateProps={handleUpdateProps}
+                                        onBringToFront={() => editorRef.current?.bringToFront()}
+                                        onSendToBack={() => editorRef.current?.sendToBack()}
+                                    />
+                                )}
+                                {activeTab === 'apparel' && apparelConfig && (
+                                    <ApparelDesignerPanel
+                                        config={apparelConfig}
+                                        onSideChange={handleApparelSideChange}
+                                        onColorChange={handleApparelColorChange}
+                                    />
+                                )}
+                                {activeTab === 'pdf' && (
+                                    <PdfToolsPanel
+                                        pdfMeta={selectedPdfMeta}
+                                        pdfServiceReport={pdfServiceReport}
+                                        pdfServiceRunning={pdfServiceRunning}
+                                        preflightIssueCount={Math.max(0, preflightErrors.length + preflightWarnings.length)}
+                                        onFitToDocument={handleFitSelectedPdfToDocument}
+                                        onCenterOnDocument={handleCenterSelectedPdf}
+                                        onImportNewPdf={handleImportNewPdfFromPanel}
+                                        onEditPdf={handleEditSelectedPdfFromPanel}
+                                        onChangePage={handleChangeSelectedPdfPage}
+                                        onRunPdfServiceScan={handleRunSelectedPdfServiceScan}
+                                        onRunPdfServiceOperation={handleRunSelectedPdfServiceOperation}
+                                        onApplyPdfServiceOutput={handleApplyPdfServiceOutput}
+                                        onDownloadPdfServiceOutput={handleDownloadPdfServiceOutput}
+                                        onExtractCutContour={handleCutContourAction}
+                                        onOpenExport={handleOpenVectorExportFromPanel}
+                                        onOpenPreflight={() => setActiveTab('preflight')}
+                                    />
+                                )}
+                                {activeTab === 'preflight' && (
+                                    <PreflightPanel
+                                        warnings={preflightWarnings}
+                                        errors={preflightErrors}
+                                        infos={combinedPreflightInfos}
+                                        onAcceptAll={handleAcceptAllWarnings}
+                                        onHighlightObject={handleHighlightObject}
+                                        onDismiss={handleDismissWarning}
+                                        dismissed={dismissedWarnings}
+                                    />
+                                )}
+                                {activeTab === 'proofing' && (
+                                    <ColorProofingPanel
+                                        settings={colorProofing.settings}
+                                        isReady={true}
+                                        isProcessing={colorProofing.isProcessing}
+                                        error={colorProofing.error}
+                                        onSetEnabled={colorProofing.setEnabled}
+                                        onSetOutputProfile={colorProofing.setOutputProfile}
+                                        onSetShowGamutWarning={colorProofing.setShowGamutWarning}
+                                        hasCustomProfile={colorProofing.hasCustomProfile}
+                                        productProfileId={productProfile.id || undefined}
+                                        productProfileName={productProfile.name || undefined}
+                                    />
+                                )}
+                            </div>
+                        </section>
+                    )}
 
-                    {/* Quick Add */}
-                    <div className="p-4 border-t">
-                        <div className="grid grid-cols-4 gap-2">
-                            <Button variant="outline" size="sm" className="h-10 p-0" onClick={() => handleToolClick('text')} title="Tekst">
-                                <Type className="h-4 w-4" />
-                            </Button>
-                            <Button variant="outline" size="sm" className="h-10 p-0" onClick={() => handleToolClick('image')} title="Billede">
-                                <Upload className="h-4 w-4" />
-                            </Button>
-                            <Button variant="outline" size="sm" className="h-10 p-0" onClick={() => openPdfImportForAdd()} title="PDF">
-                                <FileUp className="h-4 w-4" />
-                            </Button>
-                            <Button variant="outline" size="sm" className="h-10 p-0" onClick={() => handleToolClick('rectangle')} title="Rektangel">
-                                <Square className="h-4 w-4" />
-                            </Button>
-                        </div>
-                    </div>
+                    <nav className="flex w-14 shrink-0 flex-col items-center gap-1 border-l py-2" aria-label="Designerpaneler">
+                        {rightPanelTabs.map(({ id, label, Icon }) => {
+                            const isActive = activeTab === id;
+                            const isExpanded = isActive && isRightPanelOpen;
+                            const badgeCount = id === 'preflight' ? totalWarningsCount : 0;
+
+                            return (
+                                <button
+                                    key={id}
+                                    type="button"
+                                    className={cn(
+                                        "relative flex h-11 w-11 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                        isExpanded
+                                            ? "bg-primary text-primary-foreground"
+                                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                                    )}
+                                    onClick={() => handleRightPanelTabClick(id)}
+                                    aria-label={`${label}${isExpanded ? ', åben' : ', lukket'}`}
+                                    aria-expanded={isExpanded}
+                                    aria-controls={`designer-panel-${id}`}
+                                    title={isExpanded ? `${label} (skjul)` : `${label} (åbn)`}
+                                >
+                                    <Icon className="h-5 w-5" aria-hidden="true" />
+                                    {badgeCount > 0 && (
+                                        <span className="absolute right-0 top-0 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
+                                            {badgeCount}
+                                        </span>
+                                    )}
+                                    {id === 'proofing' && colorProofing.settings.enabled && (
+                                        <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-fuchsia-500 ring-2 ring-background" />
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </nav>
                 </aside>
             </div>
 

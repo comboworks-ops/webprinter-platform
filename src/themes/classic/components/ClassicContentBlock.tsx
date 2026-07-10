@@ -68,7 +68,7 @@ export function ClassicContentBlock({ block }: ContentBlockProps) {
             key={block.id}
             className="py-16"
             style={bgStyle}
-            data-branding-id={`content-block-${block.id}`}
+            data-branding-id={`content:${block.id}`}
         >
             <div className="container mx-auto px-4">
                 <div
@@ -80,7 +80,7 @@ export function ClassicContentBlock({ block }: ContentBlockProps) {
                 >
                     {/* Media */}
                     {showMedia && (
-                        <div className="relative">
+                        <div className="relative" data-branding-id={`content:${block.id}:image`}>
                             {hasGallery ? (
                                 <div className="relative aspect-[4/3] rounded-xl overflow-hidden">
                                     {gallery.map((img, idx) => (
@@ -137,6 +137,7 @@ export function ClassicContentBlock({ block }: ContentBlockProps) {
                     <div className={textAlignClass}>
                         {block.title && (
                             <h2
+                                data-branding-id={`content:${block.id}:heading`}
                                 className="text-3xl font-bold mb-4"
                                 style={{ color: block.textColor }}
                             >
@@ -145,6 +146,7 @@ export function ClassicContentBlock({ block }: ContentBlockProps) {
                         )}
                         {block.subtitle && (
                             <p
+                                data-branding-id={`content:${block.id}:text`}
                                 className="text-xl text-gray-600 mb-4"
                                 style={{ color: block.textColor ? `${block.textColor}CC` : undefined }}
                             >
@@ -153,6 +155,7 @@ export function ClassicContentBlock({ block }: ContentBlockProps) {
                         )}
                         {block.content && (
                             <div
+                                data-branding-id={`content:${block.id}:text`}
                                 className="prose max-w-none"
                                 style={{ color: block.textColor }}
                                 dangerouslySetInnerHTML={{ __html: block.content }}
@@ -161,6 +164,7 @@ export function ClassicContentBlock({ block }: ContentBlockProps) {
                         {showCta && (
                             <div className={`mt-6 flex ${ctaAlign}`}>
                                 <a
+                                    data-branding-id={`content:${block.id}:cta`}
                                     href={ctaHref}
                                     className={cn(
                                         'inline-flex items-center rounded-lg font-medium transition-colors',

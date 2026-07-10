@@ -55,6 +55,7 @@ import { Banner2Section } from "@/components/admin/Banner2Section";
 import { LogoSection } from "@/components/admin/LogoSection";
 import { FaviconEditor } from "@/components/admin/FaviconEditor";
 import { ContentBlocksSection } from "@/components/admin/ContentBlocksSection";
+import { LowerInfoSection } from "@/components/admin/LowerInfoSection";
 import { PageBackgroundControls } from "@/components/admin/PageBackgroundControls";
 import { PendingPurchasesDialog, PendingPurchasesBadge } from "@/components/admin/PendingPurchasesDialog";
 import { ThemeSelector } from "@/components/admin/ThemeSelector";
@@ -95,7 +96,7 @@ import {
     brandingEquals,
     useBrandingEditor,
 } from "@/lib/branding";
-import { resolveSiteDesignTarget } from "@/lib/siteDesignTargets";
+import { isSiteDesignSelectionMessage, resolveSiteDesignTarget } from "@/lib/siteDesignTargets";
 
 interface SiteDesignEditorV2Props {
     adapter: BrandingStorageAdapter;
@@ -2559,6 +2560,7 @@ const PREVIEW_PAGE_LINKS: PreviewPageLink[] = [
     { label: "Forside", path: "/" },
     { label: "Produkter", path: "/produkter" },
     { label: "Bestilling", path: "/produkter", action: "first-product" },
+    { label: "Checkout", path: "/checkout" },
     { label: "Grafisk vejledning", path: "/grafisk-vejledning" },
     { label: "Kontakt", path: "/kontakt" },
     { label: "Om os", path: "/om-os" },
@@ -2577,16 +2579,6 @@ const USP_ICON_OPTIONS: Array<{ value: string; label: string; icon: LucideIcon }
 
 function resolveContextualEditor(rawId?: string | null): ContextualEditorState | null {
     if (!rawId) return null;
-
-    const uspIconMatch = /^usp-strip\.item\.([^.]+)\.icon$/.exec(rawId);
-    if (uspIconMatch) {
-        return {
-            kind: "usp-icon",
-            itemId: uspIconMatch[1],
-            rawId,
-            label: "USP ikon",
-        };
-    }
 
     // Product option button click: product-option.<productId>.<sectionId>.<valueId>.<valueName>
     const productOptionMatch = /^product-option\.([^\.]+)\.([^\.]+)\.([^\.]+)\.(.+)$/.exec(rawId);
@@ -2631,6 +2623,7 @@ const SECTION_LABELS: Record<string, string> = {
     colors: "Farver",
     banner: "Banner (Hero)",
     showcase: "Banner 2 / Showcase",
+    "lower-info": "Nedre infobokse",
     "usp-strip": "USP Strip (Fordele)",
     "seo-content": "SEO Tekst",
     products: "Forside produkter",
@@ -2794,6 +2787,15 @@ const SECTION_BUTTON_CONFIGS: SectionButtonConfig[] = [
         icon: ShoppingCart,
         buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-sky-100 text-sky-900 hover:bg-sky-50/50 hover:border-sky-200 group",
         iconWrapperClassName: "h-8 w-8 rounded-lg bg-sky-100/50 flex items-center justify-center text-sky-600 group-hover:bg-sky-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "lower-info",
+        label: "Nedre infobokse",
+        group: "home",
+        icon: Layout,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-cyan-100 text-cyan-900 hover:bg-cyan-50/50 hover:border-cyan-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-cyan-100/50 flex items-center justify-center text-cyan-600 group-hover:bg-cyan-100 transition-colors",
         iconClassName: "h-4 w-4",
     },
     {
@@ -3446,7 +3448,11 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         const handleMessage = (event: MessageEvent) => {
             console.log('[Editor] Received message:', event.data);
             
-            if (event.data?.type === 'EDIT_SECTION' || event.data?.type === 'ELEMENT_CLICKED') {
+            if (
+                isSiteDesignSelectionMessage(event.data)
+                || event.data?.type === 'EDIT_SECTION'
+                || event.data?.type === 'ELEMENT_CLICKED'
+            ) {
                 console.log('[Editor] Opening section:', event.data?.sectionId);
                 openPreviewSelection(event.data?.sectionId);
             }
@@ -3723,6 +3729,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         || currentPreviewPage === "/produkter"
         || currentPreviewPage === "/prisberegner";
     const isProductPreviewPage = currentPreviewPage === "/produkt" || currentPreviewPage.startsWith("/produkt/");
+    const isCheckoutPreviewPage = currentPreviewPage === "/checkout";
 
     const currentPreviewPageLabel = useMemo(() => {
         if (currentPreviewPage.startsWith("/produkt/") || currentPreviewPage === "/produkt") {
@@ -3736,7 +3743,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         return "Aktuel side";
     }, [currentPreviewPage]);
 
-    const currentPreviewPageTypeLabel = isProductPreviewPage
+    const currentPreviewPageTypeLabel = isCheckoutPreviewPage
+        ? "Checkout"
+        : isProductPreviewPage
         ? "Produktside"
         : isHomePreviewPage
             ? "Forside / katalog"
@@ -3756,6 +3765,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         if (isHomePreviewPage) {
             sections.add("banner");
             sections.add("showcase");
+            sections.add("lower-info");
             sections.add("usp-strip");
             sections.add("seo-content");
             sections.add("products");
@@ -3769,6 +3779,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
             sections.add("product-description");
         }
 
+        if (isCheckoutPreviewPage) {
+            sections.add("product-page-matrix");
+        }
+
         return sections;
     }, [
         capabilities.sections.colors,
@@ -3778,6 +3792,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         capabilities.sections.logo,
         capabilities.sections.typography,
         isHomePreviewPage,
+        isCheckoutPreviewPage,
         isProductPreviewPage,
         // Note: usp-strip is always shown on home preview
     ]);
@@ -4515,6 +4530,39 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             draft={editor.draft}
                             updateDraft={editor.updateDraft}
                             tenantId={editor.entityId}
+                            focusTargetId={focusedTargetId}
+                            savedSwatches={editor.draft.savedSwatches}
+                            onSaveSwatch={(color) => {
+                                const swatches = editor.draft.savedSwatches || [];
+                                if (!swatches.includes(color) && swatches.length < 20) {
+                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                }
+                            }}
+                            onRemoveSwatch={(color) => {
+                                editor.updateDraft({
+                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                });
+                            }}
+                        />
+                    </div>
+                );
+            case 'lower-info':
+                return (
+                    <div className="space-y-3 px-3 pb-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Nedre infobokse</h3>
+                            <div className="flex items-center gap-2">
+                                {focusedTargetId?.startsWith("site-design-focus-lower-info") && (
+                                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFocusedSelection}>Vis alt</Button>
+                                )}
+                                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
+                            </div>
+                        </div>
+                        <LowerInfoSection
+                            draft={editor.draft}
+                            updateDraft={editor.updateDraft}
+                            tenantId={editor.entityId}
+                            focusTargetId={focusedTargetId}
                             savedSwatches={editor.draft.savedSwatches}
                             onSaveSwatch={(color) => {
                                 const swatches = editor.draft.savedSwatches || [];
@@ -8187,6 +8235,21 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         },
                     });
                 };
+                const updateOrderButtons = (
+                    updates: Partial<typeof DEFAULT_BRANDING.productPage.orderButtons>,
+                ) => {
+                    const currentProductPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
+                    const currentOrderButtons = currentProductPage.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
+                    editor.updateDraft({
+                        productPage: {
+                            ...currentProductPage,
+                            orderButtons: {
+                                ...currentOrderButtons,
+                                ...updates,
+                            },
+                        },
+                    });
+                };
                 const renderPricePanelField = (field: PricePanelColorFieldConfig) => {
                     const value = pricePanelConfig[field.key];
 
@@ -9037,6 +9100,44 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
+                                <div className="space-y-4 rounded-lg border bg-muted/20 p-3">
+                                    <h4 className="text-sm font-medium">Form og typografi</h4>
+                                    <FontSelector
+                                        label="Skrifttype"
+                                        inline
+                                        value={orderButtons.font || "Inter"}
+                                        onChange={(font) => updateOrderButtons({ font })}
+                                    />
+                                    <div className="space-y-2">
+                                        <Label>Tekststørrelse ({orderButtons.fontSizePx ?? 16}px)</Label>
+                                        <Slider min={11} max={28} step={1} value={[orderButtons.fontSizePx ?? 16]} onValueChange={([fontSizePx]) => updateOrderButtons({ fontSizePx })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Skrifttykkelse</Label>
+                                        <Select value={String(orderButtons.fontWeight ?? 600)} onValueChange={(value) => updateOrderButtons({ fontWeight: Number(value) })}>
+                                            <SelectTrigger><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="400">Normal</SelectItem>
+                                                <SelectItem value="500">Medium</SelectItem>
+                                                <SelectItem value="600">Semibold</SelectItem>
+                                                <SelectItem value="700">Fed</SelectItem>
+                                                <SelectItem value="800">Ekstra fed</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Runding ({orderButtons.radiusPx ?? 10}px)</Label>
+                                        <Slider min={0} max={40} step={1} value={[orderButtons.radiusPx ?? 10]} onValueChange={([radiusPx]) => updateOrderButtons({ radiusPx })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Kant ({orderButtons.borderWidthPx ?? 1}px)</Label>
+                                        <Slider min={0} max={6} step={1} value={[orderButtons.borderWidthPx ?? 1]} onValueChange={([borderWidthPx]) => updateOrderButtons({ borderWidthPx })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Lodret luft ({orderButtons.paddingYPx ?? 16}px)</Label>
+                                        <Slider min={8} max={28} step={1} value={[orderButtons.paddingYPx ?? 16]} onValueChange={([paddingYPx]) => updateOrderButtons({ paddingYPx })} />
+                                    </div>
+                                </div>
                                 {shouldShowOrderButtonPart("site-design-focus-product-page-order-primary") && (
                                 <div id="site-design-focus-product-page-order-primary" className="space-y-3 rounded-lg border p-3">
                                     <div className="space-y-1">
@@ -9890,7 +9991,6 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
 
                         {/* Preview Frame */}
                         <div className="relative flex-1 w-full">
-                            {renderContextualEditor()}
                             <div className="h-full w-full bg-white rounded-b-lg border border-t-0 overflow-hidden">
                                 <SiteDesignPreviewFrame
                                     branding={editor.draft}

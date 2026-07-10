@@ -846,6 +846,12 @@ Supplier product bank:
   first view is button-based: product group -> print house -> product. The old
   KPI/report/status panels are hidden behind `Vis teknisk overblik` so admins
   can handpick supplier products without reading the operator report first.
+- Designer PDF processing now includes a disabled-by-default private
+  Stirling-PDF adapter. Inputs are read under the authenticated user's RLS
+  context, outputs are immutable and user-scoped, and the browser never sees
+  the provider API key. Keep `STIRLING_PDF_ENABLED=false` until a private
+  processor and commercial license decision are in place. See
+  `docs/STIRLING_PDF_INTEGRATION.md` before deployment.
 
 Important files:
 - `src/components/admin/SiteDesignEditorV2.tsx`

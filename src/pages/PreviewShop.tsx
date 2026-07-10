@@ -20,7 +20,7 @@ import { SitePackagePreview } from "@/components/sites/SitePackagePreview";
 import { StorefrontHomeContent } from "@/components/storefront/StorefrontHomeContent";
 import { StorefrontSeo } from "@/components/storefront/StorefrontSeo";
 import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
-import { getSiteDesignTargetLabel } from "@/lib/siteDesignTargets";
+import { getSiteDesignTargetLabel, SITE_DESIGN_SELECTION_EVENT } from "@/lib/siteDesignTargets";
 
 // List of ALLOWED customer-visible routes in preview mode
 // This prevents navigation to admin/backend routes
@@ -35,6 +35,7 @@ const ALLOWED_PREVIEW_ROUTES = [
     '/cookiepolitik',
     '/privatliv',
     '/vilkaar',
+    '/checkout',
 ];
 
 // Routes that should be blocked in preview mode
@@ -206,9 +207,85 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
     const resolvedTenantName = String(
         resolvedBranding.shop_name || tenantName || "Din Shop",
     ).trim() || "Din Shop";
+    const checkoutOrderButtons = resolvedBranding.productPage?.orderButtons;
+    const checkoutButtonShape: React.CSSProperties = {
+        borderRadius: `${checkoutOrderButtons?.radiusPx ?? 10}px`,
+        borderWidth: `${checkoutOrderButtons?.borderWidthPx ?? 1}px`,
+        fontFamily: `'${checkoutOrderButtons?.font || "Inter"}', sans-serif`,
+        fontSize: `${checkoutOrderButtons?.fontSizePx ?? 16}px`,
+        fontWeight: checkoutOrderButtons?.fontWeight ?? 600,
+        paddingTop: `${checkoutOrderButtons?.paddingYPx ?? 16}px`,
+        paddingBottom: `${checkoutOrderButtons?.paddingYPx ?? 16}px`,
+    };
 
     // Render page content based on virtual navigation
     const renderPageContent = () => {
+        if (currentPage === '/checkout') {
+            return (
+                <main data-branding-id="colors.background" className="flex-1 px-4 py-12">
+                    <div className="mx-auto max-w-5xl">
+                        <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+                            <div>
+                                <h1 data-branding-id="typography.heading" className="font-heading text-3xl font-semibold">Fil-tjek og betaling</h1>
+                                <p data-branding-id="typography.body" className="mt-2 text-sm text-muted-foreground">Kontrollér ordren og fortsæt til betaling.</p>
+                            </div>
+                            <div className="flex gap-2 text-xs">
+                                <span data-branding-id="colors.card" className="rounded-md border bg-card px-3 py-2">1. Bestilling</span>
+                                <span data-branding-id="colors.primary" className="rounded-md bg-primary px-3 py-2 text-primary-foreground">2. Fil-tjek</span>
+                                <span data-branding-id="colors.card" className="rounded-md border bg-card px-3 py-2">3. Betaling</span>
+                            </div>
+                        </div>
+                        <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+                            <section data-branding-id="colors.card" className="rounded-lg border bg-card p-6 shadow-sm">
+                                <h2 data-branding-id="typography.heading" className="font-heading text-xl font-semibold">Kontakt og modtager</h2>
+                                <p data-branding-id="typography.body" className="mt-2 text-sm text-muted-foreground">Kundeoplysninger, levering og fakturering vises her.</p>
+                                <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                                    <div className="h-11 rounded-md border bg-background" />
+                                    <div className="h-11 rounded-md border bg-background" />
+                                    <div className="h-11 rounded-md border bg-background sm:col-span-2" />
+                                </div>
+                            </section>
+                            <aside data-branding-id="productPage.pricePanel.box" className="rounded-lg border bg-card p-6 shadow-sm">
+                                <h2 data-branding-id="productPage.pricePanel.titleColor" className="font-heading text-xl font-semibold">Ordreoversigt</h2>
+                                <div data-branding-id="productPage.pricePanel.text" className="mt-5 space-y-3 text-sm">
+                                    <div className="flex justify-between"><span>Produkt</span><span>1.250,00 kr.</span></div>
+                                    <div className="flex justify-between"><span>Levering</span><span>95,00 kr.</span></div>
+                                </div>
+                                <div data-branding-id="productPage.pricePanel.price" className="mt-5 flex justify-between border-t pt-4 text-lg font-semibold">
+                                    <span>Total</span><span>1.345,00 kr.</span>
+                                </div>
+                                <Button
+                                    data-branding-id="productPage.orderButtons.primary"
+                                    className="mt-6 h-auto w-full"
+                                    style={{
+                                        ...checkoutButtonShape,
+                                        backgroundColor: checkoutOrderButtons?.primary?.bgColor || resolvedBranding.colors.primary,
+                                        color: checkoutOrderButtons?.primary?.textColor || "#FFFFFF",
+                                        borderColor: checkoutOrderButtons?.primary?.borderColor || resolvedBranding.colors.primary,
+                                    }}
+                                >
+                                    Gå til betaling
+                                </Button>
+                                <Button
+                                    data-branding-id="productPage.orderButtons.secondary"
+                                    variant="outline"
+                                    className="mt-2 h-auto w-full"
+                                    style={{
+                                        ...checkoutButtonShape,
+                                        backgroundColor: checkoutOrderButtons?.secondary?.bgColor || resolvedBranding.colors.card,
+                                        color: checkoutOrderButtons?.secondary?.textColor || resolvedBranding.colors.bodyText,
+                                        borderColor: checkoutOrderButtons?.secondary?.borderColor || resolvedBranding.colors.secondary,
+                                    }}
+                                >
+                                    Tilbage til bestilling
+                                </Button>
+                            </aside>
+                        </div>
+                    </div>
+                </main>
+            );
+        }
+
         // Specific product page
         if (currentPage.startsWith('/produkt/')) {
             const slug = currentPage.split('/').pop();
@@ -537,11 +614,7 @@ export default function PreviewShop() {
 
                     // Send message to parent editor
                     window.parent.postMessage({
-                        type: 'EDIT_SECTION',
-                        sectionId
-                    }, '*');
-                    window.parent.postMessage({
-                        type: 'ELEMENT_CLICKED',
+                        type: SITE_DESIGN_SELECTION_EVENT,
                         sectionId
                     }, '*');
 
@@ -554,6 +627,7 @@ export default function PreviewShop() {
             const link = target.closest('a');
 
             if (!link) return;
+            if (link.dataset.previewExit === 'true') return;
 
             const href = link.getAttribute('href');
             if (!href) return;
@@ -589,7 +663,7 @@ export default function PreviewShop() {
         return () => {
             document.removeEventListener('click', handleClick, true);
         };
-    }, [editMode]);
+    }, [editMode, currentPage]);
 
     useEffect(() => {
         if (!editMode) {
@@ -638,7 +712,7 @@ export default function PreviewShop() {
             window.removeEventListener('blur', clearHoveredElement);
             clearHoveredElement();
         };
-    }, [editMode]);
+    }, [editMode, currentPage]);
 
     // Require admin access
     if (!roleLoading && !isAdmin && !isPreviewContext) {

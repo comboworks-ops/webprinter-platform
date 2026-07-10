@@ -1725,6 +1725,11 @@ const DEFAULT_BRANDING = {
         },
         orderButtons: {
             font: "Inter",
+            fontSizePx: 16,
+            fontWeight: 600,
+            radiusPx: 10,
+            borderWidthPx: 1,
+            paddingYPx: 16,
             animation: "none",
             primary: {
                 bgColor: "",

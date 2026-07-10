@@ -46,7 +46,7 @@ export function GlassContentBlock({ branding, block }: ContentBlockProps) {
         <section
             key={block.id}
             className="py-20 relative overflow-hidden"
-            data-branding-id={`content-block-${block.id}`}
+            data-branding-id={`content:${block.id}`}
         >
             {/* Background gradient based on content position */}
             <div
@@ -68,7 +68,7 @@ export function GlassContentBlock({ branding, block }: ContentBlockProps) {
                 >
                     {/* Media with glass frame */}
                     {showMedia && (
-                        <div className="relative">
+                        <div className="relative" data-branding-id={`content:${block.id}:image`}>
                             {/* Decorative gradient behind image */}
                             <div
                                 className="absolute -inset-4 rounded-3xl blur-2xl opacity-30 pointer-events-none"
@@ -158,6 +158,7 @@ export function GlassContentBlock({ branding, block }: ContentBlockProps) {
                     >
                         {block.title && (
                             <h2
+                                data-branding-id={`content:${block.id}:heading`}
                                 className="text-4xl font-bold mb-4"
                                 style={{ color: block.textColor || '#1e293b' }}
                             >
@@ -166,6 +167,7 @@ export function GlassContentBlock({ branding, block }: ContentBlockProps) {
                         )}
                         {block.subtitle && (
                             <p
+                                data-branding-id={`content:${block.id}:text`}
                                 className="text-xl mb-4"
                                 style={{ color: block.textColor ? `${block.textColor}BB` : '#64748b' }}
                             >
@@ -174,6 +176,7 @@ export function GlassContentBlock({ branding, block }: ContentBlockProps) {
                         )}
                         {block.content && (
                             <div
+                                data-branding-id={`content:${block.id}:text`}
                                 className="prose max-w-none"
                                 style={{ color: block.textColor || '#475569' }}
                                 dangerouslySetInnerHTML={{ __html: block.content }}
@@ -182,6 +185,7 @@ export function GlassContentBlock({ branding, block }: ContentBlockProps) {
                         {showCta && (
                             <div className={`mt-8 flex ${ctaAlign}`}>
                                 <a
+                                    data-branding-id={`content:${block.id}:cta`}
                                     href={ctaHref}
                                     className="inline-flex items-center px-6 py-3 rounded-xl font-semibold transition-all hover:scale-105 hover:-translate-y-0.5"
                                     style={{

@@ -1510,19 +1510,49 @@ const FileUploadConfiguration = () => {
                       }
                     : null;
 
-            if (finalOrderFile?.url) {
-                const fileType = finalOrderFile.name.includes(".")
-                    ? finalOrderFile.name.split(".").pop()?.toLowerCase() || null
-                    : null;
+            const designerProductionFiles = Array.isArray(latestCheckoutSession?.designerExport?.productionFiles)
+                ? latestCheckoutSession.designerExport.productionFiles
+                    .filter((file) => file?.fileUrl)
+                    .map((file) => ({
+                        name: String(file.name || finalOrderFile?.name || "designer-production"),
+                        url: String(file.fileUrl || ""),
+                        path: String(file.filePath || ""),
+                        mimeType: String(file.mimeType || finalOrderFile?.mimeType || ""),
+                        format: file.format,
+                        apparelSide: file.apparelSide || null,
+                        isPrimary: file.isPrimary === true,
+                    }))
+                    .sort((left, right) => Number(right.isPrimary) - Number(left.isPrimary))
+                : [];
+            const orderFilesToSave = designerProductionFiles.length > 0
+                ? designerProductionFiles
+                : finalOrderFile?.url
+                    ? [{
+                        name: finalOrderFile.name,
+                        url: finalOrderFile.url,
+                        path: finalOrderFile.path,
+                        mimeType: finalOrderFile.mimeType,
+                        format: finalOrderFile.name.toLowerCase().endsWith(".png") ? "png" : "pdf",
+                        apparelSide: null,
+                        isPrimary: true,
+                    }]
+                    : [];
 
-                const { error: orderFileError } = await supabase
-                    .from("order_files" as any)
-                    .insert({
+            if (orderFilesToSave.length > 0) {
+                const orderFileRows = orderFilesToSave.map((orderFile, index) => {
+                    const fileType = orderFile.name.includes(".")
+                        ? orderFile.name.split(".").pop()?.toLowerCase() || null
+                        : orderFile.format || null;
+                    const sideLabel = orderFile.apparelSide
+                        ? `Side: ${orderFile.apparelSide === "back" ? "Ryg" : orderFile.apparelSide === "sleeve" ? "Ærme" : "Front"}`
+                        : null;
+
+                    return {
                         order_id: insertedOrder.id,
-                        file_name: finalOrderFile.name,
-                        file_url: finalOrderFile.url,
+                        file_name: orderFile.name,
+                        file_url: orderFile.url,
                         file_type: fileType,
-                        is_current: true,
+                        is_current: index === 0,
                         uploaded_by: user?.id || null,
                         notes: [
                             productConfigurationText ? `Konfiguration: ${productConfigurationText}` : null,
@@ -1530,8 +1560,15 @@ const FileUploadConfiguration = () => {
                             !latestCheckoutSession?.designerExport?.fileUrl && uploadedFile ? "Kilde: kundeupload" : null,
                             productFlowSummary ? `Produktflow: ${productFlowSummary}` : null,
                             templateSummary ? `Skabelon: ${templateSummary}` : null,
+                            sideLabel,
+                            orderFile.isPrimary ? "Primær produktionsfil" : null,
                         ].filter(Boolean).join(" | ") || null,
-                    });
+                    };
+                });
+
+                const { error: orderFileError } = await supabase
+                    .from("order_files" as any)
+                    .insert(orderFileRows);
 
                 if (orderFileError) {
                     console.error("Order file save error:", orderFileError);
@@ -2795,10 +2832,11 @@ const FileUploadConfiguration = () => {
             <main
                 className="storefront-order-flow storefront-checkout-flow flex-1 container mx-auto px-4 py-12"
                 data-storefront-order-flow="checkout"
+                data-branding-id="colors.background"
             >
                 <div className="max-w-5xl mx-auto">
                     <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                        <h1 className="text-2xl font-heading font-semibold tracking-tight text-slate-900 md:text-[28px]">
+                        <h1 data-branding-id="typography.heading" className="text-2xl font-heading font-semibold tracking-tight text-slate-900 md:text-[28px]">
                             {checkoutTitle}
                         </h1>
                         <div className="flex flex-wrap gap-3">
@@ -2818,7 +2856,7 @@ const FileUploadConfiguration = () => {
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                         <div className="lg:col-span-2 space-y-6">
-                            <Card className="shadow-sm">
+                            <Card data-branding-id="colors.card" className="shadow-sm">
                                 <CardHeader className="pb-2">
                                     <div className="flex items-center justify-between">
                                         <CardTitle>Valgt konfiguration</CardTitle>
@@ -3060,7 +3098,7 @@ const FileUploadConfiguration = () => {
                                 </CardContent>
                             </Card>
 
-                            <Card className="overflow-hidden shadow-sm">
+                            <Card data-branding-id="colors.card" className="overflow-hidden shadow-sm">
                                 <CardHeader className="bg-primary/5">
                                     <div className="flex items-center justify-between">
                                         <div>
@@ -3497,7 +3535,7 @@ const FileUploadConfiguration = () => {
                         </div>
 
                         <div className="space-y-6">
-                            <Card className="overflow-hidden shadow-sm">
+                            <Card data-branding-id="colors.card" className="overflow-hidden shadow-sm">
                                 <CardHeader className="bg-primary/5">
                                     <div className="flex items-center justify-between">
                                         <div>

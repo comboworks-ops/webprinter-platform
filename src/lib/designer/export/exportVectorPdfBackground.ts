@@ -17,6 +17,7 @@ import {
     PDFNumber,
     PDFOperator,
     concatTransformationMatrix,
+    degrees,
     popGraphicsState,
     pushGraphicsState,
     setDashPattern,
@@ -27,6 +28,7 @@ import {
 import { fabric } from 'fabric';
 import { svgPathToOperators } from 'pdf-lib/cjs/api/svgPath';
 import { ExportResult, DocumentSpec } from './types';
+import { withCanonicalExportViewport } from './withCanonicalExportViewport';
 
 // CRITICAL: Must match Designer's DISPLAY_DPI
 const DISPLAY_DPI = 50.8;
@@ -49,6 +51,13 @@ interface BuiltVectorPdf {
     filename: string;
 }
 
+interface PdfPlacement {
+    bottomLeft: { x: number; y: number };
+    widthPx: number;
+    heightPx: number;
+    angle: number;
+}
+
 export interface PdfBackgroundMeta {
     kind: 'pdf_page_background';
     originalPdfBytes: ArrayBuffer;
@@ -61,6 +70,10 @@ export interface VectorExportOptions {
     fabricCanvas: fabric.Canvas;
     pdfBackgroundMeta: PdfBackgroundMeta;
     includeBleed: boolean;
+    displayMetrics?: {
+        mmToPx: number;
+        pasteboardPaddingPx: number;
+    };
 }
 
 export function detectPdfBackground(fabricCanvas: fabric.Canvas | null): PdfBackgroundMeta | null {
@@ -108,6 +121,10 @@ export async function buildVectorPdfBackgroundPdf(
     options: VectorExportOptions
 ): Promise<BuiltVectorPdf> {
     const { documentSpec, fabricCanvas, pdfBackgroundMeta, includeBleed } = options;
+    const displayMetrics = options.displayMetrics || {
+        mmToPx: MM_TO_PX,
+        pasteboardPaddingPx: PASTEBOARD_PADDING_PX,
+    };
 
     const originalPdf = await PDFDocument.load(pdfBackgroundMeta.originalPdfBytes);
     const pageIndex = pdfBackgroundMeta.pageIndex;
@@ -117,13 +134,44 @@ export async function buildVectorPdfBackgroundPdf(
     }
 
     const newPdf = await PDFDocument.create();
-    const [copiedPage] = await newPdf.copyPages(originalPdf, [pageIndex]);
-    newPdf.addPage(copiedPage);
+    const outputBleedMm = includeBleed ? (documentSpec.bleed_mm || 0) : 0;
+    const pageWidth = mmToPt(documentSpec.width_mm + (outputBleedMm * 2));
+    const pageHeight = mmToPt(documentSpec.height_mm + (outputBleedMm * 2));
+    const page = newPdf.addPage([pageWidth, pageHeight]);
+    const [embeddedPage] = await newPdf.embedPdf(originalPdf, [pageIndex]);
+    const placement = await withCanonicalExportViewport(
+        fabricCanvas,
+        async () => getPdfBackgroundPlacement(fabricCanvas),
+    );
 
-    const page = newPdf.getPage(0);
+    if (!placement) {
+        throw new Error('Imported PDF placement is missing from the canvas');
+    }
+
+    const canvasToPageMatrix = getCanvasCropToPageMatrix(
+        documentSpec,
+        includeBleed,
+        pageWidth,
+        pageHeight,
+        displayMetrics,
+    );
+    const vectorBottomLeft = transformPoint(canvasToPageMatrix, placement.bottomLeft);
+    const vectorWidth = placement.widthPx * Math.abs(canvasToPageMatrix[0]);
+    const vectorHeight = placement.heightPx * Math.abs(canvasToPageMatrix[3]);
+
+    page.drawPage(embeddedPage, {
+        x: vectorBottomLeft.x,
+        y: vectorBottomLeft.y,
+        width: vectorWidth,
+        height: vectorHeight,
+        rotate: degrees(-placement.angle),
+    });
 
     if (hasOverlayObjects(fabricCanvas)) {
-        const overlayDataUrl = await renderOverlaysOnly(fabricCanvas, documentSpec, includeBleed);
+        const overlayDataUrl = await withCanonicalExportViewport(
+            fabricCanvas,
+            () => renderOverlaysOnly(fabricCanvas, documentSpec, includeBleed, displayMetrics),
+        );
         if (overlayDataUrl) {
             const overlayImageBytes = await fetchDataUrlAsBytes(overlayDataUrl);
             const overlayImage = await newPdf.embedPng(overlayImageBytes);
@@ -138,13 +186,69 @@ export async function buildVectorPdfBackgroundPdf(
         }
     }
 
-    await drawCutContoursAsVector(page, newPdf, fabricCanvas, documentSpec, includeBleed);
+    await drawCutContoursAsVector(
+        page,
+        newPdf,
+        fabricCanvas,
+        documentSpec,
+        includeBleed,
+        displayMetrics,
+    );
 
     const pdfBytes = await newPdf.save();
     return {
         pdfBytes,
         filename: getExportFilename(documentSpec.name, pdfBackgroundMeta.originalFileName),
     };
+}
+
+function getPdfBackgroundPlacement(fabricCanvas: fabric.Canvas): PdfPlacement | null {
+    const pdfObject = fabricCanvas.getObjects().find((obj) => {
+        const data = (obj as any).data;
+        return data?.kind === 'pdf_page_background' && data.originalPdfBytes;
+    });
+    if (!pdfObject) return null;
+
+    const center = pdfObject.getCenterPoint();
+    const widthPx = Math.abs((pdfObject.width || 0) * (pdfObject.scaleX || 1));
+    const heightPx = Math.abs((pdfObject.height || 0) * (pdfObject.scaleY || 1));
+    const angle = Number.isFinite(pdfObject.angle) ? (pdfObject.angle || 0) : 0;
+    const radians = (angle * Math.PI) / 180;
+    const localBottomLeft = { x: -widthPx / 2, y: heightPx / 2 };
+    const bottomLeft = {
+        x: center.x + (localBottomLeft.x * Math.cos(radians)) - (localBottomLeft.y * Math.sin(radians)),
+        y: center.y + (localBottomLeft.x * Math.sin(radians)) + (localBottomLeft.y * Math.cos(radians)),
+    };
+
+    if (
+        !bottomLeft ||
+        !Number.isFinite(bottomLeft.x) ||
+        !Number.isFinite(bottomLeft.y) ||
+        !Number.isFinite(widthPx) ||
+        !Number.isFinite(heightPx) ||
+        widthPx <= 0 ||
+        heightPx <= 0
+    ) {
+        return null;
+    }
+
+    return {
+        bottomLeft: { x: bottomLeft.x, y: bottomLeft.y },
+        widthPx,
+        heightPx,
+        angle,
+    };
+}
+
+function transformPoint(matrix: Matrix, point: { x: number; y: number }) {
+    return {
+        x: (matrix[0] * point.x) + (matrix[2] * point.y) + matrix[4],
+        y: (matrix[1] * point.x) + (matrix[3] * point.y) + matrix[5],
+    };
+}
+
+function mmToPt(mm: number): number {
+    return (mm / 25.4) * 72;
 }
 
 export async function exportVectorPdfBackground(
@@ -186,13 +290,20 @@ async function drawCutContoursAsVector(
     pdfDoc: PDFDocument,
     fabricCanvas: fabric.Canvas,
     docSpec: DocumentSpec,
-    includeBleed: boolean
+    includeBleed: boolean,
+    displayMetrics: { mmToPx: number; pasteboardPaddingPx: number },
 ): Promise<void> {
     const cutContourObjects = getCutContourObjects(fabricCanvas);
     if (cutContourObjects.length === 0) return;
 
     const { width: pageWidth, height: pageHeight } = page.getSize();
-    const canvasToPageMatrix = getCanvasCropToPageMatrix(docSpec, includeBleed, pageWidth, pageHeight);
+    const canvasToPageMatrix = getCanvasCropToPageMatrix(
+        docSpec,
+        includeBleed,
+        pageWidth,
+        pageHeight,
+        displayMetrics,
+    );
     ensureCutContourPdfResources(page, pdfDoc);
 
     for (const contourObject of cutContourObjects) {
@@ -272,13 +383,14 @@ function getCanvasCropToPageMatrix(
     docSpec: DocumentSpec,
     includeBleed: boolean,
     pageWidth: number,
-    pageHeight: number
+    pageHeight: number,
+    displayMetrics: { mmToPx: number; pasteboardPaddingPx: number },
 ): Matrix {
-    const bleedPx = includeBleed ? (docSpec.bleed_mm || 0) * MM_TO_PX : 0;
-    const cropLeft = PASTEBOARD_PADDING_PX + (includeBleed ? 0 : bleedPx);
-    const cropTop = PASTEBOARD_PADDING_PX + (includeBleed ? 0 : bleedPx);
-    const cropWidth = (docSpec.width_mm * MM_TO_PX) + (includeBleed ? bleedPx * 2 : 0);
-    const cropHeight = (docSpec.height_mm * MM_TO_PX) + (includeBleed ? bleedPx * 2 : 0);
+    const bleedPx = includeBleed ? (docSpec.bleed_mm || 0) * displayMetrics.mmToPx : 0;
+    const cropLeft = displayMetrics.pasteboardPaddingPx + (includeBleed ? 0 : bleedPx);
+    const cropTop = displayMetrics.pasteboardPaddingPx + (includeBleed ? 0 : bleedPx);
+    const cropWidth = (docSpec.width_mm * displayMetrics.mmToPx) + (includeBleed ? bleedPx * 2 : 0);
+    const cropHeight = (docSpec.height_mm * displayMetrics.mmToPx) + (includeBleed ? bleedPx * 2 : 0);
     const scaleX = pageWidth / Math.max(cropWidth, 1);
     const scaleY = pageHeight / Math.max(cropHeight, 1);
 
@@ -464,7 +576,8 @@ function parseNumber(value: string | null, fallback = 0): number {
 async function renderOverlaysOnly(
     fabricCanvas: fabric.Canvas,
     docSpec: DocumentSpec,
-    includeBleed: boolean
+    includeBleed: boolean,
+    displayMetrics: { mmToPx: number; pasteboardPaddingPx: number },
 ): Promise<string | null> {
     const objects = fabricCanvas.getObjects();
     const hiddenObjects: Array<{ obj: fabric.Object; wasVisible: boolean }> = [];
@@ -489,11 +602,11 @@ async function renderOverlaysOnly(
 
         fabricCanvas.renderAll();
 
-        const bleedPx = includeBleed ? (docSpec.bleed_mm || 0) * MM_TO_PX : 0;
-        const cropLeft = PASTEBOARD_PADDING_PX + (includeBleed ? 0 : bleedPx);
-        const cropTop = PASTEBOARD_PADDING_PX + (includeBleed ? 0 : bleedPx);
-        const cropWidth = (docSpec.width_mm * MM_TO_PX) + (includeBleed ? bleedPx * 2 : 0);
-        const cropHeight = (docSpec.height_mm * MM_TO_PX) + (includeBleed ? bleedPx * 2 : 0);
+        const bleedPx = includeBleed ? (docSpec.bleed_mm || 0) * displayMetrics.mmToPx : 0;
+        const cropLeft = displayMetrics.pasteboardPaddingPx + (includeBleed ? 0 : bleedPx);
+        const cropTop = displayMetrics.pasteboardPaddingPx + (includeBleed ? 0 : bleedPx);
+        const cropWidth = (docSpec.width_mm * displayMetrics.mmToPx) + (includeBleed ? bleedPx * 2 : 0);
+        const cropHeight = (docSpec.height_mm * displayMetrics.mmToPx) + (includeBleed ? bleedPx * 2 : 0);
 
         const originalBg = fabricCanvas.backgroundColor;
         fabricCanvas.backgroundColor = 'transparent';

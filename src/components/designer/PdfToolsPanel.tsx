@@ -1,20 +1,30 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import {
+    Archive,
     BadgeCheck,
     ChevronLeft,
     ChevronRight,
     Crop,
     Download,
     Edit3,
+    Eraser,
     FileCheck,
+    FileCog,
     FilePlus2,
     Loader2,
     Move,
+    ScanText,
     ServerCog,
     Scissors,
 } from "lucide-react";
-import type { DesignerPdfServiceReport } from "@/lib/designer/pdfService";
+import type {
+    DesignerPdfServiceOperation,
+    DesignerPdfServiceOptions,
+    DesignerPdfServiceReport,
+} from "@/lib/designer/pdfService";
 
 export interface SelectedPdfMeta {
     originalFileName?: string;
@@ -38,6 +48,9 @@ interface PdfToolsPanelProps {
     onEditPdf: () => void;
     onChangePage: (direction: -1 | 1) => void;
     onRunPdfServiceScan: () => void;
+    onRunPdfServiceOperation: (operation: DesignerPdfServiceOperation, options?: DesignerPdfServiceOptions) => void;
+    onApplyPdfServiceOutput: () => void;
+    onDownloadPdfServiceOutput: () => void;
     onExtractCutContour: () => void;
     onOpenExport: () => void;
     onOpenPreflight: () => void;
@@ -57,10 +70,15 @@ export function PdfToolsPanel({
     onEditPdf,
     onChangePage,
     onRunPdfServiceScan,
+    onRunPdfServiceOperation,
+    onApplyPdfServiceOutput,
+    onDownloadPdfServiceOutput,
     onExtractCutContour,
     onOpenExport,
     onOpenPreflight,
 }: PdfToolsPanelProps) {
+    const [redactTerms, setRedactTerms] = useState("");
+
     if (!pdfMeta) {
         return (
             <div className="p-4 text-center text-sm text-muted-foreground">
@@ -203,6 +221,156 @@ export function PdfToolsPanel({
                     </p>
                 )}
             </div>
+
+            <div className="space-y-3">
+                <div>
+                    <p className="text-sm font-medium">Klargør PDF</p>
+                    <p className="text-[11px] leading-4 text-muted-foreground">
+                        Originalen ændres ikke. Hvert resultat gemmes som en ny, privat fil.
+                    </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto min-h-10 justify-start gap-2 whitespace-normal py-2 text-left"
+                        disabled={pdfServiceRunning}
+                        onClick={() => onRunPdfServiceOperation("flatten-forms")}
+                        title="Lås formularfelter uden at rasterisere siden"
+                    >
+                        <FileCheck className="h-4 w-4 shrink-0" />
+                        Lås formularer
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto min-h-10 justify-start gap-2 whitespace-normal py-2 text-left"
+                        disabled={pdfServiceRunning}
+                        onClick={() => onRunPdfServiceOperation("repair")}
+                        title="Reparer en beskadiget eller inkompatibel PDF"
+                    >
+                        <FileCog className="h-4 w-4 shrink-0" />
+                        Reparer
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto min-h-10 justify-start gap-2 whitespace-normal py-2 text-left"
+                        disabled={pdfServiceRunning}
+                        onClick={() => onRunPdfServiceOperation("compress", { compressionLevel: 2 })}
+                        title="Forsigtig komprimering med farver bevaret"
+                    >
+                        <Archive className="h-4 w-4 shrink-0" />
+                        Komprimer
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto min-h-10 justify-start gap-2 whitespace-normal py-2 text-left"
+                        disabled={pdfServiceRunning}
+                        onClick={() => onRunPdfServiceOperation("ocr", { languages: ["dan", "eng"], ocrType: "skip-text" })}
+                        title="Gør scannet dansk og engelsk tekst søgbar"
+                    >
+                        <ScanText className="h-4 w-4 shrink-0" />
+                        OCR
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto min-h-10 justify-start gap-2 whitespace-normal py-2 text-left"
+                        disabled={pdfServiceRunning}
+                        onClick={() => onRunPdfServiceOperation("pdfa", { pdfaFormat: "pdfa-2b" })}
+                        title="Opret PDF/A-2b til arkivering; dette er ikke PDF/X"
+                    >
+                        <Archive className="h-4 w-4 shrink-0" />
+                        PDF/A-2b
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto min-h-10 justify-start gap-2 whitespace-normal py-2 text-left"
+                        disabled={pdfServiceRunning || pdfServiceReport?.capabilities?.textEdit !== "alpha-enabled"}
+                        onClick={() => onRunPdfServiceOperation("text-edit-export", { textEditorLightweight: true })}
+                        title="Licenskrævende pilot: udtræk redigerbar tekststruktur"
+                    >
+                        <Edit3 className="h-4 w-4 shrink-0" />
+                        Tekstpilot
+                    </Button>
+                </div>
+
+                <div className="space-y-2 border-t pt-3">
+                    <label className="text-xs font-medium" htmlFor="pdf-redact-terms">
+                        Permanent fjernelse
+                    </label>
+                    <Textarea
+                        id="pdf-redact-terms"
+                        value={redactTerms}
+                        onChange={(event) => setRedactTerms(event.target.value)}
+                        placeholder="Ét ord eller udtryk pr. linje"
+                        className="min-h-16 resize-y text-xs"
+                        disabled={pdfServiceRunning}
+                    />
+                    <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="w-full gap-2"
+                        disabled={pdfServiceRunning || !redactTerms.trim()}
+                        onClick={() => onRunPdfServiceOperation("redact", {
+                            redactTerms: redactTerms.split("\n").map((term) => term.trim()).filter(Boolean),
+                            redactWholeWords: true,
+                        })}
+                        title="Fjerner teksten permanent ved at rasterisere PDF'en"
+                    >
+                        <Eraser className="h-4 w-4" />
+                        Fjern og rasteriser
+                    </Button>
+                    <p className="text-[11px] leading-4 text-muted-foreground">
+                        Denne handling bevarer originalen, men resultatet mister vektorindhold.
+                    </p>
+                </div>
+            </div>
+
+            {pdfServiceReport?.output && (
+                <div className="space-y-2 border-t pt-3">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <p className="text-sm font-medium">Behandlet resultat</p>
+                            <p className="truncate text-[11px] text-muted-foreground" title={pdfServiceReport.output.fileName}>
+                                {pdfServiceReport.output.fileName}
+                            </p>
+                        </div>
+                        <span className={pdfServiceReport.output.rasterizes ? "text-xs text-amber-700" : "text-xs text-green-700"}>
+                            {pdfServiceReport.output.rasterizes ? "raster" : "vektor"}
+                        </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                        {pdfServiceReport.output.contentType === "application/pdf" && (
+                            <Button type="button" size="sm" onClick={onApplyPdfServiceOutput} disabled={pdfServiceRunning}>
+                                Brug i design
+                            </Button>
+                        )}
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className={pdfServiceReport.output.contentType === "application/pdf" ? "" : "col-span-2"}
+                            onClick={onDownloadPdfServiceOutput}
+                            disabled={pdfServiceRunning}
+                        >
+                            <Download className="mr-2 h-4 w-4" />
+                            Hent
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             <div className="space-y-2 rounded-md border bg-muted/10 p-3 text-xs">
                 <p className="font-medium text-foreground">Designprodukt-flow</p>

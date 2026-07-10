@@ -60,6 +60,7 @@ const ALLOWED_PREVIEW_PATHS = [
     '/cookies',
     '/cookiepolitik',
     '/privatliv',
+    '/checkout',
 ];
 
 export function SiteDesignPreviewFrame({

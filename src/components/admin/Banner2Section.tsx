@@ -29,6 +29,7 @@ interface Banner2SectionProps {
     savedSwatches?: string[];
     onSaveSwatch?: (color: string) => void;
     onRemoveSwatch?: (color: string) => void;
+    focusTargetId?: string | null;
 }
 
 const ANIMATION_OPTIONS = [
@@ -50,6 +51,7 @@ export function Banner2Section({
     savedSwatches,
     onSaveSwatch,
     onRemoveSwatch,
+    focusTargetId,
 }: Banner2SectionProps) {
     const [uploading, setUploading] = useState<string | null>(null);
 
@@ -208,7 +210,7 @@ export function Banner2Section({
 
                     {banner2.enabled && (
                         <>
-                            <div id="site-design-focus-showcase-layout" className="space-y-4">
+                            <div id="site-design-focus-showcase-layout" className={cn("space-y-4", focusTargetId === "site-design-focus-showcase-layout" && "rounded-lg ring-2 ring-primary/50 ring-offset-2")}>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div className="space-y-2">
                                         <Label>Mode</Label>
@@ -269,7 +271,7 @@ export function Banner2Section({
                             </div>
 
                             <div className="grid grid-cols-1 gap-3">
-                                <div id="site-design-focus-showcase-heading" className="space-y-2">
+                                <div id="site-design-focus-showcase-heading" className={cn("space-y-2", focusTargetId === "site-design-focus-showcase-heading" && "rounded-lg ring-2 ring-primary/50 ring-offset-2")}>
                                     <Label>Overskrift</Label>
                                     <Input
                                         value={banner2.heading}
@@ -291,7 +293,7 @@ export function Banner2Section({
                                         onRemoveSwatch={onRemoveSwatch}
                                     />
                                 </div>
-                                <div id="site-design-focus-showcase-subtitle" className="space-y-2">
+                                <div id="site-design-focus-showcase-subtitle" className={cn("space-y-2", focusTargetId === "site-design-focus-showcase-subtitle" && "rounded-lg ring-2 ring-primary/50 ring-offset-2")}>
                                     <Label>Intro tekst</Label>
                                     <Textarea
                                         rows={2}
@@ -316,7 +318,7 @@ export function Banner2Section({
                                 </div>
                             </div>
 
-                            <div id="site-design-focus-showcase-background" className="space-y-2">
+                            <div id="site-design-focus-showcase-background" className={cn("space-y-2", focusTargetId === "site-design-focus-showcase-background" && "rounded-lg ring-2 ring-primary/50 ring-offset-2")}>
                                 <Label>Baggrund</Label>
                                 <Select
                                     value={banner2.background.type}
@@ -514,7 +516,7 @@ export function Banner2Section({
 
                                 <div className="space-y-3">
                                     {slide.items.map((item, itemIndex) => (
-                                        <Card key={item.id} id={`site-design-focus-showcase-item-${item.id}`} className="border border-dashed">
+                                        <Card key={item.id} id={`site-design-focus-showcase-item-${item.id}`} className={cn("border border-dashed", focusTargetId?.startsWith(`site-design-focus-showcase-item-${item.id}`) && "ring-2 ring-primary/50 ring-offset-2")}>
                                             <CardHeader className="py-2">
                                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                                     <CardTitle className="text-xs font-medium">

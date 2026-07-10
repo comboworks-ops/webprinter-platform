@@ -59,7 +59,7 @@ export function GlassBanner2({ branding, banner2 }: Banner2Props) {
             style={{
                 background: `linear-gradient(135deg, ${primaryColor}15 0%, ${primaryColor}05 100%)`,
             }}
-            data-branding-id="banner2"
+            data-branding-id="forside.banner2"
         >
             {/* Floating gradient orbs */}
             <div
@@ -76,6 +76,7 @@ export function GlassBanner2({ branding, banner2 }: Banner2Props) {
                 {slide.title && (
                     <div className="text-center mb-12">
                         <h2
+                            data-branding-id="forside.banner2.heading"
                             className="inline-block text-3xl font-bold px-8 py-4 rounded-2xl"
                             style={{
                                 background: 'rgba(255, 255, 255, 0.8)',
@@ -99,6 +100,7 @@ export function GlassBanner2({ branding, banner2 }: Banner2Props) {
                         return (
                             <div
                                 key={item.id}
+                                data-branding-id={`forside.banner2.item.${item.id}`}
                                 className="group p-6 rounded-2xl transition-all duration-300 hover:scale-105 hover:-translate-y-1"
                                 style={{
                                     background: 'rgba(255, 255, 255, 0.7)',
@@ -110,6 +112,7 @@ export function GlassBanner2({ branding, banner2 }: Banner2Props) {
                             >
                                 {(imageUrl || IconComponent) && (
                                     <div
+                                        data-branding-id={`forside.banner2.item.${item.id}.image`}
                                         className="w-14 h-14 mx-auto mb-4 rounded-xl flex items-center justify-center transition-transform group-hover:scale-110"
                                         style={{
                                             background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}CC)`,
@@ -131,12 +134,13 @@ export function GlassBanner2({ branding, banner2 }: Banner2Props) {
                                     </div>
                                 )}
                                 <h3
+                                    data-branding-id={`forside.banner2.item.${item.id}.title`}
                                     className="text-lg font-semibold mb-2 text-center"
                                     style={{ color: '#1e293b' }}
                                 >
                                     {item.title}
                                 </h3>
-                                <p className="text-gray-600 text-center text-sm">
+                                <p data-branding-id={`forside.banner2.item.${item.id}.description`} className="text-gray-600 text-center text-sm">
                                     {item.description}
                                 </p>
                             </div>

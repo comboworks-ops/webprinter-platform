@@ -27,6 +27,8 @@ import {
     resolveSelectorBoxConfig,
     resolveTextButtonsConfig,
 } from "@/lib/pricing/selectorStyling";
+import { getApparelColorOption } from "@/lib/designer/apparelDesigner";
+import { Shirt } from "lucide-react";
 
 // Types from pricing structure
 type ValueSetting = {
@@ -2010,8 +2012,54 @@ export function MatrixLayoutV1Renderer({
         const isActive = !isOptional || isOptionalEnabled;
 
         const selectedValue = selectedSectionValues[sectionId] ?? (isOptional ? "" : visibleValues[0]?.id || "");
+        const sectionIdentity = [
+            sectionId,
+            sectionById[sectionId]?.title,
+            sectionGroupNameById[sectionId],
+        ].filter(Boolean).join(" ").toLocaleLowerCase("da-DK");
+        const isApparelColorSection = /t-?shirt.*farve|tekstilfarve|textilfarbe|shirt.*colou?r|tshirtcolor/.test(sectionIdentity);
 
         if (visibleValues.length === 0) return null;
+
+        if (isApparelColorSection) {
+            return (
+                <div className={cn("flex flex-wrap gap-2", !isActive && "pointer-events-none opacity-60")}>
+                    {visibleValues.map((value) => {
+                        const displayName = getDisplayValueName(value.id, sectionId);
+                        const color = getApparelColorOption(displayName);
+                        const isSelected = selectedValue === value.id;
+                        const isAvailable = isValueCurrentlyAvailable(sectionId, value.id);
+                        const fill = color?.hex || "#CBD5E1";
+                        const isLight = color?.id === "white" || color?.id === "yellow" || color?.id === "sky-blue";
+
+                        return (
+                            <button
+                                key={value.id}
+                                type="button"
+                                aria-pressed={isSelected}
+                                aria-label={`${displayName}${color?.pantone ? `, cirka Pantone ${color.pantone}` : ""}`}
+                                title={`${displayName}${color?.pantone ? ` · ca. Pantone ${color.pantone}` : ""}`}
+                                onClick={() => handleSectionSelect(sectionId, value.id)}
+                                disabled={!isActive || !isAvailable}
+                                className={cn(
+                                    "flex min-h-12 min-w-[5.5rem] touch-manipulation items-center gap-2 rounded-md border bg-background px-3 py-2 text-left text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+                                    isSelected ? "border-primary bg-primary/10 shadow-sm" : "border-border hover:border-primary/50",
+                                    (!isActive || !isAvailable) && "cursor-not-allowed opacity-45"
+                                )}
+                            >
+                                <Shirt
+                                    className="h-6 w-6 shrink-0"
+                                    fill={fill}
+                                    strokeWidth={isSelected ? 2.5 : 1.8}
+                                    style={{ color: isLight ? "#475569" : fill }}
+                                />
+                                <span className="max-w-24 leading-tight">{color?.label || displayName}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            );
+        }
 
         if (uiMode === 'dropdown') {
             return (

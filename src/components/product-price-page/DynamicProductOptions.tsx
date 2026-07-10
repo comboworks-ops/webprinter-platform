@@ -6,6 +6,8 @@ import { motion, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
+import { getApparelColorOption } from "@/lib/designer/apparelDesigner";
+import { Shirt } from "lucide-react";
 
 interface OptionGroup {
   id: string;
@@ -391,6 +393,41 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
     );
   }
 
+  function renderColorSwatches(group: OptionGroup) {
+    return (
+      <div className="flex flex-wrap gap-2">
+        {options[group.id]?.map(option => {
+          const color = getApparelColorOption(option.label || option.name);
+          const isSelected = selections[group.id] === option.id;
+          const fill = color?.hex || "#CBD5E1";
+          const isLight = color?.id === "white" || color?.id === "yellow" || color?.id === "sky-blue";
+          return (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={isSelected}
+              aria-label={`${option.label}${color?.pantone ? `, cirka Pantone ${color.pantone}` : ""}`}
+              title={`${option.label}${color?.pantone ? ` · ca. Pantone ${color.pantone}` : ""}`}
+              onClick={() => handleSelect(group.id, option.id)}
+              className={cn(
+                "flex min-h-12 min-w-[5.5rem] touch-manipulation items-center gap-2 rounded-md border bg-background px-3 py-2 text-left text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+                isSelected ? "border-primary bg-primary/10 shadow-sm" : "border-border hover:border-primary/50"
+              )}
+            >
+              <Shirt
+                className="h-6 w-6 shrink-0"
+                fill={fill}
+                strokeWidth={isSelected ? 2.5 : 1.8}
+                style={{ color: isLight ? "#475569" : fill }}
+              />
+              <span className="max-w-24 leading-tight">{color?.label || option.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   // ─── Checkbox renderer ────────────────────────────────────────────────────
   function renderCheckboxes(group: OptionGroup) {
     return (
@@ -449,10 +486,16 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
         <div key={group.id}>
           <label className="text-base font-semibold mb-3 block" style={groupLabelStyle}>{group.label}</label>
 
-          {group.display_type === 'buttons' && renderButtons(group)}
-          {group.display_type === 'icon_grid' && renderIconGrid(group)}
-          {group.display_type === 'dropdown' && renderDropdown(group)}
-          {group.display_type === 'checkboxes' && renderCheckboxes(group)}
+          {/t-?shirt.*farve|tekstilfarve|textilfarbe|shirt.*colou?r/i.test(`${group.name} ${group.label}`)
+            ? renderColorSwatches(group)
+            : (
+              <>
+                {group.display_type === 'buttons' && renderButtons(group)}
+                {group.display_type === 'icon_grid' && renderIconGrid(group)}
+                {group.display_type === 'dropdown' && renderDropdown(group)}
+                {group.display_type === 'checkboxes' && renderCheckboxes(group)}
+              </>
+            )}
 
           {group.description && (
             <p className="text-sm text-muted-foreground mt-3" style={groupDescriptionStyle}>{group.description}</p>

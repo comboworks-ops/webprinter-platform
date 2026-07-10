@@ -40,6 +40,7 @@ export function GlassLowerInfo({ branding, lowerInfo }: LowerInfoProps) {
                         return (
                             <div
                                 key={item.id}
+                                data-branding-id={`lower-info.item.${item.id}`}
                                 className="group p-8 rounded-3xl transition-all duration-300 hover:scale-[1.02] hover:-translate-y-2"
                                 style={{
                                     background: 'rgba(255, 255, 255, 0.6)',
@@ -51,6 +52,7 @@ export function GlassLowerInfo({ branding, lowerInfo }: LowerInfoProps) {
                             >
                                 {IconComponent && (
                                     <div
+                                        data-branding-id={`lower-info.item.${item.id}.image`}
                                         className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6 transition-transform group-hover:scale-110 group-hover:rotate-3"
                                         style={{
                                             background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}DD)`,
@@ -60,10 +62,10 @@ export function GlassLowerInfo({ branding, lowerInfo }: LowerInfoProps) {
                                         <IconComponent className="w-8 h-8 text-white" />
                                     </div>
                                 )}
-                                <h3 className="text-xl font-bold mb-3 text-gray-900">
+                                <h3 data-branding-id={`lower-info.item.${item.id}.title`} className="text-xl font-bold mb-3 text-gray-900">
                                     {item.title}
                                 </h3>
-                                <p className="text-gray-600 leading-relaxed">
+                                <p data-branding-id={`lower-info.item.${item.id}.description`} className="text-gray-600 leading-relaxed">
                                     {item.description}
                                 </p>
 

@@ -25,8 +25,39 @@ export interface SiteCheckoutDesignerExport {
   mimeType?: string | null;
   fileUrl?: string | null;
   filePath?: string | null;
-  sourceMode?: "vector_pdf" | "print_pdf" | null;
+  sourceMode?: "vector_pdf" | "print_pdf" | "apparel_png" | null;
+  primaryFormat?: "png" | "pdf" | null;
+  alternateFormats?: Array<"png" | "pdf"> | null;
+  productionFiles?: Array<{
+    format: "png" | "pdf";
+    name?: string | null;
+    mimeType?: string | null;
+    fileUrl?: string | null;
+    filePath?: string | null;
+    sourceMode?: "vector_pdf" | "print_pdf" | "apparel_png" | null;
+    apparelSide?: string | null;
+    isPrimary?: boolean | null;
+  }> | null;
+  apparelSide?: string | null;
+  apparelSides?: string[] | null;
   generatedAt?: string | null;
+}
+
+export interface SiteCheckoutApparelConfig {
+  productName?: string | null;
+  garmentColor?: string | null;
+  printMethod?: string | null;
+  printPositionId?: string | null;
+  printAreaLabel?: string | null;
+  activeSide?: string | null;
+  sides?: string[] | null;
+  printWidthMm?: number | null;
+  printHeightMm?: number | null;
+  bleedMm?: number | null;
+  safeAreaMm?: number | null;
+  garmentSize?: string | null;
+  garmentWidthCm?: number | null;
+  garmentLengthCm?: number | null;
 }
 
 export interface SiteCheckoutCustomerDraft {
@@ -98,6 +129,7 @@ export interface SiteCheckoutState {
     areaM2?: number | null;
   } | null;
   sourceSiteId?: string | null;
+  apparelConfig?: SiteCheckoutApparelConfig | null;
   siteUpload?: SiteCheckoutUpload | null;
   designerExport?: SiteCheckoutDesignerExport | null;
   checkoutCustomer?: SiteCheckoutCustomerDraft | null;
@@ -156,6 +188,7 @@ export function getSiteCheckoutDesignSignature(input: SiteCheckoutState | null |
     designHeightMm: input.designHeightMm ?? null,
     designBleedMm: input.designBleedMm ?? null,
     designSafeAreaMm: input.designSafeAreaMm ?? null,
+    apparelConfig: input.apparelConfig || null,
     optionSelections: input.optionSelections || null,
     pricingQuote: input.pricingQuote || null,
   });

@@ -6,6 +6,19 @@ export interface SiteDesignTargetMatch {
     focusTargetId?: string | null;
 }
 
+export const SITE_DESIGN_SELECTION_EVENT = "SITE_DESIGN_TARGET_SELECTED" as const;
+
+export interface SiteDesignSelectionMessage {
+    type: typeof SITE_DESIGN_SELECTION_EVENT;
+    sectionId: string;
+}
+
+export function isSiteDesignSelectionMessage(value: unknown): value is SiteDesignSelectionMessage {
+    if (!value || typeof value !== "object") return false;
+    const candidate = value as Partial<SiteDesignSelectionMessage>;
+    return candidate.type === SITE_DESIGN_SELECTION_EVENT && typeof candidate.sectionId === "string";
+}
+
 const TYPOGRAPHY_LABELS: Record<string, string> = {
     heading: "Overskrift",
     body: "Brødtekst",
@@ -55,6 +68,12 @@ function buildBanner2Label(targetPart?: string) {
 
 export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTargetMatch | null {
     if (!rawId || typeof rawId !== "string") return null;
+
+    // Compatibility aliases for older theme components and saved previews.
+    if (rawId === "banner2") return resolveSiteDesignTarget("forside.banner2");
+    if (rawId.startsWith("content-block-")) {
+        return resolveSiteDesignTarget(`content:${rawId.slice("content-block-".length)}`);
+    }
 
     if (rawId === "header.logo") {
         return { rawId, sectionId: "logo", label: "Logo", focusTargetId: "site-design-focus-logo" };
@@ -182,6 +201,33 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
             sectionId: "showcase",
             label: "Banner 2 / Showcase",
             focusTargetId: "site-design-focus-showcase-layout",
+        };
+    }
+
+    if (rawId === "lower-info") {
+        return {
+            rawId,
+            sectionId: "lower-info",
+            label: "Nedre infobokse",
+            focusTargetId: "site-design-focus-lower-info",
+        };
+    }
+
+    const lowerInfoItemMatch = /^lower-info\.item\.([^\.]+)(?:\.(image|title|description))?$/.exec(rawId);
+    if (lowerInfoItemMatch) {
+        const [, itemId, targetPart] = lowerInfoItemMatch;
+        const labels: Record<string, string> = {
+            image: "Infoboks billede",
+            title: "Infoboks titel",
+            description: "Infoboks tekst",
+        };
+        return {
+            rawId,
+            sectionId: "lower-info",
+            label: labels[targetPart || ""] || "Nedre infoboks",
+            focusTargetId: targetPart
+                ? `site-design-focus-lower-info-item-${itemId}-${targetPart}`
+                : `site-design-focus-lower-info-item-${itemId}`,
         };
     }
 

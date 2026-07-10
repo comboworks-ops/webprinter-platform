@@ -93,8 +93,8 @@ export const SITE_PACKAGES: SitePackage[] = [
     recommendedThemeId: 'glassmorphism',
     tags: [...SHARED_TAGS, 'apparel', 'designer'],
     seedFormats: [
-      { id: 'tee-front-30x40', name: 'T-shirt fronttryk 30x40 cm', widthMm: 300, heightMm: 400 },
-      { id: 'tee-back-30x40', name: 'T-shirt rygtryk 30x40 cm', widthMm: 300, heightMm: 400 },
+      { id: 'tee-front-30x40', name: 'T-shirt fronttryk A3 (29,7x42 cm)', widthMm: 297, heightMm: 420 },
+      { id: 'tee-back-30x40', name: 'T-shirt rygtryk A3 (29,7x42 cm)', widthMm: 297, heightMm: 420 },
       { id: 'tee-sleeve-10x30', name: 'Aermetryk 10x30 cm', widthMm: 100, heightMm: 300 },
       { id: 'hoodie-front-35x45', name: 'Hoodie fronttryk 35x45 cm', widthMm: 350, heightMm: 450 },
     ],
@@ -223,7 +223,7 @@ export const SITE_PACKAGES: SitePackage[] = [
       { id: 'poster-a2', name: 'Poster A2', widthMm: 420, heightMm: 594 },
       { id: 'poster-a3', name: 'Poster A3', widthMm: 297, heightMm: 420 },
       { id: 'sticker-10x10', name: 'Sticker 10x10 cm', widthMm: 100, heightMm: 100 },
-      { id: 'tee-front-30x40', name: 'T-shirt fronttryk 30x40 cm', widthMm: 300, heightMm: 400 },
+      { id: 'tee-front-30x40', name: 'T-shirt fronttryk A3 (29,7x42 cm)', widthMm: 297, heightMm: 420 },
       { id: 'hoodie-front-35x45', name: 'Hoodie fronttryk 35x45 cm', widthMm: 350, heightMm: 450 },
     ],
     seedLibraryItems: [

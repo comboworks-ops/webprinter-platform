@@ -17,6 +17,10 @@ import {
   writeSiteCheckoutSession,
   type SiteCheckoutState,
 } from "@/lib/checkout/siteCheckoutSession";
+import {
+  buildApparelDesignerConfig,
+  readApparelOptionText,
+} from "@/lib/designer/apparelDesigner";
 import type { DesignerTemplateLaunch } from "@/lib/designer/productTemplateLinks";
 import {
   resolveStorefrontProductFlow,
@@ -138,6 +142,27 @@ const copyTenantContextParams = (target: URLSearchParams, source: URLSearchParam
     const value = source.get(key);
     if (value) target.set(key, value);
   });
+};
+
+const buildDesignerReturnTo = (productSlug: string, source: URLSearchParams) => {
+  const productPath = `/produkt/${productSlug}`;
+  const productParams = new URLSearchParams();
+  copyTenantContextParams(productParams, source);
+  const productQuery = productParams.toString();
+  const productReturnTo = `${productPath}${productQuery ? `?${productQuery}` : ""}`;
+
+  const isSitePreview = source.get("sitePreview") === "1" && !!source.get("siteId");
+  if (!isSitePreview) return productReturnTo;
+
+  const previewParams = new URLSearchParams();
+  previewParams.set("preview_mode", "1");
+  const tenantId = source.get("tenantId");
+  const siteId = source.get("siteId");
+  if (tenantId) previewParams.set("tenantId", tenantId);
+  if (siteId) previewParams.set("siteId", siteId);
+  previewParams.set("sitePreview", "1");
+  previewParams.set("page", productPath);
+  return `/preview-shop?${previewParams.toString()}`;
 };
 
 const MotionButton = motion(Button);
@@ -341,6 +366,11 @@ export function ProductPricePanel({
     return {
       enhanced,
       radiusPx: clamp(Number(configured.radiusPx) || 10, 0, 999),
+      font: String(configured.font || "Inter"),
+      fontSizePx: clamp(Number(configured.fontSizePx) || 16, 11, 28),
+      fontWeight: clamp(Number(configured.fontWeight) || 600, 400, 800),
+      borderWidthPx: clamp(Number(configured.borderWidthPx) || 1, 0, 6),
+      paddingYPx: clamp(Number(configured.paddingYPx) || 16, 8, 28),
       shadow: enhanced ? configured.shadow || "0 8px 18px rgba(15, 23, 42, 0.10)" : undefined,
       hoverShadow: enhanced ? configured.hoverShadow || "0 14px 28px rgba(15, 23, 42, 0.16)" : undefined,
       hoverScale: enhanced ? clamp(Number(configured.hoverScale) || 1.015, 1, 1.08) : 1,
@@ -705,6 +735,12 @@ export function ProductPricePanel({
     ["--order-sheen-color" as any]: orderButtonMotion.sheenColor,
     ["--order-button-shadow" as any]: orderButtonMotion.shadow || "none",
     borderRadius: `${orderButtonMotion.radiusPx}px`,
+    borderWidth: `${orderButtonMotion.borderWidthPx}px`,
+    fontFamily: `'${orderButtonMotion.font}', sans-serif`,
+    fontSize: `${orderButtonMotion.fontSizePx}px`,
+    fontWeight: orderButtonMotion.fontWeight,
+    paddingTop: `${orderButtonMotion.paddingYPx}px`,
+    paddingBottom: `${orderButtonMotion.paddingYPx}px`,
     boxShadow: orderButtonMotion.shadow,
   } as any;
   const secondaryButtonCssVars = {
@@ -720,6 +756,12 @@ export function ProductPricePanel({
     ["--order-sheen-color" as any]: orderButtonMotion.sheenColor,
     ["--order-button-shadow" as any]: orderButtonMotion.shadow || "none",
     borderRadius: `${orderButtonMotion.radiusPx}px`,
+    borderWidth: `${orderButtonMotion.borderWidthPx}px`,
+    fontFamily: `'${orderButtonMotion.font}', sans-serif`,
+    fontSize: `${orderButtonMotion.fontSizePx}px`,
+    fontWeight: orderButtonMotion.fontWeight,
+    paddingTop: `${orderButtonMotion.paddingYPx}px`,
+    paddingBottom: `${orderButtonMotion.paddingYPx}px`,
     boxShadow: orderButtonMotion.shadow,
   } as any;
   const selectedButtonCssVars = {
@@ -735,6 +777,12 @@ export function ProductPricePanel({
     ["--order-sheen-color" as any]: orderButtonMotion.sheenColor,
     ["--order-button-shadow" as any]: orderButtonMotion.shadow || "none",
     borderRadius: `${orderButtonMotion.radiusPx}px`,
+    borderWidth: `${orderButtonMotion.borderWidthPx}px`,
+    fontFamily: `'${orderButtonMotion.font}', sans-serif`,
+    fontSize: `${orderButtonMotion.fontSizePx}px`,
+    fontWeight: orderButtonMotion.fontWeight,
+    paddingTop: `${orderButtonMotion.paddingYPx}px`,
+    paddingBottom: `${orderButtonMotion.paddingYPx}px`,
     boxShadow: orderButtonMotion.shadow,
   } as any;
 
@@ -948,6 +996,40 @@ export function ProductPricePanel({
       designHeightMm: designHeightMm ?? null,
       designBleedMm: designBleedMm ?? null,
       designSafeAreaMm: designSafeAreaMm ?? null,
+      apparelConfig: activeProductFlow.designerMode === "apparel"
+        ? (() => {
+          const optionText = readApparelOptionText({
+            productName,
+            selectedVariant,
+            summary,
+            optionSelections,
+          });
+          const config = buildApparelDesignerConfig({
+            productName,
+            optionText,
+            widthMm: designWidthMm,
+            heightMm: designHeightMm,
+            bleedMm: designBleedMm,
+            safeAreaMm: designSafeAreaMm,
+          });
+          return {
+            productName: config.productName,
+            garmentColor: config.garmentColor,
+            printMethod: config.printMethod,
+            printPositionId: config.printPositionId,
+            printAreaLabel: config.printAreaLabel,
+            activeSide: config.activeSide,
+            sides: config.sides,
+            printWidthMm: config.printWidthMm,
+            printHeightMm: config.printHeightMm,
+            bleedMm: config.bleedMm,
+            safeAreaMm: config.safeAreaMm,
+            garmentSize: config.garmentSize,
+            garmentWidthCm: config.garmentWidthCm,
+            garmentLengthCm: config.garmentLengthCm,
+          };
+        })()
+        : null,
       shippingSelected: activeDeliveryMethod?.id || null,
       shippingCost: activeShippingCost,
       pricingQuote: pricingQuote
@@ -1268,7 +1350,7 @@ export function ProductPricePanel({
                   )}
                   style={designReady ? selectedButtonCssVars : secondaryButtonCssVars}
                   onClick={() => {
-                    persistCheckoutState({ crossTab: true });
+                    const checkoutState = persistCheckoutState({ crossTab: true });
                     const currentSearchParams = new URLSearchParams(
                       typeof window !== "undefined" ? window.location.search : ""
                     );
@@ -1289,26 +1371,47 @@ export function ProductPricePanel({
                     const resolvedHeightMm = typeof launchHeightMm === "number" && launchHeightMm > 0 ? launchHeightMm : designHeightMm;
                     const resolvedBleedMm = typeof launchBleedMm === "number" && launchBleedMm >= 0 ? launchBleedMm : designBleedMm;
                     const resolvedSafeMm = typeof launchSafeMm === "number" && launchSafeMm >= 0 ? launchSafeMm : designSafeAreaMm;
+                    const apparelConfig = checkoutState.apparelConfig;
 
                     if (designerTemplateLaunch?.pdfUrl) {
                       params.set('templatePdfUrl', designerTemplateLaunch.pdfUrl);
                       params.set('templatePdfName', designerTemplateLaunch.name);
                     }
-                    if (typeof resolvedWidthMm === "number" && resolvedWidthMm > 0 && typeof resolvedHeightMm === "number" && resolvedHeightMm > 0) {
-                      params.set('widthMm', String(resolvedWidthMm));
-                      params.set('heightMm', String(resolvedHeightMm));
+                    if (activeProductFlow.designerMode === "apparel" && apparelConfig) {
+                      params.set('apparel', '1');
+                      if (apparelConfig.productName) params.set('apparelProduct', apparelConfig.productName);
+                      if (apparelConfig.garmentColor) params.set('apparelColor', apparelConfig.garmentColor);
+                      if (apparelConfig.printMethod) params.set('apparelMethod', apparelConfig.printMethod);
+                      if (apparelConfig.printPositionId) params.set('apparelPosition', apparelConfig.printPositionId);
+                      if (apparelConfig.activeSide) params.set('apparelSide', apparelConfig.activeSide);
+                      if (apparelConfig.sides?.length) params.set('apparelSides', apparelConfig.sides.join(','));
                     }
-                    if (typeof resolvedBleedMm === "number" && resolvedBleedMm >= 0) {
-                      params.set('bleedMm', String(resolvedBleedMm));
+
+                    const finalWidthMm = activeProductFlow.designerMode === "apparel"
+                      ? apparelConfig?.printWidthMm
+                      : resolvedWidthMm;
+                    const finalHeightMm = activeProductFlow.designerMode === "apparel"
+                      ? apparelConfig?.printHeightMm
+                      : resolvedHeightMm;
+                    const finalBleedMm = activeProductFlow.designerMode === "apparel"
+                      ? apparelConfig?.bleedMm
+                      : resolvedBleedMm;
+                    const finalSafeMm = activeProductFlow.designerMode === "apparel"
+                      ? apparelConfig?.safeAreaMm
+                      : resolvedSafeMm;
+
+                    if (typeof finalWidthMm === "number" && finalWidthMm > 0 && typeof finalHeightMm === "number" && finalHeightMm > 0) {
+                      params.set('widthMm', String(finalWidthMm));
+                      params.set('heightMm', String(finalHeightMm));
                     }
-                    if (typeof resolvedSafeMm === "number" && resolvedSafeMm >= 0) {
-                      params.set('safeMm', String(resolvedSafeMm));
+                    if (typeof finalBleedMm === "number" && finalBleedMm >= 0) {
+                      params.set('bleedMm', String(finalBleedMm));
+                    }
+                    if (typeof finalSafeMm === "number" && finalSafeMm >= 0) {
+                      params.set('safeMm', String(finalSafeMm));
                     }
                     params.set('order', '1');
-                    const returnParams = new URLSearchParams();
-                    copyTenantContextParams(returnParams, currentSearchParams);
-                    const returnQuery = returnParams.toString();
-                    params.set('returnTo', `/produkt/${productSlug}${returnQuery ? `?${returnQuery}` : ""}`);
+                    params.set('returnTo', buildDesignerReturnTo(productSlug, currentSearchParams));
                     navigate(`/designer?${params.toString()}`);
                   }}
                 >

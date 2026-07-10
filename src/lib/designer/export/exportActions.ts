@@ -11,6 +11,7 @@ import { OUTPUT_PROFILES, SRGB_PROFILE_URL } from '@/lib/color/iccProofing';
 import { withHiddenGuides } from './hideExportGuides';
 import { computeExportCropRect } from './computeExportCropRect';
 import { exportVectorPdfBackground } from './exportVectorPdfBackground';
+import { withCanonicalExportViewport } from './withCanonicalExportViewport';
 
 // CRITICAL: Must match Designer's DISPLAY_DPI (50.8 DPI = ~2 pixels per mm)
 const DISPLAY_DPI = 50.8;
@@ -41,6 +42,10 @@ interface ExportContext {
     pdfSourceMeta?: PdfSourceMeta | null;
     hasChanges?: boolean;
     pdfBackgroundMeta?: PdfBackgroundMeta | null;
+    displayMetrics?: {
+        mmToPx: number;
+        pasteboardPaddingPx: number;
+    };
 }
 
 /**
@@ -52,16 +57,20 @@ export async function runDesignerExport(
 ): Promise<ExportResult> {
     const { mode, includeBleed } = options;
     const { documentSpec, fabricCanvas, colorProofing, productProfileBytes, pdfSourceMeta, hasChanges, pdfBackgroundMeta } = context;
+    const displayMetrics = context.displayMetrics || {
+        mmToPx: MM_TO_PX,
+        pasteboardPaddingPx: PASTEBOARD_PADDING_PX,
+    };
 
     try {
         switch (mode) {
             case 'print_pdf':
                 // Both print and proof use the same capture pipeline for reliability
                 // The colorProofing.exportCMYK provides high-quality canvas capture
-                return await exportProofPdf(documentSpec, colorProofing, productProfileBytes, includeBleed, 'print', fabricCanvas);
+                return await exportProofPdf(documentSpec, colorProofing, productProfileBytes, includeBleed, 'print', fabricCanvas, displayMetrics);
 
             case 'proof_pdf':
-                return await exportProofPdf(documentSpec, colorProofing, productProfileBytes, includeBleed, 'proof', fabricCanvas);
+                return await exportProofPdf(documentSpec, colorProofing, productProfileBytes, includeBleed, 'proof', fabricCanvas, displayMetrics);
 
             case 'original_pdf':
                 if (!pdfSourceMeta || hasChanges) {
@@ -77,7 +86,8 @@ export async function runDesignerExport(
                     documentSpec,
                     fabricCanvas,
                     pdfBackgroundMeta,
-                    includeBleed
+                    includeBleed,
+                    displayMetrics,
                 });
 
             default:
@@ -101,39 +111,39 @@ export async function runDesignerExport(
 async function exportPrintPdf(
     docSpec: DocumentSpec,
     fabricCanvas: fabric.Canvas | null,
-    includeBleed: boolean
+    includeBleed: boolean,
+    displayMetrics = { mmToPx: MM_TO_PX, pasteboardPaddingPx: PASTEBOARD_PADDING_PX },
 ): Promise<ExportResult> {
     if (!fabricCanvas) {
         throw new Error('Canvas not available');
     }
 
     const bleedMm = includeBleed ? (docSpec.bleed_mm || 0) : 0;
-    const bleedPx = bleedMm * MM_TO_PX;
+    const bleedPx = bleedMm * displayMetrics.mmToPx;
 
     // Calculate crop area
-    const cropLeft = includeBleed ? PASTEBOARD_PADDING_PX : PASTEBOARD_PADDING_PX + bleedPx;
-    const cropTop = includeBleed ? PASTEBOARD_PADDING_PX : PASTEBOARD_PADDING_PX + bleedPx;
+    const cropLeft = includeBleed ? displayMetrics.pasteboardPaddingPx : displayMetrics.pasteboardPaddingPx + bleedPx;
+    const cropTop = includeBleed ? displayMetrics.pasteboardPaddingPx : displayMetrics.pasteboardPaddingPx + bleedPx;
     const cropWidth = includeBleed
-        ? (docSpec.width_mm * MM_TO_PX) + (bleedPx * 2)
-        : docSpec.width_mm * MM_TO_PX;
+        ? (docSpec.width_mm * displayMetrics.mmToPx) + (bleedPx * 2)
+        : docSpec.width_mm * displayMetrics.mmToPx;
     const cropHeight = includeBleed
-        ? (docSpec.height_mm * MM_TO_PX) + (bleedPx * 2)
-        : docSpec.height_mm * MM_TO_PX;
+        ? (docSpec.height_mm * displayMetrics.mmToPx) + (bleedPx * 2)
+        : docSpec.height_mm * displayMetrics.mmToPx;
 
 
 
     // High-res export (300 DPI)
     const multiplier = 300 / 96;
 
-    const dataUrl = fabricCanvas.toDataURL({
+    const dataUrl = await withCanonicalExportViewport(fabricCanvas, async () => fabricCanvas.toDataURL({
         format: 'png',
         multiplier,
         left: cropLeft,
         top: cropTop,
         width: cropWidth,
         height: cropHeight,
-        withoutTransform: true
-    });
+    }));
 
 
 
@@ -178,22 +188,26 @@ async function exportProofPdf(
     productProfileBytes: ArrayBuffer | null | undefined,
     includeBleed: boolean,
     variant: 'print' | 'proof' = 'proof',
-    fabricCanvas?: fabric.Canvas | null
+    fabricCanvas?: fabric.Canvas | null,
+    displayMetrics = { mmToPx: MM_TO_PX, pasteboardPaddingPx: PASTEBOARD_PADDING_PX },
 ): Promise<ExportResult> {
     const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId)
         || OUTPUT_PROFILES[0];
 
     // Use the helper for correct crop calculation
-    const canvasWidth = fabricCanvas?.getWidth() || 1000;
-    const canvasHeight = fabricCanvas?.getHeight() || 1000;
+    const bleedMm = docSpec.bleed_mm || 0;
+    const canvasWidth = ((docSpec.width_mm + (bleedMm * 2)) * displayMetrics.mmToPx)
+        + (displayMetrics.pasteboardPaddingPx * 2);
+    const canvasHeight = ((docSpec.height_mm + (bleedMm * 2)) * displayMetrics.mmToPx)
+        + (displayMetrics.pasteboardPaddingPx * 2);
 
     const cropResult = computeExportCropRect({
         includeBleed,
         width_mm: docSpec.width_mm,
         height_mm: docSpec.height_mm,
         bleed_mm: docSpec.bleed_mm || 0,
-        mmToPx: MM_TO_PX,
-        pasteboardPaddingPx: PASTEBOARD_PADDING_PX,
+        mmToPx: displayMetrics.mmToPx,
+        pasteboardPaddingPx: displayMetrics.pasteboardPaddingPx,
         canvasWidthPx: canvasWidth,
         canvasHeightPx: canvasHeight
     });
@@ -223,7 +237,10 @@ async function exportProofPdf(
 
     // Execute export with guides hidden
     const proofedRgbDataUrl = fabricCanvas
-        ? await withHiddenGuides(fabricCanvas, doExport)
+        ? await withCanonicalExportViewport(
+            fabricCanvas,
+            () => withHiddenGuides(fabricCanvas, doExport),
+        )
         : await doExport();
 
     const doc = new jsPDF({

@@ -23,6 +23,7 @@ interface LowerInfoSectionProps {
     onRemoveSwatch?: (color: string) => void;
     lowerInfo?: LowerInfoSettings;
     onChangeLowerInfo?: (lowerInfo: LowerInfoSettings) => void;
+    focusTargetId?: string | null;
 }
 
 const MAX_ITEMS = 6;
@@ -36,6 +37,7 @@ export function LowerInfoSection({
     onRemoveSwatch,
     lowerInfo: lowerInfoProp,
     onChangeLowerInfo,
+    focusTargetId,
 }: LowerInfoSectionProps) {
     const [uploading, setUploading] = useState<string | null>(null);
 
@@ -179,7 +181,7 @@ export function LowerInfoSection({
 
     return (
         <div className="space-y-4">
-            <Card>
+            <Card id="site-design-focus-lower-info" className={cn(focusTargetId === "site-design-focus-lower-info" && "ring-2 ring-primary/50 ring-offset-2")}>
                 <CardHeader className="py-3">
                     <CardTitle className="text-sm font-medium">Nedre infobokse</CardTitle>
                 </CardHeader>
@@ -277,7 +279,11 @@ export function LowerInfoSection({
             {lowerInfo.enabled && (
                 <div className="space-y-4">
                     {lowerInfo.items.map((item, index) => (
-                        <Card key={item.id} className="border-dashed">
+                        <Card
+                            key={item.id}
+                            id={`site-design-focus-lower-info-item-${item.id}`}
+                            className={cn("border-dashed", focusTargetId?.startsWith(`site-design-focus-lower-info-item-${item.id}`) && "ring-2 ring-primary/50 ring-offset-2")}
+                        >
                             <CardHeader className="py-3">
                                 <div className="flex items-center justify-between">
                                     <CardTitle className="text-sm font-medium">Boks {index + 1}</CardTitle>
@@ -317,7 +323,7 @@ export function LowerInfoSection({
                             </CardHeader>
                             <CardContent className={cn("space-y-4", !item.enabled && "opacity-50")}>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <div className="space-y-2">
+                                    <div id={`site-design-focus-lower-info-item-${item.id}-title`} className="space-y-2">
                                         <Label>Titel</Label>
                                         <Input
                                             value={item.title}
@@ -325,7 +331,7 @@ export function LowerInfoSection({
                                             disabled={!item.enabled}
                                         />
                                     </div>
-                                    <div className="space-y-2">
+                                    <div id={`site-design-focus-lower-info-item-${item.id}-description`} className="space-y-2">
                                         <Label>Beskrivelse</Label>
                                         <Textarea
                                             value={item.description}
@@ -389,7 +395,7 @@ export function LowerInfoSection({
                                     </Select>
                                 </div>
 
-                                <div className="space-y-3">
+                                <div id={`site-design-focus-lower-info-item-${item.id}-image`} className="space-y-3">
                                     <div className="flex items-center justify-between">
                                         <Label>Medie</Label>
                                         <Select

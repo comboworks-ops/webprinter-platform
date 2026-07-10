@@ -76,6 +76,13 @@ export interface EditorCanvasProps {
     viewportWidth?: number;
     viewportHeight?: number;
     viewportScale?: number;
+    viewportOffsetXAdjustment?: number;
+    viewportOffsetYAdjustment?: number;
+    pasteboardColor?: string;
+    showPasteboardMasks?: boolean;
+    showDocumentGuideOverlay?: boolean;
+    documentBackgroundFill?: string;
+    documentBackgroundStroke?: string;
     selectedTool: string;
     onSelectionChange?: (hasSelection: boolean, props?: SelectedObjectProps) => void;
     onCanvasChange?: () => void;
@@ -85,7 +92,7 @@ export interface EditorCanvasProps {
 export interface EditorCanvasRef {
     getCanvas: () => fabric.Canvas | null;
     getJSON: () => object;
-    loadJSON: (json: object) => void;
+    loadJSON: (json: object) => Promise<void>;
     importJSON: (json: any) => void;
     importSVG: (svgString: string) => void;
     addCutContour: (svgString: string) => void;
@@ -168,6 +175,13 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     viewportWidth,
     viewportHeight,
     viewportScale,
+    viewportOffsetXAdjustment = 0,
+    viewportOffsetYAdjustment = 0,
+    pasteboardColor = '#525252',
+    showPasteboardMasks = true,
+    showDocumentGuideOverlay = false,
+    documentBackgroundFill = '#ffffff',
+    documentBackgroundStroke = '#e5e5e5',
     selectedTool,
     onSelectionChange,
     onCanvasChange,
@@ -581,7 +595,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         });
 
         // Canvas setup
-        canvas.setBackgroundColor('#525252', canvas.renderAll.bind(canvas)); // Darker grey pasteboard match
+        canvas.setBackgroundColor(pasteboardColor, canvas.renderAll.bind(canvas));
 
         // Let's calculate `bleedPx` inside `useEffect`.
         const bleedPx = Math.round(mmToPx(bleed, effectiveDisplayDpi));
@@ -601,10 +615,10 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             top: pasteboardPadding,
             width: fullWidth,   // Full bleed box width
             height: fullHeight, // Full bleed box height
-            fill: '#ffffff',
+            fill: documentBackgroundFill,
             selectable: false,
             evented: false,
-            stroke: '#e5e5e5', // Subtle border
+            stroke: documentBackgroundStroke,
             strokeWidth: 1,
             excludeFromExport: true,
             hoverCursor: 'default'
@@ -629,6 +643,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             stroke: '#ff0000', // Red for trim/cut
             strokeDashArray: [5, 5],
             strokeWidth: 1,
+            opacity: showDocumentGuideOverlay ? 0 : 1,
             selectable: false,
             evented: false,
             excludeFromExport: true
@@ -648,7 +663,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             stroke: '#00ff00', // Green for safe
             strokeDashArray: [2, 2],
             strokeWidth: 1,
-            opacity: 0.5,
+            opacity: showDocumentGuideOverlay ? 0 : 0.5,
             selectable: false,
             evented: false,
             excludeFromExport: true
@@ -744,7 +759,19 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             canvas.dispose();
             fabricRef.current = null;
         };
-    }, [canvasWidth, canvasHeight, bleed, docWidth, docHeight, effectiveDisplayDpi, pasteboardPadding]);
+    }, [
+        bleed,
+        canvasHeight,
+        canvasWidth,
+        docHeight,
+        docWidth,
+        documentBackgroundFill,
+        documentBackgroundStroke,
+        effectiveDisplayDpi,
+        pasteboardColor,
+        pasteboardPadding,
+        showDocumentGuideOverlay,
+    ]);
 
     const viewportMetrics = useMemo(() => {
         const targetWidth = viewportWidth && viewportWidth > 0 ? viewportWidth : canvasWidth;
@@ -752,8 +779,8 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         const scale = viewportScale && viewportScale > 0 ? viewportScale : 1;
         const docDisplayWidth = docWidth * scale;
         const docDisplayHeight = docHeight * scale;
-        const offsetX = (targetWidth - canvasWidth * scale) / 2;
-        const offsetY = (targetHeight - canvasHeight * scale) / 2;
+        const offsetX = ((targetWidth - canvasWidth * scale) / 2) + viewportOffsetXAdjustment;
+        const offsetY = ((targetHeight - canvasHeight * scale) / 2) + viewportOffsetYAdjustment;
         const docLeft = offsetX + pasteboardPadding * scale;
         const docTop = offsetY + pasteboardPadding * scale;
 
@@ -772,12 +799,18 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         viewportWidth,
         viewportHeight,
         viewportScale,
+        viewportOffsetXAdjustment,
+        viewportOffsetYAdjustment,
         canvasWidth,
         canvasHeight,
         docWidth,
         docHeight,
         pasteboardPadding,
     ]);
+    const safeAreaDisplayInset = Math.max(
+        1,
+        mmToPx(typeof safeArea === "number" ? safeArea : 3, effectiveDisplayDpi) * viewportMetrics.scale,
+    );
 
     useEffect(() => {
         const canvas = fabricRef.current;
@@ -907,11 +940,17 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         },
 
         loadJSON: (json: object) => {
-            restoreCanvasSnapshot(json, () => {
-                const canvas = fabricRef.current;
-                if (!canvas) return;
-                historyRef.current = [buildCanvasSnapshot(canvas)];
-                historyIndexRef.current = 0;
+            return new Promise<void>((resolve) => {
+                restoreCanvasSnapshot(json, () => {
+                    const canvas = fabricRef.current;
+                    if (!canvas) {
+                        resolve();
+                        return;
+                    }
+                    historyRef.current = [buildCanvasSnapshot(canvas)];
+                    historyIndexRef.current = 0;
+                    resolve();
+                });
             });
         },
 
@@ -1834,46 +1873,75 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     // bleedPx, safeAreaPx, and pasteboardPadding are already calculated at the top of the component
 
     return (
-        <div className="relative inline-block bg-neutral-800">
+        <div className={`relative inline-block ${showPasteboardMasks ? 'bg-neutral-800' : 'bg-transparent'}`}>
             {/* Fabric canvas */}
             <canvas ref={canvasRef} />
 
-            {/* Legend - positioned outside artwork in pasteboard area */}
             <div
-                className="absolute text-xs bg-white/90 rounded px-2 py-1 flex gap-3 pointer-events-none shadow-sm"
+                data-designer-document-bounds="true"
+                aria-hidden="true"
+                className="absolute pointer-events-none"
                 style={{
-                    bottom: 8,
-                    right: 8,
-                    zIndex: 25,
+                    left: viewportMetrics.docLeft,
+                    top: viewportMetrics.docTop,
+                    width: viewportMetrics.docDisplayWidth,
+                    height: viewportMetrics.docDisplayHeight,
+                    border: showDocumentGuideOverlay ? '1px solid #0284c7' : undefined,
+                    boxShadow: showDocumentGuideOverlay ? '0 0 0 1px rgba(255, 255, 255, 0.9)' : undefined,
+                    boxSizing: 'border-box',
+                    opacity: showDocumentGuideOverlay ? 1 : 0,
+                    zIndex: showDocumentGuideOverlay ? 16 : undefined,
                 }}
             >
-                <span className="flex items-center gap-1">
-                    <span className="w-3 h-0.5 bg-blue-500"></span>
-                    Trim
-                </span>
-                <span className="flex items-center gap-1">
-                    <span className="w-3 h-0.5 bg-red-400"></span>
-                    Bleed
-                </span>
-                <span className="flex items-center gap-1">
-                    <span className="w-3 h-0.5 bg-green-500"></span>
-                    Safe Zone
-                </span>
+                {showDocumentGuideOverlay && (
+                    <div
+                        className="absolute border border-dashed border-emerald-500/90"
+                        style={{ inset: safeAreaDisplayInset }}
+                    />
+                )}
             </div>
 
-            {/* Overflow indicator label */}
-            <div
-                className="absolute text-xs text-white/70 pointer-events-none"
-                style={{
-                    top: 6,
-                    left: 8,
-                    zIndex: 20,
-                }}
-            >
-                Overfill (vil blive skåret væk) - Zoom in if needed
-            </div>
+            {!showDocumentGuideOverlay && (
+                <>
+                    {/* Legend - positioned outside artwork in pasteboard area */}
+                    <div
+                        className="absolute text-xs bg-white/90 rounded px-2 py-1 flex gap-3 pointer-events-none shadow-sm"
+                        style={{
+                            bottom: 8,
+                            right: 8,
+                            zIndex: 25,
+                        }}
+                    >
+                        <span className="flex items-center gap-1">
+                            <span className="w-3 h-0.5 bg-blue-500"></span>
+                            Trim
+                        </span>
+                        <span className="flex items-center gap-1">
+                            <span className="w-3 h-0.5 bg-red-400"></span>
+                            Bleed
+                        </span>
+                        <span className="flex items-center gap-1">
+                            <span className="w-3 h-0.5 bg-green-500"></span>
+                            Safe Zone
+                        </span>
+                    </div>
+
+                    {/* Overflow indicator label */}
+                    <div
+                        className="absolute text-xs text-white/70 pointer-events-none"
+                        style={{
+                            top: 6,
+                            left: 8,
+                            zIndex: 20,
+                        }}
+                    >
+                        Overfill (vil blive skåret væk) - Zoom in if needed
+                    </div>
+                </>
+            )}
 
             {/* CSS Pasteboard Overlays - Completely non-interactive */}
+            {showPasteboardMasks && (
             <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 15 }}>
                 {/* Top mask */}
                 <div
@@ -1916,6 +1984,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                     }}
                 />
             </div>
+            )}
         </div>
     );
 });

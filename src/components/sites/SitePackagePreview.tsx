@@ -6,6 +6,7 @@ import {
   ArrowRight,
   CheckCircle2,
   ExternalLink,
+  Home,
   Layers,
   Ruler,
   ShoppingCart,
@@ -24,6 +25,8 @@ interface SitePackagePreviewProps {
   tenantId?: string | null;
   mode?: 'preview' | 'live';
 }
+
+const WEBPRINTER_HOME_HREF = '/?force_domain=webprinter.dk';
 
 type SitePreviewManifest = {
   mode?: 'mock' | 'iframe';
@@ -934,6 +937,12 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" asChild>
+                <a href={WEBPRINTER_HOME_HREF} data-preview-exit="true">
+                  <Home className="h-4 w-4 mr-2" />
+                  Til Webprinter
+                </a>
+              </Button>
+              <Button variant="outline" asChild>
                 <a href={iframeEntryPath} target="_blank" rel="noreferrer noopener">
                   <ExternalLink className="h-4 w-4 mr-2" />
                   Åbn bundle
@@ -1021,16 +1030,24 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
           </div>
 
           {isPreviewMode && (
-            <Button
-              asChild
-              className="border-0"
-              style={{ background: palette.primary, color: '#FFFFFF' }}
-            >
-              <a href={sitePackage.repoUrl} target="_blank" rel="noreferrer noopener">
-                <ExternalLink className="h-4 w-4 mr-2" />
-                GitHub
-              </a>
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button variant="outline" asChild>
+                <a href={WEBPRINTER_HOME_HREF} data-preview-exit="true">
+                  <Home className="h-4 w-4 mr-2" />
+                  Til Webprinter
+                </a>
+              </Button>
+              <Button
+                asChild
+                className="border-0"
+                style={{ background: palette.primary, color: '#FFFFFF' }}
+              >
+                <a href={sitePackage.repoUrl} target="_blank" rel="noreferrer noopener">
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  GitHub
+                </a>
+              </Button>
+            </div>
           )}
         </div>
       </header>
