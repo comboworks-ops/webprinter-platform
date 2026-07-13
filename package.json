@@ -51,6 +51,7 @@
     "check:commercial-release": "node scripts/check-commercial-release.mjs",
     "check:commercial-release-report": "node scripts/check-commercial-release-report.mjs",
     "supabase:cli": "node scripts/supabase-cli.mjs",
+    "check:company-hub-foundation": "node scripts/check-company-hub-v2-foundation.mjs",
     "check:supabase-grants": "node scripts/check-supabase-migration-grants.js",
     "check:supabase-functions": "node scripts/check-supabase-function-exposure.js",
     "supplier-bank:doctor": "node scripts/supplier-bank-cli.mjs doctor",

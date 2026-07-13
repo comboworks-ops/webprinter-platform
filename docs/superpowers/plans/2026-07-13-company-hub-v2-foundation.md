@@ -47,7 +47,7 @@
 - Consumes: existing `company_accounts`, `company_members`, `company_hub_items`, `products`, `designer_saved_designs`, `designer_templates`, and `orders` tables.
 - Produces: Company Hub V2 tables plus `company_hub_has_role(uuid,text[])`, `company_hub_is_member(uuid)`, and `company_hub_can_access_office(uuid,uuid)` RLS helpers.
 
-- [ ] **Step 1: Write the failing structural check**
+- [x] **Step 1: Write the failing structural check**
 
 Create a checker that reads the migration and asserts all required tables,
 helper functions, RLS enablement, authenticated/service-role grants, anon
@@ -69,13 +69,13 @@ const requiredTables = [
 ];
 ```
 
-- [ ] **Step 2: Run the check and confirm it fails**
+- [x] **Step 2: Run the check and confirm it fails**
 
 Run: `node scripts/check-company-hub-v2-foundation.mjs`
 
 Expected: failure because the migration does not exist.
 
-- [ ] **Step 3: Write the additive migration**
+- [x] **Step 3: Write the additive migration**
 
 The migration must:
 
@@ -92,7 +92,7 @@ The migration must:
   policies
 - leave order/pricing/POD tables untouched
 
-- [ ] **Step 4: Run migration checks**
+- [x] **Step 4: Run migration checks**
 
 Run:
 
@@ -104,7 +104,7 @@ npm run check:supabase-functions
 
 Expected: all three commands pass.
 
-- [ ] **Step 5: Commit migration foundation**
+- [x] **Step 5: Commit migration foundation**
 
 ```bash
 git add package.json scripts/check-company-hub-v2-foundation.mjs supabase/migrations/20260713090000_company_hub_v2_foundation.sql
