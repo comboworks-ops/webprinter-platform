@@ -280,7 +280,7 @@ git commit -m "feat: add company hub repository boundary"
 - Consumes: the complete Slice 1 implementation.
 - Produces: verified foundation evidence and a documented next-slice boundary.
 
-- [ ] **Step 1: Run the full foundation gate**
+- [x] **Step 1: Run the full foundation gate**
 
 ```bash
 npm run check:company-hub-foundation
@@ -292,7 +292,7 @@ npm run build
 
 Expected: all focused checks and the production build pass.
 
-- [ ] **Step 2: Inspect the diff for protected-system changes**
+- [x] **Step 2: Inspect the diff for protected-system changes**
 
 Run:
 
@@ -304,19 +304,19 @@ git diff --check HEAD~4..HEAD
 Expected: no pricing table, POD v1, POD v2, supplier submission, or order
 creation logic appears in the changed paths.
 
-- [ ] **Step 3: Document the foundation**
+- [x] **Step 3: Document the foundation**
 
 Add the V2 table families, service boundaries, legacy compatibility, module
 flag, and zero-price guard to `SYSTEM_OVERVIEW.md`.
 
-- [ ] **Step 4: Mark completed plan checkboxes and commit**
+- [x] **Step 4: Mark completed plan checkboxes and commit**
 
 ```bash
 git add docs/superpowers/plans/2026-07-13-company-hub-v2-foundation.md SYSTEM_OVERVIEW.md
 git commit -m "docs: record company hub v2 foundation"
 ```
 
-- [ ] **Step 5: Begin Slice 2 plan**
+- [x] **Step 5: Begin Slice 2 plan**
 
 Create `docs/superpowers/plans/2026-07-13-company-hub-v2-workspace.md` for
 offices, addresses, roles, and the customer company/office switcher. Do not

@@ -628,6 +628,31 @@ A whitelabel portal where business clients can log in and find their "pre-approv
 - **User Portal**: Located in `/company`. Uses `CompanyHub` page and `CompanyHubGrid`.
 - **Data Hook**: `useCompanyHub(tenantId)` handles all Supabase interactions.
 
+### V2 Foundation (2026-07-13)
+
+Company Hub V2 is additive and remains behind the existing `company-hub`
+module boundary. The prepared foundation migration adds offices, company-owned
+addresses, office-scoped members and catalogue items, visual categories,
+versioned controlled-template bindings and fields, private asset metadata,
+order requests, consultant requests, and activity events. Every new record is
+scoped by both `tenant_id` and `company_id`, with explicit Data API grants and
+RLS policies.
+
+Focused application boundaries now live in `src/lib/company-hub/`:
+
+- `types.ts` defines V2 roles and entities while preserving legacy rows.
+- `access.ts` maps `company_user` to `company_buyer` and centralizes role
+  capabilities.
+- `repository.ts` isolates Company Hub reads from UI components.
+- `checkout.ts` rejects zero, missing, stale, or mismatched quote handoffs before
+  adding Company Hub context to the existing checkout state.
+
+The V2 migration is prepared locally but is not active in the linked Supabase
+project until its remote migration history is reconciled and the migration is
+applied. Existing V1 screens continue to operate during the staged rollout.
+Company Hub catalogue rows continue to reference current tenant products; they
+never copy or recalculate pricing.
+
 ### Features
 1. **User Discovery**: Admin can search for users by name/email within their tenant to add them to a company.
 2. **Design Linkage**: A Hub Item can point to a `design_id`. Clicking "Order" in the portal will load that specific design directly into the checkout/designer.
