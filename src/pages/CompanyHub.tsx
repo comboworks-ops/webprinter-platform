@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Building2, Loader2, ArrowLeft } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
+import { buildCompanyAuthUrl } from "@/lib/company-hub";
 import { useNavigate } from "react-router-dom";
 
 function LegacyCompanyHub({ currentUser, capabilityWarning }: { currentUser: User; capabilityWarning?: string }) {
@@ -166,7 +167,7 @@ export default function CompanyHub() {
         async function checkAuth() {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) {
-                navigate("/auth?redirect=/company");
+                navigate(buildCompanyAuthUrl(), { replace: true });
                 return;
             }
             setCurrentUser(user);

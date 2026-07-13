@@ -3,6 +3,7 @@ export * from "./assetService";
 export * from "./capabilities";
 export * from "./catalogService";
 export * from "./checkout";
+export * from "./navigation";
 export * from "./repository";
 export * from "./requestService";
 export * from "./templateService";

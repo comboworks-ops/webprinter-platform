@@ -7,7 +7,13 @@ import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useCompanyWorkspace } from "@/hooks/useCompanyWorkspace";
-import { canApproveCompanyOrder, canManageCompany, canPlaceCompanyOrder, type HubItem } from "@/lib/company-hub";
+import {
+  canApproveCompanyOrder,
+  canManageCompany,
+  canPlaceCompanyOrder,
+  withCompanyTenantContext,
+  type HubItem,
+} from "@/lib/company-hub";
 import { writeSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
 import { CompanyOverview } from "./CompanyOverview";
 import { CompanyLocationsView } from "./CompanyLocationsView";
@@ -17,14 +23,6 @@ import { CompanyHelpView } from "./CompanyHelpView";
 import { CompanyOrderRequestsView } from "./CompanyOrderRequestsView";
 import { CompanyWorkspaceHeader } from "./CompanyWorkspaceHeader";
 import { CompanyWorkspaceNav, type CompanyWorkspaceView } from "./CompanyWorkspaceNav";
-
-function withCurrentTenant(path: string): string {
-  if (typeof window === "undefined" || !window.location.search) return path;
-  const params = new URLSearchParams(window.location.search);
-  params.delete("view");
-  const query = params.toString();
-  return `${path}${query ? `?${query}` : ""}`;
-}
 
 export function CompanyWorkspaceShell() {
   const navigate = useNavigate();
@@ -84,7 +82,7 @@ export function CompanyWorkspaceShell() {
       quantity: item.default_quantity,
       createdAt: new Date().toISOString(),
     });
-    navigate(withCurrentTenant(`/produkt/${encodeURIComponent(item.product_slug)}`), {
+    navigate(withCompanyTenantContext(`/produkt/${encodeURIComponent(item.product_slug)}`), {
       state: {
         companyId: selectedCompanyId,
         companyOfficeId: selectedOfficeId,
@@ -110,7 +108,7 @@ export function CompanyWorkspaceShell() {
       createdAt: new Date().toISOString(),
     };
     writeSiteCheckoutSession(state);
-    navigate(withCurrentTenant(`/produkt/${encodeURIComponent(item.product_slug)}`), { state });
+    navigate(withCompanyTenantContext(`/produkt/${encodeURIComponent(item.product_slug)}`), { state });
   };
 
   const handleOpenAsset = async (asset: (typeof assets)[number]) => {
