@@ -88,6 +88,11 @@ export interface SiteCheckoutCustomerDraft {
 }
 
 export interface SiteCheckoutState {
+  companyId?: string | null;
+  companyOfficeId?: string | null;
+  companyAddressId?: string | null;
+  companyCatalogItemId?: string | null;
+  companyOrderRequestId?: string | null;
   productId?: string | null;
   productSlug?: string | null;
   productName?: string | null;
@@ -175,6 +180,11 @@ export function getSiteCheckoutDesignSignature(input: SiteCheckoutState | null |
   if (!input) return "";
 
   return stableJson({
+    companyId: input.companyId || null,
+    companyOfficeId: input.companyOfficeId || null,
+    companyAddressId: input.companyAddressId || null,
+    companyCatalogItemId: input.companyCatalogItemId || null,
+    companyOrderRequestId: input.companyOrderRequestId || null,
     productId: input.productId || null,
     productSlug: input.productSlug || null,
     designerMode: input.designerMode || null,

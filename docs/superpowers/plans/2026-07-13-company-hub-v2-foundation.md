@@ -176,7 +176,7 @@ git commit -m "feat: add typed company hub domain contracts"
 - Consumes: a complete `SiteCheckoutState`, `CompanyHubCheckoutContext`, and existing `pricingQuote`.
 - Produces: `buildCompanyHubCheckoutState(base, context): SiteCheckoutState`, which throws `CompanyHubCheckoutError` when product ID, quantity, quote, or positive total is missing.
 
-- [ ] **Step 1: Write failing checkout tests**
+- [x] **Step 1: Write failing checkout tests**
 
 ```ts
 assert.throws(
@@ -189,13 +189,13 @@ assert.equal(
 );
 ```
 
-- [ ] **Step 2: Run tests and confirm failure**
+- [x] **Step 2: Run tests and confirm failure**
 
 Run: `node --test src/lib/company-hub/checkout.test.ts`
 
 Expected: failure because the checkout adapter does not exist.
 
-- [ ] **Step 3: Implement the adapter**
+- [x] **Step 3: Implement the adapter**
 
 The adapter checks:
 
@@ -207,7 +207,7 @@ The adapter checks:
 
 It then adds only optional Company Hub context to the current checkout state.
 
-- [ ] **Step 4: Run checkout tests and type check**
+- [x] **Step 4: Run checkout tests and type check**
 
 Run:
 
@@ -218,7 +218,7 @@ npx tsc --noEmit --skipLibCheck --moduleResolution bundler --module esnext --tar
 
 Expected: tests and TypeScript check pass.
 
-- [ ] **Step 5: Commit the checkout safety boundary**
+- [x] **Step 5: Commit the checkout safety boundary**
 
 ```bash
 git add src/lib/company-hub/checkout.ts src/lib/company-hub/checkout.test.ts src/lib/checkout/siteCheckoutSession.ts
