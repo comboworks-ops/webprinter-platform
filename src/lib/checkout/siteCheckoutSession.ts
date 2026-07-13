@@ -93,6 +93,7 @@ export interface SiteCheckoutState {
   companyAddressId?: string | null;
   companyCatalogItemId?: string | null;
   companyOrderRequestId?: string | null;
+  companyWorkingDesignId?: string | null;
   productId?: string | null;
   productSlug?: string | null;
   productName?: string | null;
@@ -186,6 +187,7 @@ export function getSiteCheckoutDesignSignature(input: SiteCheckoutState | null |
     companyCatalogItemId: input.companyCatalogItemId || null,
     companyOrderRequestId: input.companyOrderRequestId || null,
     productId: input.productId || null,
+    companyWorkingDesignId: input.companyWorkingDesignId || null,
     productSlug: input.productSlug || null,
     designerMode: input.designerMode || null,
     pricingModel: input.pricingModel || null,

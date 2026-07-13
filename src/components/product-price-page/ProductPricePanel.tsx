@@ -76,6 +76,15 @@ type ProductPricePanelProps = {
     buttonLabel?: string | null;
     helperText?: string | null;
   } | null;
+  companyContext?: Pick<
+    SiteCheckoutState,
+    | "companyId"
+    | "companyOfficeId"
+    | "companyAddressId"
+    | "companyCatalogItemId"
+    | "companyOrderRequestId"
+    | "companyWorkingDesignId"
+  > | null;
 };
 
 export type DeliveryMethod = {
@@ -241,7 +250,8 @@ export function ProductPricePanel({
   externalDeliveryLoading,
   externalDeliveryError,
   externalDeliveryConfig,
-  canvaOffer
+  canvaOffer,
+  companyContext,
 }: ProductPricePanelProps) {
   const navigate = useNavigate();
   const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
@@ -949,7 +959,23 @@ export function ProductPricePanel({
     doc.save(`tilbud-${productName || 'webprinter'}-${new Date().getTime()}.pdf`);
   };
 
-  const buildCheckoutState = (): SiteCheckoutState => ({
+  const buildCheckoutState = (): SiteCheckoutState => {
+    const existingSession = readSiteCheckoutSession();
+    const matchingCompanyContext = existingSession
+      && (existingSession.productId === productId || existingSession.productSlug === productSlug)
+      ? {
+        companyId: existingSession.companyId || null,
+        companyOfficeId: existingSession.companyOfficeId || null,
+        companyAddressId: existingSession.companyAddressId || null,
+        companyCatalogItemId: existingSession.companyCatalogItemId || null,
+        companyOrderRequestId: existingSession.companyOrderRequestId || null,
+        companyWorkingDesignId: existingSession.companyWorkingDesignId || null,
+      }
+      : {};
+
+    return ({
+      ...matchingCompanyContext,
+      ...(companyContext || {}),
       productId,
       quantity,
       productPrice,
@@ -964,6 +990,7 @@ export function ProductPricePanel({
       pricingModel: activeProductFlow.pricingModel,
       productFlowLabel: activeProductFlow.badgeLabel,
       productFlowHelpText: activeProductFlow.customerHelpText,
+      requiresCutContour: activeProductFlow.requiresCutContour,
       checkoutTitle: activeProductFlow.checkoutTitle,
       checkoutUploadTitle: activeProductFlow.checkoutUploadTitle,
       checkoutUploadHelpText: activeProductFlow.checkoutUploadHelpText,
@@ -1029,7 +1056,8 @@ export function ProductPricePanel({
         }
         : null,
       createdAt: new Date().toISOString(),
-  });
+    });
+  };
 
   const handleOrderClick = () => {
     if (orderValidationError) return;
@@ -1345,6 +1373,7 @@ export function ProductPricePanel({
                     params.set('productId', productId);
                     if (activeProductFlow.designerMode) params.set('designerMode', activeProductFlow.designerMode);
                     if (activeProductFlow.pricingModel) params.set('pricingModel', activeProductFlow.pricingModel);
+                    if (activeProductFlow.requiresCutContour) params.set('requiresCutContour', '1');
                     if (selectedFormat) params.set('format', selectedFormat);
                     if (linkedTemplateId) params.set('templateId', linkedTemplateId);
                     if (selectedVariant) params.set('variant', selectedVariant);
@@ -1362,6 +1391,9 @@ export function ProductPricePanel({
                     if (designerTemplateLaunch?.pdfUrl) {
                       params.set('templatePdfUrl', designerTemplateLaunch.pdfUrl);
                       params.set('templatePdfName', designerTemplateLaunch.name);
+                    }
+                    if (checkoutState.companyWorkingDesignId) {
+                      params.set('designId', checkoutState.companyWorkingDesignId);
                     }
                     if (activeProductFlow.designerMode === "apparel" && apparelConfig) {
                       params.set('apparel', '1');

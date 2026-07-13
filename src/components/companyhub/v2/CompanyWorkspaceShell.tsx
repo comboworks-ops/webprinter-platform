@@ -7,6 +7,7 @@ import Header from "@/components/Header";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useCompanyWorkspace } from "@/hooks/useCompanyWorkspace";
 import { canManageCompany, type HubItem } from "@/lib/company-hub";
+import { writeSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
 import { CompanyOverview } from "./CompanyOverview";
 import { CompanyLocationsView } from "./CompanyLocationsView";
 import { CompanyWorkspaceHeader } from "./CompanyWorkspaceHeader";
@@ -54,6 +55,15 @@ export function CompanyWorkspaceShell() {
 
   const handleOpenProduct = (item: HubItem) => {
     if (!item.product_slug) return;
+    writeSiteCheckoutSession({
+      companyId: selectedCompanyId,
+      companyOfficeId: selectedOfficeId,
+      companyCatalogItemId: item.id,
+      productId: item.product_id,
+      productSlug: item.product_slug,
+      quantity: item.default_quantity,
+      createdAt: new Date().toISOString(),
+    });
     navigate(withCurrentTenant(`/produkt/${encodeURIComponent(item.product_slug)}`), {
       state: {
         companyId: selectedCompanyId,
@@ -61,6 +71,7 @@ export function CompanyWorkspaceShell() {
         companyCatalogItemId: item.id,
         companyDefaultQuantity: item.default_quantity,
         companyDefaultOptions: item.default_options,
+        companyWorkingDesignId: null,
       },
     });
   };

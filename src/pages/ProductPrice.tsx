@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useParams, useSearchParams } from "react-router-dom";
 import { PriceMatrix } from "@/components/product-price-page/PriceMatrix";
 import { MatrixLayoutV1Renderer } from "@/components/product-price-page/MatrixLayoutV1Renderer";
 import { ProductPricePanel, type DeliveryMethod } from "@/components/product-price-page/ProductPricePanel";
@@ -100,6 +100,7 @@ const writeDetailCache = (tenantId: string, slug: string, payload: ProductDetail
 
 const ProductPrice = () => {
   const { slug } = useParams<{ slug: string }>();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const shopSettings = useShopSettings();
   const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
@@ -112,6 +113,18 @@ const ProductPrice = () => {
   ).trim() || "Din Shop";
 
   const staticProduct = slug ? getProductBySlug(slug) : null;
+  const companyContext = useMemo(() => {
+    const state = (location.state || {}) as Partial<SiteCheckoutState>;
+    if (!state.companyId || !state.companyCatalogItemId) return null;
+    return {
+      companyId: state.companyId,
+      companyOfficeId: state.companyOfficeId || null,
+      companyAddressId: state.companyAddressId || null,
+      companyCatalogItemId: state.companyCatalogItemId,
+      companyOrderRequestId: state.companyOrderRequestId || null,
+      companyWorkingDesignId: state.companyWorkingDesignId || null,
+    };
+  }, [location.state]);
 
   // State
   const [selectedFormat, setSelectedFormat] = useState<string>("");
@@ -1338,6 +1351,7 @@ const ProductPrice = () => {
               externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
               canvaOffer={canvaOffer}
               summary={summaryParts.join(' • ')}
+              companyContext={companyContext}
             />
           </div>
         </div>
@@ -1397,6 +1411,7 @@ const ProductPrice = () => {
                 selectedCell ? `${selectedCell.column} stk` : '',
                 sizeDistributionSummary || '',
               ].filter(Boolean).join(' • ')}
+              companyContext={companyContext}
             />
           </div>
         </div>
@@ -1468,6 +1483,8 @@ const ProductPrice = () => {
                 productId={dbProductId || ""}
                 width={0}
                 height={0}
+                engineVersion={(dbProduct?.technical_specs as any)?.machine_pricing?.engine === "v2_pilot" ? "v2_pilot" : "v1"}
+                engineConfig={(dbProduct?.technical_specs as any)?.machine_pricing || undefined}
                 onPriceUpdate={(data) => {
                   console.log('[ProductPrice] Received from MachineConfigurator:', data);
                   setProductPrice(data.totalPrice);
@@ -1531,6 +1548,7 @@ const ProductPrice = () => {
                   selectedCell ? `${selectedCell.column} stk` : "",
                   sizeDistributionSummary || "",
                 ].filter(Boolean).join(" • ")}
+                companyContext={companyContext}
               />
             </div>
           </div>
