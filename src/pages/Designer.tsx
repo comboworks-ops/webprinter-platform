@@ -110,6 +110,7 @@ import {
     Monitor,
     Tablet,
     Shirt,
+    LockKeyhole,
     type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -586,6 +587,7 @@ function DesignerWorkspace() {
     const productId = searchParams.get("productId");
     const templateId = searchParams.get("templateId");
     const designId = searchParams.get("designId");
+    const companyControlledMode = searchParams.get("companyControlled") === "1";
     const queryTenantIdRaw = searchParams.get("tenantId") || searchParams.get("tenant_id");
     const queryTenantId = queryTenantIdRaw && UUID_REGEX.test(queryTenantIdRaw) ? queryTenantIdRaw : null;
     const format = searchParams.get("format");
@@ -733,16 +735,22 @@ function DesignerWorkspace() {
     });
     const [canvasAreaSize, setCanvasAreaSize] = useState({ width: 0, height: 0 });
     const [selectedTool, setSelectedTool] = useState<string>("select");
-    const [activeTab, setActiveTab] = useState<DesignerPanelTab>(() => apparelConfig ? 'apparel' : 'layers');
+    const [activeTab, setActiveTab] = useState<DesignerPanelTab>(() => (
+        companyControlledMode ? 'preflight' : apparelConfig ? 'apparel' : 'layers'
+    ));
     const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
     const rightPanelTabs = useMemo<Array<{ id: DesignerPanelTab; label: string; Icon: LucideIcon }>>(() => {
-        const tabs: Array<{ id: DesignerPanelTab; label: string; Icon: LucideIcon }> = [
-            { id: 'layers', label: 'Lag', Icon: Layers3 },
-            { id: 'properties', label: 'Egenskaber', Icon: Settings2 },
-        ];
+        const tabs: Array<{ id: DesignerPanelTab; label: string; Icon: LucideIcon }> = [];
 
-        if (apparelConfig) tabs.push({ id: 'apparel', label: 'Tekstiltryk', Icon: Shirt });
-        if (selectedPdfMeta) tabs.push({ id: 'pdf', label: 'PDF-værktøjer', Icon: FileText });
+        if (!companyControlledMode) {
+            tabs.push(
+                { id: 'layers', label: 'Lag', Icon: Layers3 },
+                { id: 'properties', label: 'Egenskaber', Icon: Settings2 },
+            );
+        }
+
+        if (!companyControlledMode && apparelConfig) tabs.push({ id: 'apparel', label: 'Tekstiltryk', Icon: Shirt });
+        if (!companyControlledMode && selectedPdfMeta) tabs.push({ id: 'pdf', label: 'PDF-værktøjer', Icon: FileText });
 
         tabs.push(
             { id: 'preflight', label: 'Preflight', Icon: FileCheck },
@@ -750,7 +758,7 @@ function DesignerWorkspace() {
         );
 
         return tabs;
-    }, [apparelConfig, selectedPdfMeta]);
+    }, [apparelConfig, companyControlledMode, selectedPdfMeta]);
     const activeRightPanel = rightPanelTabs.find((tab) => tab.id === activeTab) || rightPanelTabs[0];
     const handleRightPanelTabClick = useCallback((tab: DesignerPanelTab) => {
         if (tab === activeTab) {
@@ -763,6 +771,12 @@ function DesignerWorkspace() {
     useEffect(() => {
         setIsRightPanelOpen(true);
     }, [activeTab]);
+
+    useEffect(() => {
+        if (companyControlledMode && activeTab !== 'preflight' && activeTab !== 'proofing') {
+            setActiveTab('preflight');
+        }
+    }, [activeTab, companyControlledMode]);
     const isUuid = useCallback((value: string | null) => {
         if (!value) return false;
         return UUID_REGEX.test(value);
@@ -1952,8 +1966,8 @@ function DesignerWorkspace() {
         const pdfMeta = hasSel ? getPdfMetaFromObject(activeObject) : null;
         setSelectedPdfMeta(pdfMeta);
         if (!pdfMeta) setPdfServiceReport(null);
-        if (hasSel) setActiveTab(pdfMeta ? 'pdf' : 'properties');
-    }, []);
+        if (hasSel && !companyControlledMode) setActiveTab(pdfMeta ? 'pdf' : 'properties');
+    }, [companyControlledMode]);
 
     // Handle layers change
     const handleLayersChange = useCallback((newLayers: LayerInfo[]) => {
@@ -1967,14 +1981,16 @@ function DesignerWorkspace() {
     }, []);
 
     const openPdfImportForAdd = useCallback((initialSource: PDFImportInitialSource | null = null) => {
+        if (companyControlledMode) return;
         pdfImportModeRef.current = 'add';
         pdfReplaceTargetRef.current = null;
         setPdfImportInitialSource(initialSource);
         setShowPDFImport(true);
-    }, []);
+    }, [companyControlledMode]);
 
     // Tool actions
     const handleToolClick = useCallback((toolId: string) => {
+        if (companyControlledMode && toolId !== 'select') return;
         // Actions that don't change mode
         if (toolId === 'image') {
             fileInputRef.current?.click();
@@ -2016,7 +2032,7 @@ function DesignerWorkspace() {
                 setSelectedTool('select');
                 break;
         }
-    }, [openPdfImportForAdd]);
+    }, [companyControlledMode, openPdfImportForAdd]);
 
     // Handle image upload
     const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3279,7 +3295,7 @@ function DesignerWorkspace() {
         { id: "line", icon: Minus, label: "Linje (L)" },
         { id: "guide-h", icon: GripHorizontal, label: "Horisontal guide (G) - Fold/beskæring" },
         { id: "guide-v", icon: GripVertical, label: "Vertikal guide (Shift+G) - Fold/beskæring" },
-    ];
+    ].filter((tool) => !companyControlledMode || tool.id === "select");
 
     // Total warnings count
     const hasVectorPdfBase = useMemo(
@@ -3393,6 +3409,14 @@ function DesignerWorkspace() {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
+            if (companyControlledMode) {
+                if (e.key.toLowerCase() === 's' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    handleSave();
+                }
+                return;
+            }
+
             // Ignore if meta, ctrl, or alt keys are pressed for single-letter shortcuts
             const hasModifier = e.metaKey || e.ctrlKey || e.altKey;
 
@@ -3446,19 +3470,20 @@ function DesignerWorkspace() {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [handleToolClick, hasSelection]);
+    }, [companyControlledMode, handleToolClick, hasSelection]);
 
     // Global drag and drop for PDF files
     const handleGlobalDragEnter = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
+        if (companyControlledMode) return;
         dragCounterRef.current++;
 
         // Check if dragging files (not internal drag)
         if (e.dataTransfer.types.includes('Files')) {
             setIsDraggingFile(true);
         }
-    }, []);
+    }, [companyControlledMode]);
 
     const handleGlobalDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -3481,6 +3506,8 @@ function DesignerWorkspace() {
         setIsDraggingFile(false);
         dragCounterRef.current = 0;
 
+        if (companyControlledMode) return;
+
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
             const file = e.dataTransfer.files[0];
             if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
@@ -3488,7 +3515,7 @@ function DesignerWorkspace() {
                 openPdfImportForAdd();
             }
         }
-    }, [openPdfImportForAdd]);
+    }, [companyControlledMode, openPdfImportForAdd]);
 
     // Prevent browser default drag behavior on window
     useEffect(() => {
@@ -3729,6 +3756,13 @@ function DesignerWorkspace() {
                         </span>
                     )}
 
+                    {companyControlledMode && (
+                        <span className="hidden items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800 md:flex">
+                            <LockKeyhole className="h-3.5 w-3.5" />
+                            Brandstyret design
+                        </span>
+                    )}
+
                     <div className="h-4 w-px bg-border mx-2" />
 
                     {!orderMode && (
@@ -3822,7 +3856,10 @@ function DesignerWorkspace() {
                 />
 
                 {/* Left Toolbar */}
-                <aside className="w-16 flex flex-col items-center py-4 border-r bg-background z-10">
+                <aside className={cn(
+                    "w-16 flex flex-col items-center py-4 border-r bg-background z-10",
+                    companyControlledMode && "hidden",
+                )}>
                     <div className="flex flex-col gap-2">
                         {tools.map((tool) => (
                             <Button
@@ -3868,7 +3905,7 @@ function DesignerWorkspace() {
                         <Scissors className="h-5 w-5" />
                     </Button>
 
-                    <div className="flex flex-col gap-2 mb-2">
+                    {!companyControlledMode && <div className="flex flex-col gap-2 mb-2">
                         {/* Undo */}
                         <Button
                             variant="ghost"
@@ -3914,7 +3951,7 @@ function DesignerWorkspace() {
                         >
                             <Trash2 className="h-5 w-5" />
                         </Button>
-                    </div>
+                    </div>}
                 </aside>
 
                 {/* Canvas Area */}
