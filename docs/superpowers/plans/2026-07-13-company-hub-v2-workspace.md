@@ -110,16 +110,33 @@
 ### Task 6: Workspace Verification
 
 **Files:**
-- Create: `scripts/check-company-hub-workspace.mjs`
-- Create: `tests/company-hub-workspace.spec.ts`
-- Modify: `package.json`
-- Modify: `SYSTEM_OVERVIEW.md`
+- Verify: `scripts/check-company-hub-v2-foundation.mjs`
+- Verify: `src/lib/company-hub/*.test.ts`
+- Verify: `supabase/migrations/20260713090000_company_hub_v2_foundation.sql`
+- Verify: `supabase/migrations/20260713120000_company_hub_v2_private_assets.sql`
+- Verify: `supabase/migrations/20260713130000_company_hub_v2_request_workflow.sql`
+- Create: `src/lib/company-hub/navigation.test.ts`
 
 **Interfaces:**
-- Produces: static contract check and Playwright evidence for V1 fallback plus V2 workspace behavior.
+- Produces: static contract checks, live schema evidence, and browser evidence for guarded Company Hub routes.
 
-- [ ] Verify noindex metadata and capability fallback bindings statically.
-- [ ] Run V1 fallback against the current linked database and prove `/company` is not blank.
-- [ ] Apply the reviewed V2 migration only after migration-history reconciliation is explicitly safe.
-- [ ] Verify company/office switcher, address inheritance, role-gated actions, mobile layout, and zero console errors.
-- [ ] Run focused tests, grants/functions checks, production build, and document evidence; commit.
+- [x] Verify `noindex,nofollow`, capability fallback bindings, and internal login redirects statically.
+- [x] Prove missing V2 capability falls back to V1 through focused capability tests instead of a blank page.
+- [x] Reconcile the linked migration history in an isolated workspace and apply only the three reviewed V2 migrations.
+- [x] Audit all 11 tables, RLS, Data API grants, private storage, RPC exposure, and preservation of existing Company Hub rows.
+- [x] Verify the customer auth guard, tenant-safe return URL, admin guard, mobile layout, and zero new browser console errors.
+- [x] Run 30 focused tests, migration grant/function checks, foundation check, `git diff --check`, and a production build.
+- [ ] Complete signed-in owner acceptance for company/office switching, catalogue actions, controlled personalization, approval, and checkout using a real account session.
+
+## Completion Record
+
+Implementation and database activation completed on 2026-07-13.
+
+- Customer workspace: company and office selection, visual catalogue, designs, private assets, locations, approvals, orders, reorder, and consultant requests.
+- Tenant administration: company onboarding, offices, addresses, members and roles, catalogue, controlled templates, assets, approvals, orders, and support requests.
+- Controlled design: approved versioned source designs, allowlisted editable text fields, locked geometry/style, and a restricted designer surface.
+- Commerce: every order starts from the live product configurator and verified quote; no Company Hub price copy can become authoritative.
+- Security: tenant/company/office scoping, RLS on all V2 tables, private storage, explicit grants, anonymous RPC revocation, and server-side role/price/order validation.
+- Compatibility: existing pricing, checkout, orders, supplier bank, POD v1, and POD v2 structures were not changed.
+
+The final unchecked item is manual user acceptance behind authentication. It does not require another implementation phase, but it should be completed before a production sales launch.
