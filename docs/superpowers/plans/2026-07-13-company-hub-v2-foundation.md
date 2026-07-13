@@ -124,7 +124,7 @@ git commit -m "feat: add company hub v2 data foundation"
 - Consumes: database role values `company_admin`, `company_user`, `company_owner`, `company_approver`, `company_buyer`, and `company_viewer`.
 - Produces: `CompanyRole`, `normalizeCompanyRole`, `canManageCompany`, `canApproveCompanyOrder`, `canPlaceCompanyOrder`, and typed Company Hub entities.
 
-- [ ] **Step 1: Write failing role tests**
+- [x] **Step 1: Write failing role tests**
 
 ```ts
 assert.equal(normalizeCompanyRole("company_user"), "company_buyer");
@@ -135,19 +135,19 @@ assert.equal(canApproveCompanyOrder("company_approver"), true);
 assert.equal(canPlaceCompanyOrder("company_viewer"), false);
 ```
 
-- [ ] **Step 2: Run tests and confirm failure**
+- [x] **Step 2: Run tests and confirm failure**
 
 Run: `node --test src/lib/company-hub/access.test.ts`
 
 Expected: failure because the access module does not exist.
 
-- [ ] **Step 3: Implement focused types and pure access helpers**
+- [x] **Step 3: Implement focused types and pure access helpers**
 
 Use discriminated string unions for roles/status values. Keep JSON-shaped data
 as `Record<string, unknown>` instead of `any`. Preserve the old component import
 path through re-exports.
 
-- [ ] **Step 4: Run tests and focused TypeScript check**
+- [x] **Step 4: Run tests and focused TypeScript check**
 
 Run:
 
@@ -158,7 +158,7 @@ npx tsc --noEmit --skipLibCheck --moduleResolution bundler --module esnext --tar
 
 Expected: tests and TypeScript check pass.
 
-- [ ] **Step 5: Commit domain contracts**
+- [x] **Step 5: Commit domain contracts**
 
 ```bash
 git add src/lib/company-hub src/components/companyhub/types.ts
