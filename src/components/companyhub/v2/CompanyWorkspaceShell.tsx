@@ -6,8 +6,9 @@ import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useCompanyWorkspace } from "@/hooks/useCompanyWorkspace";
-import type { HubItem } from "@/lib/company-hub";
+import { canManageCompany, type HubItem } from "@/lib/company-hub";
 import { CompanyOverview } from "./CompanyOverview";
+import { CompanyLocationsView } from "./CompanyLocationsView";
 import { CompanyWorkspaceHeader } from "./CompanyWorkspaceHeader";
 import { CompanyWorkspaceNav, type CompanyWorkspaceView } from "./CompanyWorkspaceNav";
 
@@ -124,15 +125,42 @@ export function CompanyWorkspaceShell() {
               onOpenProduct={handleOpenProduct}
             />
           </TabsContent>
-          <TabsContent value="locations" className="mt-0 py-6">
-            <section className="rounded-md border bg-background px-5 py-8">
-              <h2 className="text-lg font-semibold">Kontorer og adresser</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {offices.length
-                  ? `${offices.length} kontor${offices.length === 1 ? "" : "er"} er tilknyttet firmaet.`
-                  : "Der er endnu ikke oprettet et kontor."}
-              </p>
-            </section>
+          <TabsContent value="locations" className="mt-0">
+            <CompanyLocationsView
+              offices={offices}
+              addresses={addresses}
+              selectedOfficeId={selectedOfficeId}
+              canManage={canManageCompany(company.membership_role)}
+              isSaving={
+                workspace.createOfficeMutation.isPending
+                || workspace.updateOfficeMutation.isPending
+                || workspace.archiveOfficeMutation.isPending
+                || workspace.createAddressMutation.isPending
+                || workspace.updateAddressMutation.isPending
+                || workspace.archiveAddressMutation.isPending
+              }
+              onSelectOffice={setSelectedOfficeId}
+              onCreateOffice={async (input) => {
+                const office = await workspace.createOfficeMutation.mutateAsync(input);
+                setSelectedOfficeId(office.id);
+              }}
+              onUpdateOffice={async (officeId, input) => {
+                await workspace.updateOfficeMutation.mutateAsync({ officeId, input });
+              }}
+              onArchiveOffice={async (officeId) => {
+                await workspace.archiveOfficeMutation.mutateAsync(officeId);
+                if (selectedOfficeId === officeId) setSelectedOfficeId(null);
+              }}
+              onCreateAddress={async (input) => {
+                await workspace.createAddressMutation.mutateAsync(input);
+              }}
+              onUpdateAddress={async (addressId, input) => {
+                await workspace.updateAddressMutation.mutateAsync({ addressId, input });
+              }}
+              onArchiveAddress={async (addressId) => {
+                await workspace.archiveAddressMutation.mutateAsync(addressId);
+              }}
+            />
           </TabsContent>
         </Tabs>
       </main>

@@ -82,11 +82,11 @@
 - Consumes: selected office, company-wide addresses, and office-specific addresses.
 - Produces: scannable read view and role-gated edit dialogs for company owner/admin.
 
-- [ ] Render office contact/profile details without nested cards.
-- [ ] Separate delivery and billing defaults and show inheritance from company to office.
-- [ ] Add create/edit/archive dialogs with Danish postal validation.
-- [ ] Hide write actions from approver, buyer, and viewer roles.
-- [ ] Add keyboard and responsive verification; commit.
+- [x] Render office contact/profile details without nested cards.
+- [x] Separate delivery and billing defaults and show inheritance from company to office.
+- [x] Add create/edit/archive dialogs with Danish postal validation.
+- [x] Hide write actions from approver, buyer, and viewer roles.
+- [x] Add keyboard-ready controls and responsive layout; full browser viewport evidence remains in Task 6.
 
 ### Task 5: Tenant Admin Onboarding Surface
 
