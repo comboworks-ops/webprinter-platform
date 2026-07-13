@@ -1,8 +1,8 @@
-import { Building2, LayoutDashboard, Package } from "lucide-react";
+import { Building2, CheckCircle2, FileText, Headphones, LayoutDashboard, Package, ShoppingCart } from "lucide-react";
 
 import { TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export type CompanyWorkspaceView = "overview" | "products" | "locations";
+export type CompanyWorkspaceView = "overview" | "products" | "designs" | "locations" | "approvals" | "orders" | "help";
 
 const views: Array<{
   value: CompanyWorkspaceView;
@@ -11,7 +11,11 @@ const views: Array<{
 }> = [
   { value: "overview", label: "Overblik", icon: LayoutDashboard },
   { value: "products", label: "Produkter", icon: Package },
+  { value: "designs", label: "Design og filer", icon: FileText },
+  { value: "approvals", label: "Godkendelser", icon: CheckCircle2 },
+  { value: "orders", label: "Ordrer", icon: ShoppingCart },
   { value: "locations", label: "Kontorer", icon: Building2 },
+  { value: "help", label: "Få hjælp", icon: Headphones },
 ];
 
 export function CompanyWorkspaceNav() {

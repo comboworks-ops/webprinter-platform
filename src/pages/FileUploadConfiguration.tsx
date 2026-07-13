@@ -37,6 +37,7 @@ import {
     getGenericMatrixDataFromDB
 } from "@/utils/pricingDatabase";
 import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
+import { linkCompanyOrder } from "@/lib/company-hub";
 
 interface TechnicalSpecs {
     width_mm: number;
@@ -1519,6 +1520,20 @@ const FileUploadConfiguration = () => {
             }
 
             setCreatedOrderNumber(insertedOrder.order_number);
+
+            if (latestCheckoutSession?.companyOrderRequestId) {
+                try {
+                    await linkCompanyOrder(
+                        supabase as any,
+                        latestCheckoutSession.companyOrderRequestId,
+                        insertedOrder.id,
+                    );
+                } catch (companyHubError) {
+                    // The order already exists and must not be duplicated. Keep the
+                    // checkout successful and leave a clear reconciliation signal.
+                    console.error("Company Hub order link failed:", companyHubError);
+                }
+            }
 
             const finalOrderFile = latestCheckoutSession?.designerExport?.fileUrl
                 ? {

@@ -3,24 +3,38 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   archiveCompanyAddress,
+  archiveCompanyAsset,
   archiveCompanyCatalogItem,
   archiveCompanyOffice,
   createCompanyAddress,
+  createCompanyAssetSignedUrl,
   createCompanyCatalogCategory,
   createCompanyCatalogItem,
   createCompanyOffice,
+  createCompanyTemplateBinding,
   listCompanyAddresses,
+  listCompanyAssets,
+  listCompanyConsultantRequests,
   listCompanyCategories,
   listCompanyCatalogItems,
   listEligibleCompanyProducts,
+  listCompanyTemplateBindings,
+  listCompanyTemplateCandidates,
   listCompanyOffices,
+  listCompanyOrderRequests,
   normalizeCompanyRole,
+  decideCompanyOrderRequest,
   replaceCompanyCatalogItemOffices,
   updateCompanyAddress,
   updateCompanyCatalogItem,
   updateCompanyOffice,
+  updateCompanyConsultantRequestStatus,
+  uploadCompanyAsset,
   type CompanyAccount,
   type CompanyAddress,
+  type CompanyAsset,
+  type CompanyAssetUploadInput,
+  type CompanyConsultantRequest,
   type CompanyMember,
   type CompanyOffice,
   type CompanyProductCandidate,
@@ -30,6 +44,7 @@ import {
   type CreateCompanyCatalogItemInput,
   type CreateCompanyCategoryInput,
   type CreateCompanyOfficeInput,
+  type CreateCompanyTemplateBindingInput,
   type HubItem,
   type UpdateCompanyAddressInput,
   type UpdateCompanyCatalogItemInput,
@@ -96,6 +111,21 @@ const adminCompanyKeys = {
   ] as const,
   productCandidates: (tenantId: string) => [
     ...adminCompanyKeys.root(tenantId), "product-candidates",
+  ] as const,
+  templateBindings: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "template-bindings", companyId,
+  ] as const,
+  templateCandidates: (tenantId: string) => [
+    ...adminCompanyKeys.root(tenantId), "template-candidates",
+  ] as const,
+  assets: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "assets", companyId,
+  ] as const,
+  requests: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "requests", companyId,
+  ] as const,
+  consultantRequests: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "consultant-requests", companyId,
   ] as const,
   metrics: (tenantId: string, companyId: string | null) => [
     ...adminCompanyKeys.root(tenantId), "metrics", companyId,
@@ -275,6 +305,36 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
     queryKey: adminCompanyKeys.productCandidates(tenantId),
     queryFn: (): Promise<CompanyProductCandidate[]> => listEligibleCompanyProducts(database, tenantId),
     enabled: Boolean(tenantId),
+  });
+
+  const templateBindingsQuery = useQuery({
+    queryKey: adminCompanyKeys.templateBindings(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyTemplateBindings(database, selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const templateCandidatesQuery = useQuery({
+    queryKey: adminCompanyKeys.templateCandidates(tenantId),
+    queryFn: () => listCompanyTemplateCandidates(database, tenantId),
+    enabled: Boolean(tenantId),
+  });
+
+  const assetsQuery = useQuery({
+    queryKey: adminCompanyKeys.assets(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyAssets(database, selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const orderRequestsQuery = useQuery({
+    queryKey: adminCompanyKeys.requests(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyOrderRequests(database, selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const consultantRequestsQuery = useQuery({
+    queryKey: adminCompanyKeys.consultantRequests(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyConsultantRequests(database, selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
   });
 
   const metricsQuery = useQuery({
@@ -482,6 +542,55 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
     }),
   });
 
+  const createTemplateBindingMutation = useMutation({
+    mutationFn: async (input: CreateCompanyTemplateBindingInput) => {
+      const { data } = await supabase.auth.getUser();
+      return createCompanyTemplateBinding(database, requireScope(), {
+        ...input,
+        approvedBy: data.user?.id || null,
+      });
+    },
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.templateBindings(tenantId, selectedCompanyId) }),
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.catalog(tenantId, selectedCompanyId) }),
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.metrics(tenantId, selectedCompanyId) }),
+    ]),
+  });
+
+  const uploadAssetMutation = useMutation({
+    mutationFn: (input: CompanyAssetUploadInput) => uploadCompanyAsset(supabase as any, requireScope(), input),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.assets(tenantId, selectedCompanyId),
+    }),
+  });
+
+  const archiveAssetMutation = useMutation({
+    mutationFn: (assetId: string) => archiveCompanyAsset(database, requireScope(), assetId),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.assets(tenantId, selectedCompanyId),
+    }),
+  });
+
+  const getAssetUrl = (asset: CompanyAsset) => createCompanyAssetSignedUrl(supabase as any, asset.storage_path);
+
+  const decideOrderRequestMutation = useMutation({
+    mutationFn: ({ requestId, approve }: { requestId: string; approve: boolean }) => (
+      decideCompanyOrderRequest(supabase as any, requestId, approve)
+    ),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.requests(tenantId, selectedCompanyId),
+    }),
+  });
+
+  const updateConsultantRequestMutation = useMutation({
+    mutationFn: ({ requestId, status }: { requestId: string; status: CompanyConsultantRequest["status"] }) => (
+      updateCompanyConsultantRequestStatus(database, requireScope(), requestId, status)
+    ),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.consultantRequests(tenantId, selectedCompanyId),
+    }),
+  });
+
   return {
     companiesQuery,
     officesQuery,
@@ -491,6 +600,11 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
     categoriesQuery,
     itemOfficesQuery,
     productCandidatesQuery,
+    templateBindingsQuery,
+    templateCandidatesQuery,
+    assetsQuery,
+    orderRequestsQuery,
+    consultantRequestsQuery,
     metricsQuery,
     tenantUsersQuery,
     createCompanyMutation,
@@ -506,5 +620,11 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
     createCategoryMutation,
     saveCatalogItemMutation,
     archiveCatalogItemMutation,
+    createTemplateBindingMutation,
+    uploadAssetMutation,
+    archiveAssetMutation,
+    getAssetUrl,
+    decideOrderRequestMutation,
+    updateConsultantRequestMutation,
   };
 }

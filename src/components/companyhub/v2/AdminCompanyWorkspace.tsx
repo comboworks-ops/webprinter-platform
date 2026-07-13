@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
   Building2,
+  FileText,
   Loader2,
   Package,
   Pencil,
@@ -36,9 +37,12 @@ import {
 } from "@/hooks/useAdminCompanyWorkspace";
 import type { CompanyAccount } from "@/lib/company-hub";
 import { AdminCompanyCatalog } from "./AdminCompanyCatalog";
+import { AdminCompanyRequestDesk } from "./AdminCompanyRequestDesk";
+import { CompanyAssetLibrary } from "./CompanyAssetLibrary";
 import { AdminCompanyMembers } from "./AdminCompanyMembers";
 import { AdminCompanyOffices } from "./AdminCompanyOffices";
 import { AdminCompanySetupProgress } from "./AdminCompanySetupProgress";
+import { AdminCompanyTemplates } from "./AdminCompanyTemplates";
 
 interface AdminCompanyWorkspaceProps {
   tenantId: string;
@@ -86,6 +90,7 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
   const addresses = workspace.addressesQuery.data || [];
   const members = workspace.membersQuery.data || [];
   const items = workspace.catalogQuery.data || [];
+  const assets = workspace.assetsQuery.data || [];
   const metrics = workspace.metricsQuery.data || { templateCount: 0, orderRequestCount: 0 };
   const selectedCompany = companies.find((company) => company.id === selectedCompanyId) || null;
 
@@ -119,6 +124,22 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
     setEditingCompanyId(company.id);
     setCompanyForm(formFromCompany(company));
     setCompanyDialogOpen(true);
+  };
+
+  const openAsset = async (asset: (typeof assets)[number]) => {
+    const popup = window.open("about:blank", "_blank");
+    try {
+      const url = await workspace.getAssetUrl(asset);
+      if (popup) {
+        popup.opener = null;
+        popup.location.replace(url);
+      } else {
+        window.location.assign(url);
+      }
+    } catch (error) {
+      popup?.close();
+      toast.error(errorMessage(error));
+    }
   };
 
   const saveCompany = async () => {
@@ -247,10 +268,13 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
                   <TabsTrigger value="locations" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Kontorer</TabsTrigger>
                   <TabsTrigger value="members" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Medlemmer</TabsTrigger>
                   <TabsTrigger value="catalog" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Produkter</TabsTrigger>
+                  <TabsTrigger value="templates" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Skabeloner</TabsTrigger>
+                  <TabsTrigger value="files" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Filer</TabsTrigger>
+                  <TabsTrigger value="requests" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Anmodninger</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="setup" className="mt-0 py-6">
-                  <div className="grid gap-6 md:grid-cols-3">
+                  <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
                     <button type="button" className="rounded-md border bg-background p-5 text-left transition-colors hover:border-primary/50" onClick={() => setActiveView("locations")}>
                       <Building2 className="h-5 w-5 text-primary" aria-hidden="true" />
                       <h3 className="mt-4 text-sm font-semibold">Kontorer og adresser</h3>
@@ -263,8 +287,13 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
                     </button>
                     <button type="button" className="rounded-md border bg-background p-5 text-left transition-colors hover:border-primary/50" onClick={() => setActiveView("catalog")}>
                       <Package className="h-5 w-5 text-primary" aria-hidden="true" />
-                      <h3 className="mt-4 text-sm font-semibold">Produkter og skabeloner</h3>
-                      <p className="mt-1 text-xs text-muted-foreground">{items.length} produkter · {metrics.templateCount} skabeloner</p>
+                      <h3 className="mt-4 text-sm font-semibold">Produktkatalog</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">{items.length} produkter</p>
+                    </button>
+                    <button type="button" className="rounded-md border bg-background p-5 text-left transition-colors hover:border-primary/50" onClick={() => setActiveView("templates")}>
+                      <FileText className="h-5 w-5 text-primary" aria-hidden="true" />
+                      <h3 className="mt-4 text-sm font-semibold">Kontrollerede skabeloner</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">{metrics.templateCount} aktive versioner</p>
                     </button>
                   </div>
                 </TabsContent>
@@ -321,6 +350,40 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
                     onCreateCategory={async (input) => { await workspace.createCategoryMutation.mutateAsync(input); }}
                     onSaveItem={async (payload) => { await workspace.saveCatalogItemMutation.mutateAsync(payload); }}
                     onArchiveItem={async (itemId) => { await workspace.archiveCatalogItemMutation.mutateAsync(itemId); }}
+                  />
+                </TabsContent>
+
+                <TabsContent value="templates" className="mt-0">
+                  <AdminCompanyTemplates
+                    items={items}
+                    candidates={workspace.templateCandidatesQuery.data || []}
+                    bindings={workspace.templateBindingsQuery.data || []}
+                    isSaving={workspace.createTemplateBindingMutation.isPending}
+                    onCreateBinding={async (input) => { await workspace.createTemplateBindingMutation.mutateAsync(input); }}
+                  />
+                </TabsContent>
+
+                <TabsContent value="files" className="mt-0">
+                  <CompanyAssetLibrary
+                    assets={assets}
+                    offices={offices}
+                    canUpload
+                    canArchive
+                    isSaving={workspace.uploadAssetMutation.isPending || workspace.archiveAssetMutation.isPending}
+                    onUpload={async (input) => { await workspace.uploadAssetMutation.mutateAsync(input); }}
+                    onOpen={openAsset}
+                    onArchive={async (assetId) => { await workspace.archiveAssetMutation.mutateAsync(assetId); }}
+                  />
+                </TabsContent>
+
+                <TabsContent value="requests" className="mt-0">
+                  <AdminCompanyRequestDesk
+                    requests={workspace.orderRequestsQuery.data || []}
+                    consultantRequests={workspace.consultantRequestsQuery.data || []}
+                    items={items}
+                    isSaving={workspace.decideOrderRequestMutation.isPending || workspace.updateConsultantRequestMutation.isPending}
+                    onDecision={async (requestId, approve) => { await workspace.decideOrderRequestMutation.mutateAsync({ requestId, approve }); }}
+                    onConsultantStatus={async (requestId, status) => { await workspace.updateConsultantRequestMutation.mutateAsync({ requestId, status }); }}
                   />
                 </TabsContent>
               </Tabs>

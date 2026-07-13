@@ -3,19 +3,32 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   archiveCompanyAddress,
+  archiveCompanyAsset,
   archiveCompanyOffice,
+  createCompanyAssetSignedUrl,
+  createCompanyConsultantRequest,
   createCompanyAddress,
   createCompanyOffice,
   detectCompanyHubV2,
   listCompanyAddresses,
+  listCompanyAssets,
+  listCompanyConsultantRequests,
   listCompanyCatalogItems,
   listCompanyCatalogItemOfficeIds,
   listCompanyCategories,
   listCompanyOffices,
+  listCompanyOrderRequests,
+  listCompanyTemplateBindings,
   listMyCompanyMemberships,
+  createCompanyWorkingDesign,
+  decideCompanyOrderRequest,
+  uploadCompanyAsset,
   updateCompanyAddress,
   updateCompanyOffice,
   type CompanyHubRepositoryClient,
+  type CompanyAsset,
+  type CompanyAssetUploadInput,
+  type CreateCompanyConsultantRequestInput,
   type CompanyWorkspaceScope,
   type CreateCompanyAddressInput,
   type CreateCompanyOfficeInput,
@@ -39,6 +52,18 @@ export const companyWorkspaceKeys = {
   categories: (companyId: string | null) => [...companyWorkspaceKeys.root, "categories", companyId] as const,
   catalog: (companyId: string | null, officeId: string | null) => [
     ...companyWorkspaceKeys.root, "catalog", companyId, officeId,
+  ] as const,
+  templates: (companyId: string | null) => [
+    ...companyWorkspaceKeys.root, "templates", companyId,
+  ] as const,
+  assets: (companyId: string | null, officeId: string | null) => [
+    ...companyWorkspaceKeys.root, "assets", companyId, officeId,
+  ] as const,
+  requests: (companyId: string | null) => [
+    ...companyWorkspaceKeys.root, "requests", companyId,
+  ] as const,
+  consultantRequests: (companyId: string | null) => [
+    ...companyWorkspaceKeys.root, "consultant-requests", companyId,
   ] as const,
 };
 
@@ -111,6 +136,30 @@ export function useCompanyWorkspace(options: UseCompanyWorkspaceOptions = {}) {
     enabled: isV2Available && Boolean(selectedCompanyId),
   });
 
+  const templatesQuery = useQuery({
+    queryKey: companyWorkspaceKeys.templates(selectedCompanyId),
+    queryFn: () => listCompanyTemplateBindings(repositoryClient, selectedCompanyId!, { activeOnly: true }),
+    enabled: isV2Available && Boolean(selectedCompanyId),
+  });
+
+  const assetsQuery = useQuery({
+    queryKey: companyWorkspaceKeys.assets(selectedCompanyId, selectedOfficeId),
+    queryFn: () => listCompanyAssets(repositoryClient, selectedCompanyId!, { officeId: selectedOfficeId }),
+    enabled: isV2Available && Boolean(selectedCompanyId),
+  });
+
+  const orderRequestsQuery = useQuery({
+    queryKey: companyWorkspaceKeys.requests(selectedCompanyId),
+    queryFn: () => listCompanyOrderRequests(repositoryClient, selectedCompanyId!),
+    enabled: isV2Available && Boolean(selectedCompanyId),
+  });
+
+  const consultantRequestsQuery = useQuery({
+    queryKey: companyWorkspaceKeys.consultantRequests(selectedCompanyId),
+    queryFn: () => listCompanyConsultantRequests(repositoryClient, selectedCompanyId!),
+    enabled: isV2Available && Boolean(selectedCompanyId),
+  });
+
   const requireScope = (): CompanyWorkspaceScope => {
     if (!scope) {
       throw new Error("Vælg et firma, før du ændrer arbejdsområdet.");
@@ -167,6 +216,49 @@ export function useCompanyWorkspace(options: UseCompanyWorkspaceOptions = {}) {
     onSuccess: invalidateLocations,
   });
 
+  const createWorkingDesignMutation = useMutation({
+    mutationFn: ({ bindingId, values }: { bindingId: string; values: Record<string, unknown> }) => (
+      createCompanyWorkingDesign(supabase as any, requireScope(), bindingId, values)
+    ),
+  });
+
+  const uploadAssetMutation = useMutation({
+    mutationFn: (input: CompanyAssetUploadInput) => uploadCompanyAsset(supabase as any, requireScope(), input),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: companyWorkspaceKeys.assets(selectedCompanyId, selectedOfficeId),
+    }),
+  });
+
+  const archiveAssetMutation = useMutation({
+    mutationFn: (assetId: string) => archiveCompanyAsset(repositoryClient, requireScope(), assetId),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: companyWorkspaceKeys.assets(selectedCompanyId, selectedOfficeId),
+    }),
+  });
+
+  const getAssetUrl = (asset: CompanyAsset) => createCompanyAssetSignedUrl(supabase as any, asset.storage_path);
+
+  const decideOrderRequestMutation = useMutation({
+    mutationFn: ({ requestId, approve }: { requestId: string; approve: boolean }) => (
+      decideCompanyOrderRequest(supabase as any, requestId, approve)
+    ),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: companyWorkspaceKeys.requests(selectedCompanyId),
+    }),
+  });
+
+  const createConsultantRequestMutation = useMutation({
+    mutationFn: (input: CreateCompanyConsultantRequestInput) => (
+      createCompanyConsultantRequest(supabase as any, requireScope(), {
+        ...input,
+        officeId: input.officeId ?? selectedOfficeId,
+      })
+    ),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: companyWorkspaceKeys.consultantRequests(selectedCompanyId),
+    }),
+  });
+
   return {
     capabilityQuery,
     isV2Available,
@@ -176,11 +268,21 @@ export function useCompanyWorkspace(options: UseCompanyWorkspaceOptions = {}) {
     addressesQuery,
     categoriesQuery,
     catalogQuery,
+    templatesQuery,
+    assetsQuery,
+    orderRequestsQuery,
+    consultantRequestsQuery,
     createOfficeMutation,
     updateOfficeMutation,
     archiveOfficeMutation,
     createAddressMutation,
     updateAddressMutation,
     archiveAddressMutation,
+    createWorkingDesignMutation,
+    uploadAssetMutation,
+    archiveAssetMutation,
+    getAssetUrl,
+    decideOrderRequestMutation,
+    createConsultantRequestMutation,
   };
 }

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { deliveryFee } from "@/utils/productPricing";
-import { Download, CheckCircle2, ExternalLink, Sparkles, PenTool, Upload } from "lucide-react";
+import { Download, CheckCircle2, ExternalLink, Sparkles, PenTool, Upload, Loader2 } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import jsPDF from "jspdf";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,9 @@ import {
   resolveStorefrontProductFlow,
   type StorefrontProductFlow,
 } from "@/lib/sites/storefrontProductFlow";
+import { prepareCompanyCheckout } from "@/lib/company-hub";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 type ProductPricePanelProps = {
   productId: string;
@@ -258,6 +261,7 @@ export function ProductPricePanel({
   const shouldReduceMotion = useReducedMotion();
   const [shippingSelected, setShippingSelected] = useState<string>("standard");
   const [designReady, setDesignReady] = useState(false);
+  const [preparingCompanyOrder, setPreparingCompanyOrder] = useState(false);
   const [now, setNow] = useState<Date>(() => new Date());
   const activeProductFlow = useMemo(
     () => productFlow || resolveStorefrontProductFlow({ name: productName }),
@@ -1059,14 +1063,35 @@ export function ProductPricePanel({
     });
   };
 
-  const handleOrderClick = () => {
+  const handleOrderClick = async () => {
     if (orderValidationError) return;
     const tenantQuery = typeof window !== 'undefined' ? window.location.search : '';
-    const checkoutState = buildCheckoutState();
-    writeSiteCheckoutSession(checkoutState);
-    navigate(`/checkout/konfigurer${tenantQuery}`, {
-      state: checkoutState,
-    });
+    let checkoutState = buildCheckoutState();
+
+    if (checkoutState.companyId && checkoutState.companyCatalogItemId) {
+      setPreparingCompanyOrder(true);
+      try {
+        const prepared = await prepareCompanyCheckout(supabase as any, checkoutState);
+        checkoutState = prepared.checkoutState;
+        writeSiteCheckoutSession(checkoutState);
+        if (prepared.requiresApproval) {
+          const companyParams = new URLSearchParams(tenantQuery);
+          companyParams.set("view", "approvals");
+          toast.success("Bestillingen er sendt til godkendelse");
+          navigate(`/company?${companyParams.toString()}`);
+          return;
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Firmaordren kunne ikke klargøres.");
+        return;
+      } finally {
+        setPreparingCompanyOrder(false);
+      }
+    } else {
+      writeSiteCheckoutSession(checkoutState);
+    }
+
+    navigate(`/checkout/konfigurer${tenantQuery}`, { state: checkoutState });
   };
 
   const persistCheckoutState = (options?: { crossTab?: boolean }) => {
@@ -1394,6 +1419,7 @@ export function ProductPricePanel({
                     }
                     if (checkoutState.companyWorkingDesignId) {
                       params.set('designId', checkoutState.companyWorkingDesignId);
+                      params.set('companyControlled', '1');
                     }
                     if (activeProductFlow.designerMode === "apparel" && apparelConfig) {
                       params.set('apparel', '1');
@@ -1501,10 +1527,10 @@ export function ProductPricePanel({
                 className="order-primary-button min-h-12 w-full touch-manipulation px-6 py-6 text-base font-semibold sm:text-lg"
                 style={primaryButtonCssVars}
                 onClick={handleOrderClick}
-                disabled={!canOrder}
+                disabled={!canOrder || preparingCompanyOrder}
               >
-                <Upload className="h-5 w-5" />
-                {activeProductFlow.orderCtaLabel}
+                {preparingCompanyOrder ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+                {preparingCompanyOrder ? "Klargør firmaordre..." : activeProductFlow.orderCtaLabel}
               </MotionButton>
               {!canOrder && orderValidationError && (
                 <p className="text-xs text-destructive max-w-[260px]">
