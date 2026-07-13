@@ -101,11 +101,11 @@
 - Consumes: current tenant context, capability probe, workspace repository, existing company/member data.
 - Produces: visual setup flow for identity, offices, addresses, and roles.
 
-- [ ] Replace raw-ID-first layout only when V2 capability is available.
-- [ ] Add setup progress for identity, office, address, member, catalogue, template, and test order.
-- [ ] Add office/address manager with explicit save/archive actions.
-- [ ] Add role labels and office scope without exposing database role strings.
-- [ ] Keep current V1 admin manager as fallback; commit.
+- [x] Replace raw-ID-first layout only when V2 capability is available.
+- [x] Add setup progress for identity, office, address, member, catalogue, template, and test order.
+- [x] Add office/address manager with explicit save/archive actions.
+- [x] Add role labels and office scope without exposing database role strings.
+- [x] Keep current V1 admin manager as fallback; commit.
 
 ### Task 6: Workspace Verification
 

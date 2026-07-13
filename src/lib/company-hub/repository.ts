@@ -124,7 +124,7 @@ export async function listCompanyOffices(
 export async function listCompanyAddresses(
   client: CompanyHubRepositoryClient,
   companyId: string,
-  options: { officeId?: string | null; includeInactive?: boolean } = {},
+  options: { officeId?: string | null; includeInactive?: boolean; includeAllOffices?: boolean } = {},
 ): Promise<CompanyAddress[]> {
   let query = database(client)
     .from("company_addresses")
@@ -162,6 +162,7 @@ export async function listCompanyAddresses(
   }
 
   const rows = (data || []) as CompanyAddress[];
+  if (options.includeAllOffices) return rows;
   if (!options.officeId) return rows.filter((row) => row.office_id === null);
   return rows.filter((row) => row.office_id === null || row.office_id === options.officeId);
 }
