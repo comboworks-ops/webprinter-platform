@@ -235,19 +235,19 @@ git commit -m "feat: guard company hub checkout handoff"
 - Consumes: configured Supabase client and authenticated RLS context.
 - Produces: `listMyCompanyMemberships`, `listCompanyOffices`, `listCompanyAddresses`, `listCompanyCategories`, and `listCompanyCatalogItems`.
 
-- [ ] **Step 1: Define exact repository return types**
+- [x] **Step 1: Define exact repository return types**
 
 Every function returns domain rows, throws a `CompanyHubRepositoryError` with a
 Danish-safe public message, and preserves the original database error as
 `cause`. Functions do not show toasts or navigate.
 
-- [ ] **Step 2: Implement membership and workspace reads**
+- [x] **Step 2: Implement membership and workspace reads**
 
 Queries must select explicit columns, scope child reads by `company_id`, and let
 RLS enforce access. Catalogue rows join only display product fields and do not
 read or calculate prices.
 
-- [ ] **Step 3: Run focused TypeScript check**
+- [x] **Step 3: Run focused TypeScript check**
 
 Run:
 
@@ -257,13 +257,13 @@ npx tsc --noEmit --skipLibCheck --moduleResolution bundler --module esnext --tar
 
 Expected: the repository modules type-check.
 
-- [ ] **Step 4: Run production build**
+- [x] **Step 4: Run production build**
 
 Run: `npm run build`
 
 Expected: Vite production build succeeds.
 
-- [ ] **Step 5: Commit the repository boundary**
+- [x] **Step 5: Commit the repository boundary**
 
 ```bash
 git add src/lib/company-hub/repository.ts src/lib/company-hub/index.ts
