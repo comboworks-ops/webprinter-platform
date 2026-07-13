@@ -19,7 +19,7 @@ RETURNS public.company_order_requests
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
-AS $$
+AS $company_hub$
 DECLARE
     item public.company_hub_items%ROWTYPE;
     created_request public.company_order_requests%ROWTYPE;
@@ -51,11 +51,13 @@ BEGIN
         RAISE EXCEPTION 'Der mangler en gyldig livepris.' USING ERRCODE = '22023';
     END IF;
     IF COALESCE(_quote_snapshot->>'productId', '') <> item.product_id::text
-       OR CASE
+       OR (
+          CASE
             WHEN COALESCE(_quote_snapshot->>'quantity', '') ~ '^[0-9]+$'
             THEN (_quote_snapshot->>'quantity')::integer
             ELSE 0
-          END <> _quantity THEN
+          END
+       ) <> _quantity THEN
         RAISE EXCEPTION 'Prisgrundlaget matcher ikke produkt og antal.' USING ERRCODE = '22023';
     END IF;
 
@@ -113,7 +115,7 @@ BEGIN
 
     RETURN created_request;
 END;
-$$;
+$company_hub$;
 
 REVOKE ALL ON FUNCTION public.company_hub_create_order_request(uuid, uuid, uuid, integer, jsonb, jsonb, jsonb, numeric, jsonb) FROM public;
 REVOKE ALL ON FUNCTION public.company_hub_create_order_request(uuid, uuid, uuid, integer, jsonb, jsonb, jsonb, numeric, jsonb) FROM anon;
@@ -131,7 +133,7 @@ RETURNS public.company_order_requests
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
-AS $$
+AS $company_hub$
 DECLARE
     request_row public.company_order_requests%ROWTYPE;
     item public.company_hub_items%ROWTYPE;
@@ -159,11 +161,13 @@ BEGIN
         RAISE EXCEPTION 'Der mangler et gyldigt antal eller en gyldig livepris.' USING ERRCODE = '22023';
     END IF;
     IF COALESCE(_quote_snapshot->>'productId', '') <> request_row.product_id::text
-       OR CASE
+       OR (
+          CASE
             WHEN COALESCE(_quote_snapshot->>'quantity', '') ~ '^[0-9]+$'
             THEN (_quote_snapshot->>'quantity')::integer
             ELSE 0
-          END <> _quantity THEN
+          END
+       ) <> _quantity THEN
         RAISE EXCEPTION 'Prisgrundlaget matcher ikke produkt og antal.' USING ERRCODE = '22023';
     END IF;
 
@@ -203,7 +207,7 @@ BEGIN
     RETURNING * INTO request_row;
     RETURN request_row;
 END;
-$$;
+$company_hub$;
 
 REVOKE ALL ON FUNCTION public.company_hub_prepare_order_checkout(uuid, integer, jsonb, jsonb, numeric) FROM public;
 REVOKE ALL ON FUNCTION public.company_hub_prepare_order_checkout(uuid, integer, jsonb, jsonb, numeric) FROM anon;
@@ -219,7 +223,7 @@ RETURNS public.company_order_requests
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
-AS $$
+AS $company_hub$
 DECLARE
     request_row public.company_order_requests%ROWTYPE;
 BEGIN
@@ -259,7 +263,7 @@ BEGIN
     );
     RETURN request_row;
 END;
-$$;
+$company_hub$;
 
 REVOKE ALL ON FUNCTION public.company_hub_decide_order_request(uuid, boolean, text) FROM public;
 REVOKE ALL ON FUNCTION public.company_hub_decide_order_request(uuid, boolean, text) FROM anon;
@@ -274,7 +278,7 @@ RETURNS public.company_order_requests
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
-AS $$
+AS $company_hub$
 DECLARE
     request_row public.company_order_requests%ROWTYPE;
 BEGIN
@@ -296,7 +300,7 @@ BEGIN
     RETURNING * INTO request_row;
     RETURN request_row;
 END;
-$$;
+$company_hub$;
 
 REVOKE ALL ON FUNCTION public.company_hub_link_order(uuid, uuid) FROM public;
 REVOKE ALL ON FUNCTION public.company_hub_link_order(uuid, uuid) FROM anon;
