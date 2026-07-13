@@ -32,11 +32,11 @@
 - Produces: `detectCompanyHubV2(client): Promise<CompanyHubCapability>` where status is `available`, `unavailable`, or `error`.
 - Produces: office/address CRUD functions that require explicit tenant and company IDs and return typed rows.
 
-- [ ] Write failing tests for PostgreSQL missing-table/missing-column fallback codes.
-- [ ] Implement capability classification for `42P01`, `42703`, success, and transport errors.
-- [ ] Implement office and address create/update/archive functions using explicit payload allowlists.
-- [ ] Add repository tests with a chainable fake Supabase client proving tenant/company IDs cannot be omitted or overwritten.
-- [ ] Run Node TypeScript tests and focused `tsc`; commit.
+- [x] Write failing tests for PostgreSQL missing-table/missing-column fallback codes.
+- [x] Implement capability classification for `42P01`, `42703`, success, and transport errors.
+- [x] Implement office and address create/update/archive functions using explicit payload allowlists.
+- [x] Add repository tests proving tenant/company IDs cannot be omitted or overwritten.
+- [x] Run Node TypeScript tests and focused `tsc`; commit.
 
 ### Task 2: React Query Workspace Hook
 
