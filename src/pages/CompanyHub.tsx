@@ -1,6 +1,10 @@
 import { useState, useEffect } from "react";
+import type { User } from "@supabase/supabase-js";
+import { Helmet } from "react-helmet-async";
 import { useCompanyHub } from "@/hooks/useCompanyHub";
+import { useCompanyWorkspace } from "@/hooks/useCompanyWorkspace";
 import { CompanyHubGrid } from "@/components/companyhub/CompanyHubGrid";
+import { CompanyWorkspaceShell } from "@/components/companyhub/v2/CompanyWorkspaceShell";
 import { CompanyAccount } from "@/components/companyhub/types";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -10,25 +14,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 
-export default function CompanyHub() {
+function LegacyCompanyHub({ currentUser, capabilityWarning }: { currentUser: User; capabilityWarning?: string }) {
     const navigate = useNavigate();
     const { myMembershipsQuery } = useCompanyHub();
     const [selectedCompany, setSelectedCompany] = useState<CompanyAccount | null>(null);
-    const [checkingAuth, setCheckingAuth] = useState(true);
-    const [currentUser, setCurrentUser] = useState<any>(null);
-
-    useEffect(() => {
-        async function checkAuth() {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) {
-                navigate("/auth?redirect=/company");
-            } else {
-                setCurrentUser(user);
-                setCheckingAuth(false);
-            }
-        }
-        checkAuth();
-    }, [navigate]);
 
     useEffect(() => {
         // Auto-select if only one company
@@ -37,7 +26,7 @@ export default function CompanyHub() {
         }
     }, [myMembershipsQuery.data, selectedCompany]);
 
-    if (checkingAuth || myMembershipsQuery.isLoading) {
+    if (myMembershipsQuery.isLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -78,6 +67,11 @@ export default function CompanyHub() {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <Header />
             <main className="flex-1 container mx-auto px-4 py-8">
+                {capabilityWarning && (
+                    <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                        {capabilityWarning}
+                    </div>
+                )}
                 {!selectedCompany ? (
                     <div className="max-w-2xl mx-auto space-y-6">
                         <div className="text-center space-y-2">
@@ -139,5 +133,63 @@ export default function CompanyHub() {
             </main>
             <Footer />
         </div>
+    );
+}
+
+function AuthenticatedCompanyHub({ currentUser }: { currentUser: User }) {
+    const workspace = useCompanyWorkspace();
+
+    if (workspace.capabilityQuery.isLoading) {
+        return (
+            <div className="flex min-h-screen items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" aria-label="Indlæser firmahub" />
+            </div>
+        );
+    }
+
+    if (workspace.capabilityQuery.data?.status === "available") {
+        return <CompanyWorkspaceShell />;
+    }
+
+    const warning = workspace.capabilityQuery.data?.status === "error"
+        ? workspace.capabilityQuery.data.message
+        : undefined;
+    return <LegacyCompanyHub currentUser={currentUser} capabilityWarning={warning} />;
+}
+
+export default function CompanyHub() {
+    const navigate = useNavigate();
+    const [checkingAuth, setCheckingAuth] = useState(true);
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+    useEffect(() => {
+        async function checkAuth() {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                navigate("/auth?redirect=/company");
+                return;
+            }
+            setCurrentUser(user);
+            setCheckingAuth(false);
+        }
+        void checkAuth();
+    }, [navigate]);
+
+    if (checkingAuth || !currentUser) {
+        return (
+            <div className="flex min-h-screen items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" aria-label="Kontrollerer adgang" />
+            </div>
+        );
+    }
+
+    return (
+        <>
+            <Helmet>
+                <title>Firmahub | Webprinter</title>
+                <meta name="robots" content="noindex,nofollow" />
+            </Helmet>
+            <AuthenticatedCompanyHub currentUser={currentUser} />
+        </>
     );
 }

@@ -66,11 +66,11 @@
 - Consumes: `useCompanyWorkspace`, current `Header`/`Footer`, tenant design tokens.
 - Produces: authenticated company/office switching and overview navigation.
 
-- [ ] Add `Helmet` metadata with `noindex,nofollow`.
-- [ ] Build compact company and office selectors with keyboard support.
-- [ ] Build overview sections for frequent products, drafts, recent orders, approvals, and consultant help; sections without data show concise empty states.
-- [ ] Gate V2 rendering on capability `available`; use the current V1 page for `unavailable` and a recoverable Danish error for transport failure.
-- [ ] Verify mobile/desktop layout and commit.
+- [x] Add `Helmet` metadata with `noindex,nofollow`.
+- [x] Build compact company and office selectors with keyboard support.
+- [x] Build the first overview and visual product sections with concise empty states.
+- [x] Gate V2 rendering on capability `available`; use the current V1 page for `unavailable` and a recoverable Danish warning for transport failure.
+- [x] Verify compilation and production build; commit. Browser viewport verification remains in Task 6 after database activation.
 
 ### Task 4: Offices And Addresses Customer View
 

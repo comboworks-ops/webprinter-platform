@@ -1,9 +1,7 @@
-import { useState } from "react";
 import { HubItem, CompanyAccount } from "./types";
 import { useCompanyHub } from "@/hooks/useCompanyHub";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ShoppingCart, Loader2, Package } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -12,30 +10,15 @@ export function CompanyHubGrid({ company }: { company: CompanyAccount }) {
     const { hubItemsQuery } = useCompanyHub(company.tenant_id);
     const { data: items, isLoading } = hubItemsQuery(company.id);
 
-    const [quantities, setQuantities] = useState<Record<string, number>>({});
-
     const handleBuy = (item: HubItem) => {
-        const qty = quantities[item.id] || item.default_quantity;
+        if (!item.product_slug) return;
         const tenantQuery = typeof window !== "undefined" ? window.location.search : "";
-
-        // Navigate to existing checkout configuration
-        // We pass minimal required state. FileUploadConfiguration will fetch the product details.
-        navigate(`/checkout/konfigurer${tenantQuery}`, {
+        navigate(`/produkt/${encodeURIComponent(item.product_slug)}${tenantQuery}`, {
             state: {
-                productId: item.product_id,
-                quantity: qty,
-                productSlug: item.product_slug,
-                productName: item.product_name,
-                optionSelections: item.default_options || {},
-                selectedVariant: item.variant_id, // Or name if available
-                designId: item.design_id,
-                // Since we don't calculate price here, we pass 0 or a placeholder.
-                // The user will see the price in the configuration step or checkout.
-                productPrice: 0,
-                totalPrice: 0,
-                summary: item.title,
-                shippingSelected: "standard",
-                shippingCost: 0
+                companyId: company.id,
+                companyCatalogItemId: item.id,
+                companyDefaultQuantity: item.default_quantity,
+                companyDefaultOptions: item.default_options || {},
             }
         });
     };
@@ -78,21 +61,15 @@ export function CompanyHubGrid({ company }: { company: CompanyAccount }) {
                                 <span className="text-muted-foreground font-medium">Produkt:</span>
                                 <span className="text-foreground">{item.product_name || "Tryksag"}</span>
                             </div>
-                            <div className="space-y-1">
-                                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Antal</label>
-                                <Input
-                                    type="number"
-                                    value={quantities[item.id] ?? item.default_quantity}
-                                    onChange={(e) => setQuantities(prev => ({ ...prev, [item.id]: parseInt(e.target.value) || 0 }))}
-                                    className="h-9"
-                                />
-                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                Antal og pris vælges på produktsiden.
+                            </p>
                         </div>
                     </CardContent>
                     <CardFooter className="p-4 pt-0">
-                        <Button className="w-full gap-2" onClick={() => handleBuy(item)}>
+                        <Button className="w-full gap-2" onClick={() => handleBuy(item)} disabled={!item.product_slug}>
                             <ShoppingCart className="h-4 w-4" />
-                            Bestil nu
+                            Vælg og bestil
                         </Button>
                     </CardFooter>
                 </Card>

@@ -1,0 +1,142 @@
+import { useEffect, useState } from "react";
+import { Building2, Loader2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+
+import Footer from "@/components/Footer";
+import Header from "@/components/Header";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { useCompanyWorkspace } from "@/hooks/useCompanyWorkspace";
+import type { HubItem } from "@/lib/company-hub";
+import { CompanyOverview } from "./CompanyOverview";
+import { CompanyWorkspaceHeader } from "./CompanyWorkspaceHeader";
+import { CompanyWorkspaceNav, type CompanyWorkspaceView } from "./CompanyWorkspaceNav";
+
+function withCurrentTenant(path: string): string {
+  if (typeof window === "undefined" || !window.location.search) return path;
+  return `${path}${window.location.search}`;
+}
+
+export function CompanyWorkspaceShell() {
+  const navigate = useNavigate();
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [selectedOfficeId, setSelectedOfficeId] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<CompanyWorkspaceView>("overview");
+  const workspace = useCompanyWorkspace({ selectedCompanyId, selectedOfficeId });
+
+  const memberships = workspace.membershipsQuery.data || [];
+  const offices = workspace.officesQuery.data || [];
+  const addresses = workspace.addressesQuery.data || [];
+  const items = workspace.catalogQuery.data || [];
+
+  useEffect(() => {
+    if (!selectedCompanyId && memberships.length) {
+      setSelectedCompanyId(memberships[0].id);
+    }
+  }, [memberships, selectedCompanyId]);
+
+  useEffect(() => {
+    if (!offices.length) {
+      setSelectedOfficeId(null);
+      return;
+    }
+    if (!selectedOfficeId || !offices.some((office) => office.id === selectedOfficeId)) {
+      setSelectedOfficeId((offices.find((office) => office.is_default) || offices[0]).id);
+    }
+  }, [offices, selectedOfficeId]);
+
+  const handleCompanyChange = (companyId: string) => {
+    setSelectedCompanyId(companyId);
+    setSelectedOfficeId(null);
+    setActiveView("overview");
+  };
+
+  const handleOpenProduct = (item: HubItem) => {
+    if (!item.product_slug) return;
+    navigate(withCurrentTenant(`/produkt/${encodeURIComponent(item.product_slug)}`), {
+      state: {
+        companyId: selectedCompanyId,
+        companyOfficeId: selectedOfficeId,
+        companyCatalogItemId: item.id,
+        companyDefaultQuantity: item.default_quantity,
+        companyDefaultOptions: item.default_options,
+      },
+    });
+  };
+
+  if (workspace.membershipsQuery.isLoading || !selectedCompanyId) {
+    if (!workspace.membershipsQuery.isLoading && memberships.length === 0) {
+      return (
+        <div className="flex min-h-screen flex-col bg-muted/15">
+          <Header />
+          <main className="mx-auto flex w-full max-w-7xl flex-1 items-center justify-center px-4 py-16">
+            <div className="max-w-md text-center">
+              <Building2 className="mx-auto mb-4 h-10 w-10 text-muted-foreground" aria-hidden="true" />
+              <h1 className="text-xl font-semibold">Ingen firmaadgang</h1>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Din bruger er ikke tilknyttet et firma. Kontakt firmaets administrator eller Webprinter.
+              </p>
+            </div>
+          </main>
+          <Footer />
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-muted/15">
+        <Loader2 className="h-7 w-7 animate-spin text-primary" aria-label="Indlæser firmahub" />
+      </div>
+    );
+  }
+
+  const company = workspace.selectedMembership || memberships[0];
+
+  return (
+    <div className="flex min-h-screen flex-col bg-muted/15">
+      <Header />
+      <CompanyWorkspaceHeader
+        company={company}
+        companies={memberships}
+        offices={offices}
+        selectedOfficeId={selectedOfficeId}
+        onCompanyChange={handleCompanyChange}
+        onOfficeChange={setSelectedOfficeId}
+      />
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6 lg:px-8">
+        <Tabs value={activeView} onValueChange={(value) => setActiveView(value as CompanyWorkspaceView)}>
+          <CompanyWorkspaceNav />
+          <TabsContent value="overview" className="mt-0">
+            <CompanyOverview
+              items={items}
+              offices={offices}
+              addresses={addresses}
+              isLoading={workspace.catalogQuery.isLoading}
+              onOpenProduct={handleOpenProduct}
+            />
+          </TabsContent>
+          <TabsContent value="products" className="mt-0">
+            <CompanyOverview
+              items={items}
+              offices={offices}
+              addresses={addresses}
+              isLoading={workspace.catalogQuery.isLoading}
+              showAllProducts
+              onOpenProduct={handleOpenProduct}
+            />
+          </TabsContent>
+          <TabsContent value="locations" className="mt-0 py-6">
+            <section className="rounded-md border bg-background px-5 py-8">
+              <h2 className="text-lg font-semibold">Kontorer og adresser</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {offices.length
+                  ? `${offices.length} kontor${offices.length === 1 ? "" : "er"} er tilknyttet firmaet.`
+                  : "Der er endnu ikke oprettet et kontor."}
+              </p>
+            </section>
+          </TabsContent>
+        </Tabs>
+      </main>
+      <Footer />
+    </div>
+  );
+}

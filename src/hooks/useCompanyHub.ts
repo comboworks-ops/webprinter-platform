@@ -77,14 +77,15 @@ export function useCompanyHub(tenantId?: string) {
                 .from("company_hub_items" as any)
                 .select(`
                     *,
-                    product:products(name)
+                    product:products(name, slug)
                 `)
                 .eq("company_id", companyId)
                 .order("sort_order");
             if (error) throw error;
             return (data as any[]).map(item => ({
                 ...item,
-                product_name: item.product?.name
+                product_name: item.product?.name,
+                product_slug: item.product?.slug
             })) as (HubItem & { product_name: string })[];
         },
         enabled: !!companyId,
