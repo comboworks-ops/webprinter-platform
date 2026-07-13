@@ -129,6 +129,21 @@ export interface HubItem {
   product_name?: string;
   product_slug?: string;
   product_pricing_type?: string;
+  product_category?: string;
+  product_is_published?: boolean;
+}
+
+export interface CompanyProductCandidate {
+  id: string;
+  tenant_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  category: string | null;
+  pricing_type: string | null;
+  image_url: string | null;
+  is_published: boolean;
+  default_quantity: number | null;
 }
 
 export interface CompanyTemplateBinding {

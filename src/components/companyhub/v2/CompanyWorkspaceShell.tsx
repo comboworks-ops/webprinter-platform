@@ -27,6 +27,7 @@ export function CompanyWorkspaceShell() {
   const memberships = workspace.membershipsQuery.data || [];
   const offices = workspace.officesQuery.data || [];
   const addresses = workspace.addressesQuery.data || [];
+  const categories = workspace.categoriesQuery.data || [];
   const items = workspace.catalogQuery.data || [];
 
   useEffect(() => {
@@ -111,6 +112,7 @@ export function CompanyWorkspaceShell() {
               items={items}
               offices={offices}
               addresses={addresses}
+              categories={categories}
               isLoading={workspace.catalogQuery.isLoading}
               onOpenProduct={handleOpenProduct}
             />
@@ -120,6 +122,7 @@ export function CompanyWorkspaceShell() {
               items={items}
               offices={offices}
               addresses={addresses}
+              categories={categories}
               isLoading={workspace.catalogQuery.isLoading}
               showAllProducts
               onOpenProduct={handleOpenProduct}

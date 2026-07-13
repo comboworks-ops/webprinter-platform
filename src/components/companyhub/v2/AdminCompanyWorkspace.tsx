@@ -34,7 +34,8 @@ import {
   useAdminCompanyWorkspace,
   type CompanyIdentityInput,
 } from "@/hooks/useAdminCompanyWorkspace";
-import type { CompanyAccount, HubItem } from "@/lib/company-hub";
+import type { CompanyAccount } from "@/lib/company-hub";
+import { AdminCompanyCatalog } from "./AdminCompanyCatalog";
 import { AdminCompanyMembers } from "./AdminCompanyMembers";
 import { AdminCompanyOffices } from "./AdminCompanyOffices";
 import { AdminCompanySetupProgress } from "./AdminCompanySetupProgress";
@@ -69,25 +70,6 @@ function formFromCompany(company: CompanyAccount): CompanyIdentityInput {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Ændringen kunne ikke gemmes.";
-}
-
-function ProductRow({ item }: { item: HubItem }) {
-  return (
-    <div className="flex items-center gap-4 py-4">
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
-        {item.thumbnail_url ? (
-          <img src={item.thumbnail_url} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <Package className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{item.title}</p>
-        <p className="truncate text-xs text-muted-foreground">{item.product_name || "Produktforbindelse mangler"}</p>
-      </div>
-      <span className="text-xs text-muted-foreground">Standard: {item.default_quantity} stk.</span>
-    </div>
-  );
 }
 
 export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) {
@@ -325,19 +307,21 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
                 </TabsContent>
 
                 <TabsContent value="catalog" className="mt-0 py-6">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground">Kundens udvalg</p>
-                      <h2 className="text-lg font-semibold">Firmaets produkter</h2>
-                    </div>
-                    <Button variant="outline" size="sm" asChild>
-                      <Link to="/admin/products">Administrer produkter</Link>
-                    </Button>
-                  </div>
-                  <div className="mt-5 divide-y border-y">
-                    {items.map((item) => <ProductRow key={item.id} item={item} />)}
-                  </div>
-                  {!items.length && <p className="border-b py-10 text-center text-sm text-muted-foreground">Der er endnu ikke valgt produkter til firmaet.</p>}
+                  <AdminCompanyCatalog
+                    items={items}
+                    categories={workspace.categoriesQuery.data || []}
+                    products={workspace.productCandidatesQuery.data || []}
+                    offices={offices}
+                    itemOfficeIds={workspace.itemOfficesQuery.data || {}}
+                    isSaving={
+                      workspace.createCategoryMutation.isPending
+                      || workspace.saveCatalogItemMutation.isPending
+                      || workspace.archiveCatalogItemMutation.isPending
+                    }
+                    onCreateCategory={async (input) => { await workspace.createCategoryMutation.mutateAsync(input); }}
+                    onSaveItem={async (payload) => { await workspace.saveCatalogItemMutation.mutateAsync(payload); }}
+                    onArchiveItem={async (itemId) => { await workspace.archiveCatalogItemMutation.mutateAsync(itemId); }}
+                  />
                 </TabsContent>
               </Tabs>
             </>

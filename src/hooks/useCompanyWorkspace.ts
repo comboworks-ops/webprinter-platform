@@ -9,6 +9,7 @@ import {
   detectCompanyHubV2,
   listCompanyAddresses,
   listCompanyCatalogItems,
+  listCompanyCatalogItemOfficeIds,
   listCompanyCategories,
   listCompanyOffices,
   listMyCompanyMemberships,
@@ -36,7 +37,9 @@ export const companyWorkspaceKeys = {
     officeId,
   ] as const,
   categories: (companyId: string | null) => [...companyWorkspaceKeys.root, "categories", companyId] as const,
-  catalog: (companyId: string | null) => [...companyWorkspaceKeys.root, "catalog", companyId] as const,
+  catalog: (companyId: string | null, officeId: string | null) => [
+    ...companyWorkspaceKeys.root, "catalog", companyId, officeId,
+  ] as const,
 };
 
 export interface UseCompanyWorkspaceOptions {
@@ -93,8 +96,18 @@ export function useCompanyWorkspace(options: UseCompanyWorkspaceOptions = {}) {
   });
 
   const catalogQuery = useQuery({
-    queryKey: companyWorkspaceKeys.catalog(selectedCompanyId),
-    queryFn: () => listCompanyCatalogItems(repositoryClient, selectedCompanyId!),
+    queryKey: companyWorkspaceKeys.catalog(selectedCompanyId, selectedOfficeId),
+    queryFn: async () => {
+      const [items, itemOfficeIds] = await Promise.all([
+        listCompanyCatalogItems(repositoryClient, selectedCompanyId!),
+        listCompanyCatalogItemOfficeIds(repositoryClient, selectedCompanyId!),
+      ]);
+      return items.filter((item) => {
+        if ((item.office_scope || "all") === "all") return true;
+        if (!selectedOfficeId) return false;
+        return (itemOfficeIds[item.id] || []).includes(selectedOfficeId);
+      });
+    },
     enabled: isV2Available && Boolean(selectedCompanyId),
   });
 

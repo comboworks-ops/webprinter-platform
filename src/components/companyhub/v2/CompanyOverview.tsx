@@ -1,13 +1,15 @@
+import { useMemo, useState } from "react";
 import { ArrowRight, Building2, MapPin, Package, ShoppingBag } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { CompanyAddress, CompanyOffice, HubItem } from "@/lib/company-hub";
+import type { CompanyAddress, CompanyCatalogCategory, CompanyOffice, HubItem } from "@/lib/company-hub";
 
 interface CompanyOverviewProps {
   items: HubItem[];
   offices: CompanyOffice[];
   addresses: CompanyAddress[];
+  categories?: CompanyCatalogCategory[];
   isLoading?: boolean;
   showAllProducts?: boolean;
   onOpenProduct: (item: HubItem) => void;
@@ -17,11 +19,19 @@ export function CompanyOverview({
   items,
   offices,
   addresses,
+  categories = [],
   isLoading,
   showAllProducts = false,
   onOpenProduct,
 }: CompanyOverviewProps) {
-  const visibleItems = showAllProducts ? items : items.slice(0, 4);
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const visibleItems = useMemo(() => {
+    const filtered = categoryFilter === "all"
+      ? items
+      : items.filter((item) => item.category_id === categoryFilter);
+    if (showAllProducts) return filtered;
+    return [...filtered].sort((left, right) => Number(right.is_featured) - Number(left.is_featured)).slice(0, 4);
+  }, [categoryFilter, items, showAllProducts]);
 
   return (
     <div className="space-y-8 py-6">
@@ -69,6 +79,15 @@ export function CompanyOverview({
           )}
         </div>
 
+        {showAllProducts && categories.length > 0 && (
+          <div className="flex gap-1 overflow-x-auto border-y py-2" aria-label="Filtrér produkter efter kategori">
+            <Button size="sm" variant={categoryFilter === "all" ? "secondary" : "ghost"} onClick={() => setCategoryFilter("all")}>Alle</Button>
+            {categories.map((category) => (
+              <Button key={category.id} size="sm" variant={categoryFilter === category.id ? "secondary" : "ghost"} onClick={() => setCategoryFilter(category.id)}>{category.name}</Button>
+            ))}
+          </div>
+        )}
+
         {isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, index) => (
@@ -94,16 +113,16 @@ export function CompanyOverview({
                   <div className="min-w-0">
                     <h3 className="truncate text-sm font-semibold">{item.title}</h3>
                     <p className="truncate text-xs text-muted-foreground">
-                      {item.product_name || "Tryksag"}
+                      {item.short_description || item.product_name || "Tryksag"}
                     </p>
                   </div>
                   <Button
                     variant="outline"
                     className="w-full justify-between"
                     onClick={() => onOpenProduct(item)}
-                    disabled={!item.product_slug}
+                    disabled={!item.product_slug || item.product_is_published === false}
                   >
-                    Vælg og bestil
+                    {item.product_is_published === false ? "Midlertidigt utilgængelig" : "Vælg og bestil"}
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </div>

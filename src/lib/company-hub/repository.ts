@@ -232,7 +232,7 @@ export async function listCompanyCatalogItems(
       office_scope,
       created_at,
       updated_at,
-      product:products(id, name, slug, pricing_type)
+      product:products(id, name, slug, pricing_type, image_url, category, is_published)
     `)
     .eq("company_id", companyId)
     .order("sort_order", { ascending: true })
@@ -252,10 +252,32 @@ export async function listCompanyCatalogItems(
     const { product: _product, ...item } = row;
     return {
       ...item,
+      thumbnail_url: item.thumbnail_url || product?.image_url || null,
       default_options: (item.default_options || {}) as CompanyJson,
       product_name: product?.name || undefined,
       product_slug: product?.slug || undefined,
       product_pricing_type: product?.pricing_type || undefined,
+      product_category: product?.category || undefined,
+      product_is_published: product?.is_published === true,
     } as HubItem;
   });
+}
+
+export async function listCompanyCatalogItemOfficeIds(
+  client: CompanyHubRepositoryClient,
+  companyId: string,
+): Promise<Record<string, string[]>> {
+  const { data, error } = await database(client)
+    .from("company_catalog_item_offices")
+    .select("item_id, office_id")
+    .eq("company_id", companyId);
+
+  if (error) {
+    fail("listCompanyCatalogItemOfficeIds", "Produktadgangen kunne ikke indlæses.", error);
+  }
+
+  return (data || []).reduce((result: Record<string, string[]>, row: any) => {
+    result[row.item_id] = [...(result[row.item_id] || []), row.office_id];
+    return result;
+  }, {});
 }

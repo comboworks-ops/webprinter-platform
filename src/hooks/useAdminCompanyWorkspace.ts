@@ -3,25 +3,36 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   archiveCompanyAddress,
+  archiveCompanyCatalogItem,
   archiveCompanyOffice,
   createCompanyAddress,
+  createCompanyCatalogCategory,
+  createCompanyCatalogItem,
   createCompanyOffice,
   listCompanyAddresses,
+  listCompanyCategories,
   listCompanyCatalogItems,
+  listEligibleCompanyProducts,
   listCompanyOffices,
   normalizeCompanyRole,
+  replaceCompanyCatalogItemOffices,
   updateCompanyAddress,
+  updateCompanyCatalogItem,
   updateCompanyOffice,
   type CompanyAccount,
   type CompanyAddress,
   type CompanyMember,
   type CompanyOffice,
+  type CompanyProductCandidate,
   type CompanyRole,
   type CompanyWorkspaceScope,
   type CreateCompanyAddressInput,
+  type CreateCompanyCatalogItemInput,
+  type CreateCompanyCategoryInput,
   type CreateCompanyOfficeInput,
   type HubItem,
   type UpdateCompanyAddressInput,
+  type UpdateCompanyCatalogItemInput,
   type UpdateCompanyOfficeInput,
 } from "@/lib/company-hub";
 
@@ -76,6 +87,15 @@ const adminCompanyKeys = {
   ] as const,
   catalog: (tenantId: string, companyId: string | null) => [
     ...adminCompanyKeys.root(tenantId), "catalog", companyId,
+  ] as const,
+  categories: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "categories", companyId,
+  ] as const,
+  itemOffices: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "item-offices", companyId,
+  ] as const,
+  productCandidates: (tenantId: string) => [
+    ...adminCompanyKeys.root(tenantId), "product-candidates",
   ] as const,
   metrics: (tenantId: string, companyId: string | null) => [
     ...adminCompanyKeys.root(tenantId), "metrics", companyId,
@@ -226,6 +246,35 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
     queryKey: adminCompanyKeys.catalog(tenantId, selectedCompanyId),
     queryFn: () => listCompanyCatalogItems(database, selectedCompanyId!, { includeDrafts: true }),
     enabled: Boolean(selectedCompanyId),
+  });
+
+  const categoriesQuery = useQuery({
+    queryKey: adminCompanyKeys.categories(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyCategories(database, selectedCompanyId!, { includeDrafts: true }),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const itemOfficesQuery = useQuery({
+    queryKey: adminCompanyKeys.itemOffices(tenantId, selectedCompanyId),
+    queryFn: async (): Promise<Record<string, string[]>> => {
+      const { data, error } = await database
+        .from("company_catalog_item_offices")
+        .select("item_id, office_id")
+        .eq("tenant_id", tenantId)
+        .eq("company_id", selectedCompanyId!);
+      if (error) throw error;
+      return (data || []).reduce((result: Record<string, string[]>, row: any) => {
+        result[row.item_id] = [...(result[row.item_id] || []), row.office_id];
+        return result;
+      }, {});
+    },
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const productCandidatesQuery = useQuery({
+    queryKey: adminCompanyKeys.productCandidates(tenantId),
+    queryFn: (): Promise<CompanyProductCandidate[]> => listEligibleCompanyProducts(database, tenantId),
+    enabled: Boolean(tenantId),
   });
 
   const metricsQuery = useQuery({
@@ -388,12 +437,60 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
     }),
   });
 
+  const createCategoryMutation = useMutation({
+    mutationFn: (input: CreateCompanyCategoryInput) => (
+      createCompanyCatalogCategory(database, requireScope(), input)
+    ),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.categories(tenantId, selectedCompanyId),
+    }),
+  });
+
+  const saveCatalogItemMutation = useMutation({
+    mutationFn: async ({
+      itemId,
+      input,
+      officeIds,
+    }: {
+      itemId?: string;
+      input: CreateCompanyCatalogItemInput | UpdateCompanyCatalogItemInput;
+      officeIds: string[];
+    }) => {
+      const currentScope = requireScope();
+      const item = itemId
+        ? await updateCompanyCatalogItem(database, currentScope, itemId, input as UpdateCompanyCatalogItemInput)
+        : await createCompanyCatalogItem(database, currentScope, input as CreateCompanyCatalogItemInput);
+      await replaceCompanyCatalogItemOffices(
+        database,
+        currentScope,
+        item.id,
+        input.officeScope === "selected" ? officeIds : [],
+      );
+      return item;
+    },
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.catalog(tenantId, selectedCompanyId) }),
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.itemOffices(tenantId, selectedCompanyId) }),
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.metrics(tenantId, selectedCompanyId) }),
+    ]),
+  });
+
+  const archiveCatalogItemMutation = useMutation({
+    mutationFn: (itemId: string) => archiveCompanyCatalogItem(database, requireScope(), itemId),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.catalog(tenantId, selectedCompanyId),
+    }),
+  });
+
   return {
     companiesQuery,
     officesQuery,
     addressesQuery,
     membersQuery,
     catalogQuery,
+    categoriesQuery,
+    itemOfficesQuery,
+    productCandidatesQuery,
     metricsQuery,
     tenantUsersQuery,
     createCompanyMutation,
@@ -406,5 +503,8 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
     archiveAddressMutation,
     saveMemberMutation,
     disableMemberMutation,
+    createCategoryMutation,
+    saveCatalogItemMutation,
+    archiveCatalogItemMutation,
   };
 }
