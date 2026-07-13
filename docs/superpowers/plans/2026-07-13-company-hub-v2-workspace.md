@@ -47,11 +47,11 @@
 - Consumes: Slice 1 read repository and Task 1 mutation repository.
 - Produces: capability, memberships, selected-company offices/addresses, loading/error states, and invalidating mutations.
 
-- [ ] Implement stable query keys containing tenant/company/office IDs.
-- [ ] Disable child queries until capability and company selection are valid.
-- [ ] Map repository errors to component state; do not show toasts in the data layer.
-- [ ] Invalidate only affected company queries after mutations.
-- [ ] Run focused TypeScript and production build; commit.
+- [x] Implement stable query keys containing tenant/company/office IDs.
+- [x] Disable child queries until capability and company selection are valid.
+- [x] Map repository errors to component state; do not show toasts in the data layer.
+- [x] Invalidate only affected company queries after mutations.
+- [x] Run focused TypeScript and production build; commit.
 
 ### Task 3: Customer Workspace Shell
 
