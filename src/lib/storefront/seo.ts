@@ -61,6 +61,8 @@ export type StorefrontSeoMeta = {
 
 type BrandmarkVariant = "icon" | "og";
 
+const STOREFRONT_ICON_VERSION = "20260715";
+
 export type StorefrontAiSeoFaqItem = {
   id?: string;
   question: string;
@@ -455,6 +457,10 @@ function buildGeneratedBrandmarkUrl(input: {
     bg: input.backgroundColor,
   });
 
+  if (input.variant === "icon") {
+    params.set("v", STOREFRONT_ICON_VERSION);
+  }
+
   return `${input.origin}/api/storefront-brandmark?${params.toString()}`;
 }
 
@@ -626,9 +632,7 @@ export function resolveStorefrontSeoMeta(input: {
     : generatedOgImage;
   const resolvedIcon = customFavicon
     ? resolveAbsoluteUrl(input.origin, customFavicon)
-    : uploadedLogo
-      ? resolveAbsoluteUrl(input.origin, uploadedLogo)
-      : generatedIcon;
+    : generatedIcon;
 
   return {
     title,
