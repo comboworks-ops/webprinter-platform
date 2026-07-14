@@ -19,6 +19,7 @@ import { PrintProductionDistribution } from "./PrintProductionDistribution";
 import { PrintProductionOverview } from "./PrintProductionOverview";
 import { PrintProductionOrders } from "./PrintProductionOrders";
 import { PrintProductionProducts } from "./PrintProductionProducts";
+import { PrintProductionSettings } from "./PrintProductionSettings";
 import {
   getPrintProductionView,
   withPrintProductionView,
@@ -54,10 +55,7 @@ export function PrintProductionShell({
   const isNewProductRoute = activeView === "products" && searchParams.get("action") === "new";
   const selectedProductId = searchParams.get("product");
   const addProductHref = `${withPrintProductionView(location.search, "products")}&action=new`;
-  const advancedToolsParams = new URLSearchParams();
   const forceDomain = searchParams.get("force_domain");
-  if (forceDomain) advancedToolsParams.set("force_domain", forceDomain);
-  const advancedToolsSearch = advancedToolsParams.toString();
 
   let activeContent: ReactNode;
   if (isLoading) {
@@ -155,6 +153,13 @@ export function PrintProductionShell({
         selectedJobId={searchParams.get("job")}
       />
     );
+  } else if (activeView === "settings") {
+    activeContent = (
+      <PrintProductionSettings
+        forceDomain={forceDomain}
+        onRefetch={refetch}
+      />
+    );
   } else {
     activeContent = (
       <div className="min-h-64 border-t py-6">
@@ -225,15 +230,6 @@ export function PrintProductionShell({
       >
         {activeContent}
       </section>
-
-      <footer className="border-t pt-3">
-        <Link
-          to={`/admin/pod2${advancedToolsSearch ? `?${advancedToolsSearch}` : ""}`}
-          className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          Avancerede værktøjer
-        </Link>
-      </footer>
     </div>
   );
 }
