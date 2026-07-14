@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  isProductDistributable,
   loadDistributionShops,
   loadPendingDistributions,
   PENDING_DISTRIBUTIONS_QUERY_KEY,
@@ -315,7 +316,7 @@ export function PrintProductionProducts({
                         <Eye className="h-4 w-4" aria-hidden="true" />
                         Gennemse
                       </Button>
-                      {!canDistribute(product) && (
+                      {!isProductDistributable(product) && (
                         <Button
                           type="button"
                           size="sm"
@@ -440,7 +441,7 @@ function ProductReview({
               Send til butikker
             </Button>
           )}
-          {!canDistribute(product) && (
+          {!isProductDistributable(product) && (
             <Button type="button" size="sm" onClick={onPrepare}>
               <Settings2 className="h-4 w-4" aria-hidden="true" />
               Klargør
@@ -516,11 +517,6 @@ function getListStatus(product: PrintProductionProduct, hasPending = false): Pro
   return "setup";
 }
 
-function canDistribute(product: PrintProductionProduct): boolean {
-  return Boolean(product.masterProduct)
-    && (product.readiness.status === "ready" || product.readiness.status === "distributed");
-}
-
 function getPendingTenantIds(
   product: PrintProductionProduct,
   pendingDistributions: PendingDistribution[],
@@ -537,7 +533,7 @@ function canOpenDistribution(
   pendingTenantIds: string[],
   pendingStatusUnavailable: boolean,
 ): boolean {
-  if (!canDistribute(product) || pendingStatusUnavailable) return false;
+  if (!isProductDistributable(product) || pendingStatusUnavailable) return false;
   const unavailableTenantIds = new Set([
     ...product.distributedTenantIds,
     ...pendingTenantIds,

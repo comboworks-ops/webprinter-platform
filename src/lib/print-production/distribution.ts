@@ -28,6 +28,12 @@ export interface DistributionShop {
   eligible: boolean;
 }
 
+export interface DistributionProductState {
+  catalog: { status: string };
+  masterProduct: unknown | null;
+  readiness: { status: string };
+}
+
 export interface PendingDistribution {
   id: string;
   tenantId: string;
@@ -125,6 +131,12 @@ export function selectAllShops(
       .map((shop) => shop.id.trim())
       .filter((tenantId) => tenantId && tenantId !== MASTER_TENANT_ID),
   )];
+}
+
+export function isProductDistributable(product: DistributionProductState): boolean {
+  return product.catalog.status === "published"
+    && Boolean(product.masterProduct)
+    && (product.readiness.status === "ready" || product.readiness.status === "distributed");
 }
 
 export function validateDistributionSelection(

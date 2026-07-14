@@ -32,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import {
   distributeProduct,
+  isProductDistributable,
   loadDistributionShops,
   loadPendingDistributions,
   PENDING_DISTRIBUTIONS_QUERY_KEY,
@@ -477,7 +478,7 @@ export function PrintProductionDistribution({
   const selectedProduct = snapshot.products.find(
     (product) => product.catalog.id === selectedProductId,
   ) || null;
-  const distributableProduct = selectedProduct && canDistribute(selectedProduct)
+  const distributableProduct = selectedProduct && isProductDistributable(selectedProduct)
     ? selectedProduct
     : null;
 
@@ -573,7 +574,7 @@ export function PrintProductionDistribution({
                           size="sm"
                           variant="outline"
                           onClick={() => onSelectProduct(product.catalog.id)}
-                          disabled={!canDistribute(product)
+                          disabled={!isProductDistributable(product)
                             || availabilityUnavailable
                             || !hasAvailableDestination(product, shops, pendingDistributions)}
                         >
@@ -798,11 +799,6 @@ function ProductImage({ product }: { product: PrintProductionProduct }) {
       )}
     </span>
   );
-}
-
-function canDistribute(product: PrintProductionProduct): boolean {
-  return Boolean(product.masterProduct)
-    && (product.readiness.status === "ready" || product.readiness.status === "distributed");
 }
 
 function getProductName(product: PrintProductionProduct): string {

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildDistributionRequest,
   distributeProduct,
+  isProductDistributable,
   loadDistributionShops,
   loadPendingDistributions,
   selectAllShops,
@@ -53,6 +54,26 @@ test("select all is explicit and derives only from unique eligible shops", () =>
     ]),
     ["a"],
   );
+});
+
+test("draft products with a retained master import are never distributable", () => {
+  for (const readinessStatus of ["ready", "distributed"] as const) {
+    assert.equal(isProductDistributable({
+      catalog: { status: "draft" },
+      masterProduct: { id: "master-product" },
+      readiness: { status: readinessStatus },
+    }), false);
+  }
+});
+
+test("published products with a retained master import and eligible readiness are distributable", () => {
+  for (const readinessStatus of ["ready", "distributed"] as const) {
+    assert.equal(isProductDistributable({
+      catalog: { status: "published" },
+      masterProduct: { id: "master-product" },
+      readiness: { status: readinessStatus },
+    }), true);
+  }
 });
 
 test("shop loading removes master and derives eligibility from automatic settlement", async () => {
