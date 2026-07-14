@@ -14,6 +14,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { PrintProductWizard } from "./PrintProductWizard";
 import { PrintProductionOverview } from "./PrintProductionOverview";
 import {
   getPrintProductionView,
@@ -43,11 +44,13 @@ export function PrintProductionShell({
 }: PrintProductionShellProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const searchParams = new URLSearchParams(location.search);
   const activeView = getPrintProductionView(location.search);
   const activeTab = VIEW_TABS.find(({ view }) => view === activeView) ?? VIEW_TABS[0];
+  const isNewProductRoute = activeView === "products" && searchParams.get("action") === "new";
   const addProductHref = `${withPrintProductionView(location.search, "products")}&action=new`;
   const advancedToolsParams = new URLSearchParams();
-  const forceDomain = new URLSearchParams(location.search).get("force_domain");
+  const forceDomain = searchParams.get("force_domain");
   if (forceDomain) advancedToolsParams.set("force_domain", forceDomain);
   const advancedToolsSearch = advancedToolsParams.toString();
 
@@ -67,6 +70,8 @@ export function PrintProductionShell({
         <AlertDescription>{error.message}</AlertDescription>
       </Alert>
     );
+  } else if (isNewProductRoute && snapshot) {
+    activeContent = <PrintProductWizard />;
   } else if (activeView === "overview" && snapshot) {
     activeContent = (
       <PrintProductionOverview
