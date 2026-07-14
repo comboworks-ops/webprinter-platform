@@ -40,7 +40,19 @@ test("snapshot joins catalog, master import, notifications, tenants, and jobs", 
 test("snapshot never copies supplier data into tenant rows", () => {
   const snapshot = buildPrintProductionSnapshot({
     connections: [], catalog: [], imports: [], masterProducts: [], notices: [], jobs: [],
-    tenants: [{ id: "tenant-a", name: "A", domain: "a.dk", pod2_auto_forward: true }],
+    tenants: [{
+      id: "tenant-a",
+      name: "A",
+      domain: "a.dk",
+      pod2_auto_forward: true,
+      supplier_product_data: { supplier_secret: "must-not-leak" },
+    }],
   } as never);
   assert.equal("supplier_product_data" in snapshot.tenants[0], false);
+  assert.deepEqual(snapshot.tenants[0], {
+    id: "tenant-a",
+    name: "A",
+    domain: "a.dk",
+    pod2_auto_forward: true,
+  });
 });

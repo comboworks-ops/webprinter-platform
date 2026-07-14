@@ -11,6 +11,7 @@ import type { MasterProductRow, PrintProductionSnapshot, TenantRow } from "./typ
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_PAGE_SIZE = 100;
+const NOTIFICATION_READ_PAGE_SIZE = 500;
 
 export interface UsePrintProductionDataResult {
   snapshot: PrintProductionSnapshot | null;
@@ -51,7 +52,7 @@ export function usePrintProductionData(input: UsePrintProductionDataInput): UseP
         catalogQuery.or(`public_title->>da.ilike.%${escapedSearch}%,public_title->>en.ilike.%${escapedSearch}%`);
       }
 
-      const [catalogResult, jobsResult, activeProductsResult, paidOrFailedResult, submittedWithoutProviderResult, distributedTenantsResult] = await Promise.all([
+      const [catalogResult, jobsResult, activeProductsResult, paidOrFailedResult, submittedWithoutProviderResult, distributedTenantRows] = await Promise.all([
         catalogQuery,
         (supabase.from("pod2_fulfillment_jobs" as any) as any)
           .select("*")
@@ -69,11 +70,11 @@ export function usePrintProductionData(input: UsePrintProductionDataInput): UseP
           .select("id", { count: "exact", head: true })
           .eq("status", "submitted")
           .is("printcom_order_id", null),
-        (supabase.from("tenant_notifications" as any) as any)
+        readAllNotificationRows<{ tenant_id: string }>(() => (supabase.from("tenant_notifications" as any) as any)
           .select("tenant_id")
           .eq("type", "product_update")
           .eq("status", "accepted")
-          .contains("data", { delivery_mode: "pod_price_list" }),
+          .contains("data", { delivery_mode: "pod_price_list" })),
       ]);
 
       throwIfError(catalogResult.error);
@@ -81,12 +82,11 @@ export function usePrintProductionData(input: UsePrintProductionDataInput): UseP
       throwIfError(activeProductsResult.error);
       throwIfError(paidOrFailedResult.error);
       throwIfError(submittedWithoutProviderResult.error);
-      throwIfError(distributedTenantsResult.error);
 
       const catalog = (catalogResult.data || []) as PodCatalogProduct[];
       const catalogProductIds = catalog.map((product) => product.id);
       const jobs = (jobsResult.data || []) as PodFulfillmentJob[];
-      const distributedShopCount = new Set((distributedTenantsResult.data || []).map((row: { tenant_id: string }) => row.tenant_id)).size;
+      const distributedShopCount = new Set(distributedTenantRows.map((row) => row.tenant_id)).size;
 
       if (!catalogProductIds.length) {
         return {
@@ -121,23 +121,20 @@ export function usePrintProductionData(input: UsePrintProductionDataInput): UseP
       throwIfError(masterProductsResult.error);
 
       const masterProducts = (masterProductsResult.data || []) as MasterProductRow[];
-      const noticesResult = masterProductIds.length
-        ? await (supabase.from("tenant_notifications" as any) as any)
+      const notices = masterProductIds.length
+        ? await readAllNotificationRows<{
+          id?: string;
+          tenant_id: string;
+          status: string;
+          created_at?: string;
+          data: { product_id?: string; slug?: string; delivery_mode?: string };
+        }>(() => (supabase.from("tenant_notifications" as any) as any)
           .select("id, tenant_id, status, created_at, data")
           .eq("type", "product_update")
           .eq("status", "accepted")
           .contains("data", { delivery_mode: "pod_price_list" })
-          .in("data->>product_id", masterProductIds)
-        : { data: [], error: null };
-      throwIfError(noticesResult.error);
-
-      const notices = (noticesResult.data || []) as Array<{
-        id?: string;
-        tenant_id: string;
-        status: string;
-        created_at?: string;
-        data: { product_id?: string; slug?: string; delivery_mode?: string };
-      }>;
+          .in("data->>product_id", masterProductIds))
+        : [];
       const tenantIds = [...new Set([...notices.map((notice) => notice.tenant_id), ...jobs.map((job) => job.tenant_id)])];
       const tenantsResult = tenantIds.length
         ? await (supabase.from("tenants" as any) as any)
@@ -194,4 +191,20 @@ function throwIfError(error: Error | null): void {
 
 function toError(error: unknown): Error | null {
   return error instanceof Error ? error : error ? new Error(String(error)) : null;
+}
+
+async function readAllNotificationRows<T>(createQuery: () => any): Promise<T[]> {
+  const rows: T[] = [];
+
+  for (let from = 0; ; from += NOTIFICATION_READ_PAGE_SIZE) {
+    const result = await createQuery()
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, from + NOTIFICATION_READ_PAGE_SIZE - 1);
+    throwIfError(result.error);
+
+    const pageRows = (result.data || []) as T[];
+    rows.push(...pageRows);
+    if (pageRows.length < NOTIFICATION_READ_PAGE_SIZE) return rows;
+  }
 }
