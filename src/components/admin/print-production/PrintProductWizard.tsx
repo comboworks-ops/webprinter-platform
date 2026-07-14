@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Pod2SupplierImporter } from "@/pages/admin/Pod2Admin";
 import { usePodCatalogProducts, usePodImportProduct } from "@/lib/pod2/hooks";
 import type { PodCatalogProduct } from "@/lib/pod2/types";
+import { isSupplierPricingComplete } from "@/lib/print-production/supplierPresentation";
 import { cn } from "@/lib/utils";
 
 type WizardStep = 1 | 2 | 3 | 4 | 5;
@@ -34,7 +35,9 @@ const WIZARD_STEPS: Array<{ step: WizardStep; label: string }> = [
 ];
 
 const finiteNumbers = (values: unknown[]): number[] => (
-  values.map(Number).filter((value) => Number.isFinite(value) && value > 0)
+  values.filter((value): value is number => (
+    typeof value === "number" && Number.isFinite(value)
+  ))
 );
 
 const formatCurrency = (value: number | null, currency = "DKK") => {
@@ -69,7 +72,10 @@ export function PrintProductWizard() {
   const minCost = baseCosts.length ? Math.min(...baseCosts) : null;
   const minRetail = retailPrices.length ? Math.min(...retailPrices) : null;
   const currency = matrices.find((matrix) => matrix.currency)?.currency || "DKK";
-  const marginPercent = minCost !== null && minRetail !== null && minRetail > 0
+  const pricingComplete = isSupplierPricingComplete(matrices);
+  const displayedMinCost = pricingComplete ? minCost : null;
+  const displayedMinRetail = pricingComplete ? minRetail : null;
+  const marginPercent = pricingComplete && minCost !== null && minRetail !== null && minRetail > 0
     ? Math.round(((minRetail - minCost) / minRetail) * 1000) / 10
     : null;
   const title = selectedProduct?.public_title?.da || selectedProduct?.public_title?.en || "";
@@ -77,8 +83,7 @@ export function PrintProductWizard() {
     || selectedProduct?.public_description?.en
     || "";
   const imageUrl = selectedProduct?.public_images?.[0] || null;
-  const hasPrices = minCost !== null && minRetail !== null;
-  const canCreateMasterProduct = Boolean(selectedProduct && title.trim() && hasPrices);
+  const canCreateMasterProduct = Boolean(selectedProduct && title.trim() && pricingComplete);
 
   const chooseCatalogProduct = (product: PodCatalogProduct) => {
     setSelectedCatalogProductId(product.id);
@@ -309,11 +314,11 @@ export function PrintProductWizard() {
           <dl className="grid gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-3">
             <div className="bg-background p-4">
               <dt className="text-xs font-medium uppercase text-muted-foreground">Leverandørpris fra</dt>
-              <dd className="mt-1 text-lg font-semibold tabular-nums">{formatCurrency(minCost, currency)}</dd>
+              <dd className="mt-1 text-lg font-semibold tabular-nums">{formatCurrency(displayedMinCost, currency)}</dd>
             </div>
             <div className="bg-background p-4">
               <dt className="text-xs font-medium uppercase text-muted-foreground">Salgspris fra</dt>
-              <dd className="mt-1 text-lg font-semibold tabular-nums">{formatCurrency(minRetail, currency)}</dd>
+              <dd className="mt-1 text-lg font-semibold tabular-nums">{formatCurrency(displayedMinRetail, currency)}</dd>
             </div>
             <div className="bg-background p-4">
               <dt className="text-xs font-medium uppercase text-muted-foreground">Avance</dt>
@@ -327,7 +332,7 @@ export function PrintProductWizard() {
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Tilbage
             </Button>
-            <Button type="button" onClick={() => setStep(4)} disabled={!hasPrices}>
+            <Button type="button" onClick={() => setStep(4)} disabled={!pricingComplete}>
               Fortsæt
               <ChevronRight className="h-4 w-4" aria-hidden="true" />
             </Button>
@@ -355,14 +360,14 @@ export function PrintProductWizard() {
                 <p className="mt-1 line-clamp-3 text-sm text-muted-foreground">
                   {description || "Beskrivelse mangler"}
                 </p>
-                <p className="mt-3 text-sm font-medium tabular-nums">Fra {formatCurrency(minRetail, currency)}</p>
+                <p className="mt-3 text-sm font-medium tabular-nums">Fra {formatCurrency(displayedMinRetail, currency)}</p>
               </div>
             </div>
             <ul className="divide-y border-y" aria-label="Klargøringskontrol">
               {[
                 { label: "Publiceret katalogprodukt", ready: selectedProduct.status === "published" },
                 { label: "Varianter og mængder", ready: attributes.length > 0 && quantities.length > 0 },
-                { label: "Salgspriser", ready: hasPrices },
+                { label: "Salgspriser", ready: pricingComplete },
                 { label: "Produktnavn", ready: Boolean(title.trim()) },
                 { label: "Produktbillede", ready: Boolean(imageUrl) },
               ].map((item) => (
