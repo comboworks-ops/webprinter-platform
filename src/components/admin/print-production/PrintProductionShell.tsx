@@ -15,7 +15,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PrintProductWizard } from "./PrintProductWizard";
+import { PrintProductionDistribution } from "./PrintProductionDistribution";
 import { PrintProductionOverview } from "./PrintProductionOverview";
+import { PrintProductionProducts } from "./PrintProductionProducts";
 import {
   getPrintProductionView,
   withPrintProductionView,
@@ -41,6 +43,7 @@ export function PrintProductionShell({
   snapshot,
   isLoading,
   error,
+  refetch,
 }: PrintProductionShellProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -48,6 +51,7 @@ export function PrintProductionShell({
   const activeView = getPrintProductionView(location.search);
   const activeTab = VIEW_TABS.find(({ view }) => view === activeView) ?? VIEW_TABS[0];
   const isNewProductRoute = activeView === "products" && searchParams.get("action") === "new";
+  const selectedProductId = searchParams.get("product");
   const addProductHref = `${withPrintProductionView(location.search, "products")}&action=new`;
   const advancedToolsParams = new URLSearchParams();
   const forceDomain = searchParams.get("force_domain");
@@ -71,7 +75,12 @@ export function PrintProductionShell({
       </Alert>
     );
   } else if (isNewProductRoute && snapshot) {
-    activeContent = <PrintProductWizard />;
+    activeContent = (
+      <PrintProductWizard
+        initialCatalogProductId={selectedProductId}
+        onDistributed={refetch}
+      />
+    );
   } else if (activeView === "overview" && snapshot) {
     activeContent = (
       <PrintProductionOverview
@@ -88,6 +97,44 @@ export function PrintProductionShell({
           const jobParam = job ? `&job=${encodeURIComponent(job.id)}` : "";
           navigate(`${href}${jobParam}`);
         }}
+      />
+    );
+  } else if (activeView === "products" && snapshot) {
+    activeContent = (
+      <PrintProductionProducts
+        snapshot={snapshot}
+        selectedProductId={selectedProductId}
+        onReviewProduct={(productId) => {
+          const href = withPrintProductionView(location.search, "products");
+          navigate(productId ? `${href}&product=${encodeURIComponent(productId)}` : href);
+        }}
+        onPrepareProduct={(product) => {
+          const href = withPrintProductionView(location.search, "products");
+          navigate(`${href}&action=new&product=${encodeURIComponent(product.catalog.id)}`);
+        }}
+        onDistributeProduct={(product) => {
+          const href = withPrintProductionView(location.search, "distribution");
+          navigate(`${href}&product=${encodeURIComponent(product.catalog.id)}`);
+        }}
+        onOpenImportedProduct={(product) => {
+          if (!product.masterProduct) return;
+          const productParams = new URLSearchParams();
+          if (forceDomain) productParams.set("force_domain", forceDomain);
+          const productSearch = productParams.toString();
+          navigate(`/admin/product/${encodeURIComponent(product.masterProduct.slug)}${productSearch ? `?${productSearch}` : ""}`);
+        }}
+      />
+    );
+  } else if (activeView === "distribution" && snapshot) {
+    activeContent = (
+      <PrintProductionDistribution
+        snapshot={snapshot}
+        selectedProductId={selectedProductId}
+        onSelectProduct={(productId) => {
+          const href = withPrintProductionView(location.search, "distribution");
+          navigate(productId ? `${href}&product=${encodeURIComponent(productId)}` : href);
+        }}
+        onRefetch={refetch}
       />
     );
   } else {

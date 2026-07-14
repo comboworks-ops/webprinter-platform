@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -8,7 +8,6 @@ import {
   Loader2,
   Package,
   Plus,
-  Send,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -18,12 +17,18 @@ import { usePodCatalogProducts, usePodImportProduct } from "@/lib/pod2/hooks";
 import type { PodCatalogProduct } from "@/lib/pod2/types";
 import { isSupplierPricingComplete } from "@/lib/print-production/supplierPresentation";
 import { cn } from "@/lib/utils";
+import { ProductDistributionFlow } from "./PrintProductionDistribution";
 
 type WizardStep = 1 | 2 | 3 | 4 | 5;
 
 interface CreatedProduct {
   productId: string;
   slug: string;
+}
+
+interface PrintProductWizardProps {
+  initialCatalogProductId?: string | null;
+  onDistributed: () => Promise<void>;
 }
 
 const WIZARD_STEPS: Array<{ step: WizardStep; label: string }> = [
@@ -48,9 +53,13 @@ const formatCurrency = (value: number | null, currency = "DKK") => {
   }).format(value);
 };
 
-export function PrintProductWizard() {
+export function PrintProductWizard({
+  initialCatalogProductId,
+  onDistributed,
+}: PrintProductWizardProps) {
   const { data: catalogProducts, isLoading, error } = usePodCatalogProducts();
   const importProduct = usePodImportProduct();
+  const initialProductHandled = useRef(false);
   const [step, setStep] = useState<WizardStep>(1);
   const [selectedCatalogProductId, setSelectedCatalogProductId] = useState<string | null>(null);
   const [showSupplierImporter, setShowSupplierImporter] = useState(false);
@@ -84,6 +93,21 @@ export function PrintProductWizard() {
     || "";
   const imageUrl = selectedProduct?.public_images?.[0] || null;
   const canCreateMasterProduct = Boolean(selectedProduct && title.trim() && pricingComplete);
+
+  useEffect(() => {
+    if (initialProductHandled.current || !initialCatalogProductId || !catalogProducts) return;
+    initialProductHandled.current = true;
+    const initialProduct = catalogProducts.find((product) => (
+      product.id === initialCatalogProductId && product.status === "published"
+    ));
+    if (!initialProduct) return;
+
+    setSelectedCatalogProductId(initialProduct.id);
+    setCreatedProduct(null);
+    setImportError(null);
+    setShowSupplierImporter(false);
+    setStep(2);
+  }, [catalogProducts, initialCatalogProductId]);
 
   const chooseCatalogProduct = (product: PodCatalogProduct) => {
     setSelectedCatalogProductId(product.id);
@@ -411,23 +435,31 @@ export function PrintProductWizard() {
             <h3 className="text-base font-semibold">Send til butikker</h3>
             <p className="text-sm text-muted-foreground">{title}</p>
           </div>
-          <div className="border-y py-6">
+          <div className="border-y py-4">
             <p className="font-medium">Webprinter-produkt oprettet</p>
             {createdProduct && (
               <p className="mt-1 text-sm text-muted-foreground">
                 {createdProduct.slug}
               </p>
             )}
-            <p className="mt-4 text-sm text-muted-foreground">Ingen butikker valgt.</p>
           </div>
-          <div className="flex items-center justify-between border-t pt-4">
+          {createdProduct ? (
+            <ProductDistributionFlow
+              key={createdProduct.productId}
+              productId={createdProduct.productId}
+              productName={title}
+              onDistributed={onDistributed}
+            />
+          ) : (
+            <div className="flex items-start gap-2 border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              Opret Webprinter-produktet, før du vælger butikker.
+            </div>
+          )}
+          <div className="flex items-center border-t pt-4">
             <Button type="button" variant="outline" onClick={() => goBack(4)}>
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Tilbage
-            </Button>
-            <Button type="button" disabled>
-              <Send className="h-4 w-4" aria-hidden="true" />
-              Send til butikker
             </Button>
           </div>
         </div>
