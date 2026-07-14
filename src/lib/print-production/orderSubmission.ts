@@ -14,6 +14,8 @@ export interface RealSubmissionCheck {
   validatedPaymentMethod: PrintcomPaymentMethod;
   jobVersion: string;
   validatedJobVersion: string;
+  currentSemanticFingerprint: string;
+  validatedSemanticFingerprint: string;
 }
 
 export type DryRunResultKind = "ready" | "manual_check" | "blocked";
@@ -29,9 +31,28 @@ export interface DryRunInterpretation {
 export interface ValidationBinding {
   jobId: string;
   jobVersion: string;
+  paymentMethod: PrintcomPaymentMethod;
+  semanticFingerprint: string;
   passed: boolean;
   kind: DryRunResultKind;
 }
+
+export interface PendingValidationResolutionInput {
+  pending: {
+    jobId: string;
+    preValidationVersion: string;
+    preValidationFingerprint: string;
+  };
+  currentJob: PodFulfillmentJob | null;
+  timedOut: boolean;
+}
+
+export type PendingValidationResolution =
+  | { kind: "waiting" }
+  | { kind: "accepted"; job: PodFulfillmentJob; semanticFingerprint: string }
+  | { kind: "rejected"; message: string };
+
+export type ValidationOutcomeState = "none" | "ready" | "manual_check" | "blocked" | "stale";
 
 export interface SubmissionSessionState {
   blockedJobIds: Record<string, { refreshConfirmed: boolean }>;
@@ -51,6 +72,7 @@ const LIVE_SUBMISSION_STATUSES = new Set<PodFulfillmentJob["status"]>([
   "processing",
   "submitted",
 ]);
+const SUPPORTED_SUPPLIER_SUCCESS_RESULTS = new Set(["SUCCESS", "OK", "ACCEPTED", "READY", "VALID"]);
 
 export function buildValidationRequest(
   jobId: string,
@@ -73,7 +95,9 @@ export function canConfirmRealSubmission(input: RealSubmissionCheck): boolean {
     && hasPaymentMethod(input.paymentMethod)
     && input.paymentMethod === input.validatedPaymentMethod
     && hasText(input.jobVersion)
-    && input.jobVersion === input.validatedJobVersion;
+    && input.jobVersion === input.validatedJobVersion
+    && hasText(input.currentSemanticFingerprint)
+    && input.currentSemanticFingerprint === input.validatedSemanticFingerprint;
 }
 
 export function interpretDryRunResult(result: unknown): DryRunInterpretation {
@@ -81,7 +105,7 @@ export function interpretDryRunResult(result: unknown): DryRunInterpretation {
   const payload = record.payload;
   const warnings = record.warnings;
 
-  if (record.success !== true || record.dryRun !== true || !isNonEmptyRecord(payload)) {
+  if (record.success !== true || record.dryRun !== true || !isValidDryRunPayload(payload)) {
     return blockedDryRun("Kontrolsvaret kunne ikke bekræftes. Kontrollér ordren igen.", payload, record.response);
   }
   if (!Array.isArray(warnings) || warnings.length > 0 || hasMeaningfulError(record.error)) {
@@ -89,7 +113,7 @@ export function interpretDryRunResult(result: unknown): DryRunInterpretation {
   }
 
   const supplierResult = readSupplierResult(record);
-  if (supplierResult === "MANUALCHECK") {
+  if (supplierResult.present && supplierResult.value === "MANUALCHECK") {
     return {
       kind: "manual_check",
       label: "Leverandøren skal gennemgå filen",
@@ -97,6 +121,9 @@ export function interpretDryRunResult(result: unknown): DryRunInterpretation {
       payload,
       response: record.response,
     };
+  }
+  if (supplierResult.present && (!supplierResult.value || !SUPPORTED_SUPPLIER_SUCCESS_RESULTS.has(supplierResult.value))) {
+    return blockedDryRun("Leverandørens kontrolstatus kan ikke godkendes. Gennemgå ordren og kontrollér igen.", payload, record.response);
   }
 
   return {
@@ -106,6 +133,101 @@ export function interpretDryRunResult(result: unknown): DryRunInterpretation {
     payload,
     response: record.response,
   };
+}
+
+export function buildSubmissionFingerprint(job: PodFulfillmentJob): string {
+  // Keep this list explicit: it is the auditable contract for job fields that
+  // can change supplier submission, recipient, product, delivery, or sender.
+  // Deliberately excluded: audit actors/timestamps and dry-run diagnostics.
+  return stableSerialize({
+    id: job.id,
+    tenant_id: job.tenant_id,
+    order_id: job.order_id,
+    order_item_id: job.order_item_id,
+    catalog_product_id: job.catalog_product_id,
+    product_id: job.product_id,
+    product_name: job.product_name,
+    variant_signature: job.variant_signature,
+    qty: job.qty,
+    tenant_cost: job.tenant_cost,
+    currency: job.currency,
+    status: job.status,
+    customer_email: job.customer_email,
+    recipient_name: job.recipient_name,
+    recipient_company: job.recipient_company,
+    delivery_summary: job.delivery_summary,
+    shipping_method: job.shipping_method,
+    sender_mode: job.sender_mode,
+    sender_name: job.sender_name,
+    sender_contact_id: job.sender_contact_id,
+    sender_address_json: job.sender_address_json,
+    sender_logo_url: job.sender_logo_url,
+    provider_job_ref: job.provider_job_ref,
+    master_notes: job.master_notes,
+    printcom_cart_id: job.printcom_cart_id,
+    printcom_cart_item_id: job.printcom_cart_item_id,
+    printcom_printjob_id: job.printcom_printjob_id,
+    printcom_design_id: job.printcom_design_id,
+    printcom_order_id: job.printcom_order_id,
+    printcom_submission_step: job.printcom_submission_step,
+  });
+}
+
+export function resolvePendingValidation(input: PendingValidationResolutionInput): PendingValidationResolution {
+  const { pending, currentJob, timedOut } = input;
+  if (!currentJob || currentJob.updated_at === pending.preValidationVersion) {
+    return timedOut
+      ? { kind: "rejected", message: "Den opdaterede jobtilstand kunne ikke bekræftes. Kontrollér ordren igen." }
+      : { kind: "waiting" };
+  }
+
+  const semanticFingerprint = buildSubmissionFingerprint(currentJob);
+  if (semanticFingerprint !== pending.preValidationFingerprint) {
+    return { kind: "rejected", message: "Ordregrundlaget er ændret efter kontrollen. Kontrollér ordren igen." };
+  }
+  if (currentJob.printcom_order_id != null) {
+    return { kind: "rejected", message: "En leverandørreference er gemt. Ordren kan ikke sendes igen." };
+  }
+  if (!LIVE_SUBMISSION_STATUSES.has(currentJob.status)) {
+    return { kind: "rejected", message: "Jobstatus er ikke længere klar til leverandørindsendelse. Kontrollér ordren igen." };
+  }
+
+  return { kind: "accepted", job: currentJob, semanticFingerprint };
+}
+
+export function getValidationOutcomeState(
+  job: PodFulfillmentJob,
+  validation: ValidationBinding | null | undefined,
+  paymentMethod: PrintcomPaymentMethod,
+): ValidationOutcomeState {
+  if (!validation || validation.jobId !== job.id) return "none";
+  if (validation.kind === "blocked") return "blocked";
+  if (!isCurrentValidationBinding(job, validation, paymentMethod)) return "stale";
+  if (validation.kind === "manual_check") return "manual_check";
+  return getProductionOrderPresentation(job, { validation, paymentMethod }).canSubmit ? "ready" : "stale";
+}
+
+export function summarizeDryRunPayload(payload: unknown): string {
+  const items = asRecord(payload).items;
+  if (!Array.isArray(items) || items.length === 0) return "";
+
+  let quantity = 0;
+  let hasQuantity = false;
+  let optionCount = 0;
+  for (const item of items) {
+    const record = asRecord(item);
+    if (typeof record.quantity === "number" && Number.isFinite(record.quantity)) {
+      quantity += record.quantity;
+      hasQuantity = true;
+    }
+    const options = record.options;
+    optionCount += Array.isArray(options) ? options.length : Object.keys(asRecord(options)).length;
+  }
+
+  const parts = [`${items.length} ${items.length === 1 ? "vare" : "varer"}`];
+  if (hasQuantity) parts.push(`${quantity} stk.`);
+  if (optionCount > 0) parts.push(`${optionCount} ${optionCount === 1 ? "valg" : "valg"}`);
+  return parts.join(" · ");
 }
 
 export function resolveCurrentJob(
@@ -179,11 +301,12 @@ export function getProductionOrderPresentation(
   job: PodFulfillmentJob,
   context: {
     validation?: ValidationBinding | null;
+    paymentMethod?: PrintcomPaymentMethod;
     reconciliationBlocked?: boolean;
   } = {},
 ): ProductionOrderPresentation {
   const baseline = classifyOrder(job);
-  const validationIsCurrent = isCurrentPassingValidation(job, context.validation);
+  const validationIsCurrent = isCurrentPassingValidation(job, context.validation, context.paymentMethod);
 
   if (context.reconciliationBlocked) {
     return presentation("attention", "Kræver afklaring", false, false, "Bekræft afklaring");
@@ -198,12 +321,18 @@ export function getProductionOrderPresentation(
     return presentation("attention", "Leverandørreference fundet", false, false, "Følg leverandørstatus");
   }
   if (job.status === "submitted" || job.status === "processing") {
+    if (isCurrentManualCheck(job, context.validation, context.paymentMethod)) {
+      return presentation("attention", "Leverandørgennemgang", false, false, "Afventer leverandørgennemgang");
+    }
+    if (validationIsCurrent) {
+      return presentation("ready", "Klar til produktion", true, true, "Bekræft leverandørordre");
+    }
     return presentation("attention", "Mangler leverandørreference", true, false, "Kontrollér ordre");
   }
   if (job.status === "failed") {
     return presentation("attention", "Kræver handling", true, false, "Gennemgå og kontrollér");
   }
-  if (isCurrentManualCheck(job, context.validation)) {
+  if (isCurrentManualCheck(job, context.validation, context.paymentMethod)) {
     return presentation("attention", "Leverandørgennemgang", false, false, "Afventer leverandørgennemgang");
   }
   if (job.status === "payment_pending") {
@@ -228,7 +357,7 @@ export function getProductionOrderPresentation(
 
 export function groupProductionJobs(
   jobs: PodFulfillmentJob[],
-  contextByJobId: Record<string, { validation?: ValidationBinding | null; reconciliationBlocked?: boolean }> = {},
+  contextByJobId: Record<string, { validation?: ValidationBinding | null; paymentMethod?: PrintcomPaymentMethod; reconciliationBlocked?: boolean }> = {},
 ): Record<OrderGroup, PodFulfillmentJob[]> {
   const groups: Record<OrderGroup, PodFulfillmentJob[]> = {
     attention: [],
@@ -255,17 +384,36 @@ function blockedDryRun(description: string, payload: unknown, response: unknown)
   };
 }
 
-function isCurrentPassingValidation(job: PodFulfillmentJob, validation: ValidationBinding | null | undefined): boolean {
-  return validation?.jobId === job.id
-    && validation.jobVersion === job.updated_at
+function isCurrentPassingValidation(
+  job: PodFulfillmentJob,
+  validation: ValidationBinding | null | undefined,
+  paymentMethod: PrintcomPaymentMethod | undefined,
+): boolean {
+  return isCurrentValidationBinding(job, validation, paymentMethod)
     && validation.passed
     && validation.kind === "ready";
 }
 
-function isCurrentManualCheck(job: PodFulfillmentJob, validation: ValidationBinding | null | undefined): boolean {
+function isCurrentManualCheck(
+  job: PodFulfillmentJob,
+  validation: ValidationBinding | null | undefined,
+  paymentMethod: PrintcomPaymentMethod | undefined,
+): boolean {
+  return isCurrentValidationBinding(job, validation, paymentMethod)
+    && validation.kind === "manual_check";
+}
+
+function isCurrentValidationBinding(
+  job: PodFulfillmentJob,
+  validation: ValidationBinding | null | undefined,
+  paymentMethod: PrintcomPaymentMethod | undefined,
+): validation is ValidationBinding {
   return validation?.jobId === job.id
     && validation.jobVersion === job.updated_at
-    && validation.kind === "manual_check";
+    && validation.paymentMethod === paymentMethod
+    && validation.semanticFingerprint === buildSubmissionFingerprint(job)
+    && job.printcom_order_id == null
+    && LIVE_SUBMISSION_STATUSES.has(job.status);
 }
 
 function presentation(
@@ -278,7 +426,7 @@ function presentation(
   return { group, label, canValidate, canSubmit, nextAction };
 }
 
-function readSupplierResult(record: Record<string, unknown>): string | null {
+function readSupplierResult(record: Record<string, unknown>): { present: boolean; value: string | null } {
   const response = asRecord(record.response);
   const values = [
     record.supplierStatus,
@@ -295,9 +443,13 @@ function readSupplierResult(record: Record<string, unknown>): string | null {
     response.result,
   ];
   for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value.trim().toUpperCase();
+    if (value === undefined || value === null) continue;
+    return {
+      present: true,
+      value: typeof value === "string" && value.trim() ? value.trim().toUpperCase() : null,
+    };
   }
-  return null;
+  return { present: false, value: null };
 }
 
 function hasPaymentMethod(value: unknown): value is PrintcomPaymentMethod {
@@ -312,6 +464,24 @@ function hasMeaningfulError(value: unknown): boolean {
   return value !== undefined && value !== null && value !== "";
 }
 
+function isValidDryRunPayload(value: unknown): boolean {
+  const payload = asRecord(value);
+  const items = payload.items;
+  if (!hasText(payload.customerReference) || !hasPaymentMethod(payload.paymentMethod) || !isNonEmptyRecord(payload.billingAddress)) {
+    return false;
+  }
+  if (!Array.isArray(items) || items.length === 0) return false;
+
+  const firstItem = asRecord(items[0]);
+  return hasText(firstItem.sku)
+    && typeof firstItem.quantity === "number"
+    && Number.isFinite(firstItem.quantity)
+    && firstItem.quantity > 0
+    && Array.isArray(firstItem.shipments)
+    && firstItem.shipments.length > 0
+    && isNonEmptyRecord(firstItem.shipments[0]);
+}
+
 function isNonEmptyRecord(value: unknown): value is Record<string, unknown> {
   return Object.keys(asRecord(value)).length > 0;
 }
@@ -320,4 +490,17 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(String(value));
 }

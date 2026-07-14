@@ -25,18 +25,22 @@ import {
 import { usePodSubmitToPrintcom, usePodSyncPrintcomStatus } from "@/lib/pod2/hooks";
 import type { PodFulfillmentJob } from "@/lib/pod2/types";
 import {
+  buildSubmissionFingerprint,
   buildValidationRequest,
   canReconcileUncertainSubmission,
   canConfirmRealSubmission,
   createSubmissionSessionState,
   getProductionOrderPresentation,
+  getValidationOutcomeState,
   groupProductionJobs,
   interpretDryRunResult,
   isReconciliationBlocked,
   markSubmissionReconciliationRefreshed,
   reconcileUncertainSubmission,
   resolveCurrentJob,
+  resolvePendingValidation,
   startUncertainSubmissionReconciliation,
+  summarizeDryRunPayload,
   type DryRunInterpretation,
   type PrintcomPaymentMethod,
   type ProductionOrderPresentation,
@@ -54,16 +58,19 @@ interface PrintProductionOrdersProps {
 }
 
 type ValidationRecord = ValidationBinding & {
-  paymentMethod: PrintcomPaymentMethod;
   interpretation: DryRunInterpretation;
 };
 
 type PendingValidationBinding = {
   jobId: string;
   preValidationVersion: string;
+  preValidationFingerprint: string;
   paymentMethod: PrintcomPaymentMethod;
   interpretation: DryRunInterpretation;
+  timedOut: boolean;
 };
+
+const PENDING_VALIDATION_TIMEOUT_MS = 1500;
 
 const GROUPS = [
   { key: "attention", title: "Kræver handling" },
@@ -95,6 +102,7 @@ export function PrintProductionOrders({
   const getCurrentJob = (jobId: string | null | undefined) => resolveCurrentJob(jobsRef.current, jobId);
   const getOrderContext = (job: PodFulfillmentJob) => ({
     validation: validation?.jobId === job.id ? validation : null,
+    paymentMethod,
     reconciliationBlocked: isReconciliationBlocked(sessionState, job.id),
   });
   const getPresentation = (job: PodFulfillmentJob) => getProductionOrderPresentation(job, getOrderContext(job));
@@ -111,24 +119,40 @@ export function PrintProductionOrders({
   useEffect(() => {
     if (!pendingValidation) return;
     const currentJob = resolveCurrentJob(snapshot.jobs, pendingValidation.jobId);
+    const resolution = resolvePendingValidation({
+      pending: pendingValidation,
+      currentJob,
+      timedOut: pendingValidation.timedOut,
+    });
 
-    if (!currentJob || currentJob.updated_at === pendingValidation.preValidationVersion) {
+    if (resolution.kind === "waiting") {
+      const timeout = window.setTimeout(() => {
+        setPendingValidation((current) => current?.jobId === pendingValidation.jobId
+          ? { ...current, timedOut: true }
+          : current);
+      }, PENDING_VALIDATION_TIMEOUT_MS);
+      return () => window.clearTimeout(timeout);
+    }
+
+    if (resolution.kind === "rejected") {
       setValidation({
         jobId: pendingValidation.jobId,
-        jobVersion: pendingValidation.preValidationVersion,
+        jobVersion: currentJob?.updated_at || pendingValidation.preValidationVersion,
         paymentMethod: pendingValidation.paymentMethod,
+        semanticFingerprint: currentJob ? buildSubmissionFingerprint(currentJob) : pendingValidation.preValidationFingerprint,
         passed: false,
         kind: "blocked",
-        interpretation: blockedInterpretation("Den opdaterede jobtilstand kunne ikke bekræftes. Kontrollér ordren igen."),
+        interpretation: blockedInterpretation(resolution.message),
       });
       setPendingValidation(null);
       return;
     }
 
     setValidation({
-      jobId: currentJob.id,
-      jobVersion: currentJob.updated_at,
+      jobId: resolution.job.id,
+      jobVersion: resolution.job.updated_at,
       paymentMethod: pendingValidation.paymentMethod,
+      semanticFingerprint: resolution.semanticFingerprint,
       passed: pendingValidation.interpretation.kind === "ready",
       kind: pendingValidation.interpretation.kind,
       interpretation: pendingValidation.interpretation,
@@ -183,6 +207,7 @@ export function PrintProductionOrders({
           jobId,
           jobVersion: currentJob.updated_at,
           paymentMethod,
+          semanticFingerprint: buildSubmissionFingerprint(currentJob),
           passed: false,
           kind: "blocked",
           interpretation,
@@ -197,6 +222,7 @@ export function PrintProductionOrders({
           jobId,
           jobVersion: currentJob.updated_at,
           paymentMethod,
+          semanticFingerprint: buildSubmissionFingerprint(currentJob),
           passed: false,
           kind: "blocked",
           interpretation: blockedInterpretation("Kontrolsvaret kom tilbage, men den aktuelle jobtilstand kunne ikke hentes. Kontrollér ordren igen."),
@@ -207,14 +233,17 @@ export function PrintProductionOrders({
       setPendingValidation({
         jobId,
         preValidationVersion: currentJob.updated_at,
+        preValidationFingerprint: buildSubmissionFingerprint(currentJob),
         paymentMethod,
         interpretation,
+        timedOut: false,
       });
     } catch (error: unknown) {
       setValidation({
         jobId,
         jobVersion: currentJob.updated_at,
         paymentMethod,
+        semanticFingerprint: buildSubmissionFingerprint(currentJob),
         passed: false,
         kind: "blocked",
         interpretation: {
@@ -354,6 +383,7 @@ export function PrintProductionOrders({
                         isBusy={Boolean(activeOperationJobId)}
                         isCurrentOperation={activeOperationJobId === job.id}
                         validation={validation?.jobId === job.id ? validation : null}
+                        paymentMethod={paymentMethod}
                         reconciliationBlocked={isReconciliationBlocked(sessionState, job.id)}
                         onValidate={() => handleValidate(job.id)}
                         onConfirm={() => handleOpenConfirmation(job.id)}
@@ -407,6 +437,7 @@ function OrderRow({
   isBusy,
   isCurrentOperation,
   validation,
+  paymentMethod,
   reconciliationBlocked,
   onValidate,
   onConfirm,
@@ -419,6 +450,7 @@ function OrderRow({
   isBusy: boolean;
   isCurrentOperation: boolean;
   validation: ValidationRecord | null;
+  paymentMethod: PrintcomPaymentMethod;
   reconciliationBlocked: boolean;
   onValidate: () => void;
   onConfirm: () => void;
@@ -459,7 +491,15 @@ function OrderRow({
         </div>
       </div>
 
-      {validation && <ValidationOutcome validation={validation} onRetry={onValidate} isBusy={isBusy} />}
+      {validation && (
+        <ValidationOutcome
+          job={job}
+          validation={validation}
+          paymentMethod={paymentMethod}
+          onRetry={onValidate}
+          isBusy={isBusy}
+        />
+      )}
       {reconciliationBlocked && <ReconciliationOutcome onOpen={onOpenReconciliation} />}
       <TechnicalDetails job={job} validation={validation} />
     </article>
@@ -467,28 +507,51 @@ function OrderRow({
 }
 
 function ValidationOutcome({
+  job,
   validation,
+  paymentMethod,
   onRetry,
   isBusy,
 }: {
+  job: PodFulfillmentJob;
   validation: ValidationRecord;
+  paymentMethod: PrintcomPaymentMethod;
   onRetry: () => void;
   isBusy: boolean;
 }) {
-  if (validation.kind === "blocked") {
+  const outcome = getValidationOutcomeState(job, validation, paymentMethod);
+  const canRetry = getProductionOrderPresentation(job, { paymentMethod }).canValidate;
+
+  if (outcome === "blocked") {
     return (
       <Alert variant="destructive" className="mt-3 rounded-md">
         <AlertCircle className="h-4 w-4" aria-hidden="true" />
         <AlertTitle>{validation.interpretation.label}</AlertTitle>
         <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
           <span>{validation.interpretation.description}</span>
-          <Button size="sm" variant="outline" onClick={onRetry} disabled={isBusy}>Kontrollér igen</Button>
+          {canRetry && <Button size="sm" variant="outline" onClick={onRetry} disabled={isBusy}>Kontrollér igen</Button>}
         </AlertDescription>
       </Alert>
     );
   }
 
-  const isManualCheck = validation.kind === "manual_check";
+  if (outcome === "stale") {
+    return (
+      <Alert className="mt-3 rounded-md border-amber-500/50 bg-amber-50 text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
+        <AlertCircle className="h-4 w-4 text-amber-700 dark:text-amber-300" aria-hidden="true" />
+        <AlertTitle>Kontrollen er ikke længere aktuel</AlertTitle>
+        <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+          <span>Ordregrundlaget, betalingsmetoden eller jobtilstanden er ændret. Kontrollér ordren igen før indsendelse.</span>
+          {canRetry && <Button size="sm" variant="outline" onClick={onRetry} disabled={isBusy}>Kontrollér igen</Button>}
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  if (outcome === "none") return null;
+
+  const isManualCheck = outcome === "manual_check";
+  const summary = outcome === "ready" ? summarizeDryRunPayload(validation.interpretation.payload) : "";
   return (
     <Alert className={cn(
       "mt-3 rounded-md",
@@ -498,7 +561,9 @@ function ValidationOutcome({
     )}>
       <CheckCircle2 className={cn("h-4 w-4", isManualCheck ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")} aria-hidden="true" />
       <AlertTitle>{validation.interpretation.label}</AlertTitle>
-      <AlertDescription>{validation.interpretation.description}</AlertDescription>
+      <AlertDescription>
+        {validation.interpretation.description}{summary ? ` ${summary}.` : ""}
+      </AlertDescription>
     </Alert>
   );
 }
@@ -672,6 +737,8 @@ function canSubmitCurrentJob(
       validatedPaymentMethod: validation?.paymentMethod ?? "" as PrintcomPaymentMethod,
       jobVersion: job.updated_at,
       validatedJobVersion: validation?.jobVersion ?? "",
+      currentSemanticFingerprint: buildSubmissionFingerprint(job),
+      validatedSemanticFingerprint: validation?.semanticFingerprint ?? "",
     });
 }
 

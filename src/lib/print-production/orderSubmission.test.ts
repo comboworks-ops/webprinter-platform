@@ -3,17 +3,21 @@ import test from "node:test";
 
 import type { PodFulfillmentJob } from "../pod2/types.ts";
 import {
+  buildSubmissionFingerprint,
   buildValidationRequest,
   canReconcileUncertainSubmission,
   canConfirmRealSubmission,
   createSubmissionSessionState,
   getProductionOrderPresentation,
+  getValidationOutcomeState,
   interpretDryRunResult,
   isReconciliationBlocked,
   markSubmissionReconciliationRefreshed,
   reconcileUncertainSubmission,
   resolveCurrentJob,
+  resolvePendingValidation,
   startUncertainSubmissionReconciliation,
+  summarizeDryRunPayload,
 } from "./orderSubmission.ts";
 
 const VERSION = "2026-07-14T10:00:00.000Z";
@@ -47,6 +51,23 @@ function validGate(overrides: Partial<Parameters<typeof canConfirmRealSubmission
     validatedPaymentMethod: "invoice" as const,
     jobVersion: VERSION,
     validatedJobVersion: VERSION,
+    currentSemanticFingerprint: buildSubmissionFingerprint(job()),
+    validatedSemanticFingerprint: buildSubmissionFingerprint(job()),
+    ...overrides,
+  };
+}
+
+function dryRunPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    customerReference: "wp-job-1",
+    paymentMethod: "invoice",
+    billingAddress: { companyName: "WebPrinter" },
+    items: [{
+      sku: "flyer-a4",
+      quantity: 100,
+      shipments: [{ quantity: 100, address: { city: "Kobenhavn" } }],
+      options: { paper: "130g", print: "4-4" },
+    }],
     ...overrides,
   };
 }
@@ -66,13 +87,86 @@ test("real send requires every current validation binding", () => {
   assert.equal(canConfirmRealSubmission(validGate({ validatedJobVersion: "2026-07-14T09:00:00.000Z" })), false);
   assert.equal(canConfirmRealSubmission({ ...validGate(), paymentMethod: "" as never }), false);
   assert.equal(canConfirmRealSubmission({ ...validGate(), jobVersion: "" }), false);
-  const omittedBinding = { ...validGate() } as Record<string, unknown>;
-  delete omittedBinding.validatedPaymentMethod;
-  assert.equal(canConfirmRealSubmission(omittedBinding as never), false);
+  for (const field of ["validatedPaymentMethod", "validatedJobVersion", "currentSemanticFingerprint", "validatedSemanticFingerprint"]) {
+    const omittedBinding = { ...validGate() } as Record<string, unknown>;
+    delete omittedBinding[field];
+    assert.equal(canConfirmRealSubmission(omittedBinding as never), false);
+  }
 });
 
 test("stored supplier references always block a real send", () => {
   assert.equal(canConfirmRealSubmission(validGate({ printcomOrderId: "2106321" })), false);
+});
+
+test("semantic submission fingerprints ignore tracking but bind all submission-relevant job state", () => {
+  const base = job({
+    product_id: "product-1",
+    product_name: "Flyer",
+    recipient_name: "Ada Andersen",
+    delivery_summary: "Levering til doren",
+    sender_mode: "custom",
+    sender_name: "Butik A",
+    sender_address_json: { city: "Aarhus", country: "DK" },
+  });
+  const fingerprint = buildSubmissionFingerprint(base);
+
+  assert.equal(buildSubmissionFingerprint(base), buildSubmissionFingerprint({
+    ...base,
+    updated_at: "2026-07-14T10:01:00.000Z",
+    printcom_last_attempt_at: "2026-07-14T10:01:00.000Z",
+    printcom_last_error: "temporary diagnostic",
+  }));
+  for (const changed of [
+    { qty: 101 },
+    { variant_signature: "format:a5" },
+    { recipient_name: "Bea Berg" },
+    { delivery_summary: "Afhentning" },
+    { tenant_cost: 101 },
+    { sender_name: "Butik B" },
+    { product_name: "Plakat" },
+    { status: "processing" as const },
+    { printcom_order_id: "2106321" },
+  ]) {
+    assert.notEqual(buildSubmissionFingerprint({ ...base, ...changed }), fingerprint);
+  }
+});
+
+test("central live gate requires the exact validated semantic fingerprint", () => {
+  assert.equal(canConfirmRealSubmission(validGate({ validatedSemanticFingerprint: "other" })), false);
+  const omittedBinding = { ...validGate() } as Record<string, unknown>;
+  delete omittedBinding.currentSemanticFingerprint;
+  assert.equal(canConfirmRealSubmission(omittedBinding as never), false);
+});
+
+test("pending validation waits for a committed refresh, accepts tracking-only changes, and times out fail-closed", () => {
+  const before = job();
+  const pending = {
+    jobId: before.id,
+    preValidationVersion: before.updated_at,
+    preValidationFingerprint: buildSubmissionFingerprint(before),
+  };
+  assert.equal(resolvePendingValidation({ pending, currentJob: before, timedOut: false }).kind, "waiting");
+  assert.equal(resolvePendingValidation({ pending, currentJob: before, timedOut: true }).kind, "rejected");
+  assert.equal(resolvePendingValidation({
+    pending,
+    currentJob: job({ updated_at: "2026-07-14T10:01:00.000Z", printcom_last_attempt_at: "2026-07-14T10:01:00.000Z" }),
+    timedOut: false,
+  }).kind, "accepted");
+  assert.equal(resolvePendingValidation({
+    pending,
+    currentJob: job({ updated_at: "2026-07-14T10:01:00.000Z", qty: 101 }),
+    timedOut: false,
+  }).kind, "rejected");
+  assert.equal(resolvePendingValidation({
+    pending,
+    currentJob: job({ updated_at: "2026-07-14T10:01:00.000Z", printcom_order_id: "2106321" }),
+    timedOut: false,
+  }).kind, "rejected");
+  assert.equal(resolvePendingValidation({
+    pending,
+    currentJob: job({ updated_at: "2026-07-14T10:01:00.000Z", status: "failed" }),
+    timedOut: false,
+  }).kind, "rejected");
 });
 
 test("only approved live statuses can pass the central gate", () => {
@@ -90,21 +184,23 @@ test("only an explicit clean dry-run contract is green", () => {
     success: true,
     dryRun: true,
     warnings: [],
-    payload: { items: [{}] },
+    payload: dryRunPayload(),
   }).kind, "ready");
-  assert.equal(interpretDryRunResult({ payload: { items: [{}] } }).kind, "blocked");
+  assert.equal(interpretDryRunResult({ payload: dryRunPayload() }).kind, "blocked");
   assert.equal(interpretDryRunResult({
     success: true,
     dryRun: false,
     warnings: [],
-    payload: { items: [{}] },
+    payload: dryRunPayload(),
   }).kind, "blocked");
   assert.equal(interpretDryRunResult({
     success: true,
     dryRun: true,
     warnings: ["missing mapping"],
-    payload: { items: [{}] },
+    payload: dryRunPayload(),
   }).kind, "blocked");
+  assert.equal(interpretDryRunResult({ success: true, dryRun: true, warnings: [], payload: { items: [{}] } }).kind, "blocked");
+  assert.equal(interpretDryRunResult({ success: true, dryRun: true, warnings: [], payload: dryRunPayload({ items: [] }) }).kind, "blocked");
 });
 
 test("MANUALCHECK is read only from supplier result fields", () => {
@@ -112,15 +208,42 @@ test("MANUALCHECK is read only from supplier result fields", () => {
     success: true,
     dryRun: true,
     warnings: [],
-    payload: { note: "MANUALCHECK" },
+    payload: dryRunPayload({ note: "MANUALCHECK" }),
   }).kind, "ready");
   assert.equal(interpretDryRunResult({
     success: true,
     dryRun: true,
     warnings: [],
-    payload: { items: [{}] },
+    payload: dryRunPayload(),
     response: { supplierStatus: "MANUALCHECK" },
   }).kind, "manual_check");
+  for (const supplierStatus of ["ERROR", "REJECTED", "FAILED", "PENDING"] as const) {
+    assert.equal(interpretDryRunResult({
+      success: true,
+      dryRun: true,
+      warnings: [],
+      payload: dryRunPayload(),
+      response: { supplierStatus },
+    }).kind, "blocked");
+  }
+  assert.equal(interpretDryRunResult({
+    success: true,
+    dryRun: true,
+    warnings: [],
+    payload: dryRunPayload(),
+    response: { supplierStatus: "SUCCESS" },
+  }).kind, "ready");
+  assert.equal(interpretDryRunResult({
+    success: true,
+    dryRun: true,
+    warnings: [],
+    payload: dryRunPayload(),
+    response: { supplierStatus: { state: "SUCCESS" } },
+  }).kind, "blocked");
+});
+
+test("safe dry-run summary exposes counts without raw option mappings", () => {
+  assert.equal(summarizeDryRunPayload(dryRunPayload()), "1 vare · 100 stk. · 2 valg");
 });
 
 test("confirmation resolves the current job and rejects a changed supplier reference", () => {
@@ -180,10 +303,12 @@ test("operational presentation is honest about validation and supplier reference
     nextAction: "Kontrollér ordre",
   });
   assert.equal(getProductionOrderPresentation(job(), {
-    validation: { jobId: "job-1", jobVersion: VERSION, passed: true, kind: "ready" },
+    validation: { jobId: "job-1", jobVersion: VERSION, paymentMethod: "invoice", semanticFingerprint: buildSubmissionFingerprint(job()), passed: true, kind: "ready" },
+    paymentMethod: "invoice",
   }).group, "ready");
   assert.equal(getProductionOrderPresentation(job({ status: "failed" }), {
-    validation: { jobId: "job-1", jobVersion: VERSION, passed: true, kind: "ready" },
+    validation: { jobId: "job-1", jobVersion: VERSION, paymentMethod: "invoice", semanticFingerprint: buildSubmissionFingerprint(job({ status: "failed" })), passed: true, kind: "ready" },
+    paymentMethod: "invoice",
   }).canSubmit, false);
   assert.equal(getProductionOrderPresentation(job({ status: "submitted" })).group, "attention");
   assert.equal(getProductionOrderPresentation(job({ status: "processing" })).group, "attention");
@@ -192,7 +317,38 @@ test("operational presentation is honest about validation and supplier reference
   assert.equal(getProductionOrderPresentation(job({ status: "payment_pending" })).group, "waiting");
   assert.equal(getProductionOrderPresentation(job({ status: "awaiting_approval" })).label, "Afventer godkendelse");
   assert.equal(getProductionOrderPresentation(job(), {
-    validation: { jobId: "job-1", jobVersion: VERSION, passed: false, kind: "manual_check" },
+    validation: { jobId: "job-1", jobVersion: VERSION, paymentMethod: "invoice", semanticFingerprint: buildSubmissionFingerprint(job()), passed: false, kind: "manual_check" },
+    paymentMethod: "invoice",
   }).group, "attention");
   assert.equal(getProductionOrderPresentation(job(), { reconciliationBlocked: true }).group, "attention");
+  for (const status of ["processing", "submitted"] as const) {
+    const current = job({ status });
+    assert.equal(getProductionOrderPresentation(current, { paymentMethod: "invoice" }).group, "attention");
+    assert.deepEqual(getProductionOrderPresentation(current, {
+      paymentMethod: "invoice",
+      validation: { jobId: current.id, jobVersion: current.updated_at, paymentMethod: "invoice", semanticFingerprint: buildSubmissionFingerprint(current), passed: true, kind: "ready" },
+    }), {
+      group: "ready",
+      label: "Klar til produktion",
+      canValidate: true,
+      canSubmit: true,
+      nextAction: "Bekræft leverandørordre",
+    });
+  }
+});
+
+test("green validation outcome requires a current eligible semantic binding", () => {
+  const current = job();
+  const validation = {
+    jobId: current.id,
+    jobVersion: current.updated_at,
+    paymentMethod: "invoice" as const,
+    semanticFingerprint: buildSubmissionFingerprint(current),
+    passed: true,
+    kind: "ready" as const,
+  };
+  assert.equal(getValidationOutcomeState(current, validation, "invoice"), "ready");
+  assert.equal(getValidationOutcomeState({ ...current, qty: 101 }, validation, "invoice"), "stale");
+  assert.equal(getValidationOutcomeState({ ...current, status: "failed" }, validation, "invoice"), "stale");
+  assert.equal(getValidationOutcomeState(current, validation, "psp"), "stale");
 });
