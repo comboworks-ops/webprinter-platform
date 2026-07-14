@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { PrintProductWizard } from "./PrintProductWizard";
 import { PrintProductionDistribution } from "./PrintProductionDistribution";
 import { PrintProductionOverview } from "./PrintProductionOverview";
+import { PrintProductionOrders } from "./PrintProductionOrders";
 import { PrintProductionProducts } from "./PrintProductionProducts";
 import {
   getPrintProductionView,
@@ -143,6 +144,15 @@ export function PrintProductionShell({
           navigate(productId ? `${href}&product=${encodeURIComponent(productId)}` : href);
         }}
         onRefetch={refetch}
+      />
+    );
+  } else if (activeView === "orders" && snapshot) {
+    activeContent = (
+      <PrintProductionOrders
+        snapshot={snapshot}
+        onRefetch={refetch}
+        forceDomain={forceDomain}
+        selectedJobId={searchParams.get("job")}
       />
     );
   } else {
