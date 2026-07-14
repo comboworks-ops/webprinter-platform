@@ -1178,3 +1178,82 @@ git commit -m "..."
 git push -u origin ui-cleanup
 vercel deploy . --prod -y
 ```
+
+## Print Production Control Center (2026-07-14)
+
+### Implementation status
+
+- `/admin/printproduktion` is the default master-admin Print Production Control
+  Center. Its five normal views are `Overblik`, `Produkter`, `Distribution`,
+  `Ordrer`, and `Indstillinger`.
+- The route is master-context gated. A tenant-context request redirects to the
+  ordinary product area while preserving `force_domain`; tenant navigation no
+  longer exposes normal POD controls.
+- Product distribution uses the existing selected-tenant transfer path. The
+  selection starts empty every time the dialog opens, `Vælg alle` is explicit,
+  and the selection is cleared on close. Receiving tenants see ordinary
+  Webprinter product/update language rather than supplier or POD details.
+- `Kontrollér ordre` is dry-run-only validation. A current successful
+  validation is required before an explicit real submission confirmation; an
+  uncertain response is not automatically retried.
+- Print.com is the only adapter currently allowed to advertise live submission
+  and status synchronization. Other suppliers remain catalog-preparation only.
+
+### Key files
+
+- `src/pages/admin/PrintProduction.tsx` - master-context gate and redirect.
+- `src/components/admin/print-production/PrintProductionShell.tsx` - the
+  five-view shell and normal/advanced boundary.
+- `src/components/admin/print-production/PrintProductionOverview.tsx`,
+  `PrintProductionProducts.tsx`, `PrintProductionDistribution.tsx`,
+  `PrintProductionOrders.tsx`, and `PrintProductionSettings.tsx` - the
+  operational views.
+- `src/lib/print-production/` - read model, readiness, selected-shop
+  distribution, navigation, order-validation/submission safeguards, and
+  focused tests.
+- `src/components/admin/print-production/AdvancedToolsLinks.tsx` - legacy
+  rollback/diagnostic links with `force_domain` preservation.
+- `src/pages/Admin.tsx`, `src/components/admin/AdminSidebar.tsx`,
+  `src/components/admin/TenantUpdates.tsx`, and
+  `src/components/admin/ShopModules.tsx` - route registration, master-only
+  navigation, and the ordinary tenant-product boundary.
+
+### Safety and rollback decisions
+
+- POD v1 and its routes remain intact. POD v2 remains the production
+  integration; this adds an operating shell only.
+- Existing pricing and product-price calculations remain authoritative and
+  unchanged. Supplier Bank remains separate.
+- The legacy rollback routes remain deployed: `/admin/pod2`,
+  `/admin/pod2-katalog`, `/admin/pod2-ordrer`, `/admin/pod2-betaling`,
+  `/admin/pod`, and `/admin/pod3`. Rollback removes the new sidebar entry and
+  route composition without deleting POD, product, price, order, or tenant
+  data.
+- No live supplier order, real distribution, or real import was run in
+  automated QA. The controller owns fresh-server, signed-in desktop/mobile
+  browser QA after this documentation commit.
+
+### Verification commands
+
+Use the bundled runtime when invoking Node, pnpm, or Vite:
+
+```bash
+PATH=/Users/thomasprintmaker/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:$PATH node --test --experimental-strip-types src/lib/print-production/*.test.ts
+PATH=/Users/thomasprintmaker/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:$PATH pnpm exec eslint src/lib/print-production src/components/admin/print-production src/pages/admin/PrintProduction.tsx
+PATH=/Users/thomasprintmaker/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:$PATH pnpm exec vite build
+```
+
+2026-07-14 local result: all 58 focused `src/lib/print-production` tests
+passed; the scoped ESLint command passed; and the Vite production build passed.
+The build retained the pre-existing dependency/chunk warnings (including
+`lcms-wasm`, `pdfjs-dist`, mixed import, and large-chunk warnings) without a
+build error.
+
+### Remaining live canary requirement
+
+Before live supplier use, an authorized master operator must explicitly approve
+and place one controlled real Print.com canary order. Afterward, verify the
+stored supplier order reference and status synchronization. Automated QA must
+continue to use `Kontrollér ordre` with `dryRun: true` and must not place a live
+supplier order, distribute a real product, or import a real product without
+separate explicit approval of the exact product and tenant shops.

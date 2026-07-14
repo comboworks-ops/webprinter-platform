@@ -1,6 +1,6 @@
 # POD v2 System (Print.com Integration) — High Priority
 
-Last updated: 2026-03-11
+Last updated: 2026-07-14
 
 This document is the authoritative guide for POD v2 in this repo.  
 Read this first before changing anything in POD v2, pricing, or catalog flows.
@@ -156,3 +156,73 @@ If categories are needed, add a manual SKU → category mapping layer later.
 POD v2 feeds into the existing product system without touching pricing logic.  
 Keep POD v1 intact.  
 Current fulfillment flow is tenant payment first, then master forwarding.
+
+---
+
+## 13) Print Production Control Center (2026-07-14)
+
+`/admin/printproduktion` is the default master operating route for the POD v2
+production workflow. It is an additive master-admin shell over the existing
+POD v2 data, hooks, edge functions, selected-tenant transfer, and product/order
+flows; it is not a new POD engine. A tenant-context request is redirected to
+the ordinary product area and must not disclose supplier information.
+
+### Normal master views
+
+The normal route has five business-facing views:
+
+1. `Overblik`
+2. `Produkter`
+3. `Distribution`
+4. `Ordrer`
+5. `Indstillinger`
+
+Use the normal views for day-to-day work. Technical supplier diagnostics, raw
+payload/dry-run detail, matrix tools, and manual forwarding stay under
+`Avancerede værktøjer` rather than becoming a tenant-facing or default flow.
+
+### Distribution and tenant boundary
+
+- A distribution dialog always opens with no shops selected. `Vælg alle` is a
+  separate, explicit action; it is never preselected.
+- A product is sent only to the explicitly selected eligible shops. Closing and
+  reopening the dialog clears the selection.
+- The existing selected-tenant transfer continues to use
+  `delivery_mode = pod_price_list` internally, but receiving tenants see an
+  ordinary Webprinter product update, ordinary product/storefront pricing, and
+  ordinary orders.
+- Tenant-facing navigation and screens must not expose POD versions, supplier
+  names or costs, credentials, API settings, matrix mapping, raw payloads,
+  dry runs, or forwarding controls.
+
+### Order submission boundary
+
+`Kontrollér ordre` is validation only and always uses the supplier dry run. A
+successful validation of the current order data is required before the explicit
+`Send til produktion` confirmation can be enabled. Do not automatically retry
+an uncertain real submission.
+
+Only Print.com is currently permitted to report live submission and status sync
+as ready, via the verified `pod2-order-submit` adapter. Other providers may be
+used for catalog preparation only until their server-side adapter,
+authorization, option translation, idempotency, and an explicitly authorized
+real canary order pass the same acceptance contract. Never send a Print.com
+payload to another supplier endpoint.
+
+### Rollback and invariants
+
+Rollback removes the new `Printproduktion` sidebar entry and route composition
+while leaving POD v2 data and edge functions untouched. Keep these deployed
+legacy/advanced routes available during rollout, including their
+`force_domain` context when linked from the control center:
+
+- `/admin/pod2` - supplier/API workbench
+- `/admin/pod2-katalog` - catalog and matrix workbench
+- `/admin/pod2-ordrer` - technical order handling/manual fallback
+- `/admin/pod2-betaling` - historical tenant billing
+- `/admin/pod` - POD v1
+- `/admin/pod3` - Flyer Alarm workbench
+
+This control center does not change POD v1 tables, functions, routes, or UI
+behavior. It does not change the pricing engine, product-price calculations,
+or storefront pricing; existing pricing remains authoritative.
