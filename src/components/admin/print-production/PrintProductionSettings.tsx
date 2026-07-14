@@ -27,6 +27,17 @@ interface StatusSyncSummary {
   completedAt: Date;
 }
 
+interface StatusSyncResult {
+  scanned: number;
+  updated: number;
+  errors: number;
+}
+
+type StatusSyncState =
+  | { kind: "success"; summary: StatusSyncSummary }
+  | { kind: "refresh-failed" }
+  | null;
+
 const dateTimeFormatter = new Intl.DateTimeFormat("da-DK", {
   day: "2-digit",
   month: "short",
@@ -49,7 +60,7 @@ export function PrintProductionSettings({
     ),
   });
   const syncPrintcomStatus = usePodSyncPrintcomStatus();
-  const [lastSync, setLastSync] = useState<StatusSyncSummary | null>(null);
+  const [lastSync, setLastSync] = useState<StatusSyncState>(null);
   const activeConnection = useMemo(
     () => selectActiveConnection(connectionsQuery.data || []),
     [connectionsQuery.data],
@@ -62,18 +73,32 @@ export function PrintProductionSettings({
   const handleSync = async () => {
     if (!canSyncStatus || syncPrintcomStatus.isPending) return;
 
+    setLastSync(null);
+
+    let result: StatusSyncResult;
     try {
-      const result = await syncPrintcomStatus.mutateAsync();
-      setLastSync({
+      result = await syncPrintcomStatus.mutateAsync();
+    } catch {
+      // The existing mutation surfaces a safe operator-facing error toast.
+      return;
+    }
+
+    try {
+      await onRefetch();
+    } catch {
+      setLastSync({ kind: "refresh-failed" });
+      return;
+    }
+
+    setLastSync({
+      kind: "success",
+      summary: {
         scanned: safeCount(result.scanned),
         updated: safeCount(result.updated),
         errors: safeCount(result.errors),
         completedAt: new Date(),
-      });
-      await onRefetch();
-    } catch {
-      // The existing mutation surfaces a safe operator-facing error toast.
-    }
+      },
+    });
   };
 
   return (
@@ -147,9 +172,7 @@ export function PrintProductionSettings({
               Leverandørstatus
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              {lastSync
-                ? formatSyncSummary(lastSync)
-                : "Ingen statussynkronisering i denne session."}
+              {getStatusSyncMessage(lastSync)}
             </p>
           </div>
           <Button
@@ -264,6 +287,16 @@ function toTimestamp(value: string): number {
 
 function safeCount(value: number): number {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+function getStatusSyncMessage(state: StatusSyncState): string {
+  if (state?.kind === "refresh-failed") {
+    return "Synkronisering gennemført, men oversigten kunne ikke opdateres. Prøv igen.";
+  }
+
+  return state?.kind === "success"
+    ? formatSyncSummary(state.summary)
+    : "Ingen statussynkronisering i denne session.";
 }
 
 function formatSyncSummary(summary: StatusSyncSummary): string {

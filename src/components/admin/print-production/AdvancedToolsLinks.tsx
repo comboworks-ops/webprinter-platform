@@ -14,7 +14,8 @@ const ADVANCED_TOOLS = [
   { href: "/admin/pod3", label: "Flyer Alarm-arbejdsområde" },
 ] as const;
 
-function withForceDomain(href: string, forceDomain: string | null): string {
+// eslint-disable-next-line react-refresh/only-export-components
+export function withForceDomain(href: string, forceDomain: string | null): string {
   if (!forceDomain) return href;
 
   const params = new URLSearchParams({ force_domain: forceDomain });

@@ -14,6 +14,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { withForceDomain } from "./AdvancedToolsLinks";
 import { PrintProductWizard } from "./PrintProductWizard";
 import { PrintProductionDistribution } from "./PrintProductionDistribution";
 import { PrintProductionOverview } from "./PrintProductionOverview";
@@ -56,6 +57,7 @@ export function PrintProductionShell({
   const selectedProductId = searchParams.get("product");
   const addProductHref = `${withPrintProductionView(location.search, "products")}&action=new`;
   const forceDomain = searchParams.get("force_domain");
+  const advancedToolsHref = withForceDomain("/admin/pod2", forceDomain);
 
   let activeContent: ReactNode;
   if (isLoading) {
@@ -230,6 +232,15 @@ export function PrintProductionShell({
       >
         {activeContent}
       </section>
+
+      <footer className="border-t pt-3">
+        <Link
+          to={advancedToolsHref}
+          className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          Avancerede værktøjer
+        </Link>
+      </footer>
     </div>
   );
 }

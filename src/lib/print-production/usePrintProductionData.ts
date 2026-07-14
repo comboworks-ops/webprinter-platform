@@ -180,7 +180,14 @@ export function usePrintProductionData(input: UsePrintProductionDataInput): UseP
     isLoading: connectionsQuery.isLoading || dataQuery.isLoading,
     error: toError(connectionsQuery.error) || toError(dataQuery.error),
     refetch: async () => {
-      await Promise.all([connectionsQuery.refetch(), dataQuery.refetch()]);
+      const [connectionsResult, dataResult] = await Promise.all([
+        connectionsQuery.refetch({ throwOnError: false }),
+        dataQuery.refetch({ throwOnError: false }),
+      ]);
+
+      if (connectionsResult.error || dataResult.error) {
+        throw new Error("Produktionsoversigten kunne ikke opdateres.");
+      }
     },
   };
 }
