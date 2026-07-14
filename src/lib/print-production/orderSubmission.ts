@@ -42,9 +42,10 @@ export interface PendingValidationResolutionInput {
     jobId: string;
     preValidationVersion: string;
     preValidationFingerprint: string;
+    deadlineAt: number;
   };
   currentJob: PodFulfillmentJob | null;
-  timedOut: boolean;
+  now: number;
 }
 
 export type PendingValidationResolution =
@@ -174,11 +175,12 @@ export function buildSubmissionFingerprint(job: PodFulfillmentJob): string {
 }
 
 export function resolvePendingValidation(input: PendingValidationResolutionInput): PendingValidationResolution {
-  const { pending, currentJob, timedOut } = input;
+  const { pending, currentJob, now } = input;
+  if (!Number.isFinite(now) || !Number.isFinite(pending.deadlineAt) || now >= pending.deadlineAt) {
+    return { kind: "rejected", message: "Den opdaterede jobtilstand kunne ikke bekræftes i tide. Kontrollér ordren igen." };
+  }
   if (!currentJob || currentJob.updated_at === pending.preValidationVersion) {
-    return timedOut
-      ? { kind: "rejected", message: "Den opdaterede jobtilstand kunne ikke bekræftes. Kontrollér ordren igen." }
-      : { kind: "waiting" };
+    return { kind: "waiting" };
   }
 
   const semanticFingerprint = buildSubmissionFingerprint(currentJob);

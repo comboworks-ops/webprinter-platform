@@ -138,34 +138,45 @@ test("central live gate requires the exact validated semantic fingerprint", () =
   assert.equal(canConfirmRealSubmission(omittedBinding as never), false);
 });
 
-test("pending validation waits for a committed refresh, accepts tracking-only changes, and times out fail-closed", () => {
+test("pending validation uses an absolute deadline for refresh binding", () => {
   const before = job();
   const pending = {
     jobId: before.id,
     preValidationVersion: before.updated_at,
     preValidationFingerprint: buildSubmissionFingerprint(before),
+    deadlineAt: 10_000,
   };
-  assert.equal(resolvePendingValidation({ pending, currentJob: before, timedOut: false }).kind, "waiting");
-  assert.equal(resolvePendingValidation({ pending, currentJob: before, timedOut: true }).kind, "rejected");
+
+  assert.equal(resolvePendingValidation({ pending, currentJob: before, now: 9_000 }).kind, "waiting");
   assert.equal(resolvePendingValidation({
     pending,
     currentJob: job({ updated_at: "2026-07-14T10:01:00.000Z", printcom_last_attempt_at: "2026-07-14T10:01:00.000Z" }),
-    timedOut: false,
+    now: 9_000,
   }).kind, "accepted");
+  assert.equal(resolvePendingValidation({ pending, currentJob: before, now: 10_000 }).kind, "rejected");
+  assert.equal(resolvePendingValidation({
+    pending,
+    currentJob: job({ updated_at: "2026-07-14T10:01:00.000Z", printcom_last_attempt_at: "2026-07-14T10:01:00.000Z" }),
+    now: 10_000,
+  }).kind, "rejected");
+
+  assert.equal(resolvePendingValidation({ pending, currentJob: before, now: 9_250 }).kind, "waiting");
+  assert.equal(resolvePendingValidation({ pending, currentJob: before, now: 9_750 }).kind, "waiting");
+  assert.equal(pending.deadlineAt, 10_000);
   assert.equal(resolvePendingValidation({
     pending,
     currentJob: job({ updated_at: "2026-07-14T10:01:00.000Z", qty: 101 }),
-    timedOut: false,
+    now: 9_000,
   }).kind, "rejected");
   assert.equal(resolvePendingValidation({
     pending,
     currentJob: job({ updated_at: "2026-07-14T10:01:00.000Z", printcom_order_id: "2106321" }),
-    timedOut: false,
+    now: 9_000,
   }).kind, "rejected");
   assert.equal(resolvePendingValidation({
     pending,
     currentJob: job({ updated_at: "2026-07-14T10:01:00.000Z", status: "failed" }),
-    timedOut: false,
+    now: 9_000,
   }).kind, "rejected");
 });
 

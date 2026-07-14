@@ -67,7 +67,7 @@ type PendingValidationBinding = {
   preValidationFingerprint: string;
   paymentMethod: PrintcomPaymentMethod;
   interpretation: DryRunInterpretation;
-  timedOut: boolean;
+  deadlineAt: number;
 };
 
 const PENDING_VALIDATION_TIMEOUT_MS = 1500;
@@ -122,15 +122,17 @@ export function PrintProductionOrders({
     const resolution = resolvePendingValidation({
       pending: pendingValidation,
       currentJob,
-      timedOut: pendingValidation.timedOut,
+      now: Date.now(),
     });
 
     if (resolution.kind === "waiting") {
+      const remainingMs = Math.max(0, pendingValidation.deadlineAt - Date.now());
       const timeout = window.setTimeout(() => {
         setPendingValidation((current) => current?.jobId === pendingValidation.jobId
-          ? { ...current, timedOut: true }
+          && current.deadlineAt === pendingValidation.deadlineAt
+          ? { ...current }
           : current);
-      }, PENDING_VALIDATION_TIMEOUT_MS);
+      }, remainingMs);
       return () => window.clearTimeout(timeout);
     }
 
@@ -236,7 +238,7 @@ export function PrintProductionOrders({
         preValidationFingerprint: buildSubmissionFingerprint(currentJob),
         paymentMethod,
         interpretation,
-        timedOut: false,
+        deadlineAt: Date.now() + PENDING_VALIDATION_TIMEOUT_MS,
       });
     } catch (error: unknown) {
       setValidation({
