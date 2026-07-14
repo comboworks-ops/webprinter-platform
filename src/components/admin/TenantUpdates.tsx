@@ -127,7 +127,7 @@ export function TenantUpdates() {
                     </Card>
                 ) : (
                     notifications.map((notification) => {
-                        const deliveryModeLabel = notification.data?.delivery_mode === 'pod_price_list' ? 'POD-pris' : 'Standard pris';
+                        const deliveryModeLabel = notification.data?.delivery_mode === 'pod_price_list' ? 'Webprinter-styret produkt' : 'Standard pris';
                         const showDeliveryMode = notification.type === 'product_update' && notification.data?.delivery_mode;
                         return (
                             <Card key={notification.id} className={`transition-all ${!notification.is_read ? 'border-primary/50 bg-primary/5' : ''}`}>
@@ -178,7 +178,7 @@ export function TenantUpdates() {
                                             </>
                                         ) : (
                                             <>
-                                                <Download className="mr-2 h-4 w-4" /> Importer Produkt
+                                                <Download className="mr-2 h-4 w-4" /> Tilføj produkt
                                             </>
                                         )}
                                     </Button>

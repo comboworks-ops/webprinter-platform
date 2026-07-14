@@ -6,7 +6,6 @@ import { useNavigate } from "react-router-dom";
 import {
     Paintbrush,
     Calculator,
-    Printer,
     Building2,
     Palette,
     Share2,
@@ -123,26 +122,6 @@ const SHOP_MODULES: ShopModule[] = [
         color: 'from-blue-500 to-cyan-500',
         previewImage: 'https://images.unsplash.com/photo-1504868584819-f8e8b4b6d7e3?w=800&h=450&fit=crop',
         price: 'Fra 299 kr/md',
-    },
-    {
-        id: 'print-on-demand',
-        name: 'Print on Demand',
-        description: 'Dropshipping af tryksager',
-        longDescription: 'Sælg produkter uden at have dem på lager. Når en kunde bestiller, sendes ordren automatisk til produktion hos en partner, der printer og sender direkte til kunden.',
-        icon: <Printer className="h-8 w-8" />,
-        status: 'active',
-        tier: 'premium',
-        route: '/admin/pod-katalog',
-        features: [
-            'POD produktkatalog',
-            'Automatisk ordrebehandling',
-            'Direkte levering til kunde',
-            'Integration med produktion',
-            'Øget avance'
-        ],
-        color: 'from-green-500 to-emerald-500',
-        previewImage: 'https://images.unsplash.com/photo-1586075010923-2dd4570fb338?w=800&h=450&fit=crop',
-        price: 'Fra 499 kr/md',
     },
     {
         id: 'company-hub',

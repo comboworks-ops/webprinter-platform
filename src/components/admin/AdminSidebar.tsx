@@ -528,14 +528,6 @@ export function AdminSidebar() {
                     </AdminNavLink>
                   </SidebarMenuItem>
 
-                  {/* Print on Demand */}
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/pod-katalog">
-                      <Printer className="h-4 w-4" />
-                      {!collapsed && <span>Print on Demand</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
-
                   {/* Company Hub */}
                   <SidebarMenuItem>
                     <AdminNavLink to="/admin/companyhub">
@@ -831,24 +823,6 @@ export function AdminSidebar() {
                           {unreadSystemCount > 9 ? '9+' : unreadSystemCount}
                         </span>
                       )}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/pod2-ordrer">
-                      <ShoppingCart className="h-4 w-4" />
-                      {!collapsed && <span>POD v2 Ordrer</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/pod2-betaling">
-                      <CreditCard className="h-4 w-4" />
-                      {!collapsed && <span>POD v2 Betaling</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/pod3">
-                      <Printer className="h-4 w-4" />
-                      {!collapsed && <span>Flyer Alarm (POD3)</span>}
                     </AdminNavLink>
                   </SidebarMenuItem>
                 </SidebarMenu>
