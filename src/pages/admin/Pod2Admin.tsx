@@ -16,7 +16,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Play, Save, Trash2, Plus, RefreshCw, Globe, Key, Zap, GripVertical, ExternalLink } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown, Loader2, Play, Save, Trash2, Plus, RefreshCw, Globe, Key, Zap, GripVertical, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -32,6 +33,10 @@ import {
 import { POD_DEFAULT_QUANTITIES } from "@/lib/pod2/types";
 import type { PodExplorerRequest } from "@/lib/pod2/types";
 import { toDanish } from "@/lib/pod2/danishTerms";
+import {
+    getSupplierPresentation,
+    type SupplierPresentation,
+} from "@/lib/print-production/supplierPresentation";
 import { Pod2Katalog } from "@/pages/admin/Pod2Katalog";
 
 // Default presets for Print.com API exploration
@@ -68,7 +73,7 @@ export function Pod2Admin() {
                 </TabsContent>
 
                 <TabsContent value="browse">
-                    <BrowseTab />
+                    <Pod2SupplierImporter mode="advanced" />
                 </TabsContent>
 
                 <TabsContent value="curate">
@@ -80,6 +85,28 @@ export function Pod2Admin() {
                 </TabsContent>
             </Tabs>
         </div>
+    );
+}
+
+export interface Pod2SupplierImporterProps {
+    mode?: "advanced" | "guided";
+    onCatalogProductCreated?: (result: {
+        catalogProductId: string;
+        supplierProductRef: string;
+    }) => void;
+}
+
+export function Pod2SupplierImporter({
+    mode = "advanced",
+    onCatalogProductCreated,
+}: Pod2SupplierImporterProps) {
+    const presentation = getSupplierPresentation(mode);
+    return (
+        <BrowseTab
+            mode={mode}
+            presentation={presentation}
+            onCatalogProductCreated={onCatalogProductCreated}
+        />
     );
 }
 
@@ -608,7 +635,13 @@ function ExplorerTab() {
 // Browse Tab - View supplier products
 // ============================================================
 
-function BrowseTab() {
+function BrowseTab({
+    mode = "advanced",
+    presentation,
+    onCatalogProductCreated,
+}: Pod2SupplierImporterProps & {
+    presentation: SupplierPresentation;
+}) {
     type PodImportPreset = {
         id: string;
         name: string;
@@ -676,7 +709,7 @@ function BrowseTab() {
     const [wizardRegion, setWizardRegion] = useState("DK");
     const [wizardCurrency, setWizardCurrency] = useState("DKK");
     const [wizardUseBatch, setWizardUseBatch] = useState(true);
-    const [wizardAutoPublish, setWizardAutoPublish] = useState(false);
+    const [wizardAutoPublish, setWizardAutoPublish] = useState(presentation.autoPublishDefault);
     const [wizardMaxVariants, setWizardMaxVariants] = useState(String(DEFAULT_MAX_VARIANTS));
     const [wizardMaxRequests, setWizardMaxRequests] = useState(String(DEFAULT_MAX_REQUESTS));
     const [wizardPresetId, setWizardPresetId] = useState("");
@@ -692,6 +725,7 @@ function BrowseTab() {
         fixed: [],
     });
     const [wizardMatrixMappingReady, setWizardMatrixMappingReady] = useState(false);
+    const [wizardAdvancedOpen, setWizardAdvancedOpen] = useState(presentation.matrixInitiallyExpanded);
 
     const sheetSizeProbeCache = useRef(new Map<string, string | null>());
     const sheetSizeProbeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -972,7 +1006,11 @@ function BrowseTab() {
             } as PodMatrixMapping;
         }
 
-        const verticalAxis = null;
+        const verticalAxis = mode === "guided"
+            ? groupKeys.find((groupKey) => (
+                isAllowedVerticalKey(groupKey) && (selections[groupKey]?.length || 0) > 0
+            )) || null
+            : null;
         const rows = createDefaultMatrixRows();
         const fixed: string[] = [];
 
@@ -1045,7 +1083,6 @@ function BrowseTab() {
             fixed: cleanedFixed,
         };
     };
-
 
     const buildVariantCombos = (
         properties: any[],
@@ -1545,7 +1582,7 @@ function BrowseTab() {
         setWizardRegion("DK");
         setWizardCurrency("DKK");
         setWizardUseBatch(true);
-        setWizardAutoPublish(false);
+        setWizardAutoPublish(presentation.autoPublishDefault);
         setWizardMaxVariants(String(DEFAULT_MAX_VARIANTS));
         setWizardMaxRequests(String(DEFAULT_MAX_REQUESTS));
         setWizardPresetId("");
@@ -1560,6 +1597,7 @@ function BrowseTab() {
             fixed: [],
         });
         setWizardMatrixMappingReady(false);
+        setWizardAdvancedOpen(presentation.matrixInitiallyExpanded);
         setWizardStep(1);
         if (sheetSizeProbeTimer.current) {
             clearTimeout(sheetSizeProbeTimer.current);
@@ -1609,7 +1647,7 @@ function BrowseTab() {
         setWizardRegion("DK");
         setWizardCurrency("DKK");
         setWizardUseBatch(true);
-        setWizardAutoPublish(false);
+        setWizardAutoPublish(presentation.autoPublishDefault);
         setWizardMaxVariants(String(DEFAULT_MAX_VARIANTS));
         setWizardMaxRequests(String(DEFAULT_MAX_REQUESTS));
         setWizardPresetId("");
@@ -1645,11 +1683,16 @@ function BrowseTab() {
                     defaultLabels[property.slug] = { [value]: toDanish(rawOptionName) };
                 }
             }
+            const defaultMatrixMapping = buildDefaultMatrixMapping(properties, defaults);
             setWizardSelections(defaults);
             setWizardOptionLabels(defaultLabels);
             setWizardGroupLabels(defaultGroups);
-            setWizardMatrixMapping(buildDefaultMatrixMapping(properties, defaults));
+            setWizardMatrixMapping(defaultMatrixMapping);
             setWizardMatrixMappingReady(true);
+            setWizardAdvancedOpen(
+                presentation.matrixInitiallyExpanded
+                || (mode === "guided" && !defaultMatrixMapping.verticalAxis),
+            );
 
             const detailTitle = details?.titleSingle || details?.title || details?.name || details?.titlePlural;
             const detailDescription = details?.description || "";
@@ -2095,6 +2138,9 @@ function BrowseTab() {
         }
         if (!matrixMapping.verticalAxis) {
             setWizardError("Vælg en lodret akse for prismatrixen.");
+            if (mode === "guided") {
+                setWizardAdvancedOpen(true);
+            }
             return;
         }
 
@@ -2452,7 +2498,7 @@ function BrowseTab() {
                 batchFailureMessage,
             };
 
-            await supabase
+            const { error: supplierDataError } = await supabase
                 .from("pod2_catalog_products" as any)
                 .update({
                     supplier_product_data: {
@@ -2462,7 +2508,12 @@ function BrowseTab() {
                 })
                 .eq("id", catalogProductId);
 
+            if (supplierDataError && onCatalogProductCreated) {
+                throw new Error(`Priser blev gemt, men leverandørdata kunne ikke opdateres: ${supplierDataError.message}`);
+            }
+
             const hasIncompletePrices = skippedMatrixRows > 0 || missingPriceCells > 0;
+            let didPublish = false;
 
             if (wizardAutoPublish && hasIncompletePrices) {
                 toast.warning(
@@ -2477,10 +2528,21 @@ function BrowseTab() {
                 if (publishError) {
                     throw new Error(`Priser blev gemt, men produktet kunne ikke publiceres: ${publishError.message}`);
                 }
+                didPublish = true;
             }
 
             toast.success(hasIncompletePrices ? "Produkt importeret med delvise priser" : "Produkt importeret med priser");
-            refetchCatalog();
+            if (onCatalogProductCreated) {
+                await refetchCatalog();
+                if (didPublish) {
+                    onCatalogProductCreated({
+                        catalogProductId,
+                        supplierProductRef: sku,
+                    });
+                }
+            } else {
+                refetchCatalog();
+            }
             handleWizardOpenChange(false);
         } catch (e: any) {
             toast.error("Import fejlede: " + (e?.message || "ukendt fejl"));
@@ -2603,7 +2665,7 @@ function BrowseTab() {
                     </div>
                 )}
 
-                {response?.data && (
+                {presentation.showApiLimits && response?.data && (
                     <details className="mt-6">
                         <summary className="cursor-pointer text-sm text-muted-foreground">Vis rå API respons</summary>
                         <pre className="mt-2 text-xs bg-muted p-4 rounded-lg overflow-auto max-h-[400px]">
@@ -2634,6 +2696,7 @@ function BrowseTab() {
                                 <div className="space-y-6">
                                 {wizardStep === 1 && (
                                     <>
+                                {presentation.showPresets && (
                                 <div className="space-y-3 border rounded-lg p-3">
                                     <Label>Presets</Label>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -2680,6 +2743,7 @@ function BrowseTab() {
                                         </Button>
                                     </div>
                                 </div>
+                                )}
 
                                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                     Grunddata
@@ -2779,6 +2843,7 @@ function BrowseTab() {
                                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                     Batch & publicering
                                 </div>
+                                {presentation.showRegionCurrency && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Region (batch)</Label>
@@ -2803,7 +2868,9 @@ function BrowseTab() {
                                         </p>
                                     </div>
                                 </div>
+                                )}
 
+                                {presentation.showBatchToggle && (
                                 <div className="flex items-center justify-between border rounded-lg p-3">
                                     <div>
                                         <p className="text-sm font-medium">Batch prisberegning</p>
@@ -2813,6 +2880,7 @@ function BrowseTab() {
                                     </div>
                                     <Switch checked={wizardUseBatch} onCheckedChange={setWizardUseBatch} />
                                 </div>
+                                )}
 
                                 <div className="flex items-center justify-between border rounded-lg p-3">
                                     <div>
@@ -2824,29 +2892,33 @@ function BrowseTab() {
                                     <Switch checked={wizardAutoPublish} onCheckedChange={setWizardAutoPublish} />
                                 </div>
 
-                                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                    Teknisk styring
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <Label>Maks varianter</Label>
-                                        <Input
-                                            type="number"
-                                            value={wizardMaxVariants}
-                                            onChange={(e) => setWizardMaxVariants(e.target.value)}
-                                            min="1"
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Maks prisopslag</Label>
-                                        <Input
-                                            type="number"
-                                            value={wizardMaxRequests}
-                                            onChange={(e) => setWizardMaxRequests(e.target.value)}
-                                            min="1"
-                                        />
-                                    </div>
-                                </div>
+                                {presentation.showApiLimits && (
+                                    <>
+                                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                            Teknisk styring
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <Label>Maks varianter</Label>
+                                                <Input
+                                                    type="number"
+                                                    value={wizardMaxVariants}
+                                                    onChange={(e) => setWizardMaxVariants(e.target.value)}
+                                                    min="1"
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Maks prisopslag</Label>
+                                                <Input
+                                                    type="number"
+                                                    value={wizardMaxRequests}
+                                                    onChange={(e) => setWizardMaxRequests(e.target.value)}
+                                                    min="1"
+                                                />
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
 
                                 <Card>
                                     <CardHeader>
@@ -2871,12 +2943,12 @@ function BrowseTab() {
                                                 Tester kombinationen mod Print.com
                                             </span>
                                         </div>
-                                        {(Number(wizardMaxVariants) || DEFAULT_MAX_VARIANTS) < previewVariantCount && (
+                                        {presentation.showApiLimits && (Number(wizardMaxVariants) || DEFAULT_MAX_VARIANTS) < previewVariantCount && (
                                             <div className="text-xs text-destructive">
                                                 Varianter overstiger max ({wizardMaxVariants}).
                                             </div>
                                         )}
-                                        {(Number(wizardMaxRequests) || DEFAULT_MAX_REQUESTS) < previewPriceRequests && (
+                                        {presentation.showApiLimits && (Number(wizardMaxRequests) || DEFAULT_MAX_REQUESTS) < previewPriceRequests && (
                                             <div className="text-xs text-destructive">
                                                 Prisopslag overstiger max ({wizardMaxRequests}).
                                             </div>
@@ -2992,6 +3064,28 @@ function BrowseTab() {
                                             <span className="text-xs text-muted-foreground">Matrix layout</span>
                                         </div>
                                         {selectableProperties.length > 0 ? (
+                                            <Collapsible
+                                                open={presentation.matrixInitiallyExpanded || wizardAdvancedOpen}
+                                                onOpenChange={setWizardAdvancedOpen}
+                                                className="space-y-3"
+                                            >
+                                                {mode === "guided" && (
+                                                    <CollapsibleTrigger asChild>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            className="w-full justify-between"
+                                                            aria-expanded={wizardAdvancedOpen}
+                                                        >
+                                                            Avanceret
+                                                            <ChevronDown
+                                                                className={`h-4 w-4 transition-transform ${wizardAdvancedOpen ? "rotate-180" : ""}`}
+                                                                aria-hidden="true"
+                                                            />
+                                                        </Button>
+                                                    </CollapsibleTrigger>
+                                                )}
+                                                <CollapsibleContent>
                                             <Card>
                                                 <CardHeader className="flex flex-row items-center justify-between">
                                                     <div>
@@ -3116,6 +3210,8 @@ function BrowseTab() {
                                                     )}
                                                 </CardContent>
                                             </Card>
+                                                </CollapsibleContent>
+                                            </Collapsible>
                                         ) : (
                                             <p className="text-sm text-muted-foreground">
                                                 Ingen valgmuligheder fundet for dette produkt.
