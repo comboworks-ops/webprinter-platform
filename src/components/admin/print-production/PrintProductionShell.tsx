@@ -9,11 +9,12 @@ import {
   Send,
   Settings,
 } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { PrintProductionOverview } from "./PrintProductionOverview";
 import {
   getPrintProductionView,
   withPrintProductionView,
@@ -41,6 +42,7 @@ export function PrintProductionShell({
   error,
 }: PrintProductionShellProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const activeView = getPrintProductionView(location.search);
   const activeTab = VIEW_TABS.find(({ view }) => view === activeView) ?? VIEW_TABS[0];
   const addProductHref = `${withPrintProductionView(location.search, "products")}&action=new`;
@@ -64,6 +66,24 @@ export function PrintProductionShell({
         <AlertTitle>Produktionsdata kunne ikke indlæses</AlertTitle>
         <AlertDescription>{error.message}</AlertDescription>
       </Alert>
+    );
+  } else if (activeView === "overview" && snapshot) {
+    activeContent = (
+      <PrintProductionOverview
+        snapshot={snapshot}
+        onOpenProduct={(product, action) => {
+          const view = action === "distribute" ? "distribution" : "products";
+          const href = withPrintProductionView(location.search, view);
+          const productParam = product ? `&product=${encodeURIComponent(product.catalog.id)}` : "";
+          const actionParam = action === "new" ? "&action=new" : "";
+          navigate(`${href}${productParam}${actionParam}`);
+        }}
+        onOpenOrder={(job) => {
+          const href = withPrintProductionView(location.search, "orders");
+          const jobParam = job ? `&job=${encodeURIComponent(job.id)}` : "";
+          navigate(`${href}${jobParam}`);
+        }}
+      />
     );
   } else {
     activeContent = (

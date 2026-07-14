@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildPrintProductionSnapshot } from "./snapshot.ts";
+import { buildPrintProductionSnapshot, selectOverviewRows } from "./snapshot.ts";
 
 test("snapshot joins catalog, master import, notifications, tenants, and jobs", () => {
   const snapshot = buildPrintProductionSnapshot({
@@ -55,4 +55,45 @@ test("snapshot never copies supplier data into tenant rows", () => {
     domain: "a.dk",
     pod2_auto_forward: true,
   });
+});
+
+test("overview selects at most three ready or distributed products", () => {
+  const product = (id: string, status: "blocked" | "ready" | "distributed") => ({
+    catalog: { id },
+    readiness: { status },
+  });
+  const snapshot = {
+    products: [
+      product("ready-1", "ready"),
+      product("blocked-1", "blocked"),
+      product("distributed-1", "distributed"),
+      product("ready-2", "ready"),
+      product("distributed-2", "distributed"),
+    ],
+    jobs: [],
+  } as never;
+
+  const result = selectOverviewRows(snapshot);
+
+  assert.deepEqual(result.products.map((row) => row.catalog.id), [
+    "ready-1",
+    "distributed-1",
+    "ready-2",
+  ]);
+});
+
+test("overview selects two action jobs with failures before the oldest paid jobs", () => {
+  const snapshot = {
+    products: [],
+    jobs: [
+      { id: "paid-new", status: "paid", created_at: "2026-07-14T10:00:00Z" },
+      { id: "completed", status: "completed", created_at: "2026-07-10T10:00:00Z" },
+      { id: "paid-old", status: "paid", created_at: "2026-07-12T10:00:00Z" },
+      { id: "failed", status: "failed", created_at: "2026-07-14T11:00:00Z" },
+    ],
+  } as never;
+
+  const result = selectOverviewRows(snapshot);
+
+  assert.deepEqual(result.actionJobs.map((job) => job.id), ["failed", "paid-old"]);
 });

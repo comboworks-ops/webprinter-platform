@@ -1,5 +1,5 @@
 import type { PodCatalogProduct, PodFulfillmentJob } from "../pod2/types.ts";
-import { evaluateProductReadiness } from "./readiness.ts";
+import { classifyOrder, evaluateProductReadiness } from "./readiness.ts";
 import type {
   MasterProductRow,
   PrintProductionActivity,
@@ -15,6 +15,27 @@ type ProductUpdateNotice = {
   created_at?: string;
   data: { product_id?: string; slug?: string; delivery_mode?: string };
 };
+
+export function selectOverviewRows(snapshot: PrintProductionSnapshot): {
+  products: PrintProductionProduct[];
+  actionJobs: PodFulfillmentJob[];
+} {
+  const products = snapshot.products
+    .filter((product) => product.readiness.status === "ready" || product.readiness.status === "distributed")
+    .slice(0, 3);
+  const actionJobs = snapshot.jobs
+    .filter((job) => {
+      const group = classifyOrder(job).group;
+      return group === "attention" || group === "ready";
+    })
+    .sort((left, right) => {
+      const priorityDifference = overviewJobPriority(left) - overviewJobPriority(right);
+      return priorityDifference || toTimestamp(left.created_at) - toTimestamp(right.created_at);
+    })
+    .slice(0, 2);
+
+  return { products, actionJobs };
+}
 
 export function buildPrintProductionSnapshot(input: {
   connections: Array<{ provider_key: string; is_active: boolean }>;
@@ -149,4 +170,10 @@ function buildActivity(input: {
 function toTimestamp(value: string): number {
   const timestamp = Date.parse(value);
   return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function overviewJobPriority(job: PodFulfillmentJob): number {
+  if (job.status === "failed") return 0;
+  if (classifyOrder(job).group === "attention") return 1;
+  return 2;
 }
