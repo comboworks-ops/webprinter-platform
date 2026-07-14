@@ -60,7 +60,14 @@ export function PrintProductionShell({
   const advancedToolsHref = withForceDomain("/admin/pod2", forceDomain);
 
   let activeContent: ReactNode;
-  if (isLoading) {
+  if (activeView === "settings") {
+    activeContent = (
+      <PrintProductionSettings
+        forceDomain={forceDomain}
+        onRefetch={refetch}
+      />
+    );
+  } else if (isLoading) {
     activeContent = (
       <div className="flex min-h-64 items-center justify-center" role="status">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
@@ -153,13 +160,6 @@ export function PrintProductionShell({
         onRefetch={refetch}
         forceDomain={forceDomain}
         selectedJobId={searchParams.get("job")}
-      />
-    );
-  } else if (activeView === "settings") {
-    activeContent = (
-      <PrintProductionSettings
-        forceDomain={forceDomain}
-        onRefetch={refetch}
       />
     );
   } else {
