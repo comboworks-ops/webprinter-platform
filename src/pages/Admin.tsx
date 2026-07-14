@@ -58,6 +58,7 @@ import IconStudioPage from '@/pages/admin/IconStudioPage';
 import AdminPrintDesignerRedirect from '@/pages/admin/AdminPrintDesignerRedirect';
 import SupplierBank from '@/pages/admin/SupplierBank';
 import CommercialReadiness from '@/pages/admin/CommercialReadiness';
+import PrintProduction from '@/pages/admin/PrintProduction';
 
 
 export default function Admin() {
@@ -160,6 +161,7 @@ export default function Admin() {
                 <Route path="/platform-seo" element={<PlatformSeoAdmin />} />
                 <Route path="/platform-seo/callback" element={<SearchConsoleCallback />} />
                 <Route path="/supplier-bank" element={<SupplierBank />} />
+                <Route path="/printproduktion" element={<PrintProduction />} />
                 {/* Print on Demand Routes */}
                 <Route path="/pod" element={<PodAdmin />} />
                 <Route path="/pod-katalog" element={<PodKatalog />} />
