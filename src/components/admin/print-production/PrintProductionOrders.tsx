@@ -26,13 +26,23 @@ import { usePodSubmitToPrintcom, usePodSyncPrintcomStatus } from "@/lib/pod2/hoo
 import type { PodFulfillmentJob } from "@/lib/pod2/types";
 import {
   buildValidationRequest,
+  canReconcileUncertainSubmission,
   canConfirmRealSubmission,
-  classifySupplierResponse,
+  createSubmissionSessionState,
+  getProductionOrderPresentation,
   groupProductionJobs,
+  interpretDryRunResult,
+  isReconciliationBlocked,
+  markSubmissionReconciliationRefreshed,
+  reconcileUncertainSubmission,
+  resolveCurrentJob,
+  startUncertainSubmissionReconciliation,
+  type DryRunInterpretation,
   type PrintcomPaymentMethod,
-  type SupplierResponseClassification,
+  type ProductionOrderPresentation,
+  type SubmissionSessionState,
+  type ValidationBinding,
 } from "@/lib/print-production/orderSubmission";
-import { classifyOrder } from "@/lib/print-production/readiness";
 import type { PrintProductionSnapshot } from "@/lib/print-production/types";
 import { cn } from "@/lib/utils";
 
@@ -43,21 +53,16 @@ interface PrintProductionOrdersProps {
   selectedJobId: string | null;
 }
 
-type ValidationRecord = {
-  jobId: string;
-  jobVersion: string;
+type ValidationRecord = ValidationBinding & {
   paymentMethod: PrintcomPaymentMethod;
-  passed: boolean;
-  classification?: SupplierResponseClassification;
-  summary: string;
-  message?: string;
-  payload?: unknown;
-  response?: unknown;
+  interpretation: DryRunInterpretation;
 };
 
-type UncertainSubmission = {
+type PendingValidationBinding = {
   jobId: string;
-  message: string;
+  preValidationVersion: string;
+  paymentMethod: PrintcomPaymentMethod;
+  interpretation: DryRunInterpretation;
 };
 
 const GROUPS = [
@@ -67,13 +72,6 @@ const GROUPS = [
   { key: "completed", title: "Afsluttet" },
   { key: "waiting", title: "Afventer" },
 ] as const;
-
-const SUBMITTABLE_STATUSES = new Set<PodFulfillmentJob["status"]>([
-  "awaiting_approval",
-  "paid",
-  "processing",
-  "submitted",
-]);
 
 export function PrintProductionOrders({
   snapshot,
@@ -85,23 +83,68 @@ export function PrintProductionOrders({
   const syncPrintcomStatus = usePodSyncPrintcomStatus();
   const [paymentMethod, setPaymentMethod] = useState<PrintcomPaymentMethod>("invoice");
   const [validation, setValidation] = useState<ValidationRecord | null>(null);
-  const [confirmingJob, setConfirmingJob] = useState<PodFulfillmentJob | null>(null);
-  const [uncertainSubmission, setUncertainSubmission] = useState<UncertainSubmission | null>(null);
+  const [pendingValidation, setPendingValidation] = useState<PendingValidationBinding | null>(null);
+  const [sessionState, setSessionState] = useState<SubmissionSessionState>(createSubmissionSessionState);
+  const [confirmingJobId, setConfirmingJobId] = useState<string | null>(null);
+  const [reconcilingJobId, setReconcilingJobId] = useState<string | null>(null);
   const [activeOperationJobId, setActiveOperationJobId] = useState<string | null>(null);
   const activeOperationRef = useRef<string | null>(null);
-  const groupedJobs = groupProductionJobs(snapshot.jobs);
+  const jobsRef = useRef(snapshot.jobs);
+  jobsRef.current = snapshot.jobs;
+
+  const getCurrentJob = (jobId: string | null | undefined) => resolveCurrentJob(jobsRef.current, jobId);
+  const getOrderContext = (job: PodFulfillmentJob) => ({
+    validation: validation?.jobId === job.id ? validation : null,
+    reconciliationBlocked: isReconciliationBlocked(sessionState, job.id),
+  });
+  const getPresentation = (job: PodFulfillmentJob) => getProductionOrderPresentation(job, getOrderContext(job));
+  const groupedJobs = groupProductionJobs(snapshot.jobs, Object.fromEntries(snapshot.jobs.map((job) => [job.id, getOrderContext(job)])));
+  const confirmationJob = getCurrentJob(confirmingJobId);
+  const confirmationCanSubmit = Boolean(confirmationJob && canSubmitCurrentJob(confirmationJob, validation, paymentMethod, sessionState, getPresentation(confirmationJob)));
+  const reconciliationJob = getCurrentJob(reconcilingJobId);
+  const reconciliationCanResolve = canReconcileUncertainSubmission(sessionState, reconciliationJob);
   const manualFallbackParams = new URLSearchParams();
 
   if (forceDomain) manualFallbackParams.set("force_domain", forceDomain);
   const manualFallbackHref = `/admin/pod2-ordrer${manualFallbackParams.size ? `?${manualFallbackParams}` : ""}`;
 
   useEffect(() => {
-    if (!validation) return;
-    const currentJob = snapshot.jobs.find((job) => job.id === validation.jobId);
-    if (!currentJob || currentJob.updated_at !== validation.jobVersion) {
-      setValidation(null);
+    if (!pendingValidation) return;
+    const currentJob = resolveCurrentJob(snapshot.jobs, pendingValidation.jobId);
+
+    if (!currentJob || currentJob.updated_at === pendingValidation.preValidationVersion) {
+      setValidation({
+        jobId: pendingValidation.jobId,
+        jobVersion: pendingValidation.preValidationVersion,
+        paymentMethod: pendingValidation.paymentMethod,
+        passed: false,
+        kind: "blocked",
+        interpretation: blockedInterpretation("Den opdaterede jobtilstand kunne ikke bekræftes. Kontrollér ordren igen."),
+      });
+      setPendingValidation(null);
+      return;
     }
-  }, [snapshot.jobs, validation]);
+
+    setValidation({
+      jobId: currentJob.id,
+      jobVersion: currentJob.updated_at,
+      paymentMethod: pendingValidation.paymentMethod,
+      passed: pendingValidation.interpretation.kind === "ready",
+      kind: pendingValidation.interpretation.kind,
+      interpretation: pendingValidation.interpretation,
+    });
+    setPendingValidation(null);
+  }, [snapshot.jobs, pendingValidation]);
+
+  useEffect(() => {
+    if (confirmingJobId && !confirmationCanSubmit) setConfirmingJobId(null);
+  }, [confirmingJobId, confirmationCanSubmit]);
+
+  useEffect(() => {
+    if (reconcilingJobId && !isReconciliationBlocked(sessionState, reconcilingJobId)) {
+      setReconcilingJobId(null);
+    }
+  }, [reconcilingJobId, sessionState]);
 
   const beginOperation = (jobId: string): boolean => {
     if (activeOperationRef.current) return false;
@@ -119,99 +162,125 @@ export function PrintProductionOrders({
   const handlePaymentMethodChange = (value: PrintcomPaymentMethod) => {
     setPaymentMethod(value);
     setValidation(null);
-    setUncertainSubmission(null);
+    setPendingValidation(null);
+    setConfirmingJobId(null);
   };
 
-  const handleValidate = async (job: PodFulfillmentJob) => {
-    if (!beginOperation(job.id)) return;
+  const handleValidate = async (jobId: string) => {
+    const currentJob = getCurrentJob(jobId);
+    if (!currentJob || isReconciliationBlocked(sessionState, jobId) || !getPresentation(currentJob).canValidate) return;
+    if (!beginOperation(jobId)) return;
+
     setValidation(null);
-    setUncertainSubmission(null);
+    setPendingValidation(null);
+    setConfirmingJobId(null);
 
     try {
-      const result: unknown = await submitToPrintcom.mutateAsync(
-        buildValidationRequest(job.id, paymentMethod),
-      );
-      const resultData = asRecord(result);
-      const response = resultData.response ?? result;
-      setValidation({
-        jobId: job.id,
-        jobVersion: job.updated_at,
+      const result: unknown = await submitToPrintcom.mutateAsync(buildValidationRequest(jobId, paymentMethod));
+      const interpretation = interpretDryRunResult(result);
+      if (interpretation.kind === "blocked") {
+        setValidation({
+          jobId,
+          jobVersion: currentJob.updated_at,
+          paymentMethod,
+          passed: false,
+          kind: "blocked",
+          interpretation,
+        });
+        return;
+      }
+
+      try {
+        await onRefetch();
+      } catch {
+        setValidation({
+          jobId,
+          jobVersion: currentJob.updated_at,
+          paymentMethod,
+          passed: false,
+          kind: "blocked",
+          interpretation: blockedInterpretation("Kontrolsvaret kom tilbage, men den aktuelle jobtilstand kunne ikke hentes. Kontrollér ordren igen."),
+        });
+        return;
+      }
+
+      setPendingValidation({
+        jobId,
+        preValidationVersion: currentJob.updated_at,
         paymentMethod,
-        passed: true,
-        classification: classifySupplierResponse(response),
-        summary: getValidationSummary(result),
-        payload: resultData.payload,
-        response,
+        interpretation,
       });
     } catch (error: unknown) {
-      const technicalError = getTechnicalError(error);
       setValidation({
-        jobId: job.id,
-        jobVersion: job.updated_at,
+        jobId,
+        jobVersion: currentJob.updated_at,
         paymentMethod,
         passed: false,
-        summary: "",
-        message: "Kontrollen blev afvist af leverandøren. Gennemgå ordren og kontrollér igen.",
-        payload: technicalError.payload,
-        response: technicalError.response,
+        kind: "blocked",
+        interpretation: {
+          ...blockedInterpretation("Kontrollen blev afvist. Gennemgå ordren og kontrollér igen."),
+          payload: getTechnicalError(error).payload,
+          response: getTechnicalError(error).response,
+        },
       });
     } finally {
-      finishOperation(job.id);
+      finishOperation(jobId);
     }
   };
 
-  const canSubmit = (job: PodFulfillmentJob) => canConfirmRealSubmission({
-    jobId: job.id,
-    status: job.status,
-    printcomOrderId: job.printcom_order_id,
-    validatedJobId: validation?.jobId,
-    validationPassed: validation?.passed === true,
-    paymentMethod,
-    validatedPaymentMethod: validation?.paymentMethod,
-    jobVersion: job.updated_at,
-    validatedJobVersion: validation?.jobVersion,
-  });
-
-  const handleOpenConfirmation = (job: PodFulfillmentJob) => {
-    if (!canSubmit(job) || activeOperationRef.current) return;
-    setConfirmingJob(job);
+  const handleOpenConfirmation = (jobId: string) => {
+    const currentJob = getCurrentJob(jobId);
+    if (!currentJob || !canSubmitCurrentJob(currentJob, validation, paymentMethod, sessionState, getPresentation(currentJob))) return;
+    setConfirmingJobId(jobId);
   };
 
   const handleConfirmSubmission = async () => {
-    if (!confirmingJob || !canSubmit(confirmingJob) || !beginOperation(confirmingJob.id)) return;
-    const job = confirmingJob;
+    const jobId = confirmingJobId;
+    const currentJob = getCurrentJob(jobId);
+    if (!jobId || !currentJob || !canSubmitCurrentJob(currentJob, validation, paymentMethod, sessionState, getPresentation(currentJob))) {
+      setConfirmingJobId(null);
+      return;
+    }
+    if (!beginOperation(jobId)) return;
+    setConfirmingJobId(null);
 
     try {
-      await submitToPrintcom.mutateAsync({
-        jobId: job.id,
-        paymentMethod,
-        dryRun: false,
-      });
+      await submitToPrintcom.mutateAsync({ jobId, paymentMethod, dryRun: false });
       setValidation(null);
-      setConfirmingJob(null);
       await onRefetch();
     } catch {
       setValidation(null);
-      setConfirmingJob(null);
-      setUncertainSubmission({
-        jobId: job.id,
-        message: "Indsendelsen kunne være nået frem til leverandøren. Kontrollér først, om en leverandørordre-reference er gemt, før du gør mere.",
-      });
+      setPendingValidation(null);
+      setSessionState((current) => startUncertainSubmissionReconciliation(current, jobId));
 
       try {
-        await syncPrintcomStatus.mutateAsync({ jobIds: [job.id] });
+        await syncPrintcomStatus.mutateAsync({ jobIds: [jobId] });
       } catch {
-        // The required data refresh below still gives the operator the current stored state.
-      } finally {
-        try {
-          await onRefetch();
-        } catch {
-          // Keep the explicit verification instruction visible when refresh is unavailable.
-        }
+        // Reconciliation remains blocked regardless of the sync result.
+      }
+      try {
+        await onRefetch();
+        setSessionState((current) => markSubmissionReconciliationRefreshed(current, jobId));
+      } catch {
+        // Reconciliation remains blocked when fresh data cannot be loaded.
       }
     } finally {
-      finishOperation(job.id);
+      finishOperation(jobId);
     }
+  };
+
+  const handleReconcile = () => {
+    const jobId = reconcilingJobId;
+    if (!jobId) return;
+    const currentJob = getCurrentJob(jobId);
+    setSessionState((current) => reconcileUncertainSubmission(current, {
+      jobId,
+      job: currentJob,
+      operatorConfirmedNoSupplierOrder: true,
+    }));
+    setValidation(null);
+    setPendingValidation(null);
+    setReconcilingJobId(null);
   };
 
   const handleSync = async () => {
@@ -240,7 +309,7 @@ export function PrintProductionOrders({
             <select
               value={paymentMethod}
               onChange={(event) => handlePaymentMethodChange(event.target.value as PrintcomPaymentMethod)}
-              disabled={Boolean(activeOperationJobId) || Boolean(confirmingJob)}
+              disabled={Boolean(activeOperationJobId) || Boolean(confirmingJobId)}
               className="h-9 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label="Betalingsmetode til leverandør"
             >
@@ -254,14 +323,6 @@ export function PrintProductionOrders({
           </Button>
         </div>
       </div>
-
-      {uncertainSubmission && (
-        <Alert className="rounded-md border-amber-500/50 bg-amber-50 text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
-          <ShieldAlert className="h-4 w-4 text-amber-700 dark:text-amber-300" aria-hidden="true" />
-          <AlertTitle>Bekræft leverandørordre før nyt forsøg</AlertTitle>
-          <AlertDescription>{uncertainSubmission.message}</AlertDescription>
-        </Alert>
-      )}
 
       {snapshot.jobs.length === 0 ? (
         <div className="border-y py-10 text-center">
@@ -280,25 +341,26 @@ export function PrintProductionOrders({
                   <h3 id={`production-order-group-${key}`} className="text-sm font-semibold">{title}</h3>
                   <span className="text-xs tabular-nums text-muted-foreground">{jobs.length}</span>
                 </div>
-                <div className="overflow-x-auto border-y">
-                  <div className="min-w-[760px] divide-y">
-                    {jobs.map((job) => (
+                <div className="divide-y border-y">
+                  {jobs.map((job) => {
+                    const presentation = getPresentation(job);
+                    return (
                       <OrderRow
                         key={job.id}
                         job={job}
                         tenantLabel={getTenantLabel(snapshot, job.tenant_id)}
+                        presentation={presentation}
                         isSelected={selectedJobId === job.id}
                         isBusy={Boolean(activeOperationJobId)}
                         isCurrentOperation={activeOperationJobId === job.id}
-                        canValidate={canValidate(job)}
-                        canSubmit={canSubmit(job)}
                         validation={validation?.jobId === job.id ? validation : null}
-                        showUncertainInstruction={uncertainSubmission?.jobId === job.id}
-                        onValidate={() => handleValidate(job)}
-                        onConfirm={() => handleOpenConfirmation(job)}
+                        reconciliationBlocked={isReconciliationBlocked(sessionState, job.id)}
+                        onValidate={() => handleValidate(job.id)}
+                        onConfirm={() => handleOpenConfirmation(job.id)}
+                        onOpenReconciliation={() => setReconcilingJobId(job.id)}
                       />
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
               </section>
             );
@@ -314,14 +376,24 @@ export function PrintProductionOrders({
       </div>
 
       <SubmissionConfirmation
-        job={confirmingJob}
-        tenantLabel={confirmingJob ? getTenantLabel(snapshot, confirmingJob.tenant_id) : ""}
+        job={confirmationJob}
+        tenantLabel={confirmationJob ? getTenantLabel(snapshot, confirmationJob.tenant_id) : ""}
         paymentMethod={paymentMethod}
-        isSubmitting={activeOperationJobId === confirmingJob?.id}
+        isSubmitting={activeOperationJobId === confirmationJob?.id}
+        open={Boolean(confirmingJobId && confirmationJob && confirmationCanSubmit)}
         onOpenChange={(open) => {
-          if (!open && !activeOperationJobId) setConfirmingJob(null);
+          if (!open && !activeOperationJobId) setConfirmingJobId(null);
         }}
         onConfirm={handleConfirmSubmission}
+      />
+      <ReconciliationConfirmation
+        job={reconciliationJob}
+        open={Boolean(reconcilingJobId && reconciliationJob && isReconciliationBlocked(sessionState, reconcilingJobId))}
+        canReconcile={reconciliationCanResolve}
+        onOpenChange={(open) => {
+          if (!open) setReconcilingJobId(null);
+        }}
+        onConfirm={handleReconcile}
       />
     </div>
   );
@@ -330,73 +402,65 @@ export function PrintProductionOrders({
 function OrderRow({
   job,
   tenantLabel,
+  presentation,
   isSelected,
   isBusy,
   isCurrentOperation,
-  canValidate: allowValidation,
-  canSubmit: allowSubmission,
   validation,
-  showUncertainInstruction,
+  reconciliationBlocked,
   onValidate,
   onConfirm,
+  onOpenReconciliation,
 }: {
   job: PodFulfillmentJob;
   tenantLabel: string;
+  presentation: ProductionOrderPresentation;
   isSelected: boolean;
   isBusy: boolean;
   isCurrentOperation: boolean;
-  canValidate: boolean;
-  canSubmit: boolean;
   validation: ValidationRecord | null;
-  showUncertainInstruction: boolean;
+  reconciliationBlocked: boolean;
   onValidate: () => void;
   onConfirm: () => void;
+  onOpenReconciliation: () => void;
 }) {
-  const presentation = classifyOrder(job);
-  const validationLabel = validation?.classification?.label;
-
   return (
     <article className={cn("px-4 py-4", isSelected && "bg-primary/5")}>
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-start">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-start">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="truncate font-medium" title={job.product_name || "Printordre"}>{job.product_name || "Printordre"}</p>
+            <p className="break-words font-medium">{job.product_name || "Printordre"}</p>
             <Badge variant={presentation.group === "attention" ? "destructive" : "outline"}>{presentation.label}</Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{job.qty} stk. · {job.recipient_name || "Kunde mangler"}</p>
-          {job.customer_email && <p className="truncate text-xs text-muted-foreground">{job.customer_email}</p>}
+          {job.customer_email && <p className="break-all text-xs text-muted-foreground">{job.customer_email}</p>}
         </div>
         <OrderFact label="Butik" value={tenantLabel} />
         <OrderFact label="Levering" value={job.delivery_summary || job.shipping_method || "Ikke angivet"} />
         <div className="min-w-0 space-y-1">
           <OrderFact label="Fil" value={getFileState(job)} />
-          <OrderFact label="Leverandør" value={getSupplierState(job)} />
+          <OrderFact label="Leverandør" value={getSupplierState(job, presentation)} />
         </div>
-        <div className="flex min-w-[178px] flex-col items-stretch gap-2 xl:items-end">
-          {allowValidation && (
+        <div className="flex flex-col items-stretch gap-2 xl:items-end">
+          {presentation.canValidate && (
             <Button size="sm" variant="outline" onClick={onValidate} disabled={isBusy}>
               {isCurrentOperation ? <Loader2 className="animate-spin" aria-hidden="true" /> : <ClipboardCheck aria-hidden="true" />}
               Kontrollér ordre
             </Button>
           )}
-          {allowSubmission && (
+          {presentation.canSubmit && (
             <Button size="sm" onClick={onConfirm} disabled={isBusy}>
               <Send aria-hidden="true" />
               Opret leverandørordre
             </Button>
           )}
-          {!allowValidation && !allowSubmission && <p className="text-right text-xs text-muted-foreground">{getNextAction(job)}</p>}
-          {allowValidation && !allowSubmission && !validation && <p className="text-right text-xs text-muted-foreground">{getNextAction(job)}</p>}
-          {validationLabel && <p className="text-right text-xs text-muted-foreground">{validationLabel}</p>}
+          {!presentation.canValidate && !presentation.canSubmit && <p className="text-xs text-muted-foreground xl:text-right">{presentation.nextAction}</p>}
+          {presentation.canValidate && !presentation.canSubmit && !validation && <p className="text-xs text-muted-foreground xl:text-right">{presentation.nextAction}</p>}
         </div>
       </div>
 
       {validation && <ValidationOutcome validation={validation} onRetry={onValidate} isBusy={isBusy} />}
-      {showUncertainInstruction && (
-        <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">
-          Vent på opdateringen og kontrollér leverandørstatus, før ordren eventuelt behandles manuelt.
-        </p>
-      )}
+      {reconciliationBlocked && <ReconciliationOutcome onOpen={onOpenReconciliation} />}
       <TechnicalDetails job={job} validation={validation} />
     </article>
   );
@@ -411,20 +475,20 @@ function ValidationOutcome({
   onRetry: () => void;
   isBusy: boolean;
 }) {
-  if (!validation.passed) {
+  if (validation.kind === "blocked") {
     return (
       <Alert variant="destructive" className="mt-3 rounded-md">
         <AlertCircle className="h-4 w-4" aria-hidden="true" />
-        <AlertTitle>Ordren kan ikke sendes</AlertTitle>
+        <AlertTitle>{validation.interpretation.label}</AlertTitle>
         <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-          <span>{validation.message}</span>
+          <span>{validation.interpretation.description}</span>
           <Button size="sm" variant="outline" onClick={onRetry} disabled={isBusy}>Kontrollér igen</Button>
         </AlertDescription>
       </Alert>
     );
   }
 
-  const isManualCheck = validation.classification?.kind === "manual_check";
+  const isManualCheck = validation.kind === "manual_check";
   return (
     <Alert className={cn(
       "mt-3 rounded-md",
@@ -433,9 +497,20 @@ function ValidationOutcome({
         : "border-emerald-500/50 bg-emerald-50 text-emerald-950 dark:bg-emerald-950/30 dark:text-emerald-100",
     )}>
       <CheckCircle2 className={cn("h-4 w-4", isManualCheck ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")} aria-hidden="true" />
-      <AlertTitle>{validation.classification?.label || "Klar til produktion"}</AlertTitle>
-      <AlertDescription>
-        {validation.classification?.description} {validation.summary}
+      <AlertTitle>{validation.interpretation.label}</AlertTitle>
+      <AlertDescription>{validation.interpretation.description}</AlertDescription>
+    </Alert>
+  );
+}
+
+function ReconciliationOutcome({ onOpen }: { onOpen: () => void }) {
+  return (
+    <Alert className="mt-3 rounded-md border-amber-500/50 bg-amber-50 text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
+      <ShieldAlert className="h-4 w-4 text-amber-700 dark:text-amber-300" aria-hidden="true" />
+      <AlertTitle>Leverandørordre skal afklares</AlertTitle>
+      <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+        <span>Indsendelsen kunne være nået frem. Kontrollér Print.com og den gemte leverandørreference, før du fortsætter.</span>
+        <Button size="sm" variant="outline" onClick={onOpen}>Afklar ordre</Button>
       </AlertDescription>
     </Alert>
   );
@@ -446,6 +521,7 @@ function SubmissionConfirmation({
   tenantLabel,
   paymentMethod,
   isSubmitting,
+  open,
   onOpenChange,
   onConfirm,
 }: {
@@ -453,17 +529,16 @@ function SubmissionConfirmation({
   tenantLabel: string;
   paymentMethod: PrintcomPaymentMethod;
   isSubmitting: boolean;
+  open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
   return (
-    <Dialog open={Boolean(job)} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Opret leverandørordre?</DialogTitle>
-          <DialogDescription>
-            Denne handling opretter en ordre hos Print.com. Den kan ikke gentages automatisk.
-          </DialogDescription>
+          <DialogDescription>Denne handling opretter en ordre hos Print.com og bliver aldrig gentaget automatisk.</DialogDescription>
         </DialogHeader>
         {job && (
           <dl className="grid gap-x-4 gap-y-3 text-sm sm:grid-cols-2">
@@ -486,11 +561,53 @@ function SubmissionConfirmation({
   );
 }
 
+function ReconciliationConfirmation({
+  job,
+  open,
+  canReconcile,
+  onOpenChange,
+  onConfirm,
+}: {
+  job: PodFulfillmentJob | null;
+  open: boolean;
+  canReconcile: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Afklar mulig leverandørordre</DialogTitle>
+          <DialogDescription>
+            Bekræft kun, når du har kontrolleret Print.com og den aktuelle jobtilstand, og der ikke findes en leverandørordre eller gemt leverandørreference.
+          </DialogDescription>
+        </DialogHeader>
+        {job?.printcom_order_id ? (
+          <Alert variant="destructive" className="rounded-md">
+            <AlertCircle className="h-4 w-4" aria-hidden="true" />
+            <AlertTitle>Leverandørreference er gemt</AlertTitle>
+            <AlertDescription>Ordren forbliver blokeret for ny indsendelse.</AlertDescription>
+          </Alert>
+        ) : canReconcile ? (
+          <p className="text-sm text-muted-foreground">Efter bekræftelsen kræves en ny kontrol, før en leverandørordre kan oprettes.</p>
+        ) : (
+          <p className="text-sm text-muted-foreground">Afventer en vellykket statusopdatering og dataopfriskning. Ordren forbliver blokeret.</p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Annullér</Button>
+          <Button onClick={onConfirm} disabled={!canReconcile}>Bekræft ingen leverandørordre</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function OrderFact({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="truncate text-sm" title={value}>{value}</p>
+      <p className="break-words text-sm">{value}</p>
     </div>
   );
 }
@@ -499,7 +616,7 @@ function ConfirmationFact({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 truncate font-medium" title={value}>{value}</dd>
+      <dd className="mt-0.5 break-words font-medium">{value}</dd>
     </div>
   );
 }
@@ -517,8 +634,8 @@ function TechnicalDetails({ job, validation }: { job: PodFulfillmentJob; validat
           <p className="font-medium text-foreground">Variantsignatur</p>
           <p className="break-all font-mono">{job.variant_signature}</p>
         </div>
-        <RawData label="Kontrol-payload" value={validation?.payload} />
-        <RawData label="Leverandørsvar" value={validation?.response ?? job.printcom_order_raw} />
+        <RawData label="Kontrol-payload" value={validation?.interpretation.payload} />
+        <RawData label="Leverandørsvar" value={validation?.interpretation.response ?? job.printcom_order_raw} />
       </div>
     </details>
   );
@@ -536,8 +653,26 @@ function RawData({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-function canValidate(job: PodFulfillmentJob): boolean {
-  return !job.printcom_order_id && (classifyOrder(job).canValidate || SUBMITTABLE_STATUSES.has(job.status));
+function canSubmitCurrentJob(
+  job: PodFulfillmentJob,
+  validation: ValidationRecord | null,
+  paymentMethod: PrintcomPaymentMethod,
+  sessionState: SubmissionSessionState,
+  presentation: ProductionOrderPresentation,
+): boolean {
+  return !isReconciliationBlocked(sessionState, job.id)
+    && presentation.canSubmit
+    && canConfirmRealSubmission({
+      jobId: job.id,
+      status: job.status,
+      printcomOrderId: job.printcom_order_id ?? null,
+      validatedJobId: validation?.jobId ?? "",
+      validationPassed: validation?.passed === true,
+      paymentMethod,
+      validatedPaymentMethod: validation?.paymentMethod ?? "" as PrintcomPaymentMethod,
+      jobVersion: job.updated_at,
+      validatedJobVersion: validation?.jobVersion ?? "",
+    });
 }
 
 function getTenantLabel(snapshot: PrintProductionSnapshot, tenantId: string): string {
@@ -548,22 +683,14 @@ function getTenantLabel(snapshot: PrintProductionSnapshot, tenantId: string): st
 function getFileState(job: PodFulfillmentJob): string {
   if (job.printcom_design_id || job.printcom_printjob_id) return "Registreret hos leverandøren";
   if (job.status === "failed" || job.printcom_last_error) return "Kræver kontrol";
-  return "Afventer leverandørkontrol";
+  return "Afventer kontrol";
 }
 
-function getSupplierState(job: PodFulfillmentJob): string {
-  if (job.printcom_order_id) return "Ordre registreret";
-  if (job.printcom_last_error) return "Seneste forsøg kræver kontrol";
-  if (job.status === "submitted") return "Mangler ordre-reference";
-  return "Ikke sendt";
-}
-
-function getNextAction(job: PodFulfillmentJob): string {
-  if (job.status === "completed") return "Ingen handling";
-  if (job.status === "processing" || job.printcom_order_id) return "Følg leverandørstatus";
-  if (job.status === "awaiting_approval" || job.status === "payment_pending") return "Afventer betaling";
-  if (job.status === "failed") return "Gennemgå og kontrollér";
-  return "Kontrollér ordre";
+function getSupplierState(job: PodFulfillmentJob, presentation: ProductionOrderPresentation): string {
+  if (presentation.group === "supplier") return "Ordre registreret";
+  if (job.status === "submitted" || job.status === "processing") return "Mangler leverandørreference";
+  if (presentation.group === "attention") return "Kræver afklaring";
+  return "Ikke bekræftet";
 }
 
 function formatCurrency(value: number, currency: string): string {
@@ -582,42 +709,14 @@ function formatRawData(value: unknown): string {
   }
 }
 
-function getValidationSummary(result: unknown): string {
-  const resultData = asRecord(result);
-  const response = asRecord(resultData.response);
-  const payload = asRecord(resultData.payload);
-  const options = resultData.options
-    ?? response.options
-    ?? payload.options
-    ?? response.configuration;
-  const labels = Array.isArray(options)
-    ? options.map((option) => {
-      if (typeof option === "string") return option;
-      if (option && typeof option === "object") {
-        const record = asRecord(option);
-        return firstTextValue(record.label, record.name, record.value, record.key);
-      }
-      return "";
-    }).filter((label): label is string => typeof label === "string" && label.trim().length > 0).slice(0, 3)
-    : [];
-
-  return labels.length
-    ? `Valg: ${labels.join(" · ")}.`
-    : "Ordregrundlag, levering og fil er valideret.";
+function blockedInterpretation(description: string): DryRunInterpretation {
+  return { kind: "blocked", label: "Ordren kan ikke sendes", description };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
-}
-
-function firstTextValue(...values: unknown[]): string {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value;
-    if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  }
-  return "";
 }
 
 function getTechnicalError(error: unknown): { payload?: unknown; response?: unknown } {
