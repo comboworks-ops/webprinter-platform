@@ -4,28 +4,33 @@ import { Navigate, useLocation } from "react-router-dom";
 
 import { PrintProductionShell } from "@/components/admin/print-production/PrintProductionShell";
 import { MASTER_TENANT_ID, resolveAdminTenant } from "@/lib/adminTenant";
+import {
+  getPrintProductionAccessDecision,
+  type PrintProductionAccessResolution,
+} from "@/lib/print-production/navigation";
 import { usePrintProductionData } from "@/lib/print-production/usePrintProductionData";
-
-interface AdminTenantResolution {
-  tenantId: string | null;
-  isMasterAdmin: boolean;
-}
 
 export default function PrintProduction() {
   const location = useLocation();
   const forceDomain = new URLSearchParams(location.search).get("force_domain") || "";
-  const [resolution, setResolution] = useState<AdminTenantResolution | null>(null);
+
+  return <PrintProductionGate key={forceDomain} forceDomain={forceDomain} />;
+}
+
+function PrintProductionGate({ forceDomain }: { forceDomain: string }) {
+  const [resolution, setResolution] = useState<PrintProductionAccessResolution | null>(null);
 
   useEffect(() => {
     let isCurrent = true;
-    setResolution(null);
 
     resolveAdminTenant()
       .then(({ tenantId, isMasterAdmin }) => {
-        if (isCurrent) setResolution({ tenantId, isMasterAdmin });
+        if (isCurrent) setResolution({ forceDomain, tenantId, isMasterAdmin });
       })
       .catch(() => {
-        if (isCurrent) setResolution({ tenantId: null, isMasterAdmin: false });
+        if (isCurrent) {
+          setResolution({ forceDomain, tenantId: null, isMasterAdmin: false });
+        }
       });
 
     return () => {
@@ -33,7 +38,13 @@ export default function PrintProduction() {
     };
   }, [forceDomain]);
 
-  if (!resolution) {
+  const accessDecision = getPrintProductionAccessDecision({
+    requestedForceDomain: forceDomain,
+    resolution,
+    masterTenantId: MASTER_TENANT_ID,
+  });
+
+  if (accessDecision === "loading") {
     return (
       <div className="flex min-h-[50vh] items-center justify-center" role="status">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden="true" />
@@ -42,7 +53,7 @@ export default function PrintProduction() {
     );
   }
 
-  if (!resolution.isMasterAdmin || resolution.tenantId !== MASTER_TENANT_ID) {
+  if (accessDecision === "redirect") {
     const redirectParams = new URLSearchParams();
     if (forceDomain) redirectParams.set("force_domain", forceDomain);
     const redirectSearch = redirectParams.toString();

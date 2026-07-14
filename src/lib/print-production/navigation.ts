@@ -8,7 +8,30 @@ export const PRINT_PRODUCTION_VIEWS = [
 
 export type PrintProductionView = (typeof PRINT_PRODUCTION_VIEWS)[number];
 
+export interface PrintProductionAccessResolution {
+  forceDomain: string;
+  tenantId: string | null;
+  isMasterAdmin: boolean;
+}
+
+export type PrintProductionAccessDecision = "loading" | "allowed" | "redirect";
+
 const PRINT_PRODUCTION_VIEW_SET = new Set<string>(PRINT_PRODUCTION_VIEWS);
+
+export function getPrintProductionAccessDecision(input: {
+  requestedForceDomain: string;
+  resolution: PrintProductionAccessResolution | null;
+  masterTenantId: string;
+}): PrintProductionAccessDecision {
+  if (!input.resolution || input.resolution.forceDomain !== input.requestedForceDomain) {
+    return "loading";
+  }
+
+  return input.resolution.isMasterAdmin
+    && input.resolution.tenantId === input.masterTenantId
+    ? "allowed"
+    : "redirect";
+}
 
 export function getPrintProductionView(search: string): PrintProductionView {
   const view = new URLSearchParams(search).get("view");
