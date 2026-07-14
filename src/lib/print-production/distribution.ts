@@ -48,20 +48,26 @@ export interface DistributionRpcClient {
 
 export interface DistributionShopClient {
   from: (table: "tenants") => {
-    select: (columns: string) => {
-      neq: (column: string, value: string) => {
-        order: (column: string) => PromiseLike<{
-          data: unknown;
-          error: QueryError | null;
-        }>;
-      };
-    };
+    select: (columns: string) => DistributionShopQuery;
   };
+}
+
+interface DistributionShopQuery {
+  neq: (column: string, value: string) => DistributionShopQuery;
+  order: (
+    column: string,
+    options?: { ascending: boolean },
+  ) => DistributionShopQuery;
+  range: (from: number, to: number) => PromiseLike<{
+    data: unknown;
+    error: QueryError | null;
+  }>;
 }
 
 interface PendingNotificationQuery {
   eq: (column: string, value: string) => PendingNotificationQuery;
   contains: (column: string, value: Record<string, unknown>) => PendingNotificationQuery;
+  in: (column: string, values: string[]) => PendingNotificationQuery;
   order: (
     column: string,
     options?: { ascending: boolean },
@@ -78,15 +84,15 @@ export interface PendingNotificationClient {
   };
 }
 
-interface PendingReadOptions {
+interface BoundedReadOptions {
   pageSize?: number;
   maxPages?: number;
 }
 
-const DEFAULT_PENDING_PAGE_SIZE = 200;
-const DEFAULT_PENDING_MAX_PAGES = 5;
-const MAX_PENDING_PAGE_SIZE = 500;
-const MAX_PENDING_PAGES = 10;
+const DEFAULT_READ_PAGE_SIZE = 200;
+const DEFAULT_READ_MAX_PAGES = 5;
+const MAX_READ_PAGE_SIZE = 500;
+const MAX_READ_PAGES = 10;
 
 export function buildDistributionRequest(input: DistributionInput): DistributionRequest {
   const tenantIds = [...new Set(
@@ -150,53 +156,61 @@ export function validateDistributionSelection(
 
 export async function loadDistributionShops(
   client: DistributionShopClient,
+  options: BoundedReadOptions = {},
 ): Promise<DistributionShop[]> {
-  const { data, error } = await client
-    .from("tenants")
-    .select("id, name, domain, pod2_auto_forward")
-    .neq("id", MASTER_TENANT_ID)
-    .order("name");
+  const { pageSize, maxPages } = getBoundedReadOptions(options);
+  const shopById = new Map<string, DistributionShop>();
+  let isComplete = false;
 
-  if (error) {
-    throw new Error(error.message || "Butikkerne kunne ikke indlæses.");
+  for (let page = 0; page < maxPages; page += 1) {
+    const from = page * pageSize;
+    const { data, error } = await client
+      .from("tenants")
+      .select("id, name, domain, pod2_auto_forward")
+      .neq("id", MASTER_TENANT_ID)
+      .order("name", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      throw new Error(error.message || "Butikkerne kunne ikke indlæses.");
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    for (const row of rows) {
+      const shop = normalizeDistributionShop(row);
+      if (shop) shopById.set(shop.id, shop);
+    }
+
+    if (rows.length < pageSize) {
+      isComplete = true;
+      break;
+    }
   }
 
-  if (!Array.isArray(data)) return [];
+  if (!isComplete) {
+    throw new Error(
+      "Butikslisten er for stor til at kunne indlæses sikkert. Prøv igen, eller kontakt systemadministratoren.",
+    );
+  }
 
-  return data.flatMap((row) => {
-    if (!isRecord(row)) return [];
-    const id = typeof row.id === "string" ? row.id : "";
-    const name = typeof row.name === "string" ? row.name : "";
-    if (!id || !name || id === MASTER_TENANT_ID) return [];
-
-    return [{
-      id,
-      name,
-      domain: typeof row.domain === "string" ? row.domain : null,
-      eligible: row.pod2_auto_forward === true,
-    }];
-  });
+  return [...shopById.values()];
 }
 
 export async function loadPendingDistributions(
   client: PendingNotificationClient,
   productIds: string[],
-  options: PendingReadOptions = {},
+  options: BoundedReadOptions = {},
 ): Promise<PendingDistribution[]> {
-  const requestedProductIds = new Set(
+  const normalizedProductIds = [...new Set(
     productIds.map((productId) => productId.trim()).filter(Boolean),
-  );
+  )].sort();
+  const requestedProductIds = new Set(normalizedProductIds);
   if (!requestedProductIds.size) return [];
 
-  const pageSize = Math.min(
-    Math.max(Math.floor(options.pageSize || DEFAULT_PENDING_PAGE_SIZE), 1),
-    MAX_PENDING_PAGE_SIZE,
-  );
-  const maxPages = Math.min(
-    Math.max(Math.floor(options.maxPages || DEFAULT_PENDING_MAX_PAGES), 1),
-    MAX_PENDING_PAGES,
-  );
+  const { pageSize, maxPages } = getBoundedReadOptions(options);
   const pendingByPair = new Map<string, PendingDistribution>();
+  let isComplete = false;
 
   for (let page = 0; page < maxPages; page += 1) {
     const from = page * pageSize;
@@ -206,6 +220,7 @@ export async function loadPendingDistributions(
       .eq("type", "product_update")
       .eq("status", "pending")
       .contains("data", { delivery_mode: "pod_price_list" })
+      .in("data->>product_id", normalizedProductIds)
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
@@ -226,7 +241,16 @@ export async function loadPendingDistributions(
       }
     }
 
-    if (rows.length < pageSize) break;
+    if (rows.length < pageSize) {
+      isComplete = true;
+      break;
+    }
+  }
+
+  if (!isComplete) {
+    throw new Error(
+      "Afventende distributioner kan ikke afgrænses sikkert. Genindlæs status, før du sender igen.",
+    );
   }
 
   return [...pendingByPair.values()].sort((left, right) => (
@@ -259,6 +283,36 @@ export async function distributeProduct(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function getBoundedReadOptions(options: BoundedReadOptions): {
+  pageSize: number;
+  maxPages: number;
+} {
+  return {
+    pageSize: Math.min(
+      Math.max(Math.floor(options.pageSize || DEFAULT_READ_PAGE_SIZE), 1),
+      MAX_READ_PAGE_SIZE,
+    ),
+    maxPages: Math.min(
+      Math.max(Math.floor(options.maxPages || DEFAULT_READ_MAX_PAGES), 1),
+      MAX_READ_PAGES,
+    ),
+  };
+}
+
+function normalizeDistributionShop(value: unknown): DistributionShop | null {
+  if (!isRecord(value)) return null;
+  const id = typeof value.id === "string" ? value.id : "";
+  const name = typeof value.name === "string" ? value.name : "";
+  if (!id || !name || id === MASTER_TENANT_ID) return null;
+
+  return {
+    id,
+    name,
+    domain: typeof value.domain === "string" ? value.domain : null,
+    eligible: value.pod2_auto_forward === true,
+  };
 }
 
 function normalizePendingDistribution(

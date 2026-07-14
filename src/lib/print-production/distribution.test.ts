@@ -56,31 +56,37 @@ test("select all is explicit and derives only from unique eligible shops", () =>
 });
 
 test("shop loading removes master and derives eligibility from automatic settlement", async () => {
+  const ranges: Array<[number, number]> = [];
+  const orderColumns: string[] = [];
   const shops = await loadDistributionShops({
     from(table) {
       assert.equal(table, "tenants");
       return {
         select(columns) {
           assert.equal(columns, "id, name, domain, pod2_auto_forward");
-          return {
+          const query = {
             neq(column, value) {
               assert.equal(column, "id");
               assert.equal(value, MASTER_TENANT_ID);
-              return {
-                order(orderColumn) {
-                  assert.equal(orderColumn, "name");
-                  return Promise.resolve({
-                    data: [
-                      { id: "eligible", name: "Butik A", domain: "a.dk", pod2_auto_forward: true },
-                      { id: "ineligible", name: "Butik B", domain: "b.dk", pod2_auto_forward: false },
-                      { id: MASTER_TENANT_ID, name: "Master", domain: "webprinter.dk", pod2_auto_forward: true },
-                    ],
-                    error: null,
-                  });
-                },
-              };
+              return query;
+            },
+            order(orderColumn) {
+              orderColumns.push(orderColumn);
+              return query;
+            },
+            range(from: number, to: number) {
+              ranges.push([from, to]);
+              return Promise.resolve({
+                data: [
+                  { id: "eligible", name: "Butik A", domain: "a.dk", pod2_auto_forward: true },
+                  { id: "ineligible", name: "Butik B", domain: "b.dk", pod2_auto_forward: false },
+                  { id: MASTER_TENANT_ID, name: "Master", domain: "webprinter.dk", pod2_auto_forward: true },
+                ],
+                error: null,
+              });
             },
           };
+          return query;
         },
       };
     },
@@ -90,6 +96,45 @@ test("shop loading removes master and derives eligibility from automatic settlem
     { id: "eligible", name: "Butik A", domain: "a.dk", eligible: true },
     { id: "ineligible", name: "Butik B", domain: "b.dk", eligible: false },
   ]);
+  assert.deepEqual(orderColumns, ["name", "id"]);
+  assert.deepEqual(ranges, [[0, 199]]);
+});
+
+test("shop loading fails closed when the bounded directory window is exhausted", async () => {
+  const ranges: Array<[number, number]> = [];
+
+  await assert.rejects(
+    loadDistributionShops({
+      from() {
+        return {
+          select() {
+            const query = {
+              neq() {
+                return query;
+              },
+              order() {
+                return query;
+              },
+              range(from: number, to: number) {
+                ranges.push([from, to]);
+                return Promise.resolve({
+                  data: [
+                    { id: `tenant-${from}`, name: `Butik ${from}`, pod2_auto_forward: true },
+                    { id: `tenant-${from + 1}`, name: `Butik ${from + 1}`, pod2_auto_forward: true },
+                  ],
+                  error: null,
+                });
+              },
+            };
+            return query;
+          },
+        };
+      },
+    }, { pageSize: 2, maxPages: 2 }),
+    /butikslisten er for stor til at kunne indlæses sikkert/i,
+  );
+
+  assert.deepEqual(ranges, [[0, 1], [2, 3]]);
 });
 
 test("latest directory validation returns every valid selected shop", () => {
@@ -136,6 +181,7 @@ test("latest directory validation never accepts the master tenant", () => {
 
 test("pending distribution loading paginates, normalizes, and filters current products", async () => {
   const ranges: Array<[number, number]> = [];
+  const productScopes: string[][] = [];
   const rows = [
     {
       id: "pending-new",
@@ -187,6 +233,11 @@ test("pending distribution loading paginates, normalizes, and filters current pr
             contains() {
               return query;
             },
+            in(column: string, values: string[]) {
+              assert.equal(column, "data->>product_id");
+              productScopes.push(values);
+              return query;
+            },
             order() {
               return query;
             },
@@ -202,6 +253,11 @@ test("pending distribution loading paginates, normalizes, and filters current pr
   }, ["product-1", "product-2"], { pageSize: 2, maxPages: 3 });
 
   assert.deepEqual(ranges, [[0, 1], [2, 3], [4, 5]]);
+  assert.deepEqual(productScopes, [
+    ["product-1", "product-2"],
+    ["product-1", "product-2"],
+    ["product-1", "product-2"],
+  ]);
   assert.deepEqual(pending, [
     {
       id: "pending-new",
@@ -216,6 +272,63 @@ test("pending distribution loading paginates, normalizes, and filters current pr
       createdAt: "2026-07-14T11:00:00Z",
     },
   ]);
+});
+
+test("pending distribution loading fails closed when relevant results may be truncated", async () => {
+  const ranges: Array<[number, number]> = [];
+
+  await assert.rejects(
+    loadPendingDistributions({
+      from() {
+        return {
+          select() {
+            const query = {
+              eq() {
+                return query;
+              },
+              contains() {
+                return query;
+              },
+              in(column: string, values: string[]) {
+                assert.equal(column, "data->>product_id");
+                assert.deepEqual(values, ["product-1"]);
+                return query;
+              },
+              order() {
+                return query;
+              },
+              range(from: number, to: number) {
+                ranges.push([from, to]);
+                return Promise.resolve({
+                  data: [
+                    {
+                      id: `pending-${from}`,
+                      tenant_id: `tenant-${from}`,
+                      status: "pending",
+                      created_at: `2026-07-14T1${from}:00:00Z`,
+                      data: { product_id: "product-1", delivery_mode: "pod_price_list" },
+                    },
+                    {
+                      id: `pending-${from + 1}`,
+                      tenant_id: `tenant-${from + 1}`,
+                      status: "pending",
+                      created_at: `2026-07-14T1${from + 1}:00:00Z`,
+                      data: { product_id: "product-1", delivery_mode: "pod_price_list" },
+                    },
+                  ],
+                  error: null,
+                });
+              },
+            };
+            return query;
+          },
+        };
+      },
+    }, ["product-1"], { pageSize: 2, maxPages: 2 }),
+    /kan ikke afgrænses sikkert/i,
+  );
+
+  assert.deepEqual(ranges, [[0, 1], [2, 3]]);
 });
 
 test("distributeProduct calls the RPC once and preserves selection on a partial result", async () => {

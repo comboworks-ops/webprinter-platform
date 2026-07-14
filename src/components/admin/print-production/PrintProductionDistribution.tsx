@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -104,6 +104,7 @@ export function ProductDistributionFlow({
   const [result, setResult] = useState<DistributionResult | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
+  const reviewAttemptRef = useRef(0);
   const shops = shopsQuery.data || [];
   const pendingTenantIds = new Set(
     (pendingQuery.data || []).map((pending) => pending.tenantId),
@@ -114,7 +115,8 @@ export function ProductDistributionFlow({
   });
 
   const updateSelection = (shop: DistributionShop, checked: boolean) => {
-    if (!shop.eligible || pendingTenantIds.has(shop.id)) return;
+    if (isRevalidating || !shop.eligible || pendingTenantIds.has(shop.id)) return;
+    reviewAttemptRef.current += 1;
     setSelectedTenantIds((current) => checked
       ? [...new Set([...current, shop.id])]
       : current.filter((tenantId) => tenantId !== shop.id));
@@ -125,6 +127,8 @@ export function ProductDistributionFlow({
   };
 
   const resetSelection = () => {
+    if (isRevalidating) return;
+    reviewAttemptRef.current += 1;
     setSelectedTenantIds([]);
     setResult(null);
     setFeedback(null);
@@ -133,6 +137,8 @@ export function ProductDistributionFlow({
   };
 
   const selectEligibleShops = () => {
+    if (isRevalidating) return;
+    reviewAttemptRef.current += 1;
     setSelectedTenantIds(selectAllShops(shops.map((shop) => ({
       ...shop,
       eligible: shop.eligible && !pendingTenantIds.has(shop.id),
@@ -178,11 +184,14 @@ export function ProductDistributionFlow({
 
   const reviewSelection = async () => {
     if (!selectedTenantIds.length || isRevalidating) return;
+    const reviewAttempt = reviewAttemptRef.current + 1;
+    reviewAttemptRef.current = reviewAttempt;
     setIsRevalidating(true);
     setFeedback(null);
     setRefreshWarning(null);
     try {
       const validatedShops = await revalidateSelection();
+      if (reviewAttemptRef.current !== reviewAttempt) return;
       setSelectedTenantIds(validatedShops.map((shop) => shop.id));
       setStage("confirm");
     } catch {
@@ -290,9 +299,24 @@ export function ProductDistributionFlow({
           <span className="sr-only">Indlæser butikker og distributionsstatus</span>
         </div>
       ) : shopsQuery.error || pendingQuery.error ? (
-        <div className="flex items-start gap-2 border-y py-4 text-sm text-destructive" role="alert">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          Butikker eller afventende distributioner kunne ikke indlæses. Prøv igen senere.
+        <div className="flex flex-col gap-3 border-y py-4 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between" role="alert">
+          <span className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>
+              {getAvailabilityErrorMessage(shopsQuery.error, pendingQuery.error)} Genindlæs status, før du sender.
+            </span>
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            onClick={() => void Promise.all([shopsQuery.refetch(), pendingQuery.refetch()])}
+            disabled={shopsQuery.isFetching || pendingQuery.isFetching}
+          >
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            Genindlæs status
+          </Button>
         </div>
       ) : stage === "select" ? (
         <>
@@ -309,7 +333,7 @@ export function ProductDistributionFlow({
                 variant="outline"
                 size="sm"
                 onClick={resetSelection}
-                disabled={!selectedTenantIds.length}
+                disabled={!selectedTenantIds.length || isRevalidating}
               >
                 <RotateCcw className="h-4 w-4" aria-hidden="true" />
                 Nulstil
@@ -319,7 +343,9 @@ export function ProductDistributionFlow({
                 variant="outline"
                 size="sm"
                 onClick={selectEligibleShops}
-                disabled={!shops.some((shop) => shop.eligible && !pendingTenantIds.has(shop.id))}
+                disabled={isRevalidating || !shops.some((shop) => (
+                  shop.eligible && !pendingTenantIds.has(shop.id)
+                ))}
               >
                 Vælg alle
               </Button>
@@ -331,19 +357,22 @@ export function ProductDistributionFlow({
               const checked = selectedTenantIds.includes(shop.id);
               const isPending = pendingTenantIds.has(shop.id);
               const selectable = shop.eligible && !isPending;
+              const canMutateSelection = selectable && !isRevalidating;
               return (
                 <label
                   key={shop.id}
                   htmlFor={`distribution-shop-${productId}-${shop.id}`}
                   className={cn(
                     "flex min-h-12 items-center gap-3 px-2 py-2.5 text-sm",
-                    selectable ? "cursor-pointer hover:bg-muted/40" : "cursor-not-allowed bg-muted/20",
+                    canMutateSelection
+                      ? "cursor-pointer hover:bg-muted/40"
+                      : "cursor-not-allowed bg-muted/20",
                   )}
                 >
                   <Checkbox
                     id={`distribution-shop-${productId}-${shop.id}`}
                     checked={checked}
-                    disabled={!selectable}
+                    disabled={!canMutateSelection}
                     onCheckedChange={(value) => updateSelection(shop, value === true)}
                     aria-describedby={!selectable ? `distribution-shop-reason-${shop.id}` : undefined}
                   />
@@ -440,12 +469,11 @@ export function PrintProductionDistribution({
   )), [snapshot.products]);
   const pendingQuery = usePendingDistributions(masterProductIds);
   const pendingDistributions = pendingQuery.data || [];
-  const shops = shopsQuery.data || snapshot.tenants.map((tenant) => ({
-    id: tenant.id,
-    name: tenant.name,
-    domain: tenant.domain,
-    eligible: tenant.pod2_auto_forward,
-  }));
+  const shops = shopsQuery.data || [];
+  const availabilityError = shopsQuery.error || pendingQuery.error;
+  const availabilityUnavailable = shopsQuery.isLoading
+    || pendingQuery.isLoading
+    || Boolean(availabilityError);
   const selectedProduct = snapshot.products.find(
     (product) => product.catalog.id === selectedProductId,
   ) || null;
@@ -462,10 +490,26 @@ export function PrintProductionDistribution({
         </p>
       </div>
 
-      {pendingQuery.error && (
-        <p className="border-y py-3 text-sm text-destructive" role="alert">
-          Afventende distributioner kunne ikke indlæses. Distribution er midlertidigt deaktiveret.
-        </p>
+      {availabilityError && (
+        <div className="flex flex-col gap-3 border-y py-3 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between" role="alert">
+          <span className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>
+              {getAvailabilityErrorMessage(shopsQuery.error, pendingQuery.error)} Distribution er deaktiveret, indtil status er genindlæst.
+            </span>
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            onClick={() => void Promise.all([shopsQuery.refetch(), pendingQuery.refetch()])}
+            disabled={shopsQuery.isFetching || pendingQuery.isFetching}
+          >
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            Genindlæs status
+          </Button>
+        </div>
       )}
 
       <Tabs defaultValue="products" className="space-y-3">
@@ -487,12 +531,14 @@ export function PrintProductionDistribution({
               </TableHeader>
               <TableBody>
                 {snapshot.products.map((product) => {
+                  const pendingForProduct = getPendingForProduct(product, pendingDistributions);
                   const pendingShops = getPendingShops(product, shops, pendingDistributions);
                   const pendingShopIds = new Set(pendingShops.map((shop) => shop.id));
                   const distributedShops = shops.filter((shop) =>
                     product.distributedTenantIds.includes(shop.id)
                     && !pendingShopIds.has(shop.id));
-                  const hasPending = pendingShops.length > 0;
+                  const unresolvedPendingCount = pendingForProduct.length - pendingShops.length;
+                  const hasPending = pendingForProduct.length > 0;
                   const hasActive = product.distributedTenantIds.length > 0;
                   return (
                     <TableRow key={product.catalog.id}>
@@ -506,14 +552,17 @@ export function PrintProductionDistribution({
                         <DistributionStatus
                           active={hasActive}
                           pending={hasPending}
-                          loading={pendingQuery.isLoading}
-                          error={Boolean(pendingQuery.error)}
+                          loading={shopsQuery.isLoading || pendingQuery.isLoading}
+                          error={Boolean(availabilityError)}
                         />
                       </TableCell>
                       <TableCell className="px-3 py-2.5 text-sm text-muted-foreground">
                         {pendingShops.length || distributedShops.length
                           ? [
                             ...pendingShops.map((shop) => `${shop.name} (afventer)`),
+                            ...(unresolvedPendingCount > 0
+                              ? [`${numberFormatter.format(unresolvedPendingCount)} butik uden navn (afventer)`]
+                              : []),
                             ...distributedShops.map((shop) => shop.name),
                           ].join(", ")
                           : "Ingen butikker"}
@@ -524,7 +573,9 @@ export function PrintProductionDistribution({
                           size="sm"
                           variant="outline"
                           onClick={() => onSelectProduct(product.catalog.id)}
-                          disabled={!canDistribute(product) || pendingQuery.isLoading || Boolean(pendingQuery.error)}
+                          disabled={!canDistribute(product)
+                            || availabilityUnavailable
+                            || !hasAvailableDestination(product, shops, pendingDistributions)}
                         >
                           <Send className="h-4 w-4" aria-hidden="true" />
                           Send til butikker
@@ -706,6 +757,33 @@ function getPendingShops(
   pendingDistributions: PendingDistribution[],
 ): DistributionShop[] {
   return shops.filter((shop) => isPendingForShop(product, shop.id, pendingDistributions));
+}
+
+function getPendingForProduct(
+  product: PrintProductionProduct,
+  pendingDistributions: PendingDistribution[],
+): PendingDistribution[] {
+  if (!product.masterProduct) return [];
+  return pendingDistributions.filter((pending) => (
+    pending.productId === product.masterProduct?.id
+  ));
+}
+
+function hasAvailableDestination(
+  product: PrintProductionProduct,
+  shops: DistributionShop[],
+  pendingDistributions: PendingDistribution[],
+): boolean {
+  const unavailableTenantIds = new Set([
+    ...product.distributedTenantIds,
+    ...getPendingForProduct(product, pendingDistributions).map((pending) => pending.tenantId),
+  ]);
+  return shops.some((shop) => shop.eligible && !unavailableTenantIds.has(shop.id));
+}
+
+function getAvailabilityErrorMessage(...errors: unknown[]): string {
+  const error = errors.find((candidate): candidate is Error => candidate instanceof Error);
+  return error?.message || "Butikker eller afventende distributioner kunne ikke indlæses.";
 }
 
 function ProductImage({ product }: { product: PrintProductionProduct }) {

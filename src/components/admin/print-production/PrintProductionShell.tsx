@@ -113,8 +113,8 @@ export function PrintProductionShell({
           if (product.catalog.status !== "published") {
             const catalogParams = new URLSearchParams();
             if (forceDomain) catalogParams.set("force_domain", forceDomain);
-            catalogParams.set("product", product.catalog.id);
-            navigate(`/admin/pod2-katalog?${catalogParams.toString()}`);
+            const catalogSearch = catalogParams.toString();
+            navigate(`/admin/pod2${catalogSearch ? `?${catalogSearch}` : ""}`);
             return;
           }
           const href = withPrintProductionView(location.search, "products");

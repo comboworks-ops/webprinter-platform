@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  AlertCircle,
   Eye,
   ExternalLink,
   Package,
+  RotateCcw,
   Search,
   Send,
   Settings2,
@@ -30,8 +32,11 @@ import {
 } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  loadDistributionShops,
   loadPendingDistributions,
   PENDING_DISTRIBUTIONS_QUERY_KEY,
+  type DistributionShop,
+  type DistributionShopClient,
   type PendingDistribution,
   type PendingNotificationClient,
 } from "@/lib/print-production/distribution";
@@ -83,6 +88,12 @@ export function PrintProductionProducts({
   const [category, setCategory] = useState("all");
   const [shop, setShop] = useState("all");
   const [priceReadiness, setPriceReadiness] = useState("all");
+  const shopsQuery = useQuery({
+    queryKey: ["print-production", "distribution-shops"],
+    queryFn: () => loadDistributionShops(
+      supabase as unknown as DistributionShopClient,
+    ),
+  });
   const masterProductIds = useMemo(() => snapshot.products.flatMap((product) => (
     product.masterProduct ? [product.masterProduct.id] : []
   )), [snapshot.products]);
@@ -102,6 +113,14 @@ export function PrintProductionProducts({
     () => pendingQuery.data || [],
     [pendingQuery.data],
   );
+  const distributionShops = useMemo(
+    () => shopsQuery.data || [],
+    [shopsQuery.data],
+  );
+  const availabilityError = shopsQuery.error || pendingQuery.error;
+  const availabilityUnavailable = shopsQuery.isLoading
+    || pendingQuery.isLoading
+    || Boolean(availabilityError);
 
   const categories = useMemo(() => [...new Set(
     snapshot.products.map(getCategory),
@@ -181,8 +200,10 @@ export function PrintProductionProducts({
         </FilterSelect>
         <FilterSelect label="Butik" value={shop} onChange={setShop}>
           <SelectItem value="all">Alle</SelectItem>
-          {snapshot.tenants.map((tenant) => (
-            <SelectItem key={tenant.id} value={tenant.id}>{tenant.name}</SelectItem>
+          {distributionShops.map((distributionShop) => (
+            <SelectItem key={distributionShop.id} value={distributionShop.id}>
+              {distributionShop.name}
+            </SelectItem>
           ))}
         </FilterSelect>
         <FilterSelect label="Priser" value={priceReadiness} onChange={setPriceReadiness}>
@@ -192,10 +213,26 @@ export function PrintProductionProducts({
         </FilterSelect>
       </section>
 
-      {pendingQuery.error && (
-        <p className="border-y py-3 text-sm text-destructive" role="alert">
-          Afventende distributioner kunne ikke indlæses. Distribution er midlertidigt deaktiveret.
-        </p>
+      {availabilityError && (
+        <div className="flex flex-col gap-3 border-y py-3 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between" role="alert">
+          <span className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>
+              {getAvailabilityErrorMessage(shopsQuery.error, pendingQuery.error)} Distribution er deaktiveret, indtil status er genindlæst.
+            </span>
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            onClick={() => void Promise.all([shopsQuery.refetch(), pendingQuery.refetch()])}
+            disabled={shopsQuery.isFetching || pendingQuery.isFetching}
+          >
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            Genindlæs status
+          </Button>
+        </div>
       )}
 
       {selectedProduct && (
@@ -204,9 +241,9 @@ export function PrintProductionProducts({
           pendingTenantIds={getPendingTenantIds(selectedProduct, pendingDistributions)}
           canOpenDistribution={canOpenDistribution(
             selectedProduct,
-            snapshot,
+            distributionShops,
             getPendingTenantIds(selectedProduct, pendingDistributions),
-            pendingQuery.isLoading || Boolean(pendingQuery.error),
+            availabilityUnavailable,
           )}
           onClose={() => onReviewProduct(null)}
           onPrepare={() => onPrepareProduct(selectedProduct)}
@@ -233,9 +270,9 @@ export function PrintProductionProducts({
               const productStatus = getListStatus(product, pendingTenantIds.length > 0);
               const canSend = canOpenDistribution(
                 product,
-                snapshot,
+                distributionShops,
                 pendingTenantIds,
-                pendingQuery.isLoading || Boolean(pendingQuery.error),
+                availabilityUnavailable,
               );
               return (
                 <TableRow key={product.catalog.id}>
@@ -496,7 +533,7 @@ function getPendingTenantIds(
 
 function canOpenDistribution(
   product: PrintProductionProduct,
-  snapshot: PrintProductionSnapshot,
+  shops: DistributionShop[],
   pendingTenantIds: string[],
   pendingStatusUnavailable: boolean,
 ): boolean {
@@ -505,7 +542,12 @@ function canOpenDistribution(
     ...product.distributedTenantIds,
     ...pendingTenantIds,
   ]);
-  return snapshot.tenants.some((tenant) => (
-    tenant.pod2_auto_forward && !unavailableTenantIds.has(tenant.id)
+  return shops.some((shop) => (
+    shop.eligible && !unavailableTenantIds.has(shop.id)
   ));
+}
+
+function getAvailabilityErrorMessage(...errors: unknown[]): string {
+  const error = errors.find((candidate): candidate is Error => candidate instanceof Error);
+  return error?.message || "Butikker eller afventende distributioner kunne ikke indlæses.";
 }
