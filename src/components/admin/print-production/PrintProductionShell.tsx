@@ -77,6 +77,7 @@ export function PrintProductionShell({
   } else if (isNewProductRoute && snapshot) {
     activeContent = (
       <PrintProductWizard
+        key={`${location.key}:${searchParams.get("action") || "none"}:${selectedProductId || "none"}`}
         initialCatalogProductId={selectedProductId}
         onDistributed={refetch}
       />
@@ -109,6 +110,13 @@ export function PrintProductionShell({
           navigate(productId ? `${href}&product=${encodeURIComponent(productId)}` : href);
         }}
         onPrepareProduct={(product) => {
+          if (product.catalog.status !== "published") {
+            const catalogParams = new URLSearchParams();
+            if (forceDomain) catalogParams.set("force_domain", forceDomain);
+            catalogParams.set("product", product.catalog.id);
+            navigate(`/admin/pod2-katalog?${catalogParams.toString()}`);
+            return;
+          }
           const href = withPrintProductionView(location.search, "products");
           navigate(`${href}&action=new&product=${encodeURIComponent(product.catalog.id)}`);
         }}

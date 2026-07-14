@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Eye,
   ExternalLink,
@@ -27,6 +28,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  loadPendingDistributions,
+  PENDING_DISTRIBUTIONS_QUERY_KEY,
+  type PendingDistribution,
+  type PendingNotificationClient,
+} from "@/lib/print-production/distribution";
 import type {
   PrintProductionProduct,
   PrintProductionSnapshot,
@@ -41,7 +49,7 @@ interface PrintProductionProductsProps {
   onOpenImportedProduct: (product: PrintProductionProduct) => void;
 }
 
-type ProductListStatus = "draft" | "setup" | "ready" | "distributed" | "blocked";
+type ProductListStatus = "draft" | "setup" | "ready" | "pending" | "distributed" | "blocked";
 
 const currencyFormatter = new Intl.NumberFormat("da-DK", {
   style: "currency",
@@ -56,6 +64,7 @@ const STATUS_LABELS: Record<ProductListStatus, string> = {
   draft: "Kladde",
   setup: "Kræver opsætning",
   ready: "Klar",
+  pending: "Afventer modtagelse",
   distributed: "Distribueret",
   blocked: "Blokeret",
 };
@@ -74,6 +83,25 @@ export function PrintProductionProducts({
   const [category, setCategory] = useState("all");
   const [shop, setShop] = useState("all");
   const [priceReadiness, setPriceReadiness] = useState("all");
+  const masterProductIds = useMemo(() => snapshot.products.flatMap((product) => (
+    product.masterProduct ? [product.masterProduct.id] : []
+  )), [snapshot.products]);
+  const normalizedMasterProductIds = useMemo(
+    () => [...new Set(masterProductIds)].sort(),
+    [masterProductIds],
+  );
+  const pendingQuery = useQuery({
+    queryKey: [...PENDING_DISTRIBUTIONS_QUERY_KEY, normalizedMasterProductIds],
+    queryFn: () => loadPendingDistributions(
+      supabase as unknown as PendingNotificationClient,
+      normalizedMasterProductIds,
+    ),
+    enabled: normalizedMasterProductIds.length > 0,
+  });
+  const pendingDistributions = useMemo(
+    () => pendingQuery.data || [],
+    [pendingQuery.data],
+  );
 
   const categories = useMemo(() => [...new Set(
     snapshot.products.map(getCategory),
@@ -82,7 +110,8 @@ export function PrintProductionProducts({
   const filteredProducts = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase("da-DK");
     return snapshot.products.filter((product) => {
-      const productStatus = getListStatus(product);
+      const pendingTenantIds = getPendingTenantIds(product, pendingDistributions);
+      const productStatus = getListStatus(product, pendingTenantIds.length > 0);
       const supplierKey = getSupplierKey(product);
       const categoryName = getCategory(product);
       const hasReadyPrices = isPriceReady(product);
@@ -96,11 +125,13 @@ export function PrintProductionProducts({
         && (status === "all" || productStatus === status)
         && (supplier === "all" || supplierKey === supplier)
         && (category === "all" || categoryName === category)
-        && (shop === "all" || product.distributedTenantIds.includes(shop))
+        && (shop === "all"
+          || product.distributedTenantIds.includes(shop)
+          || pendingTenantIds.includes(shop))
         && (priceReadiness === "all"
           || (priceReadiness === "ready" ? hasReadyPrices : !hasReadyPrices));
     });
-  }, [category, priceReadiness, search, shop, snapshot.products, status, supplier]);
+  }, [category, pendingDistributions, priceReadiness, search, shop, snapshot.products, status, supplier]);
 
   const selectedProduct = snapshot.products.find(
     (product) => product.catalog.id === selectedProductId,
@@ -133,6 +164,7 @@ export function PrintProductionProducts({
           <SelectItem value="draft">Kladde</SelectItem>
           <SelectItem value="setup">Kræver opsætning</SelectItem>
           <SelectItem value="ready">Klar</SelectItem>
+          <SelectItem value="pending">Afventer modtagelse</SelectItem>
           <SelectItem value="distributed">Distribueret</SelectItem>
           <SelectItem value="blocked">Blokeret</SelectItem>
         </FilterSelect>
@@ -160,9 +192,22 @@ export function PrintProductionProducts({
         </FilterSelect>
       </section>
 
+      {pendingQuery.error && (
+        <p className="border-y py-3 text-sm text-destructive" role="alert">
+          Afventende distributioner kunne ikke indlæses. Distribution er midlertidigt deaktiveret.
+        </p>
+      )}
+
       {selectedProduct && (
         <ProductReview
           product={selectedProduct}
+          pendingTenantIds={getPendingTenantIds(selectedProduct, pendingDistributions)}
+          canOpenDistribution={canOpenDistribution(
+            selectedProduct,
+            snapshot,
+            getPendingTenantIds(selectedProduct, pendingDistributions),
+            pendingQuery.isLoading || Boolean(pendingQuery.error),
+          )}
           onClose={() => onReviewProduct(null)}
           onPrepare={() => onPrepareProduct(selectedProduct)}
           onDistribute={() => onDistributeProduct(selectedProduct)}
@@ -170,7 +215,7 @@ export function PrintProductionProducts({
       )}
 
       <div className="overflow-x-auto border-y">
-        <Table className="min-w-[1160px] table-fixed">
+        <Table className="min-w-[1260px] table-fixed">
           <TableHeader className="bg-muted/40">
             <TableRow className="hover:bg-transparent">
               <TableHead className="h-10 w-[260px] px-3">Produkt</TableHead>
@@ -178,14 +223,20 @@ export function PrintProductionProducts({
               <TableHead className="h-10 w-[135px] px-3">Kategori</TableHead>
               <TableHead className="h-10 w-[145px] px-3">Status</TableHead>
               <TableHead className="h-10 w-[125px] px-3 text-right">Salgspris fra</TableHead>
-              <TableHead className="h-10 w-[75px] px-3 text-right">Butikker</TableHead>
+              <TableHead className="h-10 w-[180px] px-3 text-right">Butikker</TableHead>
               <TableHead className="h-10 w-[300px] px-3 text-right">Handlinger</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredProducts.map((product) => {
-              const productStatus = getListStatus(product);
-              const canSend = canDistribute(product);
+              const pendingTenantIds = getPendingTenantIds(product, pendingDistributions);
+              const productStatus = getListStatus(product, pendingTenantIds.length > 0);
+              const canSend = canOpenDistribution(
+                product,
+                snapshot,
+                pendingTenantIds,
+                pendingQuery.isLoading || Boolean(pendingQuery.error),
+              );
               return (
                 <TableRow key={product.catalog.id}>
                   <TableCell className="px-3 py-2.5">
@@ -212,7 +263,9 @@ export function PrintProductionProducts({
                       : currencyFormatter.format(product.readiness.minRetail)}
                   </TableCell>
                   <TableCell className="px-3 py-2.5 text-right text-sm tabular-nums">
-                    {numberFormatter.format(product.distributedTenantIds.length)}
+                    {pendingTenantIds.length
+                      ? `${numberFormatter.format(product.distributedTenantIds.length)} aktiv · ${numberFormatter.format(pendingTenantIds.length)} afventer`
+                      : numberFormatter.format(product.distributedTenantIds.length)}
                   </TableCell>
                   <TableCell className="px-3 py-2.5">
                     <div className="flex justify-end gap-1">
@@ -225,7 +278,7 @@ export function PrintProductionProducts({
                         <Eye className="h-4 w-4" aria-hidden="true" />
                         Gennemse
                       </Button>
-                      {productStatus !== "ready" && productStatus !== "distributed" && (
+                      {!canDistribute(product) && (
                         <Button
                           type="button"
                           size="sm"
@@ -304,16 +357,20 @@ function FilterSelect({
 
 function ProductReview({
   product,
+  pendingTenantIds,
+  canOpenDistribution,
   onClose,
   onPrepare,
   onDistribute,
 }: {
   product: PrintProductionProduct;
+  pendingTenantIds: string[];
+  canOpenDistribution: boolean;
   onClose: () => void;
   onPrepare: () => void;
   onDistribute: () => void;
 }) {
-  const productStatus = getListStatus(product);
+  const productStatus = getListStatus(product, pendingTenantIds.length > 0);
   return (
     <section aria-labelledby="product-review-title" className="border-y bg-muted/20 px-3 py-4">
       <div className="flex items-start justify-between gap-4">
@@ -323,7 +380,7 @@ function ProductReview({
             <StatusBadge status={productStatus} />
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {getCategory(product)} · {numberFormatter.format(product.distributedTenantIds.length)} butikker
+            {getCategory(product)} · {numberFormatter.format(product.distributedTenantIds.length)} aktive · {numberFormatter.format(pendingTenantIds.length)} afventer
           </p>
         </div>
         <Button type="button" size="icon" variant="ghost" onClick={onClose} aria-label="Luk produktgennemgang">
@@ -340,12 +397,13 @@ function ProductReview({
           </p>
         </div>
         <div className="flex flex-wrap gap-2 md:justify-end">
-          {canDistribute(product) ? (
+          {canOpenDistribution && (
             <Button type="button" size="sm" onClick={onDistribute}>
               <Send className="h-4 w-4" aria-hidden="true" />
               Send til butikker
             </Button>
-          ) : (
+          )}
+          {!canDistribute(product) && (
             <Button type="button" size="sm" onClick={onPrepare}>
               <Settings2 className="h-4 w-4" aria-hidden="true" />
               Klargør
@@ -371,7 +429,16 @@ function ProductImage({ product }: { product: PrintProductionProduct }) {
 }
 
 function StatusBadge({ status }: { status: ProductListStatus }) {
-  return <Badge variant="outline" className="whitespace-nowrap">{STATUS_LABELS[status]}</Badge>;
+  return (
+    <Badge
+      variant="outline"
+      className={status === "pending"
+        ? "whitespace-nowrap border-amber-600/40 text-amber-900 dark:text-amber-300"
+        : "whitespace-nowrap"}
+    >
+      {STATUS_LABELS[status]}
+    </Badge>
+  );
 }
 
 function getProductName(product: PrintProductionProduct): string {
@@ -398,8 +465,9 @@ function isPriceReady(product: PrintProductionProduct): boolean {
       blocker.code === "missing_prices" || blocker.code === "quote_only");
 }
 
-function getListStatus(product: PrintProductionProduct): ProductListStatus {
+function getListStatus(product: PrintProductionProduct, hasPending = false): ProductListStatus {
   if (product.catalog.status !== "published") return "draft";
+  if (hasPending) return "pending";
   if (product.readiness.status === "distributed") return "distributed";
   if (product.readiness.status === "ready") return "ready";
   if (product.readiness.blockers.some((blocker) => [
@@ -414,4 +482,30 @@ function getListStatus(product: PrintProductionProduct): ProductListStatus {
 function canDistribute(product: PrintProductionProduct): boolean {
   return Boolean(product.masterProduct)
     && (product.readiness.status === "ready" || product.readiness.status === "distributed");
+}
+
+function getPendingTenantIds(
+  product: PrintProductionProduct,
+  pendingDistributions: PendingDistribution[],
+): string[] {
+  if (!product.masterProduct) return [];
+  return pendingDistributions.flatMap((pending) => (
+    pending.productId === product.masterProduct?.id ? [pending.tenantId] : []
+  ));
+}
+
+function canOpenDistribution(
+  product: PrintProductionProduct,
+  snapshot: PrintProductionSnapshot,
+  pendingTenantIds: string[],
+  pendingStatusUnavailable: boolean,
+): boolean {
+  if (!canDistribute(product) || pendingStatusUnavailable) return false;
+  const unavailableTenantIds = new Set([
+    ...product.distributedTenantIds,
+    ...pendingTenantIds,
+  ]);
+  return snapshot.tenants.some((tenant) => (
+    tenant.pod2_auto_forward && !unavailableTenantIds.has(tenant.id)
+  ));
 }

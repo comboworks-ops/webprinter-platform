@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   CheckCircle2,
@@ -33,7 +33,12 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   distributeProduct,
   loadDistributionShops,
+  loadPendingDistributions,
+  PENDING_DISTRIBUTIONS_QUERY_KEY,
   selectAllShops,
+  validateDistributionSelection,
+  type PendingDistribution,
+  type PendingNotificationClient,
   type DistributionResult,
   type DistributionRpcClient,
   type DistributionShop,
@@ -72,26 +77,44 @@ function useDistributionShops() {
   });
 }
 
+function usePendingDistributions(productIds: string[]) {
+  const normalizedProductIds = [...new Set(productIds.filter(Boolean))].sort();
+  return useQuery({
+    queryKey: [...PENDING_DISTRIBUTIONS_QUERY_KEY, normalizedProductIds],
+    queryFn: () => loadPendingDistributions(
+      supabase as unknown as PendingNotificationClient,
+      normalizedProductIds,
+    ),
+    enabled: normalizedProductIds.length > 0,
+  });
+}
+
 export function ProductDistributionFlow({
   productId,
   productName,
   onDistributed,
 }: ProductDistributionFlowProps) {
+  const queryClient = useQueryClient();
   const shopsQuery = useDistributionShops();
+  const pendingQuery = usePendingDistributions([productId]);
   const [selectedTenantIds, setSelectedTenantIds] = useState<string[]>([]);
   const [stage, setStage] = useState<FlowStage>("select");
   const [isSending, setIsSending] = useState(false);
+  const [isRevalidating, setIsRevalidating] = useState(false);
   const [result, setResult] = useState<DistributionResult | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const shops = shopsQuery.data || [];
+  const pendingTenantIds = new Set(
+    (pendingQuery.data || []).map((pending) => pending.tenantId),
+  );
   const selectedShops = selectedTenantIds.flatMap((tenantId) => {
     const shop = shops.find((candidate) => candidate.id === tenantId);
     return shop ? [shop] : [];
   });
 
   const updateSelection = (shop: DistributionShop, checked: boolean) => {
-    if (!shop.eligible) return;
+    if (!shop.eligible || pendingTenantIds.has(shop.id)) return;
     setSelectedTenantIds((current) => checked
       ? [...new Set([...current, shop.id])]
       : current.filter((tenantId) => tenantId !== shop.id));
@@ -110,11 +133,63 @@ export function ProductDistributionFlow({
   };
 
   const selectEligibleShops = () => {
-    setSelectedTenantIds(selectAllShops(shops));
+    setSelectedTenantIds(selectAllShops(shops.map((shop) => ({
+      ...shop,
+      eligible: shop.eligible && !pendingTenantIds.has(shop.id),
+    }))));
     setResult(null);
     setFeedback(null);
     setRefreshWarning(null);
     setStage("select");
+  };
+
+  const revalidateSelection = async (): Promise<DistributionShop[]> => {
+    const [latestShopsResult, latestPendingResult] = await Promise.all([
+      shopsQuery.refetch(),
+      pendingQuery.refetch(),
+    ]);
+    const latestShops = latestShopsResult.data || [];
+    const latestPending = latestPendingResult.data || [];
+    const latestPendingTenantIds = new Set(latestPending.map((pending) => pending.tenantId));
+
+    try {
+      if (latestShopsResult.error) throw latestShopsResult.error;
+      if (latestPendingResult.error) throw latestPendingResult.error;
+      const validatedShops = validateDistributionSelection(selectedTenantIds, latestShops);
+      if (validatedShops.some((shop) => latestPendingTenantIds.has(shop.id))) {
+        throw new Error("Produktet afventer allerede modtagelse i en eller flere valgte butikker.");
+      }
+      return validatedShops;
+    } catch (error) {
+      const selectableIds = new Set(selectAllShops(latestShops).filter(
+        (tenantId) => !latestPendingTenantIds.has(tenantId),
+      ));
+      setSelectedTenantIds((current) => current.filter((tenantId) => selectableIds.has(tenantId)));
+      setStage("select");
+      setFeedback({
+        tone: "error",
+        message: error instanceof Error
+          ? error.message
+          : "Butiksvalget er ændret. Gennemgå valget igen.",
+      });
+      throw error;
+    }
+  };
+
+  const reviewSelection = async () => {
+    if (!selectedTenantIds.length || isRevalidating) return;
+    setIsRevalidating(true);
+    setFeedback(null);
+    setRefreshWarning(null);
+    try {
+      const validatedShops = await revalidateSelection();
+      setSelectedTenantIds(validatedShops.map((shop) => shop.id));
+      setStage("confirm");
+    } catch {
+      // revalidateSelection has already returned the operator to a safe state.
+    } finally {
+      setIsRevalidating(false);
+    }
   };
 
   const sendProduct = async () => {
@@ -123,7 +198,10 @@ export function ProductDistributionFlow({
     setFeedback(null);
     setRefreshWarning(null);
 
+    let selectionValidated = false;
     try {
+      await revalidateSelection();
+      selectionValidated = true;
       const distributionResult = await distributeProduct(
         supabase as unknown as DistributionRpcClient,
         { productId, selectedTenantIds },
@@ -143,11 +221,14 @@ export function ProductDistributionFlow({
           message: `Produktet er sendt til ${numberFormatter.format(deliveredCount)} butikker.`,
         });
 
-      try {
-        await onDistributed();
-      } catch (error) {
-        setRefreshWarning(error instanceof Error
-          ? `Status kunne ikke genindlæses: ${error.message}`
+      const refreshResults = await Promise.allSettled([
+        onDistributed(),
+        queryClient.refetchQueries({ queryKey: PENDING_DISTRIBUTIONS_QUERY_KEY }),
+      ]);
+      const rejectedRefresh = refreshResults.find((refresh) => refresh.status === "rejected");
+      if (rejectedRefresh?.status === "rejected") {
+        setRefreshWarning(rejectedRefresh.reason instanceof Error
+          ? `Status kunne ikke genindlæses: ${rejectedRefresh.reason.message}`
           : "Status kunne ikke genindlæses.");
       }
 
@@ -162,7 +243,7 @@ export function ProductDistributionFlow({
           ? error.message
           : "Produktet kunne ikke sendes til butikkerne.",
       });
-      setStage("confirm");
+      setStage(selectionValidated ? "confirm" : "select");
     } finally {
       setIsSending(false);
     }
@@ -203,15 +284,15 @@ export function ProductDistributionFlow({
         </p>
       )}
 
-      {shopsQuery.isLoading ? (
+      {shopsQuery.isLoading || pendingQuery.isLoading ? (
         <div className="flex min-h-32 items-center justify-center" role="status">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
-          <span className="sr-only">Indlæser butikker</span>
+          <span className="sr-only">Indlæser butikker og distributionsstatus</span>
         </div>
-      ) : shopsQuery.error ? (
+      ) : shopsQuery.error || pendingQuery.error ? (
         <div className="flex items-start gap-2 border-y py-4 text-sm text-destructive" role="alert">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          Butikkerne kunne ikke indlæses.
+          Butikker eller afventende distributioner kunne ikke indlæses. Prøv igen senere.
         </div>
       ) : stage === "select" ? (
         <>
@@ -238,7 +319,7 @@ export function ProductDistributionFlow({
                 variant="outline"
                 size="sm"
                 onClick={selectEligibleShops}
-                disabled={!shops.some((shop) => shop.eligible)}
+                disabled={!shops.some((shop) => shop.eligible && !pendingTenantIds.has(shop.id))}
               >
                 Vælg alle
               </Button>
@@ -248,21 +329,23 @@ export function ProductDistributionFlow({
           <div className="divide-y border-y">
             {shops.map((shop) => {
               const checked = selectedTenantIds.includes(shop.id);
+              const isPending = pendingTenantIds.has(shop.id);
+              const selectable = shop.eligible && !isPending;
               return (
                 <label
                   key={shop.id}
                   htmlFor={`distribution-shop-${productId}-${shop.id}`}
                   className={cn(
                     "flex min-h-12 items-center gap-3 px-2 py-2.5 text-sm",
-                    shop.eligible ? "cursor-pointer hover:bg-muted/40" : "cursor-not-allowed bg-muted/20",
+                    selectable ? "cursor-pointer hover:bg-muted/40" : "cursor-not-allowed bg-muted/20",
                   )}
                 >
                   <Checkbox
                     id={`distribution-shop-${productId}-${shop.id}`}
                     checked={checked}
-                    disabled={!shop.eligible}
+                    disabled={!selectable}
                     onCheckedChange={(value) => updateSelection(shop, value === true)}
-                    aria-describedby={!shop.eligible ? `distribution-shop-reason-${shop.id}` : undefined}
+                    aria-describedby={!selectable ? `distribution-shop-reason-${shop.id}` : undefined}
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block font-medium">{shop.name}</span>
@@ -270,12 +353,12 @@ export function ProductDistributionFlow({
                       {shop.domain || "Domæne ikke angivet"}
                     </span>
                   </span>
-                  {!shop.eligible && (
+                  {!selectable && (
                     <span
                       id={`distribution-shop-reason-${shop.id}`}
                       className="max-w-56 text-right text-xs font-medium text-muted-foreground"
                     >
-                      Ikke klar til automatisk afregning
+                      {isPending ? "Afventer modtagelse" : "Ikke klar til automatisk afregning"}
                     </span>
                   )}
                 </label>
@@ -294,9 +377,12 @@ export function ProductDistributionFlow({
             </p>
             <Button
               type="button"
-              onClick={() => setStage("confirm")}
-              disabled={!selectedTenantIds.length}
+              onClick={reviewSelection}
+              disabled={!selectedTenantIds.length || isRevalidating}
             >
+              {isRevalidating && (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              )}
               Gennemgå valg
             </Button>
           </div>
@@ -349,6 +435,11 @@ export function PrintProductionDistribution({
   onRefetch,
 }: PrintProductionDistributionProps) {
   const shopsQuery = useDistributionShops();
+  const masterProductIds = useMemo(() => snapshot.products.flatMap((product) => (
+    product.masterProduct ? [product.masterProduct.id] : []
+  )), [snapshot.products]);
+  const pendingQuery = usePendingDistributions(masterProductIds);
+  const pendingDistributions = pendingQuery.data || [];
   const shops = shopsQuery.data || snapshot.tenants.map((tenant) => ({
     id: tenant.id,
     name: tenant.name,
@@ -371,6 +462,12 @@ export function PrintProductionDistribution({
         </p>
       </div>
 
+      {pendingQuery.error && (
+        <p className="border-y py-3 text-sm text-destructive" role="alert">
+          Afventende distributioner kunne ikke indlæses. Distribution er midlertidigt deaktiveret.
+        </p>
+      )}
+
       <Tabs defaultValue="products" className="space-y-3">
         <TabsList className="grid w-full max-w-sm grid-cols-2">
           <TabsTrigger value="products">Pr. produkt</TabsTrigger>
@@ -390,8 +487,13 @@ export function PrintProductionDistribution({
               </TableHeader>
               <TableBody>
                 {snapshot.products.map((product) => {
+                  const pendingShops = getPendingShops(product, shops, pendingDistributions);
+                  const pendingShopIds = new Set(pendingShops.map((shop) => shop.id));
                   const distributedShops = shops.filter((shop) =>
-                    product.distributedTenantIds.includes(shop.id));
+                    product.distributedTenantIds.includes(shop.id)
+                    && !pendingShopIds.has(shop.id));
+                  const hasPending = pendingShops.length > 0;
+                  const hasActive = product.distributedTenantIds.length > 0;
                   return (
                     <TableRow key={product.catalog.id}>
                       <TableCell className="px-3 py-2.5">
@@ -401,11 +503,19 @@ export function PrintProductionDistribution({
                         </div>
                       </TableCell>
                       <TableCell className="px-3 py-2.5">
-                        <DistributionStatus active={distributedShops.length > 0} />
+                        <DistributionStatus
+                          active={hasActive}
+                          pending={hasPending}
+                          loading={pendingQuery.isLoading}
+                          error={Boolean(pendingQuery.error)}
+                        />
                       </TableCell>
                       <TableCell className="px-3 py-2.5 text-sm text-muted-foreground">
-                        {distributedShops.length
-                          ? distributedShops.map((shop) => shop.name).join(", ")
+                        {pendingShops.length || distributedShops.length
+                          ? [
+                            ...pendingShops.map((shop) => `${shop.name} (afventer)`),
+                            ...distributedShops.map((shop) => shop.name),
+                          ].join(", ")
                           : "Ingen butikker"}
                       </TableCell>
                       <TableCell className="px-3 py-2.5 text-right">
@@ -414,7 +524,7 @@ export function PrintProductionDistribution({
                           size="sm"
                           variant="outline"
                           onClick={() => onSelectProduct(product.catalog.id)}
-                          disabled={!canDistribute(product)}
+                          disabled={!canDistribute(product) || pendingQuery.isLoading || Boolean(pendingQuery.error)}
                         >
                           <Send className="h-4 w-4" aria-hidden="true" />
                           Send til butikker
@@ -447,8 +557,14 @@ export function PrintProductionDistribution({
               </TableHeader>
               <TableBody>
                 {shops.map((shop) => {
-                  const products = snapshot.products.filter((product) =>
-                    product.distributedTenantIds.includes(shop.id));
+                  const pendingProducts = snapshot.products.filter((product) => (
+                    isPendingForShop(product, shop.id, pendingDistributions)
+                  ));
+                  const pendingProductIds = new Set(pendingProducts.map((product) => product.catalog.id));
+                  const products = snapshot.products.filter((product) => (
+                    product.distributedTenantIds.includes(shop.id)
+                    && !pendingProductIds.has(product.catalog.id)
+                  ));
                   return (
                     <TableRow key={shop.id}>
                       <TableCell className="px-3 py-2.5">
@@ -469,8 +585,11 @@ export function PrintProductionDistribution({
                         )}
                       </TableCell>
                       <TableCell className="px-3 py-2.5 text-sm text-muted-foreground">
-                        {products.length
-                          ? products.map(getProductName).join(", ")
+                        {pendingProducts.length || products.length
+                          ? [
+                            ...pendingProducts.map((product) => `${getProductName(product)} (afventer)`),
+                            ...products.map(getProductName),
+                          ].join(", ")
                           : "Ingen aktive produkter"}
                       </TableCell>
                     </TableRow>
@@ -523,17 +642,70 @@ function ResultCount({ label, value }: { label: string; value: number }) {
   );
 }
 
-function DistributionStatus({ active }: { active: boolean }) {
+function DistributionStatus({
+  active,
+  pending,
+  loading,
+  error,
+}: {
+  active: boolean;
+  pending: boolean;
+  loading: boolean;
+  error: boolean;
+}) {
   return (
-    <Badge variant="outline" className="gap-1.5 whitespace-nowrap">
-      {active ? (
-        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-      ) : (
-        <Package className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+    <span className="flex flex-wrap gap-1.5">
+      {loading && (
+        <Badge variant="outline" className="gap-1.5 whitespace-nowrap">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-hidden="true" />
+          Indlæser status
+        </Badge>
       )}
-      {active ? "Aktiv i butik" : "Ikke sendt"}
-    </Badge>
+      {error && (
+        <Badge variant="outline" className="gap-1.5 whitespace-nowrap border-amber-600/40 text-amber-900 dark:text-amber-300">
+          <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+          Status ukendt
+        </Badge>
+      )}
+      {pending && (
+        <Badge variant="outline" className="gap-1.5 whitespace-nowrap border-amber-600/40 text-amber-900 dark:text-amber-300">
+          <Loader2 className="h-3.5 w-3.5" aria-hidden="true" />
+          Afventer modtagelse
+        </Badge>
+      )}
+      {active && (
+        <Badge variant="outline" className="gap-1.5 whitespace-nowrap">
+          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+          Aktiv i butik
+        </Badge>
+      )}
+      {!pending && !active && !loading && !error && (
+        <Badge variant="outline" className="gap-1.5 whitespace-nowrap">
+          <Package className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+          Ikke sendt
+        </Badge>
+      )}
+    </span>
   );
+}
+
+function isPendingForShop(
+  product: PrintProductionProduct,
+  tenantId: string,
+  pendingDistributions: PendingDistribution[],
+): boolean {
+  if (!product.masterProduct) return false;
+  return pendingDistributions.some((pending) => (
+    pending.productId === product.masterProduct?.id && pending.tenantId === tenantId
+  ));
+}
+
+function getPendingShops(
+  product: PrintProductionProduct,
+  shops: DistributionShop[],
+  pendingDistributions: PendingDistribution[],
+): DistributionShop[] {
+  return shops.filter((shop) => isPendingForShop(product, shop.id, pendingDistributions));
 }
 
 function ProductImage({ product }: { product: PrintProductionProduct }) {

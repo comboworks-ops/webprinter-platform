@@ -171,12 +171,14 @@ export function PrintProductWizard({
           {WIZARD_STEPS.map(({ step: itemStep, label }) => {
             const isCurrent = step === itemStep;
             const isComplete = step > itemStep;
+            const canReturnToDistribution = itemStep === 5 && Boolean(createdProduct);
+            const canNavigate = isComplete || canReturnToDistribution;
             return (
               <li key={itemStep}>
                 <button
                   type="button"
-                  onClick={() => isComplete && setStep(itemStep)}
-                  disabled={!isComplete && !isCurrent}
+                  onClick={() => canNavigate && setStep(itemStep)}
+                  disabled={!canNavigate && !isCurrent}
                   aria-current={isCurrent ? "step" : undefined}
                   className={cn(
                     "inline-flex h-11 items-center gap-2 border-b-2 px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",

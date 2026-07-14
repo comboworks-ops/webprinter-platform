@@ -5,7 +5,9 @@ import {
   buildDistributionRequest,
   distributeProduct,
   loadDistributionShops,
+  loadPendingDistributions,
   selectAllShops,
+  validateDistributionSelection,
 } from "./distribution.ts";
 
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
@@ -87,6 +89,132 @@ test("shop loading removes master and derives eligibility from automatic settlem
   assert.deepEqual(shops, [
     { id: "eligible", name: "Butik A", domain: "a.dk", eligible: true },
     { id: "ineligible", name: "Butik B", domain: "b.dk", eligible: false },
+  ]);
+});
+
+test("latest directory validation returns every valid selected shop", () => {
+  const shops = [
+    { id: "tenant-a", name: "Butik A", domain: "a.dk", eligible: true },
+    { id: "tenant-b", name: "Butik B", domain: "b.dk", eligible: true },
+  ];
+
+  assert.deepEqual(
+    validateDistributionSelection(["tenant-a", "tenant-b"], shops),
+    shops,
+  );
+});
+
+test("latest directory validation rejects a disappeared shop", () => {
+  assert.throws(
+    () => validateDistributionSelection(["tenant-a", "tenant-missing"], [
+      { id: "tenant-a", name: "Butik A", domain: "a.dk", eligible: true },
+    ]),
+    /findes ikke længere/i,
+  );
+});
+
+test("latest directory validation rejects a newly ineligible shop", () => {
+  assert.throws(
+    () => validateDistributionSelection(["tenant-a"], [
+      { id: "tenant-a", name: "Butik A", domain: "a.dk", eligible: false },
+    ]),
+    /ikke længere klar til automatisk afregning/i,
+  );
+});
+
+test("latest directory validation never accepts the master tenant", () => {
+  assert.throws(
+    () => validateDistributionSelection([MASTER_TENANT_ID], [{
+      id: MASTER_TENANT_ID,
+      name: "Master",
+      domain: "webprinter.dk",
+      eligible: true,
+    }]),
+    /masterbutikken kan ikke vælges/i,
+  );
+});
+
+test("pending distribution loading paginates, normalizes, and filters current products", async () => {
+  const ranges: Array<[number, number]> = [];
+  const rows = [
+    {
+      id: "pending-new",
+      tenant_id: "tenant-a",
+      status: "pending",
+      created_at: "2026-07-14T12:00:00Z",
+      data: { product_id: "product-1", delivery_mode: "pod_price_list" },
+    },
+    {
+      id: "other-product",
+      tenant_id: "tenant-x",
+      status: "pending",
+      created_at: "2026-07-14T13:00:00Z",
+      data: { product_id: "product-outside-page", delivery_mode: "pod_price_list" },
+    },
+    {
+      id: "pending-old",
+      tenant_id: "tenant-a",
+      status: "pending",
+      created_at: "2026-07-14T10:00:00Z",
+      data: { product_id: "product-1", delivery_mode: "pod_price_list" },
+    },
+    {
+      id: "pending-second",
+      tenant_id: "tenant-b",
+      status: "pending",
+      created_at: "2026-07-14T11:00:00Z",
+      data: { product_id: "product-2", delivery_mode: "pod_price_list" },
+    },
+    {
+      id: "wrong-mode",
+      tenant_id: "tenant-c",
+      status: "pending",
+      created_at: "2026-07-14T09:00:00Z",
+      data: { product_id: "product-2", delivery_mode: "price_list" },
+    },
+  ];
+
+  const pending = await loadPendingDistributions({
+    from(table) {
+      assert.equal(table, "tenant_notifications");
+      return {
+        select(columns) {
+          assert.equal(columns, "id, tenant_id, status, created_at, data");
+          const query = {
+            eq() {
+              return query;
+            },
+            contains() {
+              return query;
+            },
+            order() {
+              return query;
+            },
+            range(from: number, to: number) {
+              ranges.push([from, to]);
+              return Promise.resolve({ data: rows.slice(from, to + 1), error: null });
+            },
+          };
+          return query;
+        },
+      };
+    },
+  }, ["product-1", "product-2"], { pageSize: 2, maxPages: 3 });
+
+  assert.deepEqual(ranges, [[0, 1], [2, 3], [4, 5]]);
+  assert.deepEqual(pending, [
+    {
+      id: "pending-new",
+      tenantId: "tenant-a",
+      productId: "product-1",
+      createdAt: "2026-07-14T12:00:00Z",
+    },
+    {
+      id: "pending-second",
+      tenantId: "tenant-b",
+      productId: "product-2",
+      createdAt: "2026-07-14T11:00:00Z",
+    },
   ]);
 });
 
