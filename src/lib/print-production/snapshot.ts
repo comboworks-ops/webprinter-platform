@@ -16,6 +16,18 @@ type ProductUpdateNotice = {
   data: { product_id?: string; slug?: string; delivery_mode?: string };
 };
 
+const ACTIVE_ORDER_FLOW_STATUSES = new Set<PodFulfillmentJob["status"]>([
+  "awaiting_approval",
+  "payment_pending",
+  "paid",
+  "submitted",
+  "processing",
+]);
+
+export function hasActiveOrderFlow(jobs: PodFulfillmentJob[]): boolean {
+  return jobs.some((job) => ACTIVE_ORDER_FLOW_STATUSES.has(job.status));
+}
+
 export function selectOverviewRows(snapshot: PrintProductionSnapshot): {
   products: PrintProductionProduct[];
   actionJobs: PodFulfillmentJob[];
@@ -129,12 +141,16 @@ function buildActivity(input: {
   masterProductBySlug: Map<string, MasterProductRow>;
   tenantById: Map<string, TenantRow>;
 }): PrintProductionActivity[] {
-  const productActivity = input.catalog.map((catalog) => ({
-    id: `product-${catalog.id}`,
-    kind: "product" as const,
-    label: catalog.public_title.da || catalog.public_title.en || "POD-produkt",
-    occurredAt: catalog.updated_at || catalog.created_at,
-  }));
+  const productActivity = input.catalog.map((catalog) => {
+    const productName = catalog.public_title.da || catalog.public_title.en || "Produkt uden navn";
+    const wasUpdated = toTimestamp(catalog.updated_at) > toTimestamp(catalog.created_at);
+    return {
+      id: `product-${catalog.id}`,
+      kind: "product" as const,
+      label: `${wasUpdated ? "Produkt opdateret" : "Produkt oprettet"}: ${productName}`,
+      occurredAt: catalog.updated_at || catalog.created_at,
+    };
+  });
 
   const distributionActivity = input.notices.flatMap((notice, index) => {
     const masterProduct = notice.data.product_id
@@ -145,7 +161,7 @@ function buildActivity(input: {
     return [{
       id: notice.id || `distribution-${notice.tenant_id}-${index}`,
       kind: "distribution" as const,
-      label: `${masterProduct?.name || "Produkt"} distribueret til ${input.tenantById.get(notice.tenant_id)?.name || "shop"}`,
+      label: `Distribution accepteret: ${masterProduct?.name || "Produkt"} hos ${input.tenantById.get(notice.tenant_id)?.name || "ukendt butik"}`,
       occurredAt: notice.created_at,
     }];
   });
@@ -157,7 +173,7 @@ function buildActivity(input: {
     return [{
       id: `order-${job.id}`,
       kind: "order" as const,
-      label: job.product_name || `POD-ordre (${job.status})`,
+      label: `Ordrestatus: ${job.product_name || "Printordre"} · ${getJobActivityStatus(job)}`,
       occurredAt,
     }];
   });
@@ -174,6 +190,25 @@ function toTimestamp(value: string): number {
 
 function overviewJobPriority(job: PodFulfillmentJob): number {
   if (job.status === "failed") return 0;
-  if (classifyOrder(job).group === "attention") return 1;
+  if (job.status === "paid") return 1;
   return 2;
+}
+
+function getJobActivityStatus(job: PodFulfillmentJob): string {
+  switch (job.status) {
+    case "awaiting_approval":
+      return "Afventer godkendelse";
+    case "payment_pending":
+      return "Afventer betaling";
+    case "paid":
+      return "Betalt og klar til produktion";
+    case "submitted":
+      return job.printcom_order_id ? "Sendt til leverandør" : "Indsendelse kræver kontrol";
+    case "processing":
+      return "I produktion hos leverandøren";
+    case "failed":
+      return "Produktion fejlede";
+    case "completed":
+      return "Produktion afsluttet";
+  }
 }

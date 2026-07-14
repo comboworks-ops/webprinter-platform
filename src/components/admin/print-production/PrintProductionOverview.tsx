@@ -6,7 +6,6 @@ import {
   CircleDollarSign,
   Clock3,
   Eye,
-  FileCheck2,
   ImageIcon,
   PackageCheck,
   Send,
@@ -25,7 +24,7 @@ import {
 } from "@/components/ui/table";
 import type { PodFulfillmentJob } from "@/lib/pod2/types";
 import { classifyOrder } from "@/lib/print-production/readiness";
-import { selectOverviewRows } from "@/lib/print-production/snapshot";
+import { hasActiveOrderFlow, selectOverviewRows } from "@/lib/print-production/snapshot";
 import type {
   PrintProductionActivity,
   PrintProductionProduct,
@@ -67,7 +66,7 @@ export function PrintProductionOverview({
   const preparedProductCount = snapshot.products.filter((product) =>
     product.readiness.status === "ready" || product.readiness.status === "distributed"
   ).length;
-  const orderFlowActive = snapshot.jobs.length > 0;
+  const orderFlowActive = hasActiveOrderFlow(snapshot.jobs);
   const isOperationallyEmpty = snapshot.products.length === 0
     && snapshot.jobs.length === 0
     && snapshot.activity.length === 0;
@@ -88,7 +87,7 @@ export function PrintProductionOverview({
     {
       label: "Ordreflow aktivt",
       ready: orderFlowActive,
-      detail: orderFlowActive ? "Aktivt" : "Afventer første ordre",
+      detail: orderFlowActive ? "Aktuelle ordrer i flow" : "Ingen aktuelle ordrer i flow",
     },
   ];
 
@@ -365,13 +364,13 @@ function ActionQueue({
                     <dl className="mt-3 grid gap-1.5 text-xs text-muted-foreground">
                       <div className="flex items-center gap-2">
                         <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
-                        <dt className="sr-only">Leveringsfrist</dt>
-                        <dd>Leveringsfrist ikke angivet</dd>
+                        <dt className="sr-only">Oprettet</dt>
+                        <dd>Oprettet {formatDate(job.created_at)}</dd>
                       </div>
                       <div className="flex items-center gap-2">
-                        <FileCheck2 className="h-3.5 w-3.5" aria-hidden="true" />
-                        <dt className="sr-only">Filstatus</dt>
-                        <dd>{job.printcom_design_id ? "Produktionsfil registreret" : "Fil skal kontrolleres"}</dd>
+                        <PackageCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                        <dt className="sr-only">Mængde</dt>
+                        <dd>{numberFormatter.format(job.qty)} stk.</dd>
                       </div>
                     </dl>
                     <Button
@@ -421,7 +420,7 @@ function RecentActivity({
             return (
               <li key={item.id} className="flex min-h-12 items-center gap-3 py-2.5">
                 <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <p className="min-w-0 flex-1 truncate text-sm" title={item.label}>{item.label}</p>
+                <p className="min-w-0 flex-1 break-words text-sm">{item.label}</p>
                 <time
                   dateTime={item.occurredAt}
                   className="shrink-0 text-xs tabular-nums text-muted-foreground"

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildPrintProductionSnapshot, selectOverviewRows } from "./snapshot.ts";
+import {
+  buildPrintProductionSnapshot,
+  hasActiveOrderFlow,
+  selectOverviewRows,
+} from "./snapshot.ts";
 
 test("snapshot joins catalog, master import, notifications, tenants, and jobs", () => {
   const snapshot = buildPrintProductionSnapshot({
@@ -89,6 +93,7 @@ test("overview selects two action jobs with failures before the oldest paid jobs
       { id: "paid-new", status: "paid", created_at: "2026-07-14T10:00:00Z" },
       { id: "completed", status: "completed", created_at: "2026-07-10T10:00:00Z" },
       { id: "paid-old", status: "paid", created_at: "2026-07-12T10:00:00Z" },
+      { id: "submitted-without-provider", status: "submitted", printcom_order_id: null, created_at: "2026-07-11T10:00:00Z" },
       { id: "failed", status: "failed", created_at: "2026-07-14T11:00:00Z" },
     ],
   } as never;
@@ -96,4 +101,72 @@ test("overview selects two action jobs with failures before the oldest paid jobs
   const result = selectOverviewRows(snapshot);
 
   assert.deepEqual(result.actionJobs.map((job) => job.id), ["failed", "paid-old"]);
+});
+
+test("order flow is active only while a job is currently in flight", () => {
+  assert.equal(hasActiveOrderFlow([
+    { status: "failed" },
+    { status: "completed" },
+  ] as never), false);
+  assert.equal(hasActiveOrderFlow([{ status: "paid" }] as never), true);
+  assert.equal(hasActiveOrderFlow([{ status: "processing" }] as never), true);
+});
+
+test("activity labels communicate catalog, distribution, and actual job status events", () => {
+  const snapshot = buildPrintProductionSnapshot({
+    connections: [],
+    catalog: [{
+      id: "catalog-activity",
+      status: "draft",
+      public_title: { da: "Flyer", en: "Flyer" },
+      public_description: { da: "", en: "" },
+      public_images: [],
+      created_at: "2026-07-14T08:00:00Z",
+      updated_at: "2026-07-14T09:00:00Z",
+      pod2_catalog_price_matrix: [],
+    }],
+    imports: [{ catalog_product_id: "catalog-activity", product_id: "product-activity" }],
+    masterProducts: [{
+      id: "product-activity",
+      name: "Flyer",
+      slug: "flyer",
+      category: "Tryksager",
+      image_url: null,
+      is_published: false,
+    }],
+    tenants: [{
+      id: "tenant-activity",
+      name: "Butik A",
+      domain: "butik-a.dk",
+      pod2_auto_forward: true,
+    }],
+    notices: [{
+      id: "notice-activity",
+      tenant_id: "tenant-activity",
+      status: "accepted",
+      created_at: "2026-07-14T10:00:00Z",
+      data: { product_id: "product-activity", delivery_mode: "pod_price_list" },
+    }],
+    jobs: [{
+      id: "job-activity",
+      tenant_id: "tenant-activity",
+      product_name: "Flyer",
+      status: "paid",
+      created_at: "2026-07-14T11:00:00Z",
+      updated_at: "2026-07-14T11:30:00Z",
+    }],
+  } as never);
+
+  assert.equal(
+    snapshot.activity.find((item) => item.id === "product-catalog-activity")?.label,
+    "Produkt opdateret: Flyer",
+  );
+  assert.equal(
+    snapshot.activity.find((item) => item.id === "notice-activity")?.label,
+    "Distribution accepteret: Flyer hos Butik A",
+  );
+  assert.equal(
+    snapshot.activity.find((item) => item.id === "order-job-activity")?.label,
+    "Ordrestatus: Flyer · Betalt og klar til produktion",
+  );
 });
