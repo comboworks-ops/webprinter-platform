@@ -776,27 +776,9 @@ export function AdminSidebar() {
                       </AdminNavLink>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <AdminNavLink to="/admin/pod">
+                      <AdminNavLink to="/admin/printproduktion">
                         <Printer className="h-4 w-4" />
-                        {!collapsed && <span>Print on Demand</span>}
-                      </AdminNavLink>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <AdminNavLink to="/admin/pod2">
-                        <Printer className="h-4 w-4" />
-                        {!collapsed && <span>Print on Demand v2</span>}
-                      </AdminNavLink>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <AdminNavLink to="/admin/pod3">
-                        <Printer className="h-4 w-4" />
-                        {!collapsed && <span>Flyer Alarm (POD3)</span>}
-                      </AdminNavLink>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <AdminNavLink to="/admin/pod2-ordrer">
-                        <ShoppingCart className="h-4 w-4" />
-                        {!collapsed && <span>POD v2 Ordrer</span>}
+                        {!collapsed && <span>Printproduktion</span>}
                       </AdminNavLink>
                     </SidebarMenuItem>
                   </SidebarMenu>
