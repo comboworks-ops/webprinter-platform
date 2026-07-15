@@ -106,6 +106,7 @@ dist-ssr
 !scripts/product-import/tshirt-size-distribution-lock.js
 
 # Local agent / scratch artifacts
+.worktrees/
 .playwright-mcp/
 .archive/
 .claude/
