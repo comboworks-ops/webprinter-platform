@@ -1,7 +1,7 @@
 # Banner Builder Independent Site Design
 
 Date: 2026-07-15
-Status: Approved product direction, written specification pending final user review
+Status: Approved by user on 2026-07-15
 Owner: Webprinter
 
 ## 1. Purpose
@@ -46,6 +46,12 @@ The first successful operator journey is:
    copied automatically.
 10. POD products remain in their existing explicit POD distribution flows.
 11. Core pricing logic, POD v1, and POD v2 calculations are read-only for this work.
+12. Tenant settings use optimistic compare-and-swap with a monotonic database version;
+    provisioning cannot overwrite a simultaneous Site Design, branding, SEO, or shop
+    settings save.
+13. Draft isolation includes React routes and edge discovery/metadata endpoints. A
+    query parameter never selects a public tenant or reveals a draft tenant.
+14. Native admin preview is explicitly non-transactional below the UI layer.
 
 ## 3. Product Principles
 
@@ -104,7 +110,7 @@ deferred.
 
 ## 6. Architecture
 
-The solution has five bounded units:
+The solution has seven bounded units:
 
 1. **Package definition**: extends the existing `SitePackage` metadata with native
    installation defaults without changing its seed-template role.
@@ -116,6 +122,10 @@ The solution has five bounded units:
 5. **Native storefront and launch gate**: lets installed tenants render the normal
    editable storefront while a shared route guard keeps every commerce entry point
    closed until Go Live. Legacy active facades continue to render as they do today.
+6. **Settings concurrency boundary**: a monotonic `settings_version` and shared
+   compare-and-swap patch helper preserve simultaneous narrow settings changes.
+7. **Edge public-exposure boundary**: HTML metadata, sitemap, robots, and llms use the
+   same launch decision as the browser and fail closed for draft tenants.
 
 ```text
 Sites admin
@@ -128,7 +138,10 @@ draft platform-owned tenant
     |
     +--> installSitePackageTemplates --> designer_templates
     |
-    +--> existing send_product_to_tenants --> products and existing price payload
+    +--> idempotent site-product wrapper
+            |
+            +--> existing clone_product_for_tenant_release
+                    --> products and existing price payload
     |
     +--> tenant settings branding + provisioning result
     |
@@ -157,7 +170,7 @@ without `installMode: "native-tenant"` does not expose the independent-site acti
 
 ## 8. Secure Tenant Creation
 
-An additive migration introduces:
+An additive migration introduces two narrowly scoped RPCs:
 
 ```sql
 public.create_platform_site_from_package(
@@ -166,6 +179,12 @@ public.create_platform_site_from_package(
     site_domain text,
     contact_email text default null
 ) returns jsonb
+
+public.provision_site_standard_product(
+    source_product_id uuid,
+    target_tenant_id uuid,
+    package_id text
+) returns jsonb
 ```
 
 The function:
@@ -173,12 +192,15 @@ The function:
 1. requires an authenticated `master_admin` role;
 2. trims and validates package ID, site name, domain, and optional email;
 3. normalizes the domain to lowercase and removes protocol, path, and trailing dot;
-4. rejects the master domain and duplicate tenant domains;
-5. creates a tenant with `owner_id = auth.uid()` and
+4. rejects the master domain and a domain owned by an unrelated tenant;
+5. returns the existing draft/partial platform-owned tenant when the same domain and
+   package are retried, allowing recovery after a reload;
+6. otherwise creates a tenant with `owner_id = auth.uid()` and
    `is_platform_owned = true`;
-6. writes `settings.type = "tenant"`, company name/email, and the initial
+7. writes `settings.type = "tenant"`, company name/email, and the initial
    `site_frontends` state;
-7. returns tenant ID, name, domain, package ID, and provisioning state.
+8. returns tenant ID, name, domain, package ID, provisioning state, and whether the
+   tenant was newly created or resumed.
 
 The initial settings contract is:
 
@@ -198,6 +220,8 @@ The initial settings contract is:
       "packageId": "banner-builder-pro",
       "status": "creating",
       "attempt": 1,
+      "completedStages": [],
+      "productResults": {},
       "startedAt": "ISO-8601 timestamp",
       "completedAt": null,
       "lastError": null
@@ -206,9 +230,17 @@ The initial settings contract is:
 }
 ```
 
-The function grants execution to `authenticated` and `service_role`, revokes execution
-from `PUBLIC` and `anon`, and performs its own master-role check. The migration includes
-an explicit rollback note and passes the repository's Supabase grant checker.
+Both functions grant execution to `authenticated` and `service_role`, revoke execution
+from `PUBLIC` and `anon`, and perform their own master-role checks. The migration
+includes an explicit rollback note and passes the repository's Supabase grant checker.
+
+The same additive migration adds `tenants.settings_version bigint not null default 0`
+and a private trigger that increments it whenever `settings` changes. The trigger
+function is not a third feature RPC and has execution revoked from Data API roles.
+Active settings writers use a bounded compare-and-swap helper: read settings plus
+version, apply only their narrow patch to that fresh snapshot, update only when the
+version still matches, and retry at most four times. Exhaustion returns the stable
+`tenant_settings_conflict` error; no caller falls back to last-write-wins.
 
 ## 9. Provisioning Service
 
@@ -229,6 +261,8 @@ The service returns a structured result:
 
 ```ts
 type SiteProvisioningResult = {
+  operationId: string;
+  attemptId: string;
   tenantId: string;
   tenantName: string;
   domain: string;
@@ -241,6 +275,11 @@ type SiteProvisioningResult = {
 };
 ```
 
+The persisted diagnostic contract is structured and support-safe: stable error code,
+failed stage and optional source ID, first/last timestamps, safe operator message, and
+optional correlation ID. Retries keep the operation ID, create a new attempt ID, and
+never persist raw database or supplier payloads.
+
 Template installation reuses `installSitePackageTemplates`. Its existing natural key
 of template type, category, and name keeps retries idempotent.
 
@@ -249,6 +288,12 @@ and published baseline. The tenant remains publicly gated by `launchStatus = "dr
 so the baseline does not make the shop live. The branding applies the recommended theme,
 Banner Builder hero copy, and package identity; all of it is immediately editable in
 Site Design V2.
+
+Each successful stage is recorded in `completedStages`. Branding and its completion
+marker are written in one CAS settings patch, so retrying a later failed stage cannot
+overwrite branding that the operator has already edited. Per-product outcomes are
+recorded by source ID in `productResults`; the atomic product wrapper remains the final
+authority for duplicate prevention after a lost response or page reload.
 
 ## 10. Product Discovery and Copying
 
@@ -260,20 +305,67 @@ Eligible source products must satisfy every condition:
 - are published;
 - are marked ready;
 - are not linked to a POD v2 tenant import or catalog product;
-- use an existing standard pricing path supported by
-  `clone_product_for_tenant_release`.
+- use the proven Matrix Layout V1/generic-price path supported by
+  `clone_product_for_tenant_release` and `copy_product_payload_deep`.
 
-Each eligible product is copied with the existing protected
-`send_product_to_tenants` RPC using `delivery_mode = "price_list"`. The new installer
-does not reproduce product or price cloning in TypeScript or SQL.
+`STORFORMAT` and other table-specific pricing types are reported as ineligible in this
+release. The existing clone helper does not copy their pricing tables, and extending
+that helper would modify the protected pricing-copy boundary. Such support requires a
+separate explicit approval and pricing regression plan; this installer never creates a
+product whose required price payload it cannot preserve.
+
+The existing standard distribution flow intentionally creates another product copy on
+every call, which is correct for manual distribution but not idempotent provisioning.
+The installer therefore calls `provision_site_standard_product`. The wrapper executes
+atomically: it looks for a target product carrying the same package and source-product
+provenance, returns that existing product on retry, or calls the existing protected
+`clone_product_for_tenant_release` function once and records provenance on the returned
+copy. The installer does not reproduce product or price cloning in TypeScript or SQL.
+
+The provenance contract is stored additively in the copied product's existing
+`technical_specs` JSON:
+
+```json
+{
+  "site_provisioning": {
+    "schema_version": 1,
+    "package_id": "banner-builder-pro",
+    "source_product_id": "master product UUID",
+    "provisioned_at": "ISO-8601 timestamp"
+  }
+}
+```
+
+`technical_specs` is accepted only as a JSON object or a string parsing to a JSON
+object. Malformed strings, arrays, and scalars fail closed. Existing provenance with a
+different schema, package, or source is a stable conflict and is never overwritten.
+
+The wrapper acquires its tenant/source/package/slug locks in one documented order and
+serializes the target tenant slug namespace before invoking the existing clone helper.
+This closes the helper's check-then-insert slug race without modifying the protected
+helper. It rechecks publication, readiness, mapping, POD exclusion, pricing mode, and
+generic price rows inside the copy transaction. A product that changed after preflight
+returns `ineligible_at_copy`; it is not a generic failure and cannot leave a partial
+target copy.
 
 A product that fails its existing distribution validation is reported in the result and
 does not make the whole tenant unusable. The site remains `partial` until the operator
 retries or accepts a site with the remaining eligible products. No POD fallback is
 attempted automatically.
 
+If discovery yields no eligible product, provisioning remains `partial` with the stable
+`eligible_products_missing` blocker. The operator may keep and edit the draft tenant,
+but it cannot be accepted as ready or made live until at least one supported mapped
+product exists and is explicitly published.
+
 Copied `technical_specs.site_frontends` metadata is preserved, so the tenant's native
 catalog filter continues to select the Banner Builder products.
+
+Read-only preflight returns an advisory version-1 manifest containing `observedAt`, a
+deterministic fingerprint, sorted eligible source IDs, and exclusion counts. It becomes
+stale after five minutes or an input change and must be refreshed before creation. It
+is never authorization and never substitutes for the transaction-time SQL recheck.
+Readiness and result counts use only committed `copied`/`existing` outcomes.
 
 ## 11. Native Storefront Mode and Draft Gate
 
@@ -292,7 +384,45 @@ When `launchStatus = "draft"`, a shared storefront launch guard shows a simple
 tenant-branded maintenance state. The guard covers the root shop, catalog, product,
 product configuration, checkout, and designer entry routes, so a direct URL cannot
 bypass the draft state. Platform marketing routes, admin routes, and authenticated
-preview routes remain available. Admin preview routes show the full native storefront.
+preview routes remain available. Admin preview routes require an authenticated admin
+who is authorized for the requested tenant; only a true master admin may cross tenant
+boundaries. `preview_mode`, `draft`, `tenantId`, or iframe query state never bypasses
+authentication or tenant authorization. Admin preview shows the full native storefront.
+
+Tenant resolution carries an explicit resolved/fallback marker. On a non-platform host,
+an unresolved or cold transport fallback fails closed to a connection/maintenance
+state instead of borrowing master settings and accidentally bypassing the draft gate.
+
+Every public tenant route is classified explicitly. Root, catalog, product,
+configuration, designer, contact, about, tenant legal/privacy, and graphic-guidance
+surfaces show the same preparation page while draft. Platform marketing/legal, auth,
+admin, and authorized preview routes are separate explicit classes; new App routes must
+be added to the classification fixture before tests pass.
+
+The edge endpoints use the actual request host only. For a verified native draft,
+`tenant-shell` emits a generic `noindex,nofollow` shell with no tenant title,
+description, canonical, OpenGraph, favicon, structured data, or page override;
+`sitemap.xml` emits no tenant URLs; `robots.txt` disallows all without advertising a
+sitemap; and `llms.txt` returns generic 404 content. `force_domain`, `preview_mode`,
+`draft`, and other query parameters cannot change this decision.
+
+Native preview receives this immutable capability contract before rendering:
+
+```ts
+{
+  preview: true,
+  allowPayment: false,
+  allowOrderCreation: false,
+  allowFileUpload: false,
+  allowDesignerSave: false,
+  allowCartPersistence: false,
+  allowExternalLaunch: false,
+}
+```
+
+Every matching mutation adapter or handler checks the capability before network,
+storage, or external-launch side effects. Disabled controls are additional UX, not the
+security boundary.
 
 `Gør live` changes only the launch status after the existing checks confirm:
 
@@ -318,6 +448,10 @@ The dialog contains:
 - current count of eligible mapped master products;
 - a clear statement that the site starts as a draft.
 
+The preflight also shows when it was observed and its stable fingerprint for support.
+Loading, stale, input-changed, error, retry, and zero-eligible states are explicit; a
+stale/error snapshot or zero eligible products disables normal creation.
+
 The confirmation summary states what will be created and that no prices are changed.
 
 While provisioning, the dialog shows the current stage rather than an indeterminate
@@ -342,13 +476,14 @@ route continues to default to the master tenant.
 
 Idempotency rules are explicit:
 
-1. Domain uniqueness prevents duplicate tenant creation.
+1. Domain uniqueness plus matching package provenance resumes the same draft/partial
+   tenant; an unrelated domain owner is rejected.
 2. A retry result carries the original tenant ID.
 3. Template installation skips existing natural keys.
-4. Product copying uses the existing clone behavior for a tenant/product slug and does
-   not create parallel prices.
-5. Finalization merges the current tenant settings rather than overwriting unrelated
-   settings.
+4. Product copying uses the atomic provenance wrapper, which reuses the existing clone
+   function once and returns the recorded target product on retry.
+5. Finalization uses the versioned CAS helper and recomputes its narrow merge from the
+   latest tenant settings rather than overwriting unrelated or concurrent settings.
 6. Every attempt increments `provisioning.attempt` and records timestamps.
 7. A ready installation can be reopened but cannot be provisioned as a second tenant
    without a different domain.
@@ -357,7 +492,7 @@ Failure behavior:
 
 | Failure | Operator result | Stored state | Recovery |
 |---|---|---|---|
-| Invalid or duplicate domain | No tenant created | None | Correct input |
+| Invalid or unrelated duplicate domain | No tenant created | None | Correct input |
 | Unauthorized user | No tenant created | None | Sign in as master admin |
 | Template insert failure | Tenant retained | `partial` with stage | Retry templates |
 | Branding save failure | Tenant retained | `partial` with stage | Retry branding |
@@ -374,12 +509,14 @@ manual administrative cleanup remains a separate, explicitly confirmed operation
 3. Package ID is stored as metadata; it never grants access by itself.
 4. Every template and copied product row uses the returned tenant ID.
 5. Product discovery is limited to master-tenant rows.
-6. Product copy authorization stays inside the existing master-only distribution RPC.
+6. Product copy authorization stays inside the new master-only provisioning wrapper and delegates the actual copy to the existing clone function.
 7. Public draft gating is read-only and cannot be bypassed by a storefront query value.
 8. Domain normalization prevents protocol/path variants from creating ambiguous
    tenant lookups.
 9. Error messages shown to operators exclude credentials and raw supplier payloads.
 10. No new public table is created.
+11. Public edge tenant selection ignores query overrides and uses only the request host.
+12. Preview mutation capabilities are deny-by-default and checked before side effects.
 
 ## 15. Testing Strategy
 
@@ -390,9 +527,11 @@ a failing test before implementation.
 
 - normalize and validate domain/name/email input;
 - build the secure RPC request;
+- distinguish a resumed tenant from an unrelated domain conflict;
 - build initial and finalized `site_frontends` settings without losing unrelated keys;
 - build Banner Builder starter branding;
 - discover only eligible standard mapped products;
+- return the same target product from an idempotent product retry;
 - execute stages in order;
 - return `partial` after a recoverable stage failure;
 - retry against the original tenant ID;
@@ -402,13 +541,22 @@ a failing test before implementation.
   `launchStatus = "draft"`;
 - allow admin preview while draft;
 - honor a master admin's explicit `force_domain` tenant context in Sites and Site Design;
-- promote only through explicit Go Live.
+- promote only through explicit Go Live;
+- preserve simultaneous settings patches under a forced stale-version retry;
+- reject every preview mutation before its network/storage adapter;
+- classify every declared App route without an implicit fallthrough;
+- make draft edge HTML/sitemap/robots/llms non-discoverable and query-override safe.
 
 ### Migration checks
 
 - migration contains explicit execute grants/revokes;
 - `npm run check:supabase-grants` passes;
 - `npm run check:supabase-functions` remains unchanged and passing where applicable.
+- `npm run check:independent-site-db` passes against an isolated test database with two
+  independent sessions covering authorization, same-domain retry, product/slug races,
+  price-payload parity, versioned settings concurrency, provenance conflicts, and
+  transaction-time eligibility changes. Missing safe database configuration blocks
+  release and is not a passing skip.
 
 ### Browser proof
 
@@ -418,8 +566,12 @@ A read-only Playwright proof verifies:
 2. an installed native fixture renders the editable native storefront;
 3. draft public route shows maintenance state;
 4. admin preview shows the full storefront;
-5. native product links keep tenant context;
-6. existing Webprinter, Salgsmapper, and Onlinetryksager proof routes remain intact.
+5. native preview produces zero payment/order/upload/designer-save/cart/external-launch
+   writes when its controls are exercised;
+6. draft tenant HTML, sitemap, robots, and llms expose no tenant commerce/identity and
+   ignore query-based host overrides;
+7. native product links keep tenant context;
+8. existing Webprinter, Salgsmapper, and Onlinetryksager proof routes remain intact.
 
 ### Release verification
 
@@ -445,13 +597,21 @@ A read-only Playwright proof verifies:
 
 ## 17. Rollback
 
-- Remove or hide the independent-site action.
-- Existing tenants continue using missing-`renderMode` legacy behavior.
-- Set the new tenant back to `launchStatus = "draft"` to remove public checkout access.
-- Revert the `Shop.tsx` native-mode branch without changing legacy facade rendering.
-- Revoke and drop `create_platform_site_from_package` if the workflow is withdrawn.
-- Retain the created tenant and its data for manual review; do not hard-delete it as
-  part of code rollback.
+Rollback is containment-first:
+
+1. Set every affected tenant back to `launchStatus = "draft"` and verify browser plus
+   edge HTML/sitemap/robots/llms containment.
+2. Hide the independent create and Go Live actions.
+3. Withdraw the installer/native runtime UI only after no public route depends on it;
+   existing tenants continue using missing-`renderMode` legacy behavior.
+4. Revoke and drop only `create_platform_site_from_package` and
+   `provision_site_standard_product` if the feature workflow is withdrawn.
+5. Keep the generic `settings_version` trigger/column while converted CAS clients use
+   it. Remove it only in a separate verified rollback that first removes every CAS
+   client.
+6. Retain the created tenant and its data for manual review; do not hard-delete it.
+
+Never remove the draft guard while a native draft tenant depends on it.
 
 ## 18. Acceptance Criteria
 
@@ -472,3 +632,9 @@ The first release is accepted when:
 11. A failed stage can be retried without a second tenant or duplicate templates.
 12. Existing tenant storefront behavior remains unchanged.
 13. Focused tests, grant checks, and the production build pass with fresh evidence.
+14. Concurrent settings saves retain both changes under a stale-version retry.
+15. Draft metadata/discovery endpoints expose no tenant identity or commerce URLs.
+16. Native preview cannot perform payment, order, upload, designer-save, cart, or
+    external-launch mutations.
+17. Mandatory two-session database integration proof passes in the controlled test
+    environment.
