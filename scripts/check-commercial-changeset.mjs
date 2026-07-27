@@ -692,18 +692,12 @@ async function verifyChangesetReport(path) {
     "## Second Review Packet: Application Source",
     "Runtime Risk Groups",
     "Application Candidate Files",
-    "pricing/product flow",
-    "designer/pdf/template",
-    "tenant storefront/SEO/design",
     "INCLUDE",
     "Suggested verification",
     "commercial-proof-chain",
     "npm run check:commercial-release",
     "application-source",
     "npm run check:commercial-application-source:write",
-    "npm run check:commercial-supabase:write",
-    "npm run check:supabase-grants",
-    "npm run check:supabase-functions",
     "npm run build",
     "## Review Gates",
     "Branch freshness",
@@ -728,6 +722,27 @@ async function verifyChangesetReport(path) {
   const dirtyEntries = Number.parseInt(dirtyEntriesLine?.slice("Dirty entries: ".length).trim() || "", 10);
   if (!Number.isInteger(dirtyEntries) || dirtyEntries < 0) {
     problems.push("Changeset report is missing a valid Dirty entries count.");
+  }
+
+  const supabaseEntriesLine = content.split("\n").find((line) => line.startsWith("Supabase entries: "));
+  const supabaseEntries = Number.parseInt(
+    supabaseEntriesLine?.slice("Supabase entries: ".length).trim() || "",
+    10,
+  );
+  if (!Number.isInteger(supabaseEntries) || supabaseEntries < 0) {
+    problems.push("Changeset report is missing a valid Supabase entries count.");
+  } else if (supabaseEntries > 0) {
+    for (
+      const marker of [
+        "npm run check:commercial-supabase:write",
+        "npm run check:supabase-grants",
+        "npm run check:supabase-functions",
+      ]
+    ) {
+      if (!content.includes(marker)) {
+        problems.push(`Missing changeset report marker: ${marker}`);
+      }
+    }
   }
 
   if (problems.length) {
