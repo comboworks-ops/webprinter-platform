@@ -1,36 +1,26 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
-import { Loader2, FileUp, ChevronLeft, ChevronRight, Check, Layers, RotateCcw, RotateCw, Crop, Type, PenLine, Palette } from 'lucide-react';
+import { Loader2, FileUp, ChevronLeft, ChevronRight, Check, Layers, RotateCcw, RotateCw, Crop } from 'lucide-react';
 import { toast } from 'sonner';
 import * as pdfjsLib from 'pdfjs-dist';
-import { degrees, PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { degrees, PDFDocument } from 'pdf-lib';
 import { mmToPt, ptToMm } from '@/utils/unitConversions';
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 type PdfRotation = 0 | 90 | 180 | 270;
-type PdfMarkColor = 'dark' | 'light' | 'accent';
 
 interface PdfEditState {
     rotation: PdfRotation;
     cropToDocument: boolean;
-    stampText: string;
-    signatureText: string;
-    markColor: PdfMarkColor;
 }
 
 const DEFAULT_EDIT_STATE: PdfEditState = {
     rotation: 0,
     cropToDocument: false,
-    stampText: '',
-    signatureText: '',
-    markColor: 'dark',
 };
 
 const cloneArrayBuffer = (buffer: ArrayBuffer): ArrayBuffer =>
@@ -41,76 +31,12 @@ const uint8ToArrayBuffer = (bytes: Uint8Array): ArrayBuffer =>
 
 const hasPdfEdits = (editState: PdfEditState): boolean =>
     editState.rotation !== 0 ||
-    editState.cropToDocument ||
-    editState.stampText.trim().length > 0 ||
-    editState.signatureText.trim().length > 0;
+    editState.cropToDocument;
 
 const normalizeRotation = (rotation: number): PdfRotation => {
     const normalized = ((rotation % 360) + 360) % 360;
     if (normalized === 90 || normalized === 180 || normalized === 270) return normalized;
     return 0;
-};
-
-const getPdfMarkColor = (markColor: PdfMarkColor): ReturnType<typeof rgb> => {
-    if (markColor === 'light') return rgb(0.96, 0.98, 1);
-    if (markColor === 'accent') return rgb(0.02, 0.36, 0.68);
-    return rgb(0.06, 0.08, 0.12);
-};
-
-const sanitizePdfText = (text: string): string =>
-    text
-        .replace(/[^\u0020-\u007EÆØÅæøåÄÖÜäöüÉéÈèÁáÀàÓóÒòÍíÌìÑñ.,;:!?'"()&/@#%+\-_=]/g, '')
-        .trim();
-
-type PdfDrawablePage = {
-    drawText: (text: string, options: Record<string, unknown>) => void;
-};
-
-type PdfFontLike = {
-    widthOfTextAtSize: (text: string, size: number) => number;
-};
-
-const drawWrappedPdfText = (
-    page: PdfDrawablePage,
-    font: PdfFontLike,
-    text: string,
-    options: {
-        x: number;
-        y: number;
-        maxWidth: number;
-        size: number;
-        lineHeight: number;
-        color: ReturnType<typeof rgb>;
-    },
-) => {
-    const cleanText = sanitizePdfText(text);
-    if (!cleanText) return;
-
-    const words = cleanText.split(/\s+/);
-    const lines: string[] = [];
-    let currentLine = '';
-
-    for (const word of words) {
-        const candidate = currentLine ? `${currentLine} ${word}` : word;
-        if (font.widthOfTextAtSize(candidate, options.size) <= options.maxWidth || currentLine.length === 0) {
-            currentLine = candidate;
-        } else {
-            lines.push(currentLine);
-            currentLine = word;
-        }
-    }
-
-    if (currentLine) lines.push(currentLine);
-
-    lines.slice(0, 5).forEach((line, index) => {
-        page.drawText(line, {
-            x: options.x,
-            y: options.y - (index * options.lineHeight),
-            size: options.size,
-            font,
-            color: options.color,
-        });
-    });
 };
 
 async function buildEditedSinglePagePdfBytes(
@@ -156,38 +82,6 @@ async function buildEditedSinglePagePdfBytes(
             copiedPage.setBleedBox(0, 0, cropWidth, cropHeight);
             pageWidth = cropWidth;
             pageHeight = cropHeight;
-        }
-    }
-
-    const regularFont = await outputPdf.embedFont(StandardFonts.Helvetica);
-    const boldFont = await outputPdf.embedFont(StandardFonts.HelveticaBold);
-    const margin = Math.max(18, Math.min(pageWidth, pageHeight) * 0.045);
-    const markColor = getPdfMarkColor(editState.markColor);
-
-    if (editState.stampText.trim()) {
-        const fontSize = Math.max(9, Math.min(18, Math.min(pageWidth, pageHeight) * 0.025));
-        drawWrappedPdfText(copiedPage, boldFont, editState.stampText, {
-            x: margin,
-            y: Math.max(margin, pageHeight - margin - fontSize),
-            maxWidth: Math.max(80, pageWidth - (margin * 2)),
-            size: fontSize,
-            lineHeight: fontSize * 1.25,
-            color: markColor,
-        });
-    }
-
-    if (editState.signatureText.trim()) {
-        const signature = sanitizePdfText(editState.signatureText);
-        if (signature) {
-            const fontSize = Math.max(11, Math.min(24, Math.min(pageWidth, pageHeight) * 0.035));
-            const textWidth = regularFont.widthOfTextAtSize(signature, fontSize);
-            copiedPage.drawText(signature, {
-                x: Math.max(margin, pageWidth - margin - textWidth),
-                y: margin,
-                size: fontSize,
-                font: regularFont,
-                color: markColor,
-            });
         }
     }
 
@@ -637,9 +531,9 @@ export function PDFImportModal({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>Importer PDF</DialogTitle>
+                    <DialogTitle>{initialSource ? 'Rediger PDF-side' : 'Importer PDF'}</DialogTitle>
                     <DialogDescription>
-                        Vælg en PDF-fil og den side du vil importere som billede
+                        PDF-kilden bevares som PDF i det færdige output.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -733,9 +627,9 @@ export function PDFImportModal({
                         <div className="space-y-3 rounded-md border bg-muted/20 p-3">
                             <div className="flex items-center justify-between gap-3">
                                 <div>
-                                    <p className="text-sm font-medium">PDF-værktøjer</p>
+                                    <p className="text-sm font-medium">PDF-side</p>
                                     <p className="text-xs text-muted-foreground">
-                                        Bevarer vektorindhold hvor muligt
+                                        Rotation og beskæring bevarer vektorindholdet
                                     </p>
                                 </div>
                                 {hasPdfEdits(editState) && (
@@ -797,74 +691,6 @@ export function PDFImportModal({
                                     <RotateCw className="h-4 w-4" />
                                     Højre
                                 </Button>
-                            </div>
-
-                            <div className="grid gap-3 md:grid-cols-2">
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="pdf-stamp-text" className="flex items-center gap-1.5 text-xs">
-                                        <Type className="h-3.5 w-3.5" />
-                                        Stempeltekst
-                                    </Label>
-                                    <Textarea
-                                        id="pdf-stamp-text"
-                                        value={editState.stampText}
-                                        onChange={(event) => updateEditState((current) => ({
-                                            ...current,
-                                            stampText: event.target.value,
-                                        }))}
-                                        placeholder="Fx Godkendt korrektur"
-                                        className="min-h-16 resize-none text-xs"
-                                        disabled={loading}
-                                    />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="pdf-signature-text" className="flex items-center gap-1.5 text-xs">
-                                        <PenLine className="h-3.5 w-3.5" />
-                                        Signatur
-                                    </Label>
-                                    <Input
-                                        id="pdf-signature-text"
-                                        value={editState.signatureText}
-                                        onChange={(event) => updateEditState((current) => ({
-                                            ...current,
-                                            signatureText: event.target.value,
-                                        }))}
-                                        placeholder="Navn / initialer"
-                                        className="h-9 text-xs"
-                                        disabled={loading}
-                                    />
-                                    <p className="text-[11px] text-muted-foreground">
-                                        Placering: nederst til højre
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div className="space-y-1.5">
-                                <Label className="flex items-center gap-1.5 text-xs">
-                                    <Palette className="h-3.5 w-3.5" />
-                                    Tekstfarve
-                                </Label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {([
-                                        { value: 'dark', label: 'Mørk' },
-                                        { value: 'light', label: 'Lys' },
-                                        { value: 'accent', label: 'Blå' },
-                                    ] as Array<{ value: PdfMarkColor; label: string }>).map((option) => (
-                                        <Button
-                                            key={option.value}
-                                            type="button"
-                                            variant={editState.markColor === option.value ? 'default' : 'outline'}
-                                            size="sm"
-                                            onClick={() => updateEditState((current) => ({
-                                                ...current,
-                                                markColor: option.value,
-                                            }))}
-                                            disabled={loading}
-                                        >
-                                            {option.label}
-                                        </Button>
-                                    ))}
-                                </div>
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">

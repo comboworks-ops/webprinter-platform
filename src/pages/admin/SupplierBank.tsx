@@ -4,6 +4,7 @@ import {
   Database,
   ExternalLink,
   FileText,
+  Link2,
   ListChecks,
   RefreshCw,
   Search,
@@ -37,6 +38,7 @@ import {
   type SupplierSourceUrlCandidate,
 } from "@/lib/supplier-bank/sourceRegistry";
 import { useUserRole } from "@/hooks/useUserRole";
+import { SupplierUrlImportDialog } from "@/components/admin/supplier-bank/SupplierUrlImportDialog";
 
 type SupplierRow = {
   id: string;
@@ -1785,6 +1787,8 @@ export default function SupplierBank() {
   const [readinessFilter, setReadinessFilter] = useState<ReadinessFilter>("all");
   const [showAdvancedProductTools, setShowAdvancedProductTools] = useState(false);
   const [simpleProductLimit, setSimpleProductLimit] = useState(SIMPLE_PRODUCT_PAGE_SIZE);
+  const [urlImportOpen, setUrlImportOpen] = useState(false);
+  const [bankReloadVersion, setBankReloadVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -1981,7 +1985,7 @@ export default function SupplierBank() {
     return () => {
       cancelled = true;
     };
-  }, [isAdmin, roleLoading]);
+  }, [bankReloadVersion, isAdmin, roleLoading]);
 
   const supplierById = useMemo(() => {
     return new Map(suppliers.map((supplier) => [supplier.id, supplier]));
@@ -3743,7 +3747,23 @@ export default function SupplierBank() {
             </p>
           ) : null}
         </div>
+        <Button type="button" className="gap-2" onClick={() => setUrlImportOpen(true)}>
+          <Link2 className="h-4 w-4" />
+          Importér fra URL
+        </Button>
       </div>
+
+      <SupplierUrlImportDialog
+        open={urlImportOpen}
+        onOpenChange={setUrlImportOpen}
+        onSaved={() => {
+          setActiveSupplierId("all");
+          setFamilyFilter("all");
+          setBankStatusFilter("all");
+          setReadinessFilter("all");
+          setBankReloadVersion((version) => version + 1);
+        }}
+      />
 
       {(bankDataIsNotVisible || bankReadDiagnostic) ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-amber-950">

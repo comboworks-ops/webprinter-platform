@@ -23,6 +23,7 @@ export interface StorefrontProductFlow {
   showDesignerButton: boolean;
   showTemplateDownload: boolean;
   prefersTemplateOverlay: boolean;
+  requiresCutContour: boolean;
 }
 
 const FLOW_COPY: Record<ProductDesignerMode, {
@@ -127,6 +128,17 @@ export function resolveStorefrontProductFlow(input: ProductSiteModeInput): Store
   const resolved = resolveProductSiteModes(input);
   const designerMode = resolved.designerMode || "flat_print";
   const copy = FLOW_COPY[designerMode];
+  const technicalSpecs = typeof input.technical_specs === "string"
+    ? (() => {
+      try {
+        return JSON.parse(input.technical_specs) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    })()
+    : input.technical_specs && typeof input.technical_specs === "object" && !Array.isArray(input.technical_specs)
+      ? input.technical_specs as Record<string, unknown>
+      : null;
 
   return {
     designerMode,
@@ -134,6 +146,7 @@ export function resolveStorefrontProductFlow(input: ProductSiteModeInput): Store
     source: resolved.source,
     designerModeLabel: getProductDesignerModeLabel(designerMode),
     pricingModelLabel: getProductPricingModelLabel(resolved.pricingModel),
+    requiresCutContour: technicalSpecs?.requires_cut_contour === true,
     ...copy,
   };
 }

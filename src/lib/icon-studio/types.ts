@@ -100,6 +100,15 @@ export interface IconStudioJobWithOutputs extends IconStudioJobRow {
   outputs: IconStudioJobOutputRow[];
 }
 
+export interface IconStudioProductTarget {
+  id: string;
+  name: string;
+  slug: string;
+  category: string | null;
+  image_url: string | null;
+  is_published: boolean;
+}
+
 export interface IconStudioPayloadBuilderInput {
   tenantId: string;
   productKey: IconStudioProductKey;

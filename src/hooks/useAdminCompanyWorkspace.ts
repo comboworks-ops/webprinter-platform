@@ -6,6 +6,7 @@ import {
   archiveCompanyAsset,
   archiveCompanyCatalogItem,
   archiveCompanyOffice,
+  buildCompanyAuthUrl,
   createCompanyAddress,
   createCompanyAssetSignedUrl,
   createCompanyCatalogCategory,
@@ -14,6 +15,7 @@ import {
   createCompanyTemplateBinding,
   listCompanyAddresses,
   listCompanyAssets,
+  listCompanyLogos,
   listCompanyConsultantRequests,
   listCompanyCategories,
   listCompanyCatalogItems,
@@ -30,6 +32,7 @@ import {
   updateCompanyOffice,
   updateCompanyConsultantRequestStatus,
   uploadCompanyAsset,
+  uploadCompanyLogo,
   type CompanyAccount,
   type CompanyAddress,
   type CompanyAsset,
@@ -59,12 +62,6 @@ export interface AdminCompanyMember extends CompanyMember {
   office_ids: string[];
 }
 
-export interface TenantCompanyUser {
-  id: string;
-  name: string;
-  email?: string;
-}
-
 export interface CompanySetupMetrics {
   templateCount: number;
   orderRequestCount: number;
@@ -86,6 +83,20 @@ export interface SaveCompanyMemberInput {
   role: CompanyRole;
   isAllOffices: boolean;
   officeIds: string[];
+}
+
+export interface InviteCompanyMemberInput {
+  email: string;
+  role: CompanyRole;
+  isAllOffices: boolean;
+  officeIds: string[];
+}
+
+export interface InviteCompanyMemberResult {
+  email: string;
+  userId: string;
+  invitationSent: boolean;
+  existingUser: boolean;
 }
 
 const adminCompanyKeys = {
@@ -130,7 +141,8 @@ const adminCompanyKeys = {
   metrics: (tenantId: string, companyId: string | null) => [
     ...adminCompanyKeys.root(tenantId), "metrics", companyId,
   ] as const,
-  users: (tenantId: string) => [...adminCompanyKeys.root(tenantId), "users"] as const,
+  tenantLogo: (tenantId: string) => [...adminCompanyKeys.root(tenantId), "tenant-logo"] as const,
+  companyLogos: (tenantId: string) => [...adminCompanyKeys.root(tenantId), "company-logos"] as const,
 };
 
 function required(value: string | null | undefined, label: string): string {
@@ -142,6 +154,31 @@ function required(value: string | null | undefined, label: string): string {
 function optional(value: string | null | undefined): string | null {
   const normalized = String(value || "").trim();
   return normalized || null;
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+export function resolveCompanyHubSystemLogo(settings: unknown): string | null {
+  const source = record(settings);
+  const brandingContainer = record(source.branding);
+  const branding = record(
+    brandingContainer.published
+      || brandingContainer.draft
+      || source.branding_published
+      || source.branding_template_published
+      || (Object.keys(brandingContainer).length ? brandingContainer : null),
+  );
+  const header = record(branding.header);
+  const logoUrl = typeof branding.logo_url === "string"
+    ? branding.logo_url
+    : typeof header.logoImageUrl === "string"
+      ? header.logoImageUrl
+      : null;
+  return optional(logoUrl);
 }
 
 function companyPayload(input: CompanyIdentityInput) {
@@ -207,27 +244,6 @@ async function loadMembers(tenantId: string, companyId: string): Promise<AdminCo
   });
 }
 
-async function loadTenantUsers(tenantId: string): Promise<TenantCompanyUser[]> {
-  const { data, error } = await database
-    .from("user_roles")
-    .select(`
-      user_id,
-      profile:profiles(first_name, last_name, email)
-    `)
-    .eq("tenant_id", tenantId);
-
-  if (error) throw error;
-  return (data || []).map((row: any) => {
-    const profile = Array.isArray(row.profile) ? row.profile[0] : row.profile;
-    const fullName = `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim();
-    return {
-      id: row.user_id,
-      name: fullName || profile?.email || "Bruger uden navn",
-      email: profile?.email || undefined,
-    };
-  });
-}
-
 export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: string | null) {
   const queryClient = useQueryClient();
   const scope: CompanyWorkspaceScope | null = selectedCompanyId
@@ -252,6 +268,28 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
       return data || [];
     },
     enabled: Boolean(tenantId),
+  });
+
+  const tenantLogoQuery = useQuery({
+    queryKey: adminCompanyKeys.tenantLogo(tenantId),
+    queryFn: async (): Promise<string | null> => {
+      const { data, error } = await database
+        .from("tenants")
+        .select("settings")
+        .eq("id", tenantId)
+        .maybeSingle();
+      if (error) throw error;
+      return resolveCompanyHubSystemLogo(data?.settings);
+    },
+    enabled: Boolean(tenantId),
+    staleTime: 5 * 60_000,
+  });
+
+  const companyLogosQuery = useQuery({
+    queryKey: adminCompanyKeys.companyLogos(tenantId),
+    queryFn: () => listCompanyLogos(supabase as any, tenantId),
+    enabled: Boolean(tenantId),
+    staleTime: 5 * 60_000,
   });
 
   const officesQuery = useQuery({
@@ -360,12 +398,6 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
       };
     },
     enabled: Boolean(selectedCompanyId),
-  });
-
-  const tenantUsersQuery = useQuery({
-    queryKey: adminCompanyKeys.users(tenantId),
-    queryFn: () => loadTenantUsers(tenantId),
-    enabled: Boolean(tenantId),
   });
 
   const invalidateCompany = async () => {
@@ -481,6 +513,52 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
     }),
   });
 
+  const inviteMemberMutation = useMutation({
+    mutationFn: async (input: InviteCompanyMemberInput): Promise<InviteCompanyMemberResult> => {
+      const currentScope = requireScope();
+      const email = required(input.email, "E-mail").toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw new Error("Indtast en gyldig e-mailadresse.");
+      }
+
+      const authUrl = new URL(buildCompanyAuthUrl(window.location.search), window.location.origin);
+
+      const { data, error } = await supabase.functions.invoke("company-hub-invite-member", {
+        body: {
+          tenantId: currentScope.tenantId,
+          companyId: currentScope.companyId,
+          email,
+          role: input.role,
+          isAllOffices: input.isAllOffices,
+          officeIds: input.officeIds,
+          redirectTo: authUrl.toString(),
+        },
+      });
+
+      if (error) {
+        let message = error.message || "Invitationen kunne ikke sendes.";
+        const context = (error as { context?: Response }).context;
+        if (context) {
+          try {
+            const payload = await context.clone().json() as { error?: string };
+            if (payload.error) message = payload.error;
+          } catch {
+            // Keep the client error when the function did not return JSON.
+          }
+        }
+        throw new Error(message);
+      }
+
+      if (!data?.success || !data?.userId) {
+        throw new Error(data?.error || "Invitationen kunne ikke sendes.");
+      }
+      return data as InviteCompanyMemberResult;
+    },
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.members(tenantId, selectedCompanyId),
+    }),
+  });
+
   const disableMemberMutation = useMutation({
     mutationFn: async (userId: string) => {
       const currentScope = requireScope();
@@ -564,6 +642,13 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
     }),
   });
 
+  const uploadCompanyLogoMutation = useMutation({
+    mutationFn: (file: File) => uploadCompanyLogo(supabase as any, tenantId, file),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.companyLogos(tenantId),
+    }),
+  });
+
   const archiveAssetMutation = useMutation({
     mutationFn: (assetId: string) => archiveCompanyAsset(database, requireScope(), assetId),
     onSuccess: () => queryClient.invalidateQueries({
@@ -593,6 +678,8 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
 
   return {
     companiesQuery,
+    tenantLogoQuery,
+    companyLogosQuery,
     officesQuery,
     addressesQuery,
     membersQuery,
@@ -606,7 +693,6 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
     orderRequestsQuery,
     consultantRequestsQuery,
     metricsQuery,
-    tenantUsersQuery,
     createCompanyMutation,
     updateCompanyMutation,
     createOfficeMutation,
@@ -616,12 +702,14 @@ export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: st
     updateAddressMutation,
     archiveAddressMutation,
     saveMemberMutation,
+    inviteMemberMutation,
     disableMemberMutation,
     createCategoryMutation,
     saveCatalogItemMutation,
     archiveCatalogItemMutation,
     createTemplateBindingMutation,
     uploadAssetMutation,
+    uploadCompanyLogoMutation,
     archiveAssetMutation,
     getAssetUrl,
     decideOrderRequestMutation,

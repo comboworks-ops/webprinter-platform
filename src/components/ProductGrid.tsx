@@ -18,6 +18,7 @@ import {
   normalizeProductCategoryKey,
 } from "@/utils/productCategories";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { resolveShopComponentRecipe } from "@/lib/storefront/shopTemplates";
 
 interface ProductGridProps {
   category: string;
@@ -105,6 +106,7 @@ const ProductGrid = ({
   const activeBranding = (isPreviewMode && previewBranding)
     ? previewBranding
     : settings.data?.branding;
+  const shopRecipe = resolveShopComponentRecipe(activeBranding?.forside?.layout);
   const selectedIconPackId = activeBranding?.selectedIconPackId || "classic";
   const products = productsOverride ?? catalog.products;
   const loading = loadingOverride ?? catalog.loading;
@@ -139,8 +141,26 @@ const ProductGrid = ({
     return <div className="text-center py-8 text-sm text-muted-foreground">{errorMessage}</div>;
   }
 
-  const gridColumnsClass = columns === 5 ? "lg:grid-cols-5" : columns === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4";
-  const cardWidthClass = layoutStyle === "slim"
+  const gridColumnsClass = shopRecipe.productCollection === "rapid-list"
+    || shopRecipe.productCollection === "menu-list"
+    ? "lg:grid-cols-2"
+    : shopRecipe.productCollection === "market-grid"
+      ? "lg:grid-cols-5"
+      : shopRecipe.productCollection === "campaign-grid"
+        ? "lg:grid-cols-4"
+        : shopRecipe.productCollection === "showroom-grid"
+          ? "lg:grid-cols-3"
+          : shopRecipe.productCollection === "spec-grid"
+            ? "lg:grid-cols-3"
+            : columns === 5
+              ? "lg:grid-cols-5"
+              : columns === 3
+                ? "lg:grid-cols-3"
+                : "lg:grid-cols-4";
+  const usesWideProductCards = shopRecipe.productCard === "quick-row"
+    || shopRecipe.productCard === "menu-row"
+    || shopRecipe.productCard === "service";
+  const cardWidthClass = usesWideProductCards || layoutStyle === "slim"
     ? "max-w-none"
     : columns === 5
       ? "max-w-full sm:max-w-[240px]"
@@ -266,7 +286,9 @@ const ProductGrid = ({
   return (
     <TooltipProvider>
       <div
+        data-shop-product-collection={shopRecipe.productCollection}
         className={cn(
+          "storefront-product-collection",
           isGroupedLayout && "rounded-2xl border p-6",
           isSlimLayout && "px-4 py-2 sm:px-6",
         )}
@@ -278,7 +300,7 @@ const ProductGrid = ({
           </div>
         )}
         <div className={cn(
-          "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3",
+          "storefront-product-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3",
           gridColumnsClass,
           isSlimLayout ? "gap-4 sm:gap-6" : "gap-6"
         )}>
@@ -308,7 +330,7 @@ const ProductGrid = ({
                 to={productHref}
                 data-branding-id="icons.product-images"
                 className={cn(
-                  "block overflow-hidden relative group flex items-center justify-center",
+                  "storefront-product-image block overflow-hidden relative group flex items-center justify-center",
                   !isFlatLayout && !isSlimLayout && "p-2",
                   !isFlatLayout && !isSlimLayout && !isCardLayout && "bg-white",
                   isSlimLayout
@@ -350,8 +372,9 @@ const ProductGrid = ({
                 <TooltipTrigger asChild>
                   <Card
                     data-branding-id="forside.products.background"
+                    data-shop-product-card={shopRecipe.productCard}
                     className={cn(
-                      "hover:shadow-lg transition-shadow cursor-pointer w-full mx-auto relative overflow-visible group flex flex-col h-full",
+                      "storefront-product-card hover:shadow-lg transition-shadow cursor-pointer w-full mx-auto relative overflow-visible group flex flex-col h-full",
                       cardWidthClass,
                       isSlimLayout && "min-h-[165px]",
                       isFlatLayout && "shadow-none hover:shadow-none",
@@ -366,12 +389,15 @@ const ProductGrid = ({
                         className={isHoverBadge ? "opacity-0 group-hover:opacity-100 transition-opacity duration-300" : ""}
                       />
                     )}
-                    <CardHeader className={cn("p-4 pb-2", isSlimLayout && "relative z-10 pt-5 pb-2 pl-5 pr-28")}>
+                    <CardHeader className={cn("storefront-product-card-header p-4 pb-2", isSlimLayout && "relative z-10 pt-5 pb-2 pl-5 pr-28")}>
                       {productImage}
+                      <p className="storefront-product-kicker text-[11px] font-semibold uppercase text-muted-foreground">
+                        {product.categoryLabel || product.category}
+                      </p>
                       <div className="flex items-start gap-1.5">
                         <CardTitle
                           data-branding-id="forside.products.card.title"
-                          className="line-clamp-2 text-base font-semibold leading-tight sm:text-lg"
+                          className="storefront-product-title line-clamp-2 text-base font-semibold leading-tight sm:text-lg"
                           style={{
                             color: productCardStyles.titleColor,
                             fontFamily: `'${productCardStyles.titleFont}', sans-serif`,
@@ -384,7 +410,7 @@ const ProductGrid = ({
                         )}
                       </div>
                     </CardHeader>
-                    <CardContent className={cn("px-4 pb-4 pt-0", isSlimLayout && "relative z-10 px-5 pb-3 pt-0 pr-28")}>
+                    <CardContent className={cn("storefront-product-card-content px-4 pb-4 pt-0", isSlimLayout && "relative z-10 px-5 pb-3 pt-0 pr-28")}>
                       <div className="space-y-1.5">
                         <div className="flex items-start gap-1.5 flex-wrap">
                           {hasPromo ? (
@@ -394,7 +420,7 @@ const ProductGrid = ({
                               </span>
                               <p
                                 data-branding-id="forside.products.card.price"
-                                className="text-2xl font-extrabold leading-none"
+                                className="storefront-product-price text-2xl font-extrabold leading-none"
                                 style={{
                                   color: productCardStyles.priceColor,
                                   fontFamily: `'${productCardStyles.priceFont}', sans-serif`,
@@ -411,7 +437,7 @@ const ProductGrid = ({
                           ) : (
                             <p
                               data-branding-id="forside.products.card.price"
-                              className="text-2xl font-extrabold leading-none"
+                              className="storefront-product-price text-2xl font-extrabold leading-none"
                               style={{
                                 color: productCardStyles.priceColor,
                                 fontFamily: `'${productCardStyles.priceFont}', sans-serif`,
@@ -428,7 +454,7 @@ const ProductGrid = ({
                         {productDescription && (
                           <p
                             data-branding-id="forside.products.card.body"
-                            className="line-clamp-2 text-sm leading-5 text-muted-foreground"
+                            className="storefront-product-body line-clamp-2 text-sm leading-5 text-muted-foreground"
                             style={{
                               color: productCardStyles.bodyColor,
                               fontFamily: `'${productCardStyles.bodyFont}', sans-serif`,
@@ -442,7 +468,7 @@ const ProductGrid = ({
                     {effectiveButtonStyle !== "hidden" && (
                       <CardFooter
                         className={cn(
-                          "gap-2",
+                          "storefront-product-card-footer gap-2",
                           effectiveButtonStyle === "bar"
                             ? "px-0 pb-0 mt-auto w-full overflow-hidden rounded-b-lg"
                             : isSlimLayout

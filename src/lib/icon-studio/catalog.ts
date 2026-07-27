@@ -74,11 +74,11 @@ export const ICON_STUDIO_STYLE_KEYS = [
 export type IconStudioStyleKey = (typeof ICON_STUDIO_STYLE_KEYS)[number];
 
 const STYLE_LABELS: Record<IconStudioStyleKey, string> = {
-  flat_clean: "Flat / Clean",
-  outline_technical: "Outline / Technical",
+  flat_clean: "Flad / ren",
+  outline_technical: "Kontur / teknisk",
   soft_3d: "Soft 3D",
-  print_material_realistic: "Print Material Realistic",
-  brand_custom: "Brand Custom",
+  print_material_realistic: "Realistisk trykmateriale",
+  brand_custom: "Egen brandstil",
 };
 
 export const ICON_STUDIO_STYLES = ICON_STUDIO_STYLE_KEYS.map((key) => ({
@@ -101,15 +101,15 @@ export const ICON_STUDIO_VARIANT_KEYS = [
 export type IconStudioVariantKey = (typeof ICON_STUDIO_VARIANT_KEYS)[number];
 
 const VARIANT_LABELS: Record<IconStudioVariantKey, string> = {
-  front: "Front",
-  angled_front: "Angled Front",
-  top_view: "Top View",
-  stacked: "Stacked",
-  hanging: "Hanging",
-  closed: "Closed",
-  open: "Open",
-  rolled: "Rolled",
-  standing: "Standing",
+  front: "Forside",
+  angled_front: "Skrå forside",
+  top_view: "Set ovenfra",
+  stacked: "Stablet",
+  hanging: "Hængende",
+  closed: "Lukket",
+  open: "Åben",
+  rolled: "Oprullet",
+  standing: "Stående",
 };
 
 export const ICON_STUDIO_VARIANTS = ICON_STUDIO_VARIANT_KEYS.map((key) => ({
@@ -128,11 +128,11 @@ export const ICON_STUDIO_BRAND_FINISH_KEYS = [
 export type IconStudioBrandFinishKey = (typeof ICON_STUDIO_BRAND_FINISH_KEYS)[number];
 
 const BRAND_FINISH_LABELS: Record<IconStudioBrandFinishKey, string> = {
-  flat: "Flat",
-  embossed_light: "Embossed Light",
-  debossed_light: "Debossed Light",
-  gloss_surface: "Gloss Surface",
-  inherit_surface: "Inherit Surface",
+  flat: "Flad",
+  embossed_light: "Let prægning",
+  debossed_light: "Let nedprægning",
+  gloss_surface: "Blank overflade",
+  inherit_surface: "Følg overfladen",
 };
 
 export const ICON_STUDIO_BRAND_FINISHES = ICON_STUDIO_BRAND_FINISH_KEYS.map((key) => ({
@@ -160,14 +160,14 @@ export const ICON_STUDIO_PLACEMENT_PRESET_KEYS = [
 export type IconStudioPlacementPresetKey = (typeof ICON_STUDIO_PLACEMENT_PRESET_KEYS)[number];
 
 const PLACEMENT_PRESET_LABELS: Record<IconStudioPlacementPresetKey, string> = {
-  front_upper_right: "Front Upper Right",
-  front_center: "Front Center",
-  front_lower_left: "Front Lower Left",
-  lower_left: "Lower Left",
-  spine_center: "Spine Center",
-  banner_top: "Banner Top",
-  banner_center: "Banner Center",
-  label_center: "Label Center",
+  front_upper_right: "Øverst til højre",
+  front_center: "Midt på forsiden",
+  front_lower_left: "Nederst til venstre",
+  lower_left: "Nederst til venstre",
+  spine_center: "Midt på ryggen",
+  banner_top: "Øverst på banneret",
+  banner_center: "Midt på banneret",
+  label_center: "Midt på etiketten",
 };
 
 const DEFAULT_VARIANT_PLACEMENTS: Record<IconStudioVariantKey, IconStudioPlacementPresetKey[]> = {

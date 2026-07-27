@@ -35,7 +35,7 @@ export const SHOP_MODULE_DEFINITIONS: ShopModuleDefinition[] = [
   },
   {
     id: "icon-studio",
-    name: "Icon Studio",
+    name: "Produktbilleder",
     tier: "premium",
     defaultAccess: false,
     defaultEnabled: false,

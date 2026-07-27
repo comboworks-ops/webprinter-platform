@@ -507,7 +507,7 @@ export function AdminSidebar() {
                     <SidebarMenuItem>
                       <AdminNavLink to="/admin/icon-studio">
                         <Sparkles className="h-4 w-4" />
-                        {!collapsed && <span>Icon Studio</span>}
+                      {!collapsed && <span>Produktbilleder</span>}
                       </AdminNavLink>
                     </SidebarMenuItem>
                   )}

@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import {
   CheckCircle2,
-  Crown,
   FolderOpen,
   ImagePlus,
   Loader2,
+  PackageOpen,
   RefreshCw,
   ShieldCheck,
   Sparkles,
@@ -25,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { IconStudioOutputActions } from "@/components/admin/icon-studio/IconStudioOutputActions";
 
 import { useIconStudioAccess } from "@/hooks/useIconStudioAccess";
 import {
@@ -35,7 +36,9 @@ import {
   ICON_STUDIO_STYLES,
   ICON_STUDIO_VARIANTS,
   getIconStudioPlacementPresets,
+  getIconStudioProductLabel,
   getIconStudioStyleLabel,
+  getIconStudioVariantLabel,
   type IconStudioBrandFinishKey,
   type IconStudioOutputFormat,
   type IconStudioOutputSize,
@@ -54,12 +57,13 @@ import {
   deleteIconStudioReferenceAsset,
   listIconStudioBrandAssets,
   listIconStudioJobs,
+  listIconStudioProductTargets,
   listIconStudioReferenceAssets,
   resolveBestMatchingReferenceAssets,
   uploadIconStudioBrandAsset,
   uploadIconStudioReferenceAsset,
 } from "@/lib/icon-studio/service";
-import { buildIconStudioPayload, type IconStudioBrandAssetRow, type IconStudioJobWithOutputs, type IconStudioReferenceAssetRow } from "@/lib/icon-studio/types";
+import { buildIconStudioPayload, type IconStudioBrandAssetRow, type IconStudioJobWithOutputs, type IconStudioProductTarget, type IconStudioReferenceAssetRow } from "@/lib/icon-studio/types";
 
 type ReferenceStyleSelectValue = IconStudioStyleKey | "any";
 type ReferenceVariantSelectValue = IconStudioVariantKey | "any";
@@ -88,6 +92,17 @@ function parseUsageTags(value: string) {
     .filter(Boolean);
 }
 
+function getJobStatusLabel(status: IconStudioJobWithOutputs["status"]) {
+  const labels: Record<IconStudioJobWithOutputs["status"], string> = {
+    draft: "Kladde",
+    processing: "Behandler",
+    ready_for_review: "Klar til valg",
+    approved: "Godkendt",
+    failed: "Fejlet",
+  };
+  return labels[status];
+}
+
 export default function IconStudioPage() {
   const access = useIconStudioAccess();
   const tenantId = access.tenantId;
@@ -96,6 +111,7 @@ export default function IconStudioPage() {
   const [referenceAssets, setReferenceAssets] = useState<IconStudioReferenceAssetRow[]>([]);
   const [brandAssets, setBrandAssets] = useState<IconStudioBrandAssetRow[]>([]);
   const [jobs, setJobs] = useState<IconStudioJobWithOutputs[]>([]);
+  const [productTargets, setProductTargets] = useState<IconStudioProductTarget[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   const [uploadingReference, setUploadingReference] = useState(false);
   const [uploadingBrandAsset, setUploadingBrandAsset] = useState(false);
@@ -107,7 +123,7 @@ export default function IconStudioPage() {
   const [styleKey, setStyleKey] = useState<IconStudioStyleKey>("soft_3d");
   const [variantKey, setVariantKey] = useState<IconStudioVariantKey>("angled_front");
   const [providerPreference, setProviderPreference] = useState<IconStudioProviderPreference>("auto");
-  const [brandOverlayEnabled, setBrandOverlayEnabled] = useState(true);
+  const [brandOverlayEnabled, setBrandOverlayEnabled] = useState(false);
   const [selectedBrandAssetId, setSelectedBrandAssetId] = useState<string | null>(null);
   const [placementPreset, setPlacementPreset] = useState<string | null>(null);
   const [finishKey, setFinishKey] = useState<IconStudioBrandFinishKey>("embossed_light");
@@ -225,7 +241,7 @@ export default function IconStudioPage() {
       })),
       {
         key: "shared" as const,
-        label: "Shared / fallback",
+        label: "Fælles standard",
         assets: sortAssets(grouped.get("shared") || []),
         isSelected: false,
       },
@@ -241,21 +257,27 @@ export default function IconStudioPage() {
     () => referenceBankSummaries.filter((entry) => entry.key !== "shared" && entry.assets.length > 0).length,
     [referenceBankSummaries],
   );
+  const missingProductImageCount = useMemo(
+    () => productTargets.filter((product) => !product.image_url).length,
+    [productTargets],
+  );
 
   const refreshData = useCallback(async () => {
     if (!tenantId || !access.hasAccess) return;
 
     setLoadingData(true);
     try {
-      const [nextReferences, nextBrandAssets, nextJobs] = await Promise.all([
+      const [nextReferences, nextBrandAssets, nextJobs, nextProductTargets] = await Promise.all([
         listIconStudioReferenceAssets(tenantId),
         listIconStudioBrandAssets(tenantId),
         listIconStudioJobs(tenantId),
+        listIconStudioProductTargets(tenantId),
       ]);
 
       setReferenceAssets(nextReferences);
       setBrandAssets(nextBrandAssets);
       setJobs(nextJobs);
+      setProductTargets(nextProductTargets);
     } catch (error) {
       console.error("Failed to load Icon Studio data", error);
       toast.error("Kunne ikke hente Icon Studio data.");
@@ -275,7 +297,7 @@ export default function IconStudioPage() {
       return;
     }
     if (!referenceName.trim()) {
-      toast.error("Indtast et navn til reference-asset.");
+      toast.error("Indtast et navn til stilreferencen.");
       return;
     }
 
@@ -302,10 +324,10 @@ export default function IconStudioPage() {
       setReferenceStyleKey("any");
       setReferenceVariantKey("any");
       setReferenceFinishKey("any");
-      toast.success("Reference asset uploadet.");
+      toast.success("Stilreferencen er uploadet.");
     } catch (error) {
       console.error(error);
-      toast.error("Kunne ikke uploade reference asset.");
+      toast.error("Stilreferencen kunne ikke uploades.");
     } finally {
       setUploadingReference(false);
     }
@@ -314,11 +336,11 @@ export default function IconStudioPage() {
   const handleBrandUpload = async () => {
     if (!tenantId) return;
     if (!brandFile) {
-      toast.error("Vælg et brand-asset først.");
+      toast.error("Vælg et logo eller mærke først.");
       return;
     }
     if (!brandName.trim()) {
-      toast.error("Indtast et navn til brand-asset.");
+      toast.error("Indtast et navn til logoet eller mærket.");
       return;
     }
 
@@ -338,11 +360,11 @@ export default function IconStudioPage() {
       setBrandName("");
       setBrandRole("logo");
       setBrandIsDefault(true);
-      toast.success("Brand-asset uploadet.");
+      toast.success("Logoet eller mærket er uploadet.");
       await refreshData();
     } catch (error) {
       console.error(error);
-      toast.error("Kunne ikke uploade brand-asset.");
+      toast.error("Logoet eller mærket kunne ikke uploades.");
     } finally {
       setUploadingBrandAsset(false);
     }
@@ -386,7 +408,7 @@ export default function IconStudioPage() {
     setApprovingOutputId(outputId);
     try {
       await approveIconStudioOutput({ tenantId, jobId, outputId });
-      toast.success("Output godkendt som final asset.");
+      toast.success("Billedet er godkendt.");
       await refreshData();
     } catch (error) {
       console.error(error);
@@ -401,10 +423,10 @@ export default function IconStudioPage() {
     try {
       await deleteIconStudioReferenceAsset(asset);
       setReferenceAssets((current) => current.filter((row) => row.id !== asset.id));
-      toast.success("Reference asset slettet.");
+      toast.success("Stilreferencen er slettet.");
     } catch (error) {
       console.error(error);
-      toast.error("Kunne ikke slette reference asset.");
+      toast.error("Stilreferencen kunne ikke slettes.");
     } finally {
       setDeletingAssetId(null);
     }
@@ -418,10 +440,10 @@ export default function IconStudioPage() {
       if (selectedBrandAssetId === asset.id) {
         setSelectedBrandAssetId(null);
       }
-      toast.success("Brand-asset slettet.");
+      toast.success("Logoet eller mærket er slettet.");
     } catch (error) {
       console.error(error);
-      toast.error("Kunne ikke slette brand-asset.");
+      toast.error("Logoet eller mærket kunne ikke slettes.");
     } finally {
       setDeletingAssetId(null);
     }
@@ -444,16 +466,16 @@ export default function IconStudioPage() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight">Icon Studio</h1>
-            <Badge variant="outline" className="border-amber-300 text-amber-700">
-              <Crown className="mr-1 h-3.5 w-3.5" />
-              Premium
+            <h1 className="text-3xl font-bold tracking-tight">Produktbilleder</h1>
+            <Badge variant="outline">
+              <Sparkles className="mr-1 h-3.5 w-3.5" />
+              Pilot
             </Badge>
             {access.isMasterContext && <Badge variant="secondary">Master context</Badge>}
           </div>
           <p className="text-muted-foreground mt-2 max-w-3xl">
-            Kontrolleret ikonstudio for trykprodukter. Fem faste style banks styrer looket, og hver bank kan få sine egne
-            referencebilleder. Produkt, bank, view, logo-placering og finish styres via faste enums og et strikt payload.
+            Opret ensartede billeder til shopprodukter, godkend det bedste forslag, og brug det direkte på et produkt.
+            Stilreferencer og logoer er valgfrie og kan tilføjes, når pilotens grundflow er afprøvet.
           </p>
         </div>
 
@@ -463,11 +485,11 @@ export default function IconStudioPage() {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Reference Assets</CardTitle>
-            <CardDescription>{populatedBankCount}/5 style banks har referencebibliotek</CardDescription>
+            <CardTitle className="text-base">Stilreferencer</CardTitle>
+            <CardDescription>{populatedBankCount}/5 visuelle stile har eksempler</CardDescription>
           </CardHeader>
           <CardContent className="flex items-center justify-between">
             <span className="text-3xl font-semibold">{referenceAssets.length}</span>
@@ -477,8 +499,19 @@ export default function IconStudioPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Brand Assets</CardTitle>
-            <CardDescription>Tenant logoer og symboler</CardDescription>
+            <CardTitle className="text-base">Produkter uden billede</CardTitle>
+            <CardDescription>Start piloten med op til 10 produkter</CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between">
+            <span className="text-3xl font-semibold">{missingProductImageCount}</span>
+            <PackageOpen className="h-5 w-5 text-muted-foreground" />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Logoer og mærker</CardTitle>
+            <CardDescription>Shoplogoer og symboler</CardDescription>
           </CardHeader>
           <CardContent className="flex items-center justify-between">
             <span className="text-3xl font-semibold">{brandAssets.length}</span>
@@ -488,8 +521,8 @@ export default function IconStudioPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Jobs</CardTitle>
-            <CardDescription>Genereringer og godkendelser</CardDescription>
+            <CardTitle className="text-base">Billedforslag</CardTitle>
+            <CardDescription>Seneste 30 genereringer</CardDescription>
           </CardHeader>
           <CardContent className="flex items-center justify-between">
             <span className="text-3xl font-semibold">{jobs.length}</span>
@@ -500,10 +533,10 @@ export default function IconStudioPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-4 lg:w-auto">
-          <TabsTrigger value="generate">Generate</TabsTrigger>
-          <TabsTrigger value="references">References</TabsTrigger>
-          <TabsTrigger value="brand-assets">Brand Assets</TabsTrigger>
-          <TabsTrigger value="jobs">Jobs</TabsTrigger>
+          <TabsTrigger value="generate">Opret billeder</TabsTrigger>
+          <TabsTrigger value="references">Stilreferencer</TabsTrigger>
+          <TabsTrigger value="brand-assets">Logoer</TabsTrigger>
+          <TabsTrigger value="jobs">Historik</TabsTrigger>
         </TabsList>
 
         <TabsContent value="generate" className="space-y-6">
@@ -512,10 +545,10 @@ export default function IconStudioPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Sparkles className="h-5 w-5 text-primary" />
-                  Strict Job Builder
+                  Opret produktbilleder
                 </CardTitle>
                 <CardDescription>
-                  Faste dropdowns bygger payloaden. Den valgte style bank styrer hvilke referencebilleder der må bruges.
+                  Vælg produkt, visuel stil og vinkel. Du får tre forslag, som kan godkendes og bruges på et produkt.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -541,8 +574,8 @@ export default function IconStudioPage() {
 
                   <div className="space-y-2">
                     <LabelWithInfo
-                      label="Style Bank"
-                      info="En af de fem faste visuelle banker. Banken bestemmer hvilket referencebibliotek der bruges for at holde samme look på tværs af produkter. Hvis du vælger Shared / fallback ved upload, bruges assetet kun når den valgte bank ikke har sine egne references."
+                      label="Visuel stil"
+                      info="En af fem faste visuelle stile. Stilen bestemmer, hvilke eksempler der bruges til at holde samme udtryk på tværs af produkter."
                     />
                     <Select value={styleKey} onValueChange={(value) => setStyleKey(value as IconStudioStyleKey)}>
                       <SelectTrigger>
@@ -560,8 +593,8 @@ export default function IconStudioPage() {
 
                   <div className="space-y-2">
                     <LabelWithInfo
-                      label="Provider"
-                      info="Hvilken billedmotor der skal generere udkastene. Auto foretrækker OpenAI først og falder derefter tilbage til Gemini eller Mock afhængigt af opsætningen."
+                      label="Billedmotor"
+                      info="Vælg hvilken billedmotor der skal oprette forslagene. Automatisk bruger den bedst tilgængelige motor."
                     />
                     <Select
                       value={providerPreference}
@@ -582,7 +615,7 @@ export default function IconStudioPage() {
 
                   <div className="space-y-2">
                     <LabelWithInfo
-                      label="View / Variant"
+                      label="Visning"
                       info="Den faste produktvinkel eller præsentation. Eksempler er front, angled front, stacked, open eller standing."
                     />
                     <Select value={variantKey} onValueChange={(value) => setVariantKey(value as IconStudioVariantKey)}>
@@ -606,11 +639,11 @@ export default function IconStudioPage() {
                   <div className="flex items-center justify-between rounded-lg border p-4">
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <Label className="text-base">Brand overlay</Label>
+                        <Label className="text-base">Tilføj shoplogo</Label>
                         <InfoTooltip content="Når dette er aktivt, lægges tenantens eget logo eller symbol på bagefter via faste ankerpunkter. Logoet må ikke tegnes frit af AI." />
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        Placeringen styres af faste anchors. Logoet renderes deterministisk, ikke via fri AI-fortolkning.
+                        Logoet placeres præcist efter billedet er oprettet og bliver ikke fortolket af AI.
                       </p>
                     </div>
                     <Switch checked={brandOverlayEnabled} onCheckedChange={setBrandOverlayEnabled} />
@@ -619,7 +652,7 @@ export default function IconStudioPage() {
                   <div className="grid gap-4 md:grid-cols-3">
                     <div className="space-y-2">
                       <LabelWithInfo
-                        label="Brand asset"
+                        label="Logo eller mærke"
                         info="Det uploadede tenant-logo eller symbol der skal bruges som overlay på det færdige ikon."
                       />
                       <Select
@@ -628,7 +661,7 @@ export default function IconStudioPage() {
                         disabled={!brandOverlayEnabled}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Vælg brand asset" />
+                          <SelectValue placeholder="Vælg logo eller mærke" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="none">Ingen valgt</SelectItem>
@@ -643,7 +676,7 @@ export default function IconStudioPage() {
 
                     <div className="space-y-2">
                       <LabelWithInfo
-                        label="Placement preset"
+                        label="Placering"
                         info="Et fast ankerpunkt på produktet, for eksempel front upper right eller spine center. V1 bruger kun disse faste placeringer."
                       />
                       <Select
@@ -666,7 +699,7 @@ export default function IconStudioPage() {
 
                     <div className="space-y-2">
                       <LabelWithInfo
-                        label="Finish"
+                        label="Logooverflade"
                         info="Det kontrollerede look for brand-overlayet, for eksempel flat, embossed light eller gloss surface."
                       />
                       <Select
@@ -694,8 +727,8 @@ export default function IconStudioPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <LabelWithInfo
-                      label="Output format"
-                      info="PNG er den normale produktionssti for AI-udkast. SVG er kun tilgængelig for Mock i V1."
+                      label="Filformat"
+                      info="PNG er standardformatet. SVG er kun tilgængeligt med testmotoren."
                     />
                     <Select value={format} onValueChange={(value) => setFormat(value as IconStudioOutputFormat)}>
                       <SelectTrigger>
@@ -717,8 +750,8 @@ export default function IconStudioPage() {
 
                   <div className="space-y-2">
                     <LabelWithInfo
-                      label="Output størrelse"
-                      info="Den kvadratiske eksportstørrelse for udkastet. Større størrelser giver mere detalje, men kan også koste mere hos providerne."
+                      label="Billedstørrelse"
+                      info="Den kvadratiske billedstørrelse. Større billeder giver flere detaljer og kan koste mere at oprette."
                     />
                     <Select value={String(size)} onValueChange={(value) => setSize(Number(value) as IconStudioOutputSize)}>
                       <SelectTrigger>
@@ -738,27 +771,27 @@ export default function IconStudioPage() {
                 <div className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/40 p-4">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                    <p className="text-sm font-medium">Selected Style Bank References</p>
-                    <InfoTooltip content="Dette er de references som jobbet faktisk vil bruge. Når den valgte bank har egne assets, bruges kun dem. Shared fallback bruges kun hvis banken er tom." />
+                    <p className="text-sm font-medium">Valgte stilreferencer</p>
+                    <InfoTooltip content="Dette er de stilreferencer, som bruges til de næste billedforslag." />
                   </div>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Banken <span className="font-medium">{getIconStudioStyleLabel(styleKey)}</span> bruger op til 5 referencebilleder
-                    pr. job. Hvis banken har egne assets, bruges kun dem. Shared fallback bruges kun når banken er tom.
+                    Stilen <span className="font-medium">{getIconStudioStyleLabel(styleKey)}</span> bruger op til fem referencebilleder.
+                    Fælles standarder bruges kun, når stilen ikke har egne referencer.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Badge variant="secondary">
-                      {selectedBankSummary?.assets.length || 0}/5 bank references
+                      {selectedBankSummary?.assets.length || 0}/5 referencer
                     </Badge>
                     {selectedBankSummary?.assets.length ? (
-                      <Badge variant="outline">Bank populated</Badge>
+                      <Badge variant="outline">Stilen har egne referencer</Badge>
                     ) : (
-                      <Badge variant="outline">Using shared fallback until bank is populated</Badge>
+                      <Badge variant="outline">Bruger fælles standard</Badge>
                     )}
                   </div>
                   {providerPreference !== "mock" && (
                     <p className="mt-2 text-sm text-muted-foreground">
-                      AI providers kører server-side som PNG-drafts i V1. Hvis <span className="font-medium">Auto</span> ikke
-                      finder en konfigureret provider, falder jobbet tilbage til Mock.
+                      Billedmotorerne opretter tre PNG-forslag. Hvis <span className="font-medium">Automatisk</span> ikke finder
+                      en konfigureret billedmotor, bruges testmotoren.
                     </p>
                   )}
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -769,39 +802,47 @@ export default function IconStudioPage() {
                         </Badge>
                       ))
                     ) : (
-                      <Badge variant="outline">Ingen reference assets matcher endnu</Badge>
+                      <Badge variant="outline">Ingen stilreferencer matcher endnu</Badge>
                     )}
                   </div>
                 </div>
 
                 <Button onClick={() => void handleCreateJob()} disabled={submittingJob || !payloadPreview}>
                   {submittingJob ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
-                  Generer udkast
+                  Opret 3 billedforslag
                 </Button>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle>Payload Preview</CardTitle>
-                <CardDescription>Strikt JSON payload som lagres på jobbet.</CardDescription>
+                <CardTitle>Fra forslag til produkt</CardTitle>
+                <CardDescription>Et forslag påvirker ikke shoppen, før du aktivt vælger et produkt.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <pre className="max-h-[540px] overflow-auto rounded-lg bg-slate-950 p-4 text-xs leading-6 text-slate-50">
-                  {payloadPreview
-                    ? JSON.stringify(
-                        {
-                          ...payloadPreview,
-                          references: {
-                            ...payloadPreview.references,
-                            referenceAssetIds: matchingReferenceAssets.map((asset) => asset.id),
+                <ol className="space-y-3 text-sm text-muted-foreground">
+                  <li><span className="font-medium text-foreground">1.</span> Opret tre forslag.</li>
+                  <li><span className="font-medium text-foreground">2.</span> Godkend det bedste i Historik.</li>
+                  <li><span className="font-medium text-foreground">3.</span> Download det eller brug det direkte som produktbillede.</li>
+                </ol>
+                <details className="rounded-md border p-3">
+                  <summary className="cursor-pointer text-sm font-medium">Vis tekniske detaljer</summary>
+                  <pre className="mt-3 max-h-[360px] overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-6 text-slate-50">
+                    {payloadPreview
+                      ? JSON.stringify(
+                          {
+                            ...payloadPreview,
+                            references: {
+                              ...payloadPreview.references,
+                              referenceAssetIds: matchingReferenceAssets.map((asset) => asset.id),
+                            },
                           },
-                        },
-                        null,
-                        2,
-                      )
-                    : "Payload er ikke gyldigt endnu. Vælg et brand-asset eller slå overlay fra."}
-                </pre>
+                          null,
+                          2,
+                        )
+                      : "Vælg et logo, eller slå shoplogo fra."}
+                  </pre>
+                </details>
               </CardContent>
             </Card>
           </div>
@@ -810,9 +851,9 @@ export default function IconStudioPage() {
         <TabsContent value="references" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Upload Reference Asset</CardTitle>
+              <CardTitle>Upload stilreference</CardTitle>
               <CardDescription>
-                Hver af de fem style banks kan have sit eget referencebibliotek. De bruges kun i Icon Studio og påvirker ingen andre systemer.
+                Hver visuel stil kan have sine egne eksempler. De bruges kun til billedforslag og ændrer ikke eksisterende produkter.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 lg:grid-cols-3">
@@ -854,15 +895,15 @@ export default function IconStudioPage() {
               </div>
               <div className="space-y-2">
                 <LabelWithInfo
-                  label="Style Bank"
-                  info="Vælg hvilken af de fem banker assetet tilhører. Shared / fallback er kun til generelle references, som må bruges hvis en bank endnu ikke er fyldt op."
+                  label="Visuel stil"
+                  info="Vælg hvilken visuel stil referencen tilhører. Fælles standard bruges, når en stil endnu ikke har egne referencer."
                 />
                 <Select value={referenceStyleKey} onValueChange={(value) => setReferenceStyleKey(value as ReferenceStyleSelectValue)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="any">Shared / fallback</SelectItem>
+                    <SelectItem value="any">Fælles standard</SelectItem>
                     {ICON_STUDIO_STYLES.map((style) => (
                       <SelectItem key={style.key} value={style.key}>
                         {style.label}
@@ -940,7 +981,7 @@ export default function IconStudioPage() {
               <div className="lg:col-span-3">
                 <Button onClick={() => void handleReferenceUpload()} disabled={uploadingReference}>
                   {uploadingReference ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderOpen className="mr-2 h-4 w-4" />}
-                  Upload reference asset
+                  Upload stilreference
                 </Button>
               </div>
             </CardContent>
@@ -1030,7 +1071,7 @@ export default function IconStudioPage() {
             {referenceAssets.length === 0 && (
               <Card>
                 <CardContent className="flex items-center justify-center p-10 text-sm text-muted-foreground">
-                  Ingen reference assets endnu.
+                  Ingen stilreferencer endnu.
                 </CardContent>
               </Card>
             )}
@@ -1040,9 +1081,9 @@ export default function IconStudioPage() {
         <TabsContent value="brand-assets" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Upload Brand Asset</CardTitle>
+              <CardTitle>Upload logo eller mærke</CardTitle>
               <CardDescription>
-                Brug logoer eller symboler som programmatisk overlay. Brand-asset redigeres ikke af AI i mock pipeline.
+                Logoer placeres præcist oven på det færdige billede og bliver ikke tegnet om af AI.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 lg:grid-cols-3">
@@ -1094,7 +1135,7 @@ export default function IconStudioPage() {
               <div className="lg:col-span-3">
                 <Button onClick={() => void handleBrandUpload()} disabled={uploadingBrandAsset}>
                   {uploadingBrandAsset ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImagePlus className="mr-2 h-4 w-4" />}
-                  Upload brand-asset
+                  Upload logo eller mærke
                 </Button>
               </div>
             </CardContent>
@@ -1136,7 +1177,7 @@ export default function IconStudioPage() {
             {brandAssets.length === 0 && (
               <Card className="md:col-span-2 xl:col-span-3">
                 <CardContent className="flex items-center justify-center p-10 text-sm text-muted-foreground">
-                  Ingen brand assets endnu.
+                  Ingen logoer eller mærker endnu.
                 </CardContent>
               </Card>
             )}
@@ -1149,15 +1190,15 @@ export default function IconStudioPage() {
               <CardHeader>
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
-                    <CardTitle>{job.job_name || job.id}</CardTitle>
+                    <CardTitle>{getIconStudioProductLabel(job.product_key)}</CardTitle>
                     <CardDescription>
-                      {job.product_key} • {job.style_key} • {job.variant_key} • oprettet {formatDate(job.created_at)}
+                      {getIconStudioStyleLabel(job.style_key)} • {getIconStudioVariantLabel(job.variant_key)} • oprettet {formatDate(job.created_at)}
                     </CardDescription>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Badge variant={job.status === "approved" ? "default" : "secondary"}>{job.status}</Badge>
+                    <Badge variant={job.status === "approved" ? "default" : "secondary"}>{getJobStatusLabel(job.status)}</Badge>
                     <Badge variant="outline">{job.provider_key}</Badge>
-                    <Badge variant="outline">{job.resolved_reference_asset_ids.length} refs</Badge>
+                    <Badge variant="outline">{job.resolved_reference_asset_ids.length} referencer</Badge>
                   </div>
                 </div>
               </CardHeader>
@@ -1189,7 +1230,7 @@ export default function IconStudioPage() {
                           {job.approved_output_id === output.id && (
                             <Badge className="bg-emerald-600 hover:bg-emerald-600">
                               <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                              Approved
+                              Godkendt
                             </Badge>
                           )}
                           <Badge variant="outline">{output.width_px}x{output.height_px}</Badge>
@@ -1204,15 +1245,27 @@ export default function IconStudioPage() {
                           ) : (
                             <CheckCircle2 className="mr-2 h-4 w-4" />
                           )}
-                          Godkend som final
+                          Godkend billede
                         </Button>
+                        {job.approved_output_id === output.id && tenantId && (
+                          <IconStudioOutputActions
+                            tenantId={tenantId}
+                            output={output}
+                            products={productTargets}
+                            onProductImageApplied={(productId, imageUrl) => {
+                              setProductTargets((current) => current.map((product) => (
+                                product.id === productId ? { ...product, image_url: imageUrl } : product
+                              )));
+                            }}
+                          />
+                        )}
                       </CardContent>
                     </Card>
                   ))}
                 </div>
 
                 <details className="rounded-lg border bg-muted/20 p-4">
-                  <summary className="cursor-pointer text-sm font-medium">Vis payload</summary>
+                  <summary className="cursor-pointer text-sm font-medium">Vis tekniske detaljer</summary>
                   <Textarea
                     value={JSON.stringify(job.payload, null, 2)}
                     readOnly
@@ -1227,7 +1280,7 @@ export default function IconStudioPage() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center gap-3 p-10 text-center">
                 <Sparkles className="h-8 w-8 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">Ingen jobs endnu. Opret dit første job fra generate-fanen.</p>
+                <p className="text-sm text-muted-foreground">Ingen billedforslag endnu. Opret de første forslag under Opret billeder.</p>
               </CardContent>
             </Card>
           )}
@@ -1237,15 +1290,14 @@ export default function IconStudioPage() {
       <Card className="border-dashed">
         <CardContent className="flex flex-col gap-3 p-4 text-sm text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="font-medium text-foreground">Fase 1 status</p>
-            <p>
-              Access control, tenant scoping, payload builder, style banks, asset libraries, provider adapter, job persistence
-              og approve flow er live. Hver style bank kan nu få sine egne referencebilleder.
-            </p>
+              <p className="font-medium text-foreground">Pilotstatus</p>
+              <p>
+              Godkendte billeder kan downloades eller bruges direkte på et produkt. Eksisterende produktbilleder erstattes kun efter bekræftelse.
+              </p>
           </div>
           <Badge variant="outline">
             <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-            Premium isolated module
+            Afgrænset pilotmodul
           </Badge>
         </CardContent>
       </Card>

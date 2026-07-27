@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   sanitizeCompanyAssetFileName,
   validateCompanyAssetFile,
+  validateCompanyLogoFile,
 } from "./assetService.ts";
 
 test("accepts print-ready PDF and image files", () => {
@@ -19,6 +20,19 @@ test("rejects oversized and unsupported assets", () => {
   assert.throws(
     () => validateCompanyAssetFile({ name: "program.exe", type: "application/octet-stream", size: 1024 } as File),
     /PDF, AI, EPS/,
+  );
+});
+
+test("company logo validation accepts web images and rejects print/source files", () => {
+  assert.doesNotThrow(() => validateCompanyLogoFile({ name: "firma-logo.png", type: "image/png", size: 2048 } as File));
+  assert.doesNotThrow(() => validateCompanyLogoFile({ name: "firma-logo.webp", type: "image/webp", size: 2048 } as File));
+  assert.throws(
+    () => validateCompanyLogoFile({ name: "firma-logo.pdf", type: "application/pdf", size: 2048 } as File),
+    /PNG, JPG eller WebP/i,
+  );
+  assert.throws(
+    () => validateCompanyLogoFile({ name: "firma-logo.jpg", type: "image/jpeg", size: 6 * 1024 * 1024 } as File),
+    /5 MB/i,
   );
 });
 

@@ -43,6 +43,7 @@ import type {
 import { AddressSummary } from "./AddressSummary";
 
 interface CompanyLocationsViewProps {
+  companyName?: string;
   offices: CompanyOffice[];
   addresses: CompanyAddress[];
   selectedOfficeId: string | null;
@@ -112,6 +113,7 @@ function errorMessage(error: unknown): string {
 }
 
 export function CompanyLocationsView({
+  companyName,
   offices,
   addresses,
   selectedOfficeId,
@@ -195,8 +197,16 @@ export function CompanyLocationsView({
   };
 
   const openNewAddress = () => {
+    const defaultName = selectedOffice?.name.trim() || "Adresse";
+    const defaultRecipient = companyName?.trim() || selectedOffice?.name.trim() || "";
     setEditingAddress(null);
-    setAddressForm({ ...emptyAddress, isDefault: officeAddresses.length === 0 });
+    setAddressForm({
+      ...emptyAddress,
+      label: defaultName,
+      recipientName: defaultRecipient,
+      companyName: companyName?.trim() || "",
+      isDefault: officeAddresses.length === 0,
+    });
     setAddressDialogOpen(true);
   };
 
@@ -221,6 +231,29 @@ export function CompanyLocationsView({
   const saveAddress = async () => {
     const countryCode = addressForm.countryCode.trim().toUpperCase();
     const postalCode = addressForm.postalCode.trim();
+    const normalizedAddress = {
+      ...addressForm,
+      label: addressForm.label.trim(),
+      recipientName: addressForm.recipientName.trim(),
+      companyName: addressForm.companyName.trim(),
+      streetAddress: addressForm.streetAddress.trim(),
+      streetAddress2: addressForm.streetAddress2.trim(),
+      postalCode,
+      city: addressForm.city.trim(),
+      countryCode,
+      phone: addressForm.phone.trim(),
+    };
+    const missingField = [
+      [normalizedAddress.label, "Adressens navn"],
+      [normalizedAddress.recipientName, "Modtager"],
+      [normalizedAddress.streetAddress, "Adresse"],
+      [normalizedAddress.postalCode, "Postnummer"],
+      [normalizedAddress.city, "By"],
+    ].find(([value]) => !value);
+    if (missingField) {
+      toast.error(`${missingField[1]} skal udfyldes.`);
+      return;
+    }
     if (!/^[A-Z]{2}$/.test(countryCode)) {
       toast.error("Landekoden skal bestå af to bogstaver.");
       return;
@@ -232,9 +265,7 @@ export function CompanyLocationsView({
 
     try {
       const input = {
-        ...addressForm,
-        countryCode,
-        postalCode,
+        ...normalizedAddress,
         officeId: selectedOfficeId,
       };
       if (editingAddress) {
@@ -289,10 +320,11 @@ export function CompanyLocationsView({
               type="button"
               className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors ${
                 office.id === selectedOfficeId
-                  ? "bg-primary text-primary-foreground"
-                  : "text-foreground hover:bg-muted"
+                  ? "border border-primary/40 bg-primary/10 font-medium text-foreground"
+                  : "border border-transparent text-foreground hover:bg-muted"
               }`}
               onClick={() => onSelectOffice(office.id)}
+              aria-current={office.id === selectedOfficeId ? "true" : undefined}
             >
               <Building2 className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate">{office.name}</span>
@@ -468,32 +500,32 @@ export function CompanyLocationsView({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="address-label">Navn</Label>
-              <Input id="address-label" value={addressForm.label} onChange={(event) => setAddressForm({ ...addressForm, label: event.target.value })} placeholder="Hovedkontor" />
+              <Label htmlFor="address-label">Adressens navn <span className="text-destructive" aria-hidden="true">*</span></Label>
+              <Input id="address-label" required value={addressForm.label} onChange={(event) => setAddressForm({ ...addressForm, label: event.target.value })} placeholder="Hovedkontor" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="address-recipient">Modtager</Label>
-              <Input id="address-recipient" value={addressForm.recipientName} onChange={(event) => setAddressForm({ ...addressForm, recipientName: event.target.value })} />
+              <Label htmlFor="address-recipient">Modtager <span className="text-destructive" aria-hidden="true">*</span></Label>
+              <Input id="address-recipient" required value={addressForm.recipientName} onChange={(event) => setAddressForm({ ...addressForm, recipientName: event.target.value })} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="address-company">Firmanavn</Label>
               <Input id="address-company" value={addressForm.companyName} onChange={(event) => setAddressForm({ ...addressForm, companyName: event.target.value })} />
             </div>
             <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="address-street">Adresse</Label>
-              <Input id="address-street" value={addressForm.streetAddress} onChange={(event) => setAddressForm({ ...addressForm, streetAddress: event.target.value })} />
+              <Label htmlFor="address-street">Adresse <span className="text-destructive" aria-hidden="true">*</span></Label>
+              <Input id="address-street" required autoComplete="street-address" value={addressForm.streetAddress} onChange={(event) => setAddressForm({ ...addressForm, streetAddress: event.target.value })} />
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="address-street-2">Adresse, linje 2</Label>
               <Input id="address-street-2" value={addressForm.streetAddress2} onChange={(event) => setAddressForm({ ...addressForm, streetAddress2: event.target.value })} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="address-postal">Postnummer</Label>
-              <Input id="address-postal" inputMode="numeric" value={addressForm.postalCode} onChange={(event) => setAddressForm({ ...addressForm, postalCode: event.target.value })} />
+              <Label htmlFor="address-postal">Postnummer <span className="text-destructive" aria-hidden="true">*</span></Label>
+              <Input id="address-postal" required autoComplete="postal-code" inputMode="numeric" value={addressForm.postalCode} onChange={(event) => setAddressForm({ ...addressForm, postalCode: event.target.value })} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="address-city">By</Label>
-              <Input id="address-city" value={addressForm.city} onChange={(event) => setAddressForm({ ...addressForm, city: event.target.value })} />
+              <Label htmlFor="address-city">By <span className="text-destructive" aria-hidden="true">*</span></Label>
+              <Input id="address-city" required autoComplete="address-level2" value={addressForm.city} onChange={(event) => setAddressForm({ ...addressForm, city: event.target.value })} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="address-country">Landekode</Label>

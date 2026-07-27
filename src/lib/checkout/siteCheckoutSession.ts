@@ -101,6 +101,7 @@ export interface SiteCheckoutState {
   pricingModel?: string | null;
   productFlowLabel?: string | null;
   productFlowHelpText?: string | null;
+  requiresCutContour?: boolean | null;
   checkoutTitle?: string | null;
   checkoutUploadTitle?: string | null;
   checkoutUploadHelpText?: string | null;
@@ -186,12 +187,13 @@ export function getSiteCheckoutDesignSignature(input: SiteCheckoutState | null |
     companyAddressId: input.companyAddressId || null,
     companyCatalogItemId: input.companyCatalogItemId || null,
     companyOrderRequestId: input.companyOrderRequestId || null,
-    productId: input.productId || null,
     companyWorkingDesignId: input.companyWorkingDesignId || null,
+    productId: input.productId || null,
     productSlug: input.productSlug || null,
     designerMode: input.designerMode || null,
     pricingModel: input.pricingModel || null,
     productFlowLabel: input.productFlowLabel || null,
+    requiresCutContour: input.requiresCutContour === true,
     selectedVariant: input.selectedVariant || null,
     selectedFormat: input.selectedFormat || null,
     linkedTemplateId: input.linkedTemplateId || null,

@@ -353,6 +353,12 @@ export function mergeBrandingWithDefaults(data: Partial<BrandingData>): Branding
         forside: {
             ...DEFAULT_BRANDING.forside,
             ...data.forside,
+            layout: {
+                ...DEFAULT_BRANDING.forside.layout,
+                ...data.forside?.layout,
+                sectionOrder: data.forside?.layout?.sectionOrder
+                    || DEFAULT_BRANDING.forside.layout.sectionOrder,
+            },
             banner2: {
                 ...DEFAULT_BRANDING.forside.banner2,
                 ...data.forside?.banner2,

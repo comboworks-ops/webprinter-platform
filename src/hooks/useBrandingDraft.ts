@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { readTransientString, removeTransientKey, writeTransientString } from "@/lib/storage/transientStorage";
+import {
+    DEFAULT_STOREFRONT_LAYOUT,
+    type StorefrontLayoutSettings,
+} from "@/lib/storefront/shopTemplates";
 
 // Default hero slideshow images (External URLs for maximum reliability in production)
 const heroPrinting = "/hero-print.jpg";
@@ -768,6 +772,7 @@ const DEFAULT_FEATURED_PRODUCT_CONFIG: FeaturedProductConfig = {
 // Forside (front page) settings
 export interface ForsideSettings {
     showBanner: boolean;
+    layout: StorefrontLayoutSettings;
     banner2: Banner2Settings;
     productsSection: ForsideProductsSection;
     contentBlocks: ContentBlock[];  // max 4
@@ -845,6 +850,7 @@ const DEFAULT_BANNER2: Banner2Settings = {
 // Default forside settings
 const DEFAULT_FORSIDE: ForsideSettings = {
     showBanner: true,
+    layout: DEFAULT_STOREFRONT_LAYOUT,
     banner2: DEFAULT_BANNER2,
     productsSection: {
         enabled: true,
@@ -1913,6 +1919,12 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
         merged.forside = {
             ...DEFAULT_BRANDING.forside,
             ...data.forside,
+            layout: {
+                ...DEFAULT_BRANDING.forside.layout,
+                ...(data.forside.layout || {}),
+                sectionOrder: data.forside.layout?.sectionOrder
+                    || DEFAULT_BRANDING.forside.layout.sectionOrder,
+            },
             banner2: {
                 ...DEFAULT_BRANDING.forside.banner2,
                 ...(data.forside.banner2 || {}),
@@ -2223,6 +2235,14 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
             const newForside = partial.forside ? {
                 ...prev.forside,
                 ...partial.forside,
+                layout: partial.forside.layout
+                    ? {
+                        ...prev.forside.layout,
+                        ...partial.forside.layout,
+                        sectionOrder: partial.forside.layout.sectionOrder
+                            ?? prev.forside.layout.sectionOrder,
+                    }
+                    : prev.forside.layout,
                 banner2: partial.forside.banner2
                     ? {
                         ...prev.forside.banner2,

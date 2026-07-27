@@ -42,11 +42,18 @@ import PDFImportModal, { PDFImportData, PDFImportInitialSource } from "@/compone
 import PdfToolsPanel, { SelectedPdfMeta } from "@/components/designer/PdfToolsPanel";
 import { DesignLibraryDrawer } from "@/components/designer/DesignLibraryDrawer";
 import { ExportDialog } from "@/components/designer/ExportDialog";
+import { PhotopeaEditorDialog } from "@/components/designer/PhotopeaEditorDialog";
 import { runDesignerExport } from "@/lib/designer/export/exportActions";
 import { withHiddenGuides } from "@/lib/designer/export/hideExportGuides";
 import { withCanonicalExportViewport } from "@/lib/designer/export/withCanonicalExportViewport";
 import { buildVectorPdfBackgroundPdf, detectPdfBackground, hasOverlayObjects } from "@/lib/designer/export/exportVectorPdfBackground";
 import type { ExportOptions } from "@/lib/designer/export/types";
+import {
+    getPhotopeaOutputBuffer,
+    type PhotopeaSource,
+    validatePhotopeaSource,
+} from "@/lib/designer/photopeaBridge";
+import { PHOTOPEA_PILOT_ENABLED } from "@/lib/api/featureFlags";
 import { mmToPx } from "@/utils/unitConversions";
 import { runPreflightChecks, PreflightWarning } from "@/utils/preflightChecks";
 import { useColorProofing } from "@/hooks/useColorProofing";
@@ -111,6 +118,7 @@ import {
     Tablet,
     Shirt,
     LockKeyhole,
+    ExternalLink,
     type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -127,6 +135,43 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const PHONE_DESIGNER_BREAKPOINT_PX = 700;
 
 type DesignerPanelTab = 'layers' | 'properties' | 'apparel' | 'pdf' | 'preflight' | 'proofing';
+
+const PHOTOPEA_FILE_EXTENSION_BY_MIME: Record<string, string> = {
+    "application/pdf": "pdf",
+    "image/avif": "avif",
+    "image/bmp": "bmp",
+    "image/gif": "gif",
+    "image/heic": "heic",
+    "image/heif": "heic",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/svg+xml": "svg",
+    "image/tiff": "tiff",
+    "image/vnd.adobe.photoshop": "psd",
+    "image/webp": "webp",
+};
+
+const inferPhotopeaFileName = (sourceUrl: string, mimeType: string, fallbackBaseName: string): string => {
+    try {
+        const pathName = sourceUrl.startsWith("data:")
+            ? ""
+            : new URL(sourceUrl, window.location.href).pathname;
+        const candidate = decodeURIComponent(pathName.split("/").filter(Boolean).pop() || "");
+        if (candidate.includes(".")) return candidate;
+    } catch {
+        // Fall through to a MIME-derived local name.
+    }
+
+    const extension = PHOTOPEA_FILE_EXTENSION_BY_MIME[mimeType.toLowerCase()] || "png";
+    return `${fallbackBaseName}.${extension}`;
+};
+
+const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Photopea-outputtet kunne ikke læses."));
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.readAsDataURL(blob);
+});
 
 type DesignerOrderFlowNotice = {
     title: string;
@@ -598,6 +643,8 @@ function DesignerWorkspace() {
     const designerMode = searchParams.get("designerMode") || checkoutSession?.designerMode || null;
     const pricingModel = searchParams.get("pricingModel") || checkoutSession?.pricingModel || null;
     const productFlowLabel = checkoutSession?.productFlowLabel || null;
+    const requiresCutContour = searchParams.get("requiresCutContour") === "1"
+        || checkoutSession?.requiresCutContour === true;
     const returnTo = searchParams.get("returnTo");
     const safeReturnTo = returnTo && returnTo.startsWith("/") ? returnTo : null;
     const designerOrderFlowNotice = useMemo(
@@ -663,6 +710,9 @@ function DesignerWorkspace() {
     const [hasSelection, setHasSelection] = useState(false);
     const [hasChanges, setHasChanges] = useState(false);
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+    const [isPhotopeaOpen, setIsPhotopeaOpen] = useState(false);
+    const [photopeaSource, setPhotopeaSource] = useState<PhotopeaSource | null>(null);
+    const [photopeaPreparing, setPhotopeaPreparing] = useState(false);
     const [layers, setLayers] = useState<LayerInfo[]>([]);
     const [selectedProps, setSelectedProps] = useState<SelectedObjectProps | null>(null);
     const [selectedPdfMeta, setSelectedPdfMeta] = useState<SelectedPdfMeta | null>(null);
@@ -676,6 +726,7 @@ function DesignerWorkspace() {
     const [linkedTemplateFetchComplete, setLinkedTemplateFetchComplete] = useState(() => !templateId);
     const [checkoutUploadImported, setCheckoutUploadImported] = useState(false);
     const [returningToOrder, setReturningToOrder] = useState(false);
+    const photopeaPilotEnabled = import.meta.env.DEV || PHOTOPEA_PILOT_ENABLED;
     // Keep URL-first initialization to avoid A4 flash before async spec loads.
     const [documentSpec, setDocumentSpec] = useState(() => {
         const defaultSpec = {
@@ -2056,6 +2107,105 @@ function DesignerWorkspace() {
         setSelectedTool('select');
     }, []);
 
+    const handleOpenPhotopea = useCallback(async () => {
+        if (companyControlledMode || !photopeaPilotEnabled) return;
+
+        setPhotopeaPreparing(true);
+        setPhotopeaSource(null);
+
+        try {
+            const activeObject = editorRef.current?.getCanvas()?.getActiveObject();
+            const objectData = (activeObject as any)?.data || {};
+            let nextSource: PhotopeaSource | null = null;
+
+            const originalPdfBytes = getPhotopeaOutputBuffer(objectData.originalPdfBytes);
+            if (originalPdfBytes) {
+                nextSource = {
+                    bytes: originalPdfBytes.slice(0),
+                    fileName: objectData.originalFileName || "valgt-dokument.pdf",
+                    mimeType: "application/pdf",
+                    origin: "selected-asset",
+                };
+            } else if (activeObject?.type === "image") {
+                const sourceUrl = (activeObject as fabric.Image).getSrc();
+                if (sourceUrl) {
+                    const response = await fetch(sourceUrl, {
+                        credentials: "omit",
+                        referrerPolicy: "no-referrer",
+                    });
+                    if (!response.ok) {
+                        throw new Error(`Det valgte billede kunne ikke læses (${response.status}).`);
+                    }
+
+                    const blob = await response.blob();
+                    nextSource = {
+                        bytes: await blob.arrayBuffer(),
+                        fileName: objectData.originalFileName
+                            || objectData.fileName
+                            || inferPhotopeaFileName(sourceUrl, blob.type, "valgt-billede"),
+                        mimeType: blob.type,
+                        origin: "selected-asset",
+                    };
+                }
+            }
+
+            if (nextSource) {
+                const validation = validatePhotopeaSource({
+                    byteLength: nextSource.bytes.byteLength,
+                    fileName: nextSource.fileName,
+                    mimeType: nextSource.mimeType,
+                });
+                if (!validation.ok) throw new Error(validation.message);
+            } else if (activeObject) {
+                toast.info("Det valgte lag kan ikke åbnes direkte. Vælg i stedet en lokal designfil.");
+            }
+
+            setPhotopeaSource(nextSource);
+            setIsPhotopeaOpen(true);
+        } catch (caught) {
+            toast.error(caught instanceof Error ? caught.message : "Det valgte lag kunne ikke klargøres.");
+            setPhotopeaSource(null);
+            setIsPhotopeaOpen(true);
+        } finally {
+            setPhotopeaPreparing(false);
+        }
+    }, [companyControlledMode, photopeaPilotEnabled]);
+
+    const handleApplyPhotopeaOutput = useCallback(async ({
+        bytes,
+        fileName,
+        source,
+    }: {
+        bytes: ArrayBuffer;
+        fileName: string;
+        source: PhotopeaSource;
+    }) => {
+        const outputBlob = new Blob([bytes], { type: "image/png" });
+        const outputDataUrl = await blobToDataUrl(outputBlob);
+        await editorRef.current?.addImage(outputDataUrl);
+
+        const insertedObject = editorRef.current?.getCanvas()?.getActiveObject();
+        if (insertedObject) {
+            const existingData = (insertedObject as any).data || {};
+            (insertedObject as any).data = {
+                ...existingData,
+                kind: "photopea_output",
+                originalFileName: fileName,
+                photopeaSourceFileName: source.fileName,
+                photopeaSourceOrigin: source.origin,
+                photopeaEditedAt: new Date().toISOString(),
+            };
+        }
+
+        setHasChanges(true);
+        toast.success("Photopea-kopien er tilføjet som et nyt lag.");
+    }, []);
+
+    const handlePhotopeaOpenChange = useCallback((open: boolean) => {
+        setIsPhotopeaOpen(open);
+        if (!open) setPhotopeaSource(null);
+    }, []);
+
     // Handle CutContour SVG upload
     const handleCutContourUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -3311,6 +3461,7 @@ function DesignerWorkspace() {
         [layers]
     );
     const detectedPdfCutContour = useMemo(() => {
+        if (!requiresCutContour) return null;
         const pdfLayer = layers.find((layer) => (layer.object as any).data?.kind === "pdf_page_background" && (layer.object as any).data?.originalPdfBytes);
         const pdfBytes = pdfLayer ? ((pdfLayer.object as any).data?.originalPdfBytes as ArrayBuffer | undefined) : undefined;
         if (!pdfBytes) return null;
@@ -3324,7 +3475,7 @@ function DesignerWorkspace() {
                 || /\/op\s+true\b/i.test(rawPdf)
                 || /\/OPM\s+[12]\b/i.test(rawPdf),
         };
-    }, [layers]);
+    }, [layers, requiresCutContour]);
     const designerReadinessInfos = useMemo<PreflightWarning[]>(() => {
         const infos: PreflightWarning[] = [];
 
@@ -3350,24 +3501,7 @@ function DesignerWorkspace() {
             });
         }
 
-        if (pdfServiceReport) {
-            infos.push({
-                id: "designer-pdf-service-report",
-                type: pdfServiceReport.status === "error" ? "warning" : "info",
-                code: "PDF_SERVICE_REPORT",
-                message: pdfServiceReport.status === "ok"
-                    ? "PDF-service scan er gennemført"
-                    : "PDF-service scan kræver opmærksomhed",
-                details: [
-                    `${pdfServiceReport.runtime} scan`,
-                    typeof pdfServiceReport.pageCount === "number" ? `${pdfServiceReport.pageCount} sider` : null,
-                    pdfServiceReport.warnings[0] || pdfServiceReport.errors[0] || null,
-                ].filter(Boolean).join(" · "),
-                canIgnore: pdfServiceReport.status !== "error",
-            });
-        }
-
-        if (detectedPdfCutContour?.cutContourNameDetected) {
+        if (requiresCutContour && detectedPdfCutContour?.cutContourNameDetected) {
             infos.push({
                 id: "designer-cut-contour-pdf-detected",
                 type: "info",
@@ -3376,7 +3510,7 @@ function DesignerWorkspace() {
                 details: `PDF-scannen fandt CutContour${detectedPdfCutContour.separationHintDetected ? ", spotfarve/separation" : ""}${detectedPdfCutContour.overprintHintDetected ? " og overprint" : ""}. Du behøver ikke oprette en ny contour i designeren, hvis denne PDF skal bevares som vector ved eksport.`,
                 canIgnore: false,
             });
-        } else if (hasVectorPdfBase && hasCutContourOnCanvas) {
+        } else if (requiresCutContour && hasVectorPdfBase && hasCutContourOnCanvas) {
             infos.push({
                 id: "designer-cut-contour-ready",
                 type: "info",
@@ -3385,7 +3519,7 @@ function DesignerWorkspace() {
                 details: "Lærredet indeholder en CutContour. Brug Vektor PDF-eksport når du vil bevare PDF-basen skarpt.",
                 canIgnore: false,
             });
-        } else if (hasVectorPdfBase) {
+        } else if (requiresCutContour && hasVectorPdfBase) {
             infos.push({
                 id: "designer-cut-contour-missing",
                 type: "info",
@@ -3397,7 +3531,7 @@ function DesignerWorkspace() {
         }
 
         return infos;
-    }, [hasPdfTemplateOverlay, hasVectorPdfBase, hasCutContourOnCanvas, detectedPdfCutContour, pdfServiceReport]);
+    }, [hasPdfTemplateOverlay, hasVectorPdfBase, hasCutContourOnCanvas, detectedPdfCutContour, requiresCutContour]);
     const combinedPreflightInfos = useMemo(
         () => [...preflightInfos, ...designerReadinessInfos],
         [preflightInfos, designerReadinessInfos]
@@ -3777,6 +3911,24 @@ function DesignerWorkspace() {
                         </Button>
                     )}
 
+                    {photopeaPilotEnabled && !companyControlledMode && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleOpenPhotopea()}
+                            disabled={photopeaPreparing}
+                            aria-label="Avanceret redigering"
+                            title="Åbn den valgte fil i den isolerede Photopea-pilot"
+                        >
+                            {photopeaPreparing ? (
+                                <Loader2 className="h-4 w-4 animate-spin xl:mr-2" />
+                            ) : (
+                                <ExternalLink className="h-4 w-4 xl:mr-2" />
+                            )}
+                            <span className="hidden xl:inline">Avanceret redigering</span>
+                        </Button>
+                    )}
+
                     <Button variant="outline" size="sm" onClick={() => setIsExportDialogOpen(true)} disabled={saving}>
                         {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                         Eksportér
@@ -3855,6 +4007,15 @@ function DesignerWorkspace() {
                     })()}
                 />
 
+                {photopeaPilotEnabled && (
+                    <PhotopeaEditorDialog
+                        open={isPhotopeaOpen}
+                        onOpenChange={handlePhotopeaOpenChange}
+                        initialSource={photopeaSource}
+                        onApplyOutput={handleApplyPhotopeaOutput}
+                    />
+                )}
+
                 {/* Left Toolbar */}
                 <aside className={cn(
                     "w-16 flex flex-col items-center py-4 border-r bg-background z-10",
@@ -3886,24 +4047,26 @@ function DesignerWorkspace() {
                         accept="image/*"
                         onChange={handleImageUpload}
                     />
-                    <input
-                        type="file"
-                        ref={cutContourInputRef}
-                        className="hidden"
-                        accept=".svg,image/svg+xml"
-                        onChange={handleCutContourUpload}
-                    />
-
-                    {/* CutContour Import Button */}
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        title={hasSelection ? "Opret CutContour fra valgt vektor" : "Import CutContour (SVG)"}
-                        className="h-10 w-10"
-                        onClick={handleCutContourAction}
-                    >
-                        <Scissors className="h-5 w-5" />
-                    </Button>
+                    {!companyControlledMode && requiresCutContour && (
+                        <>
+                            <input
+                                type="file"
+                                ref={cutContourInputRef}
+                                className="hidden"
+                                accept=".svg,image/svg+xml"
+                                onChange={handleCutContourUpload}
+                            />
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                title={hasSelection ? "Opret CutContour fra valgt vektor" : "Import CutContour (SVG)"}
+                                className="h-10 w-10"
+                                onClick={handleCutContourAction}
+                            >
+                                <Scissors className="h-5 w-5" />
+                            </Button>
+                        </>
+                    )}
 
                     {!companyControlledMode && <div className="flex flex-col gap-2 mb-2">
                         {/* Undo */}
@@ -4153,18 +4316,13 @@ function DesignerWorkspace() {
                                 {activeTab === 'pdf' && (
                                     <PdfToolsPanel
                                         pdfMeta={selectedPdfMeta}
-                                        pdfServiceReport={pdfServiceReport}
-                                        pdfServiceRunning={pdfServiceRunning}
                                         preflightIssueCount={Math.max(0, preflightErrors.length + preflightWarnings.length)}
+                                        allowCutContour={requiresCutContour}
                                         onFitToDocument={handleFitSelectedPdfToDocument}
                                         onCenterOnDocument={handleCenterSelectedPdf}
                                         onImportNewPdf={handleImportNewPdfFromPanel}
                                         onEditPdf={handleEditSelectedPdfFromPanel}
                                         onChangePage={handleChangeSelectedPdfPage}
-                                        onRunPdfServiceScan={handleRunSelectedPdfServiceScan}
-                                        onRunPdfServiceOperation={handleRunSelectedPdfServiceOperation}
-                                        onApplyPdfServiceOutput={handleApplyPdfServiceOutput}
-                                        onDownloadPdfServiceOutput={handleDownloadPdfServiceOutput}
                                         onExtractCutContour={handleCutContourAction}
                                         onOpenExport={handleOpenVectorExportFromPanel}
                                         onOpenPreflight={() => setActiveTab('preflight')}

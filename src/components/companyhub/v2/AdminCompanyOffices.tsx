@@ -9,6 +9,7 @@ import type {
 import { CompanyLocationsView } from "./CompanyLocationsView";
 
 interface AdminCompanyOfficesProps {
+  companyName: string;
   offices: CompanyOffice[];
   addresses: CompanyAddress[];
   selectedOfficeId: string | null;

@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
+import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Building2,
   FileText,
+  ImageIcon,
   Loader2,
   Package,
   Pencil,
   Plus,
+  Upload,
   Users,
+  X,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -35,7 +38,7 @@ import {
   useAdminCompanyWorkspace,
   type CompanyIdentityInput,
 } from "@/hooks/useAdminCompanyWorkspace";
-import type { CompanyAccount } from "@/lib/company-hub";
+import { validateCompanyLogoFile, type CompanyAccount } from "@/lib/company-hub";
 import { AdminCompanyCatalog } from "./AdminCompanyCatalog";
 import { AdminCompanyRequestDesk } from "./AdminCompanyRequestDesk";
 import { CompanyAssetLibrary } from "./CompanyAssetLibrary";
@@ -83,6 +86,9 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
   const [companyDialogOpen, setCompanyDialogOpen] = useState(false);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
   const [companyForm, setCompanyForm] = useState<CompanyIdentityInput>(emptyCompany);
+  const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null);
+  const [companyLogoPreviewUrl, setCompanyLogoPreviewUrl] = useState<string | null>(null);
+  const companyLogoInputRef = useRef<HTMLInputElement>(null);
   const workspace = useAdminCompanyWorkspace(tenantId, selectedCompanyId);
 
   const companies = workspace.companiesQuery.data || [];
@@ -93,6 +99,18 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
   const assets = workspace.assetsQuery.data || [];
   const metrics = workspace.metricsQuery.data || { templateCount: 0, orderRequestCount: 0 };
   const selectedCompany = companies.find((company) => company.id === selectedCompanyId) || null;
+  const systemLogoUrl = workspace.tenantLogoQuery.data || null;
+  const existingCompanyLogos = workspace.companyLogosQuery.data || [];
+
+  useEffect(() => {
+    if (!companyLogoFile) {
+      setCompanyLogoPreviewUrl(null);
+      return;
+    }
+    const previewUrl = URL.createObjectURL(companyLogoFile);
+    setCompanyLogoPreviewUrl(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [companyLogoFile]);
 
   useEffect(() => {
     if (!selectedCompanyId && companies.length) setSelectedCompanyId(companies[0].id);
@@ -117,13 +135,48 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
   const openNewCompany = () => {
     setEditingCompanyId(null);
     setCompanyForm(emptyCompany);
+    setCompanyLogoFile(null);
     setCompanyDialogOpen(true);
   };
 
   const openCompany = (company: CompanyAccount) => {
     setEditingCompanyId(company.id);
     setCompanyForm(formFromCompany(company));
+    setCompanyLogoFile(null);
     setCompanyDialogOpen(true);
+  };
+
+  const handleCompanyDialogOpenChange = (open: boolean) => {
+    setCompanyDialogOpen(open);
+    if (!open) setCompanyLogoFile(null);
+  };
+
+  const handleCompanyLogoFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      validateCompanyLogoFile(file);
+      setCompanyLogoFile(file);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  };
+
+  const selectSystemLogo = () => {
+    if (!systemLogoUrl) return;
+    setCompanyLogoFile(null);
+    setCompanyForm((current) => ({ ...current, logoUrl: systemLogoUrl }));
+  };
+
+  const selectExistingCompanyLogo = (logoUrl: string) => {
+    setCompanyLogoFile(null);
+    setCompanyForm((current) => ({ ...current, logoUrl }));
+  };
+
+  const removeCompanyLogo = () => {
+    setCompanyLogoFile(null);
+    setCompanyForm((current) => ({ ...current, logoUrl: "" }));
   };
 
   const openAsset = async (asset: (typeof assets)[number]) => {
@@ -144,14 +197,21 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
 
   const saveCompany = async () => {
     try {
+      let input = companyForm;
+      if (companyLogoFile) {
+        const logoUrl = await workspace.uploadCompanyLogoMutation.mutateAsync(companyLogoFile);
+        input = { ...companyForm, logoUrl };
+        setCompanyForm(input);
+      }
       if (editingCompanyId) {
-        await workspace.updateCompanyMutation.mutateAsync({ companyId: editingCompanyId, input: companyForm });
+        await workspace.updateCompanyMutation.mutateAsync({ companyId: editingCompanyId, input });
         toast.success("Firmaoplysningerne er opdateret");
       } else {
-        const company = await workspace.createCompanyMutation.mutateAsync(companyForm);
+        const company = await workspace.createCompanyMutation.mutateAsync(input);
         setSelectedCompanyId(company.id);
         toast.success("Firmaet er oprettet");
       }
+      setCompanyLogoFile(null);
       setCompanyDialogOpen(false);
     } catch (error) {
       toast.error(errorMessage(error));
@@ -210,10 +270,11 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
                 type="button"
                 className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors ${
                   company.id === selectedCompanyId
-                    ? "bg-primary text-primary-foreground"
-                    : "hover:bg-muted"
+                    ? "border border-primary/40 bg-primary/10 font-medium text-foreground"
+                    : "border border-transparent text-foreground hover:bg-muted"
                 }`}
                 onClick={() => chooseCompany(company.id)}
+                aria-current={company.id === selectedCompanyId ? "true" : undefined}
               >
                 <Building2 className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate">{company.name}</span>
@@ -264,13 +325,13 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
 
               <Tabs value={activeView} onValueChange={setActiveView} className="mt-5">
                 <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-none border-b bg-transparent p-0">
-                  <TabsTrigger value="setup" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Overblik</TabsTrigger>
-                  <TabsTrigger value="locations" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Kontorer</TabsTrigger>
-                  <TabsTrigger value="members" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Medlemmer</TabsTrigger>
-                  <TabsTrigger value="catalog" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Produkter</TabsTrigger>
-                  <TabsTrigger value="templates" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Skabeloner</TabsTrigger>
-                  <TabsTrigger value="files" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Filer</TabsTrigger>
-                  <TabsTrigger value="requests" className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Anmodninger</TabsTrigger>
+                  <TabsTrigger value="setup" className="rounded-none border-b-2 border-transparent px-4 py-3 text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none">Overblik</TabsTrigger>
+                  <TabsTrigger value="locations" className="rounded-none border-b-2 border-transparent px-4 py-3 text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none">Kontorer</TabsTrigger>
+                  <TabsTrigger value="members" className="rounded-none border-b-2 border-transparent px-4 py-3 text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none">Medlemmer</TabsTrigger>
+                  <TabsTrigger value="catalog" className="rounded-none border-b-2 border-transparent px-4 py-3 text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none">Produkter</TabsTrigger>
+                  <TabsTrigger value="templates" className="rounded-none border-b-2 border-transparent px-4 py-3 text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none">Skabeloner</TabsTrigger>
+                  <TabsTrigger value="files" className="rounded-none border-b-2 border-transparent px-4 py-3 text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none">Filer</TabsTrigger>
+                  <TabsTrigger value="requests" className="rounded-none border-b-2 border-transparent px-4 py-3 text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none">Anmodninger</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="setup" className="mt-0 py-6">
@@ -300,6 +361,7 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
 
                 <TabsContent value="locations" className="mt-0">
                   <AdminCompanyOffices
+                    companyName={selectedCompany.name}
                     offices={offices}
                     addresses={addresses}
                     selectedOfficeId={selectedOfficeId}
@@ -327,10 +389,14 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
                 <TabsContent value="members" className="mt-0">
                   <AdminCompanyMembers
                     members={members}
-                    tenantUsers={workspace.tenantUsersQuery.data || []}
                     offices={offices}
-                    isSaving={workspace.saveMemberMutation.isPending || workspace.disableMemberMutation.isPending}
+                    isSaving={
+                      workspace.saveMemberMutation.isPending
+                      || workspace.inviteMemberMutation.isPending
+                      || workspace.disableMemberMutation.isPending
+                    }
                     onSave={async (input) => { await workspace.saveMemberMutation.mutateAsync(input); }}
+                    onInvite={(input) => workspace.inviteMemberMutation.mutateAsync(input)}
                     onDisable={async (userId) => { await workspace.disableMemberMutation.mutateAsync(userId); }}
                   />
                 </TabsContent>
@@ -401,7 +467,7 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
         </main>
       </div>
 
-      <Dialog open={companyDialogOpen} onOpenChange={setCompanyDialogOpen}>
+      <Dialog open={companyDialogOpen} onOpenChange={handleCompanyDialogOpenChange}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>{editingCompanyId ? "Rediger firma" : "Opret firma"}</DialogTitle>
@@ -445,13 +511,87 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
               </Select>
             </div>
             <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="company-logo">Logo-URL</Label>
-              <Input id="company-logo" value={companyForm.logoUrl || ""} onChange={(event) => setCompanyForm({ ...companyForm, logoUrl: event.target.value })} />
+              <Label>Firmalogo</Label>
+              <div className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/30">
+                  {companyLogoPreviewUrl || companyForm.logoUrl ? (
+                    <img
+                      src={companyLogoPreviewUrl || companyForm.logoUrl || ""}
+                      alt="Forhåndsvisning af firmalogo"
+                      className="h-full w-full object-contain"
+                    />
+                  ) : (
+                    <ImageIcon className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {companyLogoFile?.name || (companyForm.logoUrl ? "Valgt firmalogo" : "Intet logo valgt")}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">PNG, JPG eller WebP · maks. 5 MB</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => companyLogoInputRef.current?.click()}>
+                      <Upload className="h-4 w-4" aria-hidden="true" />
+                      Upload logo
+                    </Button>
+                    {systemLogoUrl && (
+                      <Button type="button" variant="outline" size="sm" className="gap-2" onClick={selectSystemLogo}>
+                        <ImageIcon className="h-4 w-4" aria-hidden="true" />
+                        Brug butikslogo
+                      </Button>
+                    )}
+                    {(companyLogoPreviewUrl || companyForm.logoUrl) && (
+                      <Button type="button" variant="ghost" size="sm" className="gap-2" onClick={removeCompanyLogo}>
+                        <X className="h-4 w-4" aria-hidden="true" />
+                        Fjern
+                      </Button>
+                    )}
+                  </div>
+                  {existingCompanyLogos.length > 0 && (
+                    <div className="mt-3 border-t pt-3">
+                      <p className="mb-2 text-xs font-medium text-muted-foreground">Eksisterende logoer</p>
+                      <div className="grid max-h-28 grid-cols-5 gap-2 overflow-y-auto pr-1 sm:grid-cols-7">
+                        {existingCompanyLogos.map((logo) => {
+                          const selected = !companyLogoFile && companyForm.logoUrl === logo.publicUrl;
+                          return (
+                            <button
+                              key={logo.storagePath}
+                              type="button"
+                              className={`flex aspect-square items-center justify-center overflow-hidden rounded-md border bg-background p-1.5 transition-colors hover:border-primary ${selected ? "border-primary ring-1 ring-primary" : ""}`}
+                              onClick={() => selectExistingCompanyLogo(logo.publicUrl)}
+                              title={logo.name}
+                              aria-label={`Vælg ${logo.name}`}
+                              aria-pressed={selected}
+                            >
+                              <img src={logo.publicUrl} alt="" className="h-full w-full object-contain" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <input
+                    ref={companyLogoInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={handleCompanyLogoFile}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                  />
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCompanyDialogOpen(false)}>Annuller</Button>
-            <Button onClick={saveCompany} disabled={workspace.createCompanyMutation.isPending || workspace.updateCompanyMutation.isPending}>Gem firma</Button>
+            <Button variant="outline" onClick={() => handleCompanyDialogOpenChange(false)}>Annuller</Button>
+            <Button
+              onClick={saveCompany}
+              disabled={workspace.createCompanyMutation.isPending || workspace.updateCompanyMutation.isPending || workspace.uploadCompanyLogoMutation.isPending}
+            >
+              {workspace.uploadCompanyLogoMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+              Gem firma
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

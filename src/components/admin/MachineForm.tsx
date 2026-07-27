@@ -60,20 +60,20 @@ const sanitizeNumber = (value: string, fallback = 0) => {
 const sectionConfig = [
   {
     id: "general",
-    title: "Machine Info",
+    title: "Maskinoplysninger",
     description: "Navn, maskintype og duplex",
     icon: Cpu,
   },
   {
     id: "sizes",
-    title: "Size & Safety",
+    title: "Format og sikkerhed",
     description: "Arkformat, rullebredde og sikkerhedsmarginer",
     icon: Ruler,
   },
   {
     id: "capacity",
-    title: "Capacity & Cost",
-    description: "Hastighed, spild, opsaetningstid og timepris",
+    title: "Kapacitet og kostpris",
+    description: "Hastighed, spild, opsætningstid og timepris",
     icon: Gauge,
   },
 ] as const;
@@ -152,7 +152,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
     const sizesMissing: string[] = [];
     if (formData.mode === "SHEET") {
       if (sheetWidth <= 0) sizesMissing.push("Bredde");
-      if (sheetHeight <= 0) sizesMissing.push("Hoejde");
+      if (sheetHeight <= 0) sizesMissing.push("Højde");
     } else if (sheetWidth <= 0) {
       sizesMissing.push("Rullebredde");
     }
@@ -248,12 +248,12 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                   </Badge>
                   {isDirty ? (
                     <Badge className="rounded-full bg-amber-100 px-3 py-1 text-amber-700 hover:bg-amber-100">
-                      Ugemte aendringer
+                      Ugemte ændringer
                     </Badge>
                   ) : null}
                 </div>
                 <DialogDescription className="max-w-2xl text-sm text-slate-500">
-                  Ombygget som en tydelig maskinprofil-editor med sektioner, live preview og noeglemaalinger. Beregningslogikken er uaendret.
+                  En tydelig maskinprofil med sektioner, direkte preview og nøglemålinger. Beregningslogikken ændres først, når profilen gemmes.
                 </DialogDescription>
               </div>
 
@@ -284,7 +284,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                          Profilopsaetning
+                          Profilopsætning
                         </div>
                         <div className="mt-1 text-lg font-semibold text-slate-900">{completionPercent}% klar</div>
                       </div>
@@ -297,7 +297,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                     </div>
                     <Progress value={completionPercent} className="mt-4 h-2.5 bg-slate-200" />
                     <div className="mt-2 text-xs text-slate-500">
-                      Navnet, produktionsformatet og kapaciteten skal vaere sat foer profilen er komplet.
+                      Navnet, produktionsformatet og kapaciteten skal være sat, før profilen er komplet.
                     </div>
                   </div>
 
@@ -350,7 +350,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                       <div className="space-y-1 text-xs text-slate-500">
                         <p className="font-semibold uppercase tracking-[0.16em] text-slate-400">Retning</p>
                         <p>
-                          Layoutet samler maskindata i klare blokke, saa det foeles som en produktionsprofil og ikke kun en formular.
+                          Maskindata er samlet i klare blokke, så profilen er let at kontrollere før brug.
                         </p>
                       </div>
                     </div>
@@ -366,8 +366,8 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                         <Cpu className="h-5 w-5" />
                       </div>
                       <div>
-                        <h3 className="text-lg font-semibold text-slate-900">Machine Info</h3>
-                        <p className="text-sm text-slate-500">Navn, produktionstype og om maskinen kan koere duplex.</p>
+                        <h3 className="text-lg font-semibold text-slate-900">Maskinoplysninger</h3>
+                        <p className="text-sm text-slate-500">Navn, produktionstype og om maskinen kan køre duplex.</p>
                       </div>
                     </div>
 
@@ -400,7 +400,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                         <div className="flex items-center justify-between gap-4">
                           <div>
-                            <div className="text-sm font-medium text-slate-900">Duplex-understoettelse</div>
+                            <div className="text-sm font-medium text-slate-900">Duplex-understøttelse</div>
                             <div className="text-xs text-slate-500">Bruges til 4+4 jobs og dobbeltsidet produktion.</div>
                           </div>
                           <Switch
@@ -421,10 +421,10 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                         </div>
                         <div>
                           <h3 className="text-lg font-semibold text-slate-900">
-                            {formData.mode === "SHEET" ? "Maximum sheet input" : "Maximum roll input"}
+                            {formData.mode === "SHEET" ? "Maksimalt arkformat" : "Maksimal rullebredde"}
                           </h3>
                           <p className="text-sm text-slate-500">
-                            Definer maskinens raaformat. Previewet til hoejre opdateres direkte.
+                            Definér maskinens råformat. Previewet til højre opdateres direkte.
                           </p>
                         </div>
                       </div>
@@ -441,7 +441,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                             />
                             <UnitField
                               id="sh"
-                              label="Hoejde"
+                              label="Højde"
                               unit="mm"
                               value={Number(formData.sheet_height_mm || 0)}
                               onChange={(nextValue) => setFormData({ ...formData, sheet_height_mm: nextValue })}
@@ -454,7 +454,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                             unit="mm"
                             value={Number(formData.roll_width_mm || 0)}
                             onChange={(nextValue) => setFormData({ ...formData, roll_width_mm: nextValue })}
-                            hint="Preview bruger 1000 mm eksempel-laengde"
+                            hint="Preview bruger 1.000 mm eksempellængde"
                           />
                         )}
                       </div>
@@ -466,8 +466,8 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                           <ShieldAlert className="h-5 w-5" />
                         </div>
                         <div>
-                          <h3 className="text-lg font-semibold text-slate-900">Safety margins</h3>
-                          <p className="text-sm text-slate-500">Ikke-printbart omraade til registrering, griber og haandtering.</p>
+                          <h3 className="text-lg font-semibold text-slate-900">Sikkerhedsmarginer</h3>
+                          <p className="text-sm text-slate-500">Ikke-printbart område til registrering, griber og håndtering.</p>
                         </div>
                       </div>
 
@@ -495,7 +495,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                         />
                         <UnitField
                           id="mr"
-                          label="Hoejre"
+                          label="Højre"
                           unit="mm"
                           value={Number(formData.margin_right_mm || 0)}
                           onChange={(nextValue) => setFormData({ ...formData, margin_right_mm: nextValue })}
@@ -510,15 +510,15 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                         <Gauge className="h-5 w-5" />
                       </div>
                       <div>
-                        <h3 className="text-lg font-semibold text-slate-900">Capacity & Cost</h3>
-                        <p className="text-sm text-slate-500">Opsaetningstid, hastighed, spild og maskinens timepris.</p>
+                        <h3 className="text-lg font-semibold text-slate-900">Kapacitet og kostpris</h3>
+                        <p className="text-sm text-slate-500">Opsætningstid, hastighed, spild og maskinens timepris.</p>
                       </div>
                     </div>
 
                     <div className="grid gap-5 md:grid-cols-2">
                       <UnitField
                         id="setup-time"
-                        label="Opsaetningstid"
+                        label="Opsætningstid"
                         unit="min"
                         value={Number(formData.setup_time_min || 0)}
                         onChange={(nextValue) => setFormData({ ...formData, setup_time_min: nextValue })}
@@ -558,7 +558,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                       />
                       <UnitField
                         id="rwaste"
-                        label="Koersels-spild"
+                        label="Kørselsspild"
                         unit="%"
                         value={Number(formData.run_waste_pct || 0)}
                         onChange={(nextValue) => setFormData({ ...formData, run_waste_pct: nextValue })}
@@ -570,7 +570,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                       <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
                         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                           <Clock3 className="h-4 w-4" />
-                          Setup
+                          Opsætning
                         </div>
                         <div className="mt-2 text-2xl font-semibold text-slate-900">{Number(formData.setup_time_min || 0)} min</div>
                       </div>
@@ -586,7 +586,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                       <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
                         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                           <Coins className="h-4 w-4" />
-                          OPEX
+                          Drift
                         </div>
                         <div className="mt-2 text-2xl font-semibold text-emerald-700">{Number(formData.machine_rate_per_hour || 0).toFixed(0)} kr/t</div>
                       </div>
@@ -599,7 +599,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                 <div className="space-y-5 lg:sticky lg:top-5">
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Preview</div>
-                    <h3 className="mt-1 text-lg font-semibold text-slate-900">Imposition test</h3>
+                    <h3 className="mt-1 text-lg font-semibold text-slate-900">Oplægningstest</h3>
                   </div>
 
                   <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
@@ -623,7 +623,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                     </div>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="preview-bleed">Test bleed</Label>
+                        <Label htmlFor="preview-bleed">Test beskæring</Label>
                         <div className="relative">
                           <Input
                             id="preview-bleed"
@@ -640,7 +640,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                         </div>
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="preview-gap">Trim gap</Label>
+                        <Label htmlFor="preview-gap">Mellemrum</Label>
                         <div className="relative">
                           <Input
                             id="preview-gap"
@@ -658,7 +658,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                       </div>
                     </div>
                     <div className="mt-3 text-xs text-slate-500">
-                      Lokal preview-kontrol. Den aendrer ikke maskinens gemte data.
+                      Lokal preview-kontrol. Den ændrer ikke maskinens gemte data.
                     </div>
                   </div>
 
@@ -683,7 +683,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                         <span className="font-medium text-slate-900">{formData.mode === "SHEET" ? "Ark" : "Rulle"}</span>
                       </div>
                       <div className="flex items-start justify-between gap-4">
-                        <span className="text-slate-500">Raaformat</span>
+                        <span className="text-slate-500">Råformat</span>
                         <span className="text-right font-medium text-slate-900">
                           {formData.mode === "SHEET" ? `${sheetWidth} × ${sheetHeight} mm` : `${sheetWidth} mm rulle`}
                         </span>
@@ -721,7 +721,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                       Designretning
                     </div>
                     <p className="leading-relaxed">
-                      Dette er en mere visuel produktionseditor: klare sektioner, faa beslutninger ad gangen og et preview der forklarer konsekvensen af marginer og format.
+                      Brug previewet til at kontrollere marginer og format. Bekræft derefter kapacitet, spild og timekost med egne produktionsdata.
                     </p>
                   </div>
                 </div>

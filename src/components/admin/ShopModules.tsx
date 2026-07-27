@@ -85,23 +85,23 @@ const SHOP_MODULES: ShopModule[] = [
     },
     {
         id: 'icon-studio',
-        name: 'Icon Studio',
-        description: 'Kontrolleret ikonstudio til trykprodukter',
-        longDescription: 'Generer og godkend konsistente print-produktikoner via låste kataloger, faste styles, referencebibliotek og deterministisk brand-overlay. Bygget som et premium backend-modul uden fri prompttekst i V1.',
+        name: 'Produktbilleder',
+        description: 'Ensartede billeder til shopprodukter',
+        longDescription: 'Opret og godkend konsistente produktbilleder med faste visuelle stile, valgfrie referencer og præcis placering af shoplogo. Godkendte billeder kan bruges direkte på et produkt.',
         icon: <Sparkles className="h-8 w-8" />,
         status: 'active',
         tier: 'premium',
         route: '/admin/icon-studio',
         features: [
-            'Låst print-produkt katalog',
-            '5 faste ikonstile',
-            'Reference asset matching',
-            'Programmatisk logo-placering',
-            'Draft review og approve flow'
+            'Faste typer af trykprodukter',
+            '5 visuelle stile',
+            'Stilreferencer',
+            'Præcis placering af logo',
+            'Godkendelse og direkte produkttilknytning'
         ],
         color: 'from-fuchsia-500 to-rose-500',
         previewImage: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&h=450&fit=crop',
-        price: 'Fra 199 kr/md',
+        price: 'Pilot',
     },
     {
         id: 'machine-pricing',

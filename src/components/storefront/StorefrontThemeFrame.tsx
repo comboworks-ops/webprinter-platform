@@ -9,10 +9,15 @@ import {
   mergeBrandingWithDefaults,
   type BrandingData,
 } from "@/lib/branding";
+import {
+  resolveShopComponentRecipe,
+  resolveStorefrontLayout,
+} from "@/lib/storefront/shopTemplates";
 
 import "@/themes/classic";
 import "@/themes/glassmorphism";
 import "@/themes/taste-style-themes";
+import "@/styles/storefrontShopTemplates.css";
 import "@/styles/storefrontVisualStyles.css";
 
 const STOREFRONT_FONTS_LINK_ID = "storefront-branding-fonts";
@@ -121,6 +126,8 @@ function StorefrontThemeFrameInner({
   const resolvedTenantName = String(
     branding.shop_name || tenantName || "Din Shop",
   ).trim() || "Din Shop";
+  const shopLayout = resolveStorefrontLayout(branding.forside?.layout);
+  const shopRecipe = resolveShopComponentRecipe(shopLayout);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -141,25 +148,46 @@ function StorefrontThemeFrameInner({
   }, [fontSignature]);
 
   return (
-    <Theme.ShopLayout
-      branding={branding}
-      tenantName={resolvedTenantName}
-      isPreviewMode={isPreviewMode}
-      cssVariables={buildBrandingCssVariables(branding)}
+    <div
+      className="storefront-shop-template-scope"
+      data-shop-template={shopLayout.templateId}
+      data-shop-template-version={shopLayout.version}
+      data-shop-content-width={shopLayout.contentWidth}
+      data-shop-hero-treatment={shopLayout.heroTreatment}
+      data-shop-hero-height={shopLayout.heroHeight}
+      data-shop-section-spacing={shopLayout.sectionSpacing}
+      data-shop-surface-rhythm={shopLayout.surfaceRhythm}
+      data-shop-open-design={shopRecipe.openDesignSystem}
+      data-shop-header={shopRecipe.header.variant}
+      data-shop-navigation={shopRecipe.navigation}
+      data-shop-category-navigation={shopRecipe.categoryNavigation}
+      data-shop-product-collection={shopRecipe.productCollection}
+      data-shop-product-card={shopRecipe.productCard}
+      data-shop-product-page={shopRecipe.productPage}
+      data-shop-checkout={shopRecipe.checkout}
+      data-shop-footer={shopRecipe.footer}
+      data-shop-motion={shopRecipe.motion}
     >
-      {topSlot}
-      <Theme.Header
+      <Theme.ShopLayout
         branding={branding}
         tenantName={resolvedTenantName}
         isPreviewMode={isPreviewMode}
-      />
-      {children}
-      <Theme.Footer
-        branding={branding}
-        tenantName={resolvedTenantName}
-        isPreviewMode={isPreviewMode}
-      />
-    </Theme.ShopLayout>
+        cssVariables={buildBrandingCssVariables(branding)}
+      >
+        {topSlot}
+        <Theme.Header
+          branding={branding}
+          tenantName={resolvedTenantName}
+          isPreviewMode={isPreviewMode}
+        />
+        {children}
+        <Theme.Footer
+          branding={branding}
+          tenantName={resolvedTenantName}
+          isPreviewMode={isPreviewMode}
+        />
+      </Theme.ShopLayout>
+    </div>
   );
 }
 

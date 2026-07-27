@@ -615,7 +615,7 @@ export function StorefrontProductTabs({
       <Tabs value={value} onValueChange={onChange} className="w-full" data-branding-id="forside.products.categories">
         {variant === "glass" ? (
           <div
-            className="w-full max-w-4xl mx-auto mb-10 p-1.5"
+            className="storefront-category-nav w-full max-w-4xl mx-auto mb-10 p-1.5"
             style={{
               background: "rgba(255, 255, 255, 0.7)",
               backdropFilter: "blur(12px)",
@@ -648,7 +648,7 @@ export function StorefrontProductTabs({
             data-branding-id="forside.products.categories"
             style={useCompactGrid ? categoryTabGroupStyle : undefined}
             className={cn(
-              "mb-8 mx-auto h-auto flex w-full flex-wrap justify-center gap-2 bg-transparent p-0",
+              "storefront-category-nav mb-8 mx-auto h-auto flex w-full flex-wrap justify-center gap-2 bg-transparent p-0",
               useCompactGrid
                 ? "max-w-md"
                 : "max-w-4xl",
@@ -721,7 +721,7 @@ export function StorefrontProductTabs({
       })}
 
       {showRootCategoryNav && (
-        <div className="flex flex-wrap items-center gap-2" data-branding-id="forside.products.categories">
+        <div className="storefront-category-nav flex flex-wrap items-center gap-2" data-branding-id="forside.products.categories">
           <button
             type="button"
             onClick={() => {
@@ -764,7 +764,7 @@ export function StorefrontProductTabs({
 
       {showChildCategoryNav && (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2" data-branding-id="forside.products.categories">
+          <div className="storefront-category-nav flex flex-wrap items-center gap-2" data-branding-id="forside.products.categories">
             <button
                 type="button"
                 onClick={() => setSelectedSubcategoryId("")}

@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { Helmet } from "react-helmet-async";
 
 import { Truck, Award, Phone, Shield, Clock, Star, Heart, Check } from "lucide-react";
@@ -7,9 +7,16 @@ import { useTheme } from "@/lib/themes";
 import {
   mergeBrandingWithDefaults,
   type BrandingData,
+  type ContentBlock,
+  type SEOContentItem,
+  type SEOContentSettings,
   type USPItem,
   type USPStripSettings,
 } from "@/hooks/useBrandingDraft";
+import {
+  resolveStorefrontLayout,
+  type StorefrontSectionId,
+} from "@/lib/storefront/shopTemplates";
 
 const USP_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   truck: Truck,
@@ -161,6 +168,231 @@ function buildUSPGroundCSS(settings?: USPStripSettings): CSSProperties {
   };
 }
 
+function StorefrontContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
+  return (
+    <>
+      {blocks.map((block) => (
+        <section
+          key={block.id}
+          data-branding-id={`content:${block.id}`}
+          className="bg-secondary py-8"
+        >
+          <div
+            className={`container mx-auto px-4 ${
+              block.textAlign === "center"
+                ? "text-center"
+                : block.textAlign === "right"
+                  ? "text-right"
+                  : "text-left"
+            }`}
+          >
+            <div
+              className={`flex flex-col ${
+                block.imageUrl
+                  ? block.imagePosition === "right"
+                    ? "md:flex-row"
+                    : "md:flex-row-reverse"
+                  : ""
+              } items-center gap-8`}
+            >
+              <div className={`flex-1 ${block.imageUrl ? "" : "w-full"}`}>
+                {block.heading ? (
+                  <h2
+                    className="text-2xl font-semibold md:text-3xl"
+                    data-branding-id={`content:${block.id}:heading`}
+                    style={{
+                      fontFamily: `'${block.headingFont || "Poppins"}', sans-serif`,
+                      color: block.headingColor || "#1F2937",
+                    }}
+                  >
+                    {block.heading}
+                  </h2>
+                ) : null}
+                {block.text ? (
+                  <p
+                    className="mt-4"
+                    data-branding-id={`content:${block.id}:text`}
+                    style={{
+                      fontFamily: `'${block.textFont || "Inter"}', sans-serif`,
+                      color: block.textColor || "#4B5563",
+                    }}
+                  >
+                    {block.text}
+                  </p>
+                ) : null}
+              </div>
+
+              {block.imageUrl ? (
+                <div className="flex-1" data-branding-id={`content:${block.id}:image`}>
+                  <img
+                    src={block.imageUrl}
+                    alt={block.heading || "Indholdsbillede"}
+                    loading="lazy"
+                    decoding="async"
+                    className="mx-auto max-h-64 rounded-md object-cover"
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      ))}
+    </>
+  );
+}
+
+function StorefrontUSPSection({
+  settings,
+  items,
+}: {
+  settings: USPStripSettings;
+  items: USPItem[];
+}) {
+  return (
+    <section
+      data-branding-id="usp-strip"
+      className="py-12"
+      style={{
+        ...buildUSPGroundCSS(settings),
+        color: settings.textColor || "var(--primary-foreground)",
+      }}
+    >
+      {settings.mode === "animated" ? (
+        <style>{`
+          @keyframes usp-fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+          @keyframes usp-slide-up {
+            from { opacity: 0; transform: translateY(24px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes usp-slide-down {
+            from { opacity: 0; transform: translateY(-24px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes usp-scale-in {
+            from { opacity: 0; transform: scale(0.94); }
+            to { opacity: 1; transform: scale(1); }
+          }
+          @keyframes usp-blur-in {
+            from { opacity: 0; filter: blur(10px); transform: translateY(12px); }
+            to { opacity: 1; filter: blur(0); transform: translateY(0); }
+          }
+        `}</style>
+      ) : null}
+      <div className="container mx-auto px-4">
+        <div
+          className={getUSPGridClassName(settings)}
+          style={getUSPGridStyle(settings, items.length)}
+        >
+          {items.map((item, index) => {
+            const isAnimated = settings.mode === "animated";
+            const IconComponent = USP_ICON_MAP[item.icon];
+            const hasCustomIcon = item.icon === "custom" && item.customIconUrl;
+
+            return (
+              <div
+                key={item.id}
+                className={getUSPItemClassName(settings)}
+                data-branding-id={`usp-strip.item.${item.id}`}
+                style={getUSPItemStyle(settings, index)}
+              >
+                <div
+                  data-branding-id={`usp-strip.item.${item.id}.icon`}
+                  className={isAnimated ? "mb-2 flex min-h-[40px] items-center justify-center" : "mb-4"}
+                  style={{
+                    color: settings.iconColor || settings.textColor || "var(--primary-foreground)",
+                  }}
+                >
+                  {hasCustomIcon ? (
+                    <img
+                      src={item.customIconUrl}
+                      alt={item.title}
+                      width={isAnimated ? 32 : 48}
+                      height={isAnimated ? 32 : 48}
+                      loading="lazy"
+                      decoding="async"
+                      className={isAnimated ? "h-8 w-auto max-w-full object-contain" : "h-12 w-12 object-contain"}
+                    />
+                  ) : IconComponent ? (
+                    <IconComponent className={isAnimated ? "h-8 w-8" : "h-12 w-12"} />
+                  ) : null}
+                </div>
+
+                {item.title ? (
+                  <h3
+                    data-branding-id={`usp-strip.item.${item.id}.title`}
+                    className={isAnimated ? "mb-1 text-sm font-semibold leading-tight" : "mb-2 text-lg font-semibold"}
+                    style={{
+                      fontFamily: settings.titleFont || "inherit",
+                      color: settings.titleColor || settings.textColor || "var(--primary-foreground)",
+                    }}
+                  >
+                    {item.title}
+                  </h3>
+                ) : null}
+
+                {item.description ? (
+                  <p
+                    data-branding-id={`usp-strip.item.${item.id}.description`}
+                    className={isAnimated ? "text-[11px] leading-snug opacity-90" : "text-sm opacity-90"}
+                    style={{
+                      fontFamily: settings.descriptionFont || "inherit",
+                      color: settings.descriptionColor || settings.textColor || "var(--primary-foreground)",
+                    }}
+                  >
+                    {item.description}
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function StorefrontSEOSection({
+  settings,
+  items,
+}: {
+  settings: SEOContentSettings;
+  items: SEOContentItem[];
+}) {
+  return (
+    <section
+      data-branding-id="seo-content"
+      className="py-16"
+      style={{
+        backgroundColor: settings.backgroundColor || "var(--secondary)",
+      }}
+    >
+      <div className="container mx-auto px-4">
+        <div className="mx-auto max-w-4xl space-y-8">
+          {items.map((item) => (
+            <div key={item.id} data-branding-id={`seo-content.item.${item.id}`}>
+              <h2
+                data-branding-id={`seo-content.item.${item.id}.heading`}
+                className="mb-3 text-xl font-heading font-semibold"
+              >
+                {item.heading}
+              </h2>
+              <p
+                data-branding-id={`seo-content.item.${item.id}.text`}
+                className="leading-relaxed text-muted-foreground"
+              >
+                {item.text}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 interface StorefrontHomeContentProps {
   branding?: Partial<BrandingData> | null;
   tenantName?: string | null;
@@ -177,10 +409,13 @@ export function StorefrontHomeContent({
   const resolvedTenantName = String(
     resolvedBranding.shop_name || tenantName || "Din Shop",
   ).trim() || "Din Shop";
+  const shopLayout = resolveStorefrontLayout(resolvedBranding.forside?.layout);
 
   const productsSection = resolvedBranding.forside?.productsSection;
   const banner2 = resolvedBranding.forside?.banner2;
   const uspItems = resolvedBranding.uspStrip?.items?.filter((item: USPItem) => item.enabled) || [];
+  const contentBlocks = resolvedBranding.forside?.contentBlocks?.filter((block) => block.enabled) || [];
+  const seoItems = resolvedBranding.seoContent?.items?.filter((item: SEOContentItem) => item.enabled) || [];
   const showProducts = productsSection?.enabled ?? true;
   const productColumns = productsSection?.columns ?? 4;
   const productButtonConfig = productsSection?.button;
@@ -200,32 +435,28 @@ export function StorefrontHomeContent({
   const headerSettings = resolvedBranding.header || {};
   const transparentOverHero = headerSettings.transparentOverHero ?? true;
   const headerHeight = headerSettings.height === "sm" ? 56 : headerSettings.height === "lg" ? 96 : 72;
-  const mainMargin = transparentOverHero ? -headerHeight : 0;
+  const sectionVisibility: Record<StorefrontSectionId, boolean> = {
+    hero: resolvedBranding.forside?.showBanner !== false,
+    products: showProducts,
+    usp: resolvedBranding.uspStrip?.enabled !== false && uspItems.length > 0,
+    banner2: banner2?.enabled !== false,
+    content: contentBlocks.length > 0,
+    seo: resolvedBranding.seoContent?.enabled !== false && seoItems.length > 0,
+  };
+  const firstVisibleSection = shopLayout.sectionOrder.find((sectionId) => sectionVisibility[sectionId]);
+  const headerOverHero = transparentOverHero && firstVisibleSection === "hero";
+  const mainMargin = headerOverHero ? -headerHeight : 0;
+  const mainPaddingTop = transparentOverHero && !headerOverHero ? headerHeight : 0;
 
-  return (
-    <main className="flex-1" style={{ marginTop: mainMargin }}>
-      <Helmet>
-        {preconnectOrigins.map((origin) => (
-          <link key={`preconnect-${origin}`} rel="preconnect" href={origin} crossOrigin="" />
-        ))}
-        {criticalImageUrls.map((url) => (
-          <link key={`preload-${url}`} rel="preload" as="image" href={url} />
-        ))}
-      </Helmet>
-
+  const sectionNodes: Record<StorefrontSectionId, ReactNode> = {
+    hero: sectionVisibility.hero ? (
       <Theme.HeroSlider
         branding={resolvedBranding}
         tenantName={resolvedTenantName}
         isPreviewMode={isPreviewMode}
       />
-
-      <Theme.Banner2
-        branding={resolvedBranding}
-        tenantName={resolvedTenantName}
-        isPreviewMode={isPreviewMode}
-        banner2={banner2 || null}
-      />
-
+    ) : null,
+    products: (
       <Theme.ProductsSection
         branding={resolvedBranding}
         tenantName={resolvedTenantName}
@@ -238,195 +469,46 @@ export function StorefrontHomeContent({
         productLayoutStyle={productLayoutStyle}
         featuredProductConfig={featuredProductConfig}
       />
+    ),
+    usp: sectionVisibility.usp && resolvedBranding.uspStrip ? (
+      <StorefrontUSPSection settings={resolvedBranding.uspStrip} items={uspItems} />
+    ) : null,
+    banner2: (
+      <Theme.Banner2
+        branding={resolvedBranding}
+        tenantName={resolvedTenantName}
+        isPreviewMode={isPreviewMode}
+        banner2={banner2 || null}
+      />
+    ),
+    content: <StorefrontContentBlocks blocks={contentBlocks} />,
+    seo: sectionVisibility.seo && resolvedBranding.seoContent ? (
+      <StorefrontSEOSection settings={resolvedBranding.seoContent} items={seoItems} />
+    ) : null,
+  };
 
-      {resolvedBranding.forside?.contentBlocks?.filter((block) => block.enabled).map((block) => (
-        <section
-          key={block.id}
-          data-branding-id={`content:${block.id}`}
-          className="bg-secondary py-8"
-        >
-          <div
-            className={`container mx-auto px-4 ${block.textAlign === "center" ? "text-center" : block.textAlign === "right" ? "text-right" : "text-left"}`}
-          >
-            <div
-              className={`flex flex-col ${block.imageUrl ? (block.imagePosition === "right" ? "md:flex-row" : "md:flex-row-reverse") : ""} gap-8 items-center`}
-            >
-              <div className={`flex-1 ${block.imageUrl ? "" : "w-full"}`}>
-                {block.heading && (
-                  <h2
-                    className="text-2xl md:text-3xl font-semibold"
-                    data-branding-id={`content:${block.id}:heading`}
-                    style={{
-                      fontFamily: `'${block.headingFont || "Poppins"}', sans-serif`,
-                      color: block.headingColor || "#1F2937",
-                    }}
-                  >
-                    {block.heading}
-                  </h2>
-                )}
-                {block.text && (
-                  <p
-                    className="mt-4"
-                    data-branding-id={`content:${block.id}:text`}
-                    style={{
-                      fontFamily: `'${block.textFont || "Inter"}', sans-serif`,
-                      color: block.textColor || "#4B5563",
-                    }}
-                  >
-                    {block.text}
-                  </p>
-                )}
-              </div>
+  return (
+    <main
+      className="flex-1"
+      style={{
+        marginTop: mainMargin,
+        paddingTop: mainPaddingTop,
+      }}
+    >
+      <Helmet>
+        {preconnectOrigins.map((origin) => (
+          <link key={`preconnect-${origin}`} rel="preconnect" href={origin} crossOrigin="" />
+        ))}
+        {criticalImageUrls.map((url) => (
+          <link key={`preload-${url}`} rel="preload" as="image" href={url} />
+        ))}
+      </Helmet>
 
-              {block.imageUrl && (
-                <div className="flex-1" data-branding-id={`content:${block.id}:image`}>
-                  <img
-                    src={block.imageUrl}
-                    alt={block.heading || "Content image"}
-                    loading="lazy"
-                    decoding="async"
-                    className="rounded-lg max-h-64 object-cover mx-auto"
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
+      {shopLayout.sectionOrder.map((sectionId) => (
+        <div key={sectionId} data-shop-section={sectionId}>
+          {sectionNodes[sectionId]}
+        </div>
       ))}
-
-      {resolvedBranding.uspStrip?.enabled !== false && (
-        <section
-          data-branding-id="usp-strip"
-          className="py-12"
-          style={{
-            ...buildUSPGroundCSS(resolvedBranding.uspStrip),
-            color: resolvedBranding.uspStrip?.textColor || "var(--primary-foreground)",
-          }}
-        >
-          {resolvedBranding.uspStrip?.mode === "animated" && (
-            <style>{`
-              @keyframes usp-fade-in {
-                from { opacity: 0; }
-                to { opacity: 1; }
-              }
-              @keyframes usp-slide-up {
-                from { opacity: 0; transform: translateY(24px); }
-                to { opacity: 1; transform: translateY(0); }
-              }
-              @keyframes usp-slide-down {
-                from { opacity: 0; transform: translateY(-24px); }
-                to { opacity: 1; transform: translateY(0); }
-              }
-              @keyframes usp-scale-in {
-                from { opacity: 0; transform: scale(0.94); }
-                to { opacity: 1; transform: scale(1); }
-              }
-              @keyframes usp-blur-in {
-                from { opacity: 0; filter: blur(10px); transform: translateY(12px); }
-                to { opacity: 1; filter: blur(0); transform: translateY(0); }
-              }
-            `}</style>
-          )}
-          <div className="container mx-auto px-4">
-            <div
-              className={getUSPGridClassName(resolvedBranding.uspStrip)}
-              style={getUSPGridStyle(resolvedBranding.uspStrip, uspItems.length)}
-            >
-              {uspItems.map((item: USPItem, index: number) => {
-                const isAnimated = resolvedBranding.uspStrip?.mode === "animated";
-                const IconComponent = USP_ICON_MAP[item.icon];
-                const hasCustomIcon = item.icon === "custom" && item.customIconUrl;
-
-                return (
-                  <div
-                    key={item.id}
-                    className={getUSPItemClassName(resolvedBranding.uspStrip)}
-                    data-branding-id={`usp-strip.item.${item.id}`}
-                    style={getUSPItemStyle(resolvedBranding.uspStrip, index)}
-                  >
-                    <div
-                      data-branding-id={`usp-strip.item.${item.id}.icon`}
-                      className={isAnimated ? "mb-2 flex min-h-[40px] items-center justify-center" : "mb-4"}
-                      style={{ color: resolvedBranding.uspStrip?.iconColor || resolvedBranding.uspStrip?.textColor || "var(--primary-foreground)" }}
-                    >
-                      {hasCustomIcon ? (
-                        <img
-                          src={item.customIconUrl}
-                          alt={item.title}
-                          width={isAnimated ? 32 : 48}
-                          height={isAnimated ? 32 : 48}
-                          loading="lazy"
-                          decoding="async"
-                          className={isAnimated ? "h-8 w-auto max-w-full object-contain" : "h-12 w-12 object-contain"}
-                        />
-                      ) : IconComponent ? (
-                        <IconComponent className={isAnimated ? "h-8 w-8" : "h-12 w-12"} />
-                      ) : null}
-                    </div>
-
-                    {item.title && (
-                      <h3
-                        data-branding-id={`usp-strip.item.${item.id}.title`}
-                        className={isAnimated ? "mb-1 text-sm font-semibold leading-tight" : "text-lg font-semibold mb-2"}
-                        style={{
-                          fontFamily: resolvedBranding.uspStrip?.titleFont || "inherit",
-                          color: resolvedBranding.uspStrip?.titleColor || resolvedBranding.uspStrip?.textColor || "var(--primary-foreground)",
-                        }}
-                      >
-                        {item.title}
-                      </h3>
-                    )}
-
-                    {item.description && (
-                      <p
-                        data-branding-id={`usp-strip.item.${item.id}.description`}
-                        className={isAnimated ? "text-[11px] leading-snug opacity-90" : "text-sm opacity-90"}
-                        style={{
-                          fontFamily: resolvedBranding.uspStrip?.descriptionFont || "inherit",
-                          color: resolvedBranding.uspStrip?.descriptionColor || resolvedBranding.uspStrip?.textColor || "var(--primary-foreground)",
-                        }}
-                      >
-                        {item.description}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {resolvedBranding.seoContent?.enabled !== false && (
-        <section
-          data-branding-id="seo-content"
-          className="py-16"
-          style={{
-            backgroundColor: resolvedBranding.seoContent?.backgroundColor || "var(--secondary)",
-          }}
-        >
-          <div className="container mx-auto px-4">
-            <div className="max-w-4xl mx-auto space-y-8">
-              {resolvedBranding.seoContent?.items?.filter((item: any) => item.enabled).map((item: any) => (
-                <div key={item.id} data-branding-id={`seo-content.item.${item.id}`}>
-                  <h2
-                    data-branding-id={`seo-content.item.${item.id}.heading`}
-                    className="text-xl font-heading font-semibold mb-3"
-                  >
-                    {item.heading}
-                  </h2>
-                  <p
-                    data-branding-id={`seo-content.item.${item.id}.text`}
-                    className="text-muted-foreground leading-relaxed"
-                  >
-                    {item.text}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
     </main>
   );
 }

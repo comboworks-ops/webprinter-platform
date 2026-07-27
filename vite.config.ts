@@ -22,6 +22,12 @@ export default defineConfig(({ mode }) => ({
   build: {
     emptyOutDir: false,
   },
+  // This repository contains archived tool audits under tmp/. Restrict the
+  // dependency crawler to Webprinter's actual SPA entry so those standalone
+  // projects cannot break the local development server.
+  optimizeDeps: {
+    entries: ["index.html"],
+  },
   // Keep Vite cache outside node_modules to avoid cache corruption
   // when dependencies change during local tooling/import runs.
   cacheDir: ".vite",
@@ -30,7 +36,7 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
     watch: {
       // Avoid HMR storms from backup/docs churn (common in synced folders)
-      ignored: ["**/src/backup-*/**", "**/docs/**", "**/.git/**"],
+      ignored: ["**/src/backup-*/**", "**/docs/**", "**/tmp/**", "**/.git/**"],
       usePolling: true,
       interval: 1000,
     },

@@ -5,15 +5,29 @@ import { supabase } from "@/integrations/supabase/client";
 import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { PriceMatrix } from "./PriceMatrix";
+import { Badge } from "@/components/ui/badge";
+import { simulateMachineCost, type MachineCostJob } from "@/lib/pricing/machineCostSimulator";
+
+type MachinePricingPilotConfig = {
+    costModel?: MachineCostJob["costModel"];
+    coveragePct?: number;
+    clickCostPerSide?: number;
+    plateCount?: number;
+    plateCostEach?: number;
+    fixedJobCost?: number;
+    fallbackMarginPct?: number;
+};
 
 interface MachineConfiguratorProps {
     productId: string;
     width: number;
     height: number;
     onPriceUpdate: (priceData: any) => void;
+    engineVersion?: "v1" | "v2_pilot";
+    engineConfig?: MachinePricingPilotConfig;
 }
 
-export function MachineConfigurator({ productId, width, height, onPriceUpdate }: MachineConfiguratorProps) {
+export function MachineConfigurator({ productId, width, height, onPriceUpdate, engineVersion = "v1", engineConfig }: MachineConfiguratorProps) {
     const [loading, setLoading] = useState(true);
     const [calculating, setCalculating] = useState(false);
     const [config, setConfig] = useState<any>(null);
@@ -43,8 +57,8 @@ export function MachineConfigurator({ productId, width, height, onPriceUpdate }:
                 .from('product_pricing_configs' as any)
                 .select(`
           *,
-          pricing_profiles(*),
-          margin_profiles(*)
+          pricing_profiles(*, machines(*), ink_sets(*)),
+          margin_profiles(*, margin_profile_tiers(*))
         `)
                 .eq('product_id', productId)
                 .single();
@@ -130,6 +144,87 @@ export function MachineConfigurator({ productId, width, height, onPriceUpdate }:
 
         setCalculating(true);
         try {
+            if (engineVersion === "v2_pilot") {
+                const profile = config.pricing_profiles;
+                const machine = Array.isArray(profile?.machines) ? profile.machines[0] : profile?.machines;
+                const inkSet = Array.isArray(profile?.ink_sets) ? profile.ink_sets[0] : profile?.ink_sets;
+                const marginProfile = config.margin_profiles;
+
+                if (!machine || !inkSet) throw new Error("Pilotprofilen mangler maskine eller blæksæt");
+
+                const results = materials.flatMap((material) => config.quantities.map((qty: number) => {
+                    const base = simulateMachineCost(machine, material, inkSet, {
+                        costModel: engineConfig?.costModel || "INKJET",
+                        quantity: qty,
+                        widthMm: selection.width,
+                        heightMm: selection.height,
+                        bleedMm: config.bleed_mm ?? profile?.default_bleed_mm ?? 3,
+                        gapMm: config.gap_mm ?? profile?.default_gap_mm ?? 2,
+                        sides: selection.sides === "4+4" ? 2 : 1,
+                        coveragePct: engineConfig?.coveragePct ?? 30,
+                        targetMarginPct: 0,
+                        roundingStep: 0,
+                        clickCostPerSide: engineConfig?.clickCostPerSide ?? 0,
+                        plateCount: engineConfig?.plateCount ?? 0,
+                        plateCostEach: engineConfig?.plateCostEach ?? 0,
+                        fixedJobCost: engineConfig?.fixedJobCost ?? 0,
+                    });
+
+                    const basisValue = marginProfile?.tier_basis === "AREA"
+                        ? qty * selection.width * selection.height / 1_000_000
+                        : qty;
+                    const tiers = marginProfile?.margin_profile_tiers || [];
+                    const tier = tiers.find((candidate: any) =>
+                        basisValue >= Number(candidate.qty_from || 0)
+                        && (candidate.qty_to == null || basisValue <= Number(candidate.qty_to))
+                    );
+                    const marginValue = Number(tier?.value ?? engineConfig?.fallbackMarginPct ?? 50);
+                    const rawSellPrice = marginProfile?.mode === "TARGET_MARGIN"
+                        ? base.baseCost / (1 - Math.min(95, marginValue) / 100)
+                        : base.baseCost * (1 + marginValue / 100);
+                    const roundingStep = Number(marginProfile?.rounding_step || 0);
+                    const totalPrice = roundingStep > 0
+                        ? Math.ceil(rawSellPrice / roundingStep) * roundingStep
+                        : rawSellPrice;
+
+                    return {
+                        materialId: material.id,
+                        materialName: material.name,
+                        quantity: qty,
+                        totalPrice,
+                        unitPrice: totalPrice / qty,
+                        breakdown: {
+                            ...base,
+                            margin: marginValue,
+                            marginMode: marginProfile?.mode || "MARKUP",
+                            engineVersion: "v2_pilot",
+                        },
+                        imposition: {
+                            columns: base.columns,
+                            rows: base.rows,
+                            rotation: base.orientation,
+                            totalSheets: base.totalUnits,
+                        },
+                    };
+                }));
+
+                const rows = [...new Set(results.map((result) => result.materialName))];
+                const columns = [...new Set(results.map((result) => result.quantity))].sort((a, b) => a - b);
+                const cells: Record<string, Record<number, number>> = {};
+                results.forEach((result) => {
+                    if (!cells[result.materialName]) cells[result.materialName] = {};
+                    cells[result.materialName][result.quantity] = result.totalPrice;
+                });
+                setMatrixData({ rows, columns, cells });
+
+                const current = results.find((result) => result.materialId === selection.material_id && result.quantity === selection.quantity) || results[0];
+                if (current) {
+                    setPriceResult(current);
+                    onPriceUpdate(current);
+                }
+                return;
+            }
+
             const body = {
                 productId,
                 width: selection.width,
@@ -184,7 +279,7 @@ export function MachineConfigurator({ productId, width, height, onPriceUpdate }:
         if (config && materials.length > 0 && selection.width > 0 && selection.height > 0) {
             calculatePrice();
         }
-    }, [selection.width, selection.height, selection.finish_ids, config, materials]);
+    }, [selection.width, selection.height, selection.finish_ids, config, materials, engineVersion, engineConfig]);
 
     // Update dimensions if prop changes (for parent-controlled dimensions)
     useEffect(() => {
@@ -202,6 +297,12 @@ export function MachineConfigurator({ productId, width, height, onPriceUpdate }:
 
     return (
         <div className="space-y-6">
+            {engineVersion === "v2_pilot" ? (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-950">
+                    <span>Kontrolleret test af den nye maskinberegning</span>
+                    <Badge className="bg-cyan-700 hover:bg-cyan-700">Pilot v2</Badge>
+                </div>
+            ) : null}
             {/* Din størrelse - Banner style */}
             <div className="bg-muted/50 border rounded-lg p-6">
                 <h3 className="font-semibold mb-4">Din størrelse</h3>
@@ -321,4 +422,3 @@ export function MachineConfigurator({ productId, width, height, onPriceUpdate }:
         </div>
     );
 }
-

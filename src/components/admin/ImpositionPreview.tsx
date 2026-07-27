@@ -134,7 +134,7 @@ export function ImpositionPreview({
               })
             ) : (
               <div className="absolute inset-[18%] flex items-center justify-center rounded-[18px] border border-dashed border-slate-200 bg-slate-50/80 px-4 text-center text-xs leading-relaxed text-slate-500">
-                Ingen celler passer med nuvaerende format, bleed og gap.
+                Ingen emner passer med det nuværende format, beskæring og mellemrum.
               </div>
             )}
           </div>
@@ -143,7 +143,7 @@ export function ImpositionPreview({
         <div className="mt-4 flex flex-wrap gap-3 text-[11px] text-slate-500">
           <div className="flex items-center gap-2">
             <span className="h-3 w-3 rounded-full bg-amber-300" />
-            Raaformat
+            Råformat
           </div>
           <div className="flex items-center gap-2">
             <span className="h-3 w-3 rounded-full bg-rose-300" />
@@ -155,7 +155,7 @@ export function ImpositionPreview({
           </div>
           <div className="flex items-center gap-2">
             <span className="h-3 w-3 rounded-full bg-fuchsia-300" />
-            Trimstoerrelse
+            Trimstørrelse
           </div>
         </div>
       </div>
@@ -185,7 +185,7 @@ export function ImpositionPreview({
           <div className="mt-1 text-xs text-slate-500">Efter columns og gap</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Resthoejde</div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Resthøjde</div>
           <div className="mt-1 text-xl font-semibold text-slate-900">{leftoverHeight.toFixed(0)} mm</div>
           <div className="mt-1 text-xs text-slate-500">Efter rows og gap</div>
         </div>
@@ -193,7 +193,7 @@ export function ImpositionPreview({
 
       {totalCells > visibleCellCount ? (
         <div className="rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-xs leading-relaxed text-cyan-900">
-          Previewet viser {visibleCellCount} af {totalCells} celler for at holde oversigten laeselig.
+          Previewet viser {visibleCellCount} af {totalCells} emner for at holde oversigten læselig.
         </div>
       ) : null}
     </div>

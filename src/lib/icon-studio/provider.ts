@@ -47,8 +47,8 @@ export interface IconStudioProvider {
 }
 
 export const ICON_STUDIO_PROVIDER_OPTIONS = [
-  { key: "auto", label: "Auto" },
-  { key: "mock", label: "Mock / Deterministisk" },
+  { key: "auto", label: "Automatisk" },
+  { key: "mock", label: "Testmotor / deterministisk" },
   { key: "gemini", label: "Gemini Image" },
   { key: "openai", label: "OpenAI Image" },
 ] as const;

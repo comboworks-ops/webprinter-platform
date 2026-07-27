@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Copy, Cpu, Droplet, Layers, Loader2, Percent, Plus, Settings2, Sparkles, Trash2 } from "lucide-react";
+import { ArrowRight, Calculator, Copy, Cpu, Droplet, Layers, Loader2, Percent, Plus, Settings2, Sparkles, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveAdminTenant } from "@/lib/adminTenant";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ import { InkSetForm } from "./InkSetForm";
 import { MaterialForm } from "./MaterialForm";
 import { MarginProfileForm } from "./MarginProfileForm";
 import { PricingProfileForm } from "./PricingProfileForm";
+import { MachineCostWorkbench } from "./MachineCostWorkbench";
 
 const DUPLICATE_SUFFIX = " (kopi)";
 
@@ -191,6 +192,12 @@ export function MachinePricingManager() {
         setIsDialogOpen(true);
     };
 
+    const openMachineDraft = (draft: Record<string, unknown>) => {
+        setActiveTab("machines");
+        setEditingItem(draft);
+        setIsDialogOpen(true);
+    };
+
     const overviewStats = useMemo(() => ([
         {
             label: "Maskiner",
@@ -198,14 +205,14 @@ export function MachinePricingManager() {
             description: "Produktionsenheder",
         },
         {
-            label: "Blaeksaet",
+            label: "Blæksæt",
             value: data.inkSets.length,
             description: "Farveprofiler",
         },
         {
             label: "Materialer",
             value: data.materials.length,
-            description: "Raavarer",
+            description: "Råvarer",
         },
         {
             label: "Margin-profiler",
@@ -220,7 +227,7 @@ export function MachinePricingManager() {
     ]), [data.inkSets.length, data.machines.length, data.marginProfiles.length, data.materials.length, data.pricingProfiles.length]);
 
     if (loading && data.machines.length === 0) {
-        return <div className="p-8 text-center">Indlaeser...</div>;
+        return <div className="p-8 text-center">Indlæser...</div>;
     }
 
     return (
@@ -239,7 +246,7 @@ export function MachinePricingManager() {
                         <div>
                             <h1 className="text-3xl font-bold tracking-tight">Maskin-beregning</h1>
                             <p className="mt-2 text-muted-foreground">
-                                Hele modulet er nu struktureret som et produktionssystem: maskiner, materialer, blaek, marginer og profiler arbejder sammen som genbrugelige byggesten.
+                                Saml fabriksdata, egne driftsomkostninger og avance i én kontrollerbar kostpris. Test altid beregningen, før en profil tilknyttes et produkt.
                             </p>
                         </div>
                     </div>
@@ -247,13 +254,15 @@ export function MachinePricingManager() {
                         <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
                             <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Aktiv sektion</div>
                             <div className="mt-1 font-semibold text-slate-900">
-                                {activeTab === "machines" ? "Maskiner" : activeTab === "ink" ? "Blaek" : activeTab === "materials" ? "Materialer" : activeTab === "margins" ? "Marginer" : "Profiler"}
+                                {activeTab === "cost-test" ? "Kostpris-test" : activeTab === "machines" ? "Maskiner" : activeTab === "ink" ? "Blæk" : activeTab === "materials" ? "Materialer" : activeTab === "margins" ? "Marginer" : "Profiler"}
                             </div>
                         </div>
-                        <Button className="gap-2 rounded-xl" onClick={openAdd}>
-                            <Plus className="h-4 w-4" />
-                            Opret ny
-                        </Button>
+                        {activeTab !== "cost-test" ? (
+                            <Button className="gap-2 rounded-lg" onClick={openAdd}>
+                                <Plus className="h-4 w-4" />
+                                Opret ny
+                            </Button>
+                        ) : null}
                     </div>
                 </div>
 
@@ -269,14 +278,18 @@ export function MachinePricingManager() {
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid h-auto w-full grid-cols-5 overflow-hidden rounded-[24px] border border-slate-200 bg-white p-1.5 shadow-sm">
+                <TabsList className="grid h-auto w-full grid-cols-3 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm lg:grid-cols-6">
+                    <TabsTrigger value="cost-test" className="gap-2 rounded-lg py-3 transition-all data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm">
+                        <Calculator className="h-4 w-4" />
+                        <span className="font-medium">Kostpris-test</span>
+                    </TabsTrigger>
                     <TabsTrigger value="machines" className="gap-2 rounded-[18px] py-3 transition-all data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm">
                         <Cpu className="h-4 w-4" />
                         <span className="font-medium">Maskiner</span>
                     </TabsTrigger>
                     <TabsTrigger value="ink" className="gap-2 rounded-[18px] py-3 transition-all data-[state=active]:bg-sky-600 data-[state=active]:text-white data-[state=active]:shadow-sm">
                         <Droplet className="h-4 w-4" />
-                        <span className="font-medium">Blaek</span>
+                        <span className="font-medium">Blæk</span>
                     </TabsTrigger>
                     <TabsTrigger value="materials" className="gap-2 rounded-[18px] py-3 transition-all data-[state=active]:bg-orange-500 data-[state=active]:text-white data-[state=active]:shadow-sm">
                         <Layers className="h-4 w-4" />
@@ -291,6 +304,15 @@ export function MachinePricingManager() {
                         <span className="font-medium">Profiler</span>
                     </TabsTrigger>
                 </TabsList>
+
+                <TabsContent value="cost-test" className="mt-6 outline-none">
+                    <MachineCostWorkbench
+                        machines={data.machines}
+                        materials={data.materials}
+                        inkSets={data.inkSets}
+                        onUseMachineDraft={openMachineDraft}
+                    />
+                </TabsContent>
 
                 <TabsContent value="machines" className="mt-6 outline-none">
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -327,7 +349,7 @@ export function MachinePricingManager() {
                                                 </p>
                                             </div>
                                             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                                                Aabn profil <ArrowRight className="h-3.5 w-3.5" />
+                                                Åbn profil <ArrowRight className="h-3.5 w-3.5" />
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -372,7 +394,7 @@ export function MachinePricingManager() {
                                                 <h3 className="text-lg font-bold leading-tight">{i.name}</h3>
                                             </div>
                                             <div className="space-y-1.5">
-                                                <Badge variant="outline" className="border-blue-200 text-[10px] font-bold text-blue-600">BLAEK-SYSTEM</Badge>
+                                                <Badge variant="outline" className="border-blue-200 text-[10px] font-bold text-blue-600">BLÆKSYSTEM</Badge>
                                                 <p className="text-sm text-muted-foreground">
                                                     Pris pr. ml: <span className="font-bold text-foreground">{i.price_per_ml} kr</span>
                                                 </p>
@@ -380,7 +402,7 @@ export function MachinePricingManager() {
                                                     Standard-forbrug: <span className="font-semibold text-foreground">{i.ml_per_m2_at_100pct} ml/m²</span>
                                                 </p>
                                                 <p className="text-sm font-semibold text-sky-700">
-                                                    Daekning: {i.default_coverage_pct}% · Tolerance: {i.tolerance_pct}%
+                                                    Dækning: {i.default_coverage_pct}% · Tolerance: {i.tolerance_pct}%
                                                 </p>
                                             </div>
                                         </div>
@@ -404,7 +426,7 @@ export function MachinePricingManager() {
                         })}
                         <button onClick={openAdd} className="flex min-h-[180px] flex-col items-center justify-center rounded-[28px] border border-dashed border-sky-200 bg-white p-8 text-muted-foreground transition-all duration-300 hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700">
                             <Plus className="mb-2 h-8 w-8 opacity-50" />
-                            <span className="font-bold tracking-tight">Opret nyt blaeksaet</span>
+                            <span className="font-bold tracking-tight">Opret nyt blæksæt</span>
                             <span className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Farveprofil</span>
                         </button>
                     </div>
@@ -434,7 +456,7 @@ export function MachinePricingManager() {
                                                 </p>
                                                 {m.pricing_mode === "PER_SHEET" ? (
                                                     <p className="text-sm text-muted-foreground">
-                                                        Raaformat: <span className="font-semibold text-foreground">{m.sheet_width_mm}x{m.sheet_height_mm} mm</span>
+                                                        Råformat: <span className="font-semibold text-foreground">{m.sheet_width_mm}x{m.sheet_height_mm} mm</span>
                                                     </p>
                                                 ) : null}
                                             </div>
@@ -460,7 +482,7 @@ export function MachinePricingManager() {
                         <button onClick={openAdd} className="flex min-h-[180px] flex-col items-center justify-center rounded-[28px] border border-dashed border-orange-200 bg-white p-8 text-muted-foreground transition-all duration-300 hover:border-orange-400 hover:bg-orange-50 hover:text-orange-700">
                             <Plus className="mb-2 h-8 w-8 opacity-50" />
                             <span className="font-bold tracking-tight">Opret nyt materiale</span>
-                            <span className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Raavare</span>
+                            <span className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Råvare</span>
                         </button>
                     </div>
                 </TabsContent>
@@ -493,7 +515,7 @@ export function MachinePricingManager() {
                                                     Interval: <span className="font-bold text-foreground">{minQty} - {maxQty === 999999 ? "∞" : maxQty} stk</span>
                                                 </p>
                                                 <p className="text-sm text-muted-foreground">
-                                                    Daekning: <span className="font-bold text-green-600">{marginRange}</span>
+                                                    Dækning: <span className="font-bold text-green-600">{marginRange}</span>
                                                 </p>
                                             </div>
                                         </div>
@@ -542,11 +564,11 @@ export function MachinePricingManager() {
                                             <div className="grid grid-cols-1 gap-1.5">
                                                 <div className="flex items-center gap-2 rounded border border-primary/10 bg-white/50 p-1.5 text-xs font-medium">
                                                     <Cpu className="h-3 w-3 text-primary" />
-                                                    {machine?.name || "Vaelg maskine..."}
+                                                    {machine?.name || "Vælg maskine..."}
                                                 </div>
                                                 <div className="flex items-center gap-2 rounded border border-primary/10 bg-white/50 p-1.5 text-xs font-medium">
                                                     <Droplet className="h-3 w-3 text-blue-500" />
-                                                    {inkSet?.name || "Vaelg blaek..."}
+                                                    {inkSet?.name || "Vælg blæk..."}
                                                 </div>
                                             </div>
                                             <div className="space-y-1 pt-1">
@@ -589,7 +611,7 @@ export function MachinePricingManager() {
                         <button onClick={openAdd} className="flex min-h-[200px] flex-col items-center justify-center rounded-[28px] border border-dashed border-violet-200 bg-white p-8 text-muted-foreground transition-all duration-300 hover:border-violet-400 hover:bg-violet-50 hover:text-violet-700">
                             <Sparkles className="mb-2 h-8 w-8 opacity-50" />
                             <span className="font-bold tracking-tight">Opret ny pris-skabelon</span>
-                            <span className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Maskine + blaek + defaults</span>
+                            <span className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Maskine + blæk + standarder</span>
                         </button>
                     </div>
                 </TabsContent>

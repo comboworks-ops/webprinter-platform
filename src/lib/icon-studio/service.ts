@@ -7,7 +7,7 @@ import {
   type IconStudioProviderPreference,
   type IconStudioReferenceImageInput,
 } from "./provider";
-import { buildIconStudioPayload, type IconStudioBrandAssetRow, type IconStudioGenerationPayload, type IconStudioJobOutputRow, type IconStudioJobRow, type IconStudioJobWithOutputs, type IconStudioReferenceAssetRow } from "./types";
+import { buildIconStudioPayload, type IconStudioBrandAssetRow, type IconStudioGenerationPayload, type IconStudioJobOutputRow, type IconStudioJobRow, type IconStudioJobWithOutputs, type IconStudioProductTarget, type IconStudioReferenceAssetRow } from "./types";
 import type {
   IconStudioBrandFinishKey,
   IconStudioProductKey,
@@ -18,6 +18,8 @@ import type {
 } from "./catalog";
 
 const ICON_STUDIO_BUCKET = "icon-studio";
+const PRODUCT_IMAGE_BUCKET = "product-images";
+const ICON_STUDIO_JOB_PAGE_SIZE = 30;
 
 function sanitizeFileName(fileName: string) {
   const cleaned = fileName
@@ -141,7 +143,8 @@ export async function listIconStudioReferenceAssets(tenantId: string) {
     .select("*")
     .eq("tenant_id", tenantId)
     .order("priority", { ascending: false })
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(100);
 
   if (error) throw error;
 
@@ -154,7 +157,8 @@ export async function listIconStudioBrandAssets(tenantId: string) {
     .select("*")
     .eq("tenant_id", tenantId)
     .order("is_default", { ascending: false })
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(50);
 
   if (error) throw error;
 
@@ -162,20 +166,24 @@ export async function listIconStudioBrandAssets(tenantId: string) {
 }
 
 export async function listIconStudioJobs(tenantId: string): Promise<IconStudioJobWithOutputs[]> {
-  const [{ data: jobsData, error: jobsError }, { data: outputsData, error: outputsError }] = await Promise.all([
-    (supabase as any)
-      .from("icon_studio_jobs")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .order("created_at", { ascending: false }),
-    (supabase as any)
-      .from("icon_studio_job_outputs")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .order("created_at", { ascending: false }),
-  ]);
+  const { data: jobsData, error: jobsError } = await (supabase as any)
+    .from("icon_studio_jobs")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("created_at", { ascending: false })
+    .limit(ICON_STUDIO_JOB_PAGE_SIZE);
 
   if (jobsError) throw jobsError;
+  const jobs = (jobsData as IconStudioJobRow[] | null) || [];
+  if (jobs.length === 0) return [];
+
+  const { data: outputsData, error: outputsError } = await (supabase as any)
+    .from("icon_studio_job_outputs")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .in("job_id", jobs.map((job) => job.id))
+    .order("created_at", { ascending: false });
+
   if (outputsError) throw outputsError;
 
   const hydratedOutputs = await Promise.all(((outputsData as IconStudioJobOutputRow[] | null) || []).map(attachPreviewUrl));
@@ -187,10 +195,121 @@ export async function listIconStudioJobs(tenantId: string): Promise<IconStudioJo
     outputsByJob.set(output.job_id, current);
   });
 
-  return ((jobsData as IconStudioJobRow[] | null) || []).map((job) => ({
+  return jobs.map((job) => ({
     ...job,
     outputs: outputsByJob.get(job.id) || [],
   }));
+}
+
+export async function listIconStudioProductTargets(tenantId: string): Promise<IconStudioProductTarget[]> {
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, name, slug, category, image_url, is_published")
+    .eq("tenant_id", tenantId)
+    .order("name")
+    .limit(250);
+
+  if (error) throw error;
+
+  return ((data as IconStudioProductTarget[] | null) || []).sort((left, right) => {
+    const imageDifference = Number(Boolean(left.image_url)) - Number(Boolean(right.image_url));
+    return imageDifference || left.name.localeCompare(right.name, "da");
+  });
+}
+
+function getProductImageExtension(mimeType: string | null) {
+  if (mimeType === "image/jpeg" || mimeType === "image/jpg") return "jpg";
+  if (mimeType === "image/webp") return "webp";
+  if (mimeType === "image/png") return "png";
+  return null;
+}
+
+export async function downloadIconStudioOutput(output: IconStudioJobOutputRow) {
+  const blob = await downloadStorageBlob(output.storage_path);
+  if (!blob) throw new Error("Billedfilen kunne ikke hentes.");
+
+  const extension = getProductImageExtension(output.mime_type) || "svg";
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = `${sanitizeFileName(output.label || "produktbillede")}.${extension}`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+export async function applyIconStudioOutputToProduct(params: {
+  tenantId: string;
+  output: IconStudioJobOutputRow;
+  productId: string;
+}) {
+  if (params.output.tenant_id !== params.tenantId) {
+    throw new Error("Kun et godkendt billede fra den aktuelle shop kan bruges.");
+  }
+
+  const { data: storedOutput, error: outputError } = await (supabase as any)
+    .from("icon_studio_job_outputs")
+    .select("storage_path, mime_type, status")
+    .eq("id", params.output.id)
+    .eq("job_id", params.output.job_id)
+    .eq("tenant_id", params.tenantId)
+    .maybeSingle();
+
+  if (outputError) throw outputError;
+  if (!storedOutput || storedOutput.status !== "approved") {
+    throw new Error("Billedet skal godkendes, før det kan bruges på et produkt.");
+  }
+
+  const { data: product, error: productError } = await supabase
+    .from("products")
+    .select("id")
+    .eq("id", params.productId)
+    .eq("tenant_id", params.tenantId)
+    .maybeSingle();
+
+  if (productError) throw productError;
+  if (!product) throw new Error("Produktet findes ikke i den aktuelle shop.");
+
+  const extension = getProductImageExtension(storedOutput.mime_type);
+  if (!extension) {
+    throw new Error("Produktbilleder skal være PNG, JPG eller WEBP. Generér et PNG-udkast først.");
+  }
+
+  const blob = await downloadStorageBlob(storedOutput.storage_path);
+  if (!blob) throw new Error("Billedfilen kunne ikke hentes.");
+  if (blob.size > 5 * 1024 * 1024) {
+    throw new Error("Billedet er større end 5 MB og kan ikke bruges som produktbillede.");
+  }
+
+  const storagePath = `icon-studio-${params.tenantId}-${params.productId}-${params.output.id}.${extension}`;
+  const { error: uploadError } = await supabase.storage
+    .from(PRODUCT_IMAGE_BUCKET)
+    .upload(storagePath, blob, {
+      cacheControl: "3600",
+      contentType: storedOutput.mime_type || blob.type,
+      upsert: true,
+    });
+
+  if (uploadError) throw uploadError;
+
+  const { data: publicUrlData } = supabase.storage.from(PRODUCT_IMAGE_BUCKET).getPublicUrl(storagePath);
+  const publicUrl = publicUrlData.publicUrl;
+  const { error: updateError } = await supabase
+    .from("products")
+    .update({ image_url: publicUrl })
+    .eq("id", params.productId)
+    .eq("tenant_id", params.tenantId);
+
+  if (updateError) {
+    await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([storagePath]);
+    throw updateError;
+  }
+
+  return publicUrl;
 }
 
 export async function uploadIconStudioReferenceAsset(params: {

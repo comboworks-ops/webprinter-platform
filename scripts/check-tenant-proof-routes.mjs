@@ -140,7 +140,7 @@ const htmlRoutes = [
     name: "Onlinetryksager category landing",
     path: "/produkter?force_domain=www.onlinetryksager.dk",
     titleIncludes: ["Tryksager"],
-    textIncludes: ["Alle produkter", "Tryksager", "Plakater", "1 produkt i Tryksager"],
+    textIncludes: ["Alle produkter", "Tryksager", "Plakater", "produkter i Tryksager"],
     categoryWorkflow: {
       linkHrefIncludes: "category=tryksager",
       targetUrlIncludes: ["/produkter", "category=tryksager", "force_domain=www.onlinetryksager.dk"],
@@ -549,7 +549,14 @@ async function checkTemplateWorkflow(page, workflow, issues) {
 
   await designButton.first().click({ timeout: 10000 });
   await page.waitForURL(/\/designer/, { timeout: 15000 });
-  await page.waitForTimeout(2200);
+  await page.waitForFunction(
+    (expectedTexts) => {
+      const bodyText = String(document.body?.innerText || "").toLowerCase();
+      return expectedTexts.every((text) => bodyText.includes(String(text).toLowerCase()));
+    },
+    workflow.designerTextIncludes || [],
+    { timeout: 15000 },
+  ).catch(() => {});
 
   const designerUrl = decodeURIComponent(page.url());
   for (const expectedUrlPart of workflow.designerUrlIncludes || []) {
@@ -600,7 +607,7 @@ async function verifyDesignerReturnToCheckout(page, issues, evidence) {
   await addTextButton.click({ timeout: 10000 });
   await page.waitForTimeout(600);
 
-  const returnButton = page.getByRole("button", { name: /Tilbage til bestilling/i }).first();
+  const returnButton = page.getByRole("button", { name: /Tilbage til bestilling|Fortsæt til checkout/i }).first();
   const returnButtonCount = await returnButton.count().catch(() => 0);
   if (returnButtonCount < 1) {
     issues.push("designer return proof missing return button");

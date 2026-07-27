@@ -7,7 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
     Loader2, Save, RotateCcw, Send, Trash2, List,
-    X, ChevronRight, Layout, Type, Palette, Sparkles, Image as ImageIcon,
+    X, Layout, Type, Palette, Sparkles, Image as ImageIcon,
     ExternalLink, Monitor, Smartphone, Tablet, FolderUp, LayoutTemplate, ShoppingCart,
     Pencil, Eye, EyeOff, Check, History, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
     Award, Plus, Truck, Phone, Shield, Clock, Star, Heart, MousePointer2, FileText,
@@ -38,6 +38,12 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
 import { da } from "date-fns/locale";
@@ -59,6 +65,7 @@ import { LowerInfoSection } from "@/components/admin/LowerInfoSection";
 import { PageBackgroundControls } from "@/components/admin/PageBackgroundControls";
 import { PendingPurchasesDialog, PendingPurchasesBadge } from "@/components/admin/PendingPurchasesDialog";
 import { ThemeSelector } from "@/components/admin/ThemeSelector";
+import { ShopTemplatePicker } from "@/components/admin/ShopTemplatePicker";
 import { ProduktvalgknapperSection } from "@/components/admin/ProduktvalgknapperSection";
 import { ProductOptionButtonEditor } from "@/components/admin/ProductOptionButtonEditor";
 import { ProductOptionSectionBoxEditor } from "@/components/admin/ProductOptionSectionBoxEditor";
@@ -88,6 +95,12 @@ import {
     type ProductPricingModel,
     type ProductSiteModes,
 } from "@/lib/sites/productSiteModes";
+import {
+    getShopTemplate,
+    resolveStorefrontLayout,
+    type ShopNavigationPreset,
+    type ShopTemplateDefinition,
+} from "@/lib/storefront/shopTemplates";
 
 import {
     DEFAULT_BRANDING,
@@ -2401,7 +2414,6 @@ type ContextualEditorState =
 type PreviewPageLink = {
     label: string;
     path: string;
-    action?: "first-product";
 };
 
 type SiteFrontendState = {
@@ -2559,7 +2571,6 @@ const getReadableTextForSolid = (background: string, preferred = "#FFFFFF"): str
 const PREVIEW_PAGE_LINKS: PreviewPageLink[] = [
     { label: "Forside", path: "/" },
     { label: "Produkter", path: "/produkter" },
-    { label: "Bestilling", path: "/produkter", action: "first-product" },
     { label: "Checkout", path: "/checkout" },
     { label: "Grafisk vejledning", path: "/grafisk-vejledning" },
     { label: "Kontakt", path: "/kontakt" },
@@ -2614,6 +2625,7 @@ function resolveContextualEditor(rawId?: string | null): ContextualEditorState |
 }
 
 const SECTION_LABELS: Record<string, string> = {
+    "shop-layout": "Shopdesign",
     "site-package": "Shop type",
     theme: "Tema",
     logo: "Logo & Favicon",
@@ -2672,6 +2684,15 @@ const SECTION_GROUPS: SectionGroupConfig[] = [
 ];
 
 const SECTION_BUTTON_CONFIGS: SectionButtonConfig[] = [
+    {
+        id: "shop-layout",
+        label: "Shopdesign",
+        group: "global",
+        icon: Layers3,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-cyan-100 text-cyan-900 hover:bg-cyan-50/50 hover:border-cyan-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-cyan-100/50 flex items-center justify-center text-cyan-700 group-hover:bg-cyan-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
     {
         id: "site-package",
         label: "Shop type",
@@ -3453,8 +3474,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 || event.data?.type === 'EDIT_SECTION'
                 || event.data?.type === 'ELEMENT_CLICKED'
             ) {
-                console.log('[Editor] Opening section:', event.data?.sectionId);
-                openPreviewSelection(event.data?.sectionId);
+                if (previewEditMode) {
+                    console.log('[Editor] Opening section:', event.data?.sectionId);
+                    openPreviewSelection(event.data?.sectionId);
+                }
             }
 
             if (event.data?.type === 'PREVIEW_PAGE_CHANGED' || event.data?.type === 'PREVIEW_NAVIGATION') {
@@ -3476,7 +3499,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, [openPreviewSelection]);
+    }, [openPreviewSelection, previewEditMode]);
 
     useEffect(() => {
         let cancelled = false;
@@ -3716,11 +3739,13 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         });
     }, []);
 
-    const navigatePreviewToFirstProduct = useCallback(() => {
-        setCurrentPreviewPage("/produkt");
+    const navigatePreviewToProduct = useCallback((slug: string) => {
+        const productPath = `/produkt/${encodeURIComponent(slug)}`;
+        setCurrentPreviewPage(productPath);
         setPreviewNavigationRequest({
             id: Date.now(),
-            type: "first-product",
+            type: "path",
+            path: productPath,
         });
     }, []);
 
@@ -3752,7 +3777,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
             : "Indholdsside";
 
     const allowedSections = useMemo(() => {
-        const sections = new Set<string>(["site-package", "theme"]);
+        const sections = new Set<string>(["shop-layout", "site-package", "theme"]);
         if (capabilities.sections.logo) sections.add("logo");
         if (capabilities.sections.header) sections.add("header");
         if (capabilities.sections.footer) sections.add("footer");
@@ -3980,6 +4005,74 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         }
 
         switch (activeSection) {
+            case 'shop-layout': {
+                const selectedTemplateId = resolveStorefrontLayout(
+                    editor.draft.forside?.layout,
+                ).templateId;
+                const selectedNavigationPreset = (
+                    editor.draft.header?.dropdownPreset
+                    || getShopTemplate(selectedTemplateId).recipe.navigation
+                ) as ShopNavigationPreset;
+
+                const applyShopTemplate = (template: ShopTemplateDefinition) => {
+                    const currentForside = editor.draft.forside || DEFAULT_BRANDING.forside;
+                    const currentProducts = currentForside.productsSection
+                        || DEFAULT_BRANDING.forside.productsSection;
+                    const currentFeatured = currentProducts.featuredProductConfig
+                        || DEFAULT_BRANDING.forside.productsSection.featuredProductConfig;
+
+                    editor.updateDraft({
+                        header: {
+                            ...editor.draft.header,
+                            transparentOverHero: template.layout.sectionOrder[0] === "hero",
+                            alignment: template.recipe.header.alignment,
+                            height: template.recipe.header.height,
+                            style: template.recipe.header.style,
+                            dropdownPreset: template.recipe.navigation,
+                        },
+                        footer: {
+                            ...editor.draft.footer,
+                            style: template.recipe.footer,
+                        },
+                        forside: {
+                            ...currentForside,
+                            layout: {
+                                ...template.layout,
+                                sectionOrder: [...template.layout.sectionOrder],
+                            },
+                            productsSection: {
+                                ...currentProducts,
+                                columns: template.productDefaults.columns,
+                                layoutStyle: template.productDefaults.layoutStyle,
+                                featuredProductConfig: {
+                                    ...currentFeatured,
+                                    position: template.productDefaults.featuredPosition,
+                                    productSide: template.productDefaults.featuredProductSide,
+                                },
+                            },
+                        },
+                    });
+
+                    toast.success(`${template.name} er anvendt. Produkter og brandindhold er bevaret.`);
+                };
+
+                return (
+                    <ShopTemplatePicker
+                        selectedTemplateId={selectedTemplateId}
+                        selectedNavigationPreset={selectedNavigationPreset}
+                        onSelect={applyShopTemplate}
+                        onNavigationPresetChange={(dropdownPreset) => {
+                            editor.updateDraft({
+                                header: {
+                                    ...editor.draft.header,
+                                    dropdownPreset,
+                                },
+                            });
+                        }}
+                        onClose={closeSection}
+                    />
+                );
+            }
             case 'site-package': {
                 const previewSite = (sitePackage: SitePackage) => {
                     const url = buildPreviewShopUrl({
@@ -9780,13 +9873,11 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             </div>
                             <div className="flex flex-wrap gap-1.5">
                                 {PREVIEW_PAGE_LINKS.map((page) => {
-                                    const isActive = page.action === "first-product"
-                                        ? isProductPreviewPage
-                                        : page.path === currentPreviewPage
-                                            || (page.path === "/produkter" && currentPreviewPage === "/shop");
+                                    const isActive = page.path === currentPreviewPage
+                                        || (page.path === "/produkter" && currentPreviewPage === "/shop");
                                     return (
                                         <Button
-                                            key={`${page.label}-${page.path}-${page.action || "path"}`}
+                                            key={`${page.label}-${page.path}`}
                                             variant="outline"
                                             size="sm"
                                             className={
@@ -9794,18 +9885,49 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                     ? "h-6 px-2 text-[11px] rounded-sm border-slate-300 bg-slate-900 text-white hover:bg-slate-800 hover:text-white"
                                                     : "h-6 px-2 text-[11px] rounded-sm border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
                                             }
-                                            onClick={() => {
-                                                if (page.action === "first-product") {
-                                                    navigatePreviewToFirstProduct();
-                                                } else {
-                                                    navigatePreviewTo(page.path);
-                                                }
-                                            }}
+                                            onClick={() => navigatePreviewTo(page.path)}
                                         >
                                             {page.label}
                                         </Button>
                                     );
                                 })}
+                            </div>
+                            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
+                                <Label
+                                    htmlFor="site-design-product-preview"
+                                    className="text-[11px] font-medium text-muted-foreground"
+                                >
+                                    Produktside
+                                </Label>
+                                <Select
+                                    value={currentPreviewProduct?.slug || ""}
+                                    onValueChange={navigatePreviewToProduct}
+                                    disabled={loadingFeaturedProducts || featuredProducts.length === 0}
+                                >
+                                    <SelectTrigger
+                                        id="site-design-product-preview"
+                                        className="h-7 min-w-0 text-xs"
+                                    >
+                                        <SelectValue
+                                            placeholder={
+                                                loadingFeaturedProducts
+                                                    ? "Henter produkter..."
+                                                    : featuredProducts.length === 0
+                                                        ? "Ingen produkter"
+                                                        : "Vælg produkt"
+                                            }
+                                        />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {featuredProducts
+                                            .filter((product) => Boolean(product.slug))
+                                            .map((product) => (
+                                                <SelectItem key={product.id} value={product.slug}>
+                                                    {product.name}
+                                                </SelectItem>
+                                            ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div className="space-y-1">
                                 <div className="text-[11px] font-medium text-muted-foreground">
@@ -9829,23 +9951,29 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 </div>
 
                 {/* Main Preview Area */}
-                <div className="flex-1 bg-muted/10 relative flex flex-col">
-                    {/* Toggle Sidebar Button */}
-                    {!sidebarOpen && (
-                        <Button
-                            variant="secondary"
-                            size="icon"
-                            className="absolute top-4 left-4 z-20 shadow-md"
-                            onClick={() => setSidebarOpen(true)}
-                            aria-label="Åbn sidepanel"
-                        >
-                            <ChevronRight className="h-4 w-4" />
-                        </Button>
-                    )}
-
-                    <div className="flex-1 p-8 overflow-hidden flex flex-col">
+                <div className="min-w-0 flex-1 bg-muted/10 relative flex flex-col">
+                    <div className="min-w-0 flex-1 p-8 overflow-hidden flex flex-col">
                         {/* ACTION BAR - aligned with preview frame */}
                         <div className="flex flex-wrap items-center gap-2 p-3 bg-card border rounded-t-lg mb-0">
+                            {!sidebarOpen && (
+                                <TooltipProvider delayDuration={180}>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                className="h-9 w-9 shrink-0"
+                                                onClick={() => setSidebarOpen(true)}
+                                                aria-label="Åbn redigering"
+                                            >
+                                                <Pencil className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Åbn redigering</TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            )}
+
                             {/* 1. Gem design */}
                             <Button
                                 variant="outline"
@@ -10004,6 +10132,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     editMode={previewEditMode}
                                     onEditModeChange={setPreviewEditMode}
                                     clearSelectionSignal={clearSelectionSignal}
+                                    previewProducts={featuredProducts}
                                 />
                             </div>
                         </div>

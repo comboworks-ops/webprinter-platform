@@ -24,6 +24,7 @@ import { ProductCategoryIcon } from "@/components/ProductCategoryIcon";
 import { buildProductFilter } from "@/lib/branding/productAssets";
 import { cn } from "@/lib/utils";
 import { appendStorefrontTenantContext } from "@/lib/storefrontTenantContext";
+import { resolveShopComponentRecipe } from "@/lib/storefront/shopTemplates";
 import {
   buildVisibleProductCategories,
   normalizeProductCategoryKey,
@@ -163,6 +164,8 @@ type DesktopProductsDropdownProps = {
   dropdownCompactImageSizePx: number;
   splitPreviewProduct?: HeaderProductMenuProduct | null;
   splitPreviewSidePanel?: HeaderSplitPreviewSidePanel | null;
+  previewOpen?: boolean;
+  onPreviewOpenChange?: (open: boolean) => void;
 };
 
 type DesktopHeaderActionsProps = {
@@ -484,9 +487,12 @@ const DesktopProductsDropdown = ({
   dropdownCompactImageSizePx,
   splitPreviewProduct,
   splitPreviewSidePanel,
+  previewOpen,
+  onPreviewOpenChange,
 }: DesktopProductsDropdownProps) => {
   const [activeDesktopDropdownGroupKey, setActiveDesktopDropdownGroupKey] = useState<string | null>(null);
   const [activeDesktopDropdownChildKey, setActiveDesktopDropdownChildKey] = useState<string | null>(null);
+  const [localOpen, setLocalOpen] = useState(false);
   const shouldReduceMotion = useReducedMotion();
   const dropdownPreset = (headerSettings.dropdownPreset || "classic") as HeaderDropdownPreset;
   const dropdownMotionStyle = String((headerSettings as any).dropdownMotionStyle || "");
@@ -553,7 +559,10 @@ const DesktopProductsDropdown = ({
   return (
     <DropdownMenu
       modal={false}
+      open={previewOpen ?? localOpen}
       onOpenChange={(open) => {
+        setLocalOpen(open);
+        onPreviewOpenChange?.(open);
         if (!open) {
           setActiveDesktopDropdownGroupKey(null);
           setActiveDesktopDropdownChildKey(null);
@@ -1266,6 +1275,7 @@ const isMissingCategoryHierarchyColumns = (error: unknown) => {
 const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileExpandedSectionKey, setMobileExpandedSectionKey] = useState<string | null>(null);
+  const [previewProductsMenuOpen, setPreviewProductsMenuOpen] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(cachedHeaderUser);
   const [authReady, setAuthReady] = useState(cachedHeaderAuthReady);
   const [allProducts, setAllProducts] = useState<DbProduct[]>([]);
@@ -1300,6 +1310,7 @@ const Header = () => {
     : settings.data?.branding;
   const effectivePathname = isPreviewMode && previewPath ? previewPath : location.pathname;
   const selectedIconPackId = activeBranding?.selectedIconPackId || "classic";
+  const shopRecipe = resolveShopComponentRecipe(activeBranding?.forside?.layout);
 
   // Get header branding settings - prioritize preview branding if in preview mode
   const rawHeader = activeBranding?.header;
@@ -1324,7 +1335,7 @@ const Header = () => {
     actionHoverBgColor: 'rgba(0,0,0,0.05)',
 	    autoContrastText: true,
 	    dropdownMode: 'IMAGE_AND_TEXT' as const,
-	    dropdownPreset: 'classic' as HeaderDropdownPreset,
+	    dropdownPreset: shopRecipe.navigation as HeaderDropdownPreset,
     dropdownSplitPreviewSource: 'featured-product' as HeaderSplitPreviewSource,
 	    dropdownImageSizePx: 56,
     dropdownCompactImageSizePx: 40,
@@ -1913,6 +1924,35 @@ const Header = () => {
     setMobileExpandedSectionKey((current) => current || groupedProductSections[0]?.key || null);
   }, [groupedProductSections, mobileMenuOpen]);
 
+  const handlePreviewProductsMenuOpenChange = useCallback((open: boolean) => {
+    setPreviewProductsMenuOpen(open);
+    setMobileMenuOpen(open);
+    if (!open) setMobileExpandedSectionKey(null);
+  }, []);
+
+  useEffect(() => {
+    if (!isPreviewMode) return;
+
+    const handlePreviewMenuMessage = (event: MessageEvent) => {
+      if (event.data?.type !== "SET_PREVIEW_PRODUCT_MENU") return;
+      handlePreviewProductsMenuOpenChange(Boolean(event.data.open));
+    };
+
+    window.addEventListener("message", handlePreviewMenuMessage);
+    return () => window.removeEventListener("message", handlePreviewMenuMessage);
+  }, [handlePreviewProductsMenuOpenChange, isPreviewMode]);
+
+  useEffect(() => {
+    if (!isPreviewMode || window.parent === window) return;
+    window.parent.postMessage(
+      {
+        type: "PREVIEW_PRODUCT_MENU_CHANGED",
+        open: mobileMenuOpen || previewProductsMenuOpen,
+      },
+      "*",
+    );
+  }, [isPreviewMode, mobileMenuOpen, previewProductsMenuOpen]);
+
   useEffect(() => {
     if (!mobileMenuOpen) return;
     const previousOverflow = document.body.style.overflow;
@@ -2077,6 +2117,8 @@ const Header = () => {
     <header
       ref={headerRef}
       data-branding-id="header.background"
+      data-shop-header-variant={shopRecipe.header.variant}
+      data-shop-navigation-preset={headerSettings.dropdownPreset}
       className={`${positionClass} z-[1000] transition-all duration-300 ease-in-out`}
       style={{
         ...getHeaderStyles(),
@@ -2248,6 +2290,8 @@ const Header = () => {
                       dropdownTextPosition={dropdownTextPosition}
                       splitPreviewProduct={campaignFeaturedProduct}
                       splitPreviewSidePanel={campaignSidePanelPreview}
+                      previewOpen={isPreviewMode ? previewProductsMenuOpen : undefined}
+                      onPreviewOpenChange={isPreviewMode ? handlePreviewProductsMenuOpenChange : undefined}
                     />
                   );
                 }

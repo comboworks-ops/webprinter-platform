@@ -201,6 +201,7 @@ export function CompanyWorkspaceShell() {
           </TabsContent>
           <TabsContent value="locations" className="mt-0">
             <CompanyLocationsView
+              companyName={company.name}
               offices={offices}
               addresses={addresses}
               selectedOfficeId={selectedOfficeId}

@@ -5,6 +5,8 @@ import type { CompanyWorkspaceScope } from "./workspaceRepository";
 
 export const COMPANY_HUB_ASSET_BUCKET = "company-hub-assets";
 export const COMPANY_HUB_ASSET_MAX_BYTES = 25 * 1024 * 1024;
+export const COMPANY_LOGO_BUCKET = "product-images";
+export const COMPANY_LOGO_MAX_BYTES = 5 * 1024 * 1024;
 
 const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
@@ -16,12 +18,20 @@ const ALLOWED_MIME_TYPES = new Set([
 ]);
 
 const ALLOWED_EXTENSIONS = new Set(["pdf", "ai", "eps", "ps", "jpg", "jpeg", "png", "webp", "svg"]);
+const ALLOWED_LOGO_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const ALLOWED_LOGO_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
 
 export interface CompanyAssetUploadInput {
   file: File;
   name?: string | null;
   officeId?: string | null;
   assetType?: CompanyAsset["asset_type"];
+}
+
+export interface CompanyLogoOption {
+  name: string;
+  storagePath: string;
+  publicUrl: string;
 }
 
 function database(client: Pick<SupabaseClient, "from">) {
@@ -52,6 +62,64 @@ export function validateCompanyAssetFile(file: Pick<File, "name" | "type" | "siz
   if (!ALLOWED_MIME_TYPES.has(file.type) && !ALLOWED_EXTENSIONS.has(extension)) {
     throw new Error("Brug PDF, AI, EPS, SVG, JPG, PNG eller WebP.");
   }
+}
+
+export function validateCompanyLogoFile(file: Pick<File, "name" | "type" | "size">): void {
+  if (!file.name) throw new Error("Vælg en logofil.");
+  if (file.size <= 0) throw new Error("Logofilen er tom.");
+  if (file.size > COMPANY_LOGO_MAX_BYTES) throw new Error("Logofilen må højst fylde 5 MB.");
+  const extension = file.name.split(".").pop()?.toLocaleLowerCase("da-DK") || "";
+  if (!ALLOWED_LOGO_MIME_TYPES.has(file.type) && !ALLOWED_LOGO_EXTENSIONS.has(extension)) {
+    throw new Error("Brug PNG, JPG eller WebP som firmalogo.");
+  }
+}
+
+export async function uploadCompanyLogo(
+  client: SupabaseClient,
+  tenantId: string,
+  file: File,
+): Promise<string> {
+  const normalizedTenantId = required(tenantId, "Tenant");
+  validateCompanyLogoFile(file);
+
+  const { data: authData, error: authError } = await client.auth.getUser();
+  if (authError || !authData.user) throw authError || new Error("Du skal være logget ind for at uploade.");
+
+  const safeName = sanitizeCompanyAssetFileName(file.name);
+  const storagePath = `company-logos/${normalizedTenantId}/${crypto.randomUUID()}-${safeName}`;
+  const { error: uploadError } = await client.storage
+    .from(COMPANY_LOGO_BUCKET)
+    .upload(storagePath, file, { cacheControl: "31536000", upsert: false });
+  if (uploadError) throw uploadError;
+
+  const { data } = client.storage.from(COMPANY_LOGO_BUCKET).getPublicUrl(storagePath);
+  if (!data.publicUrl) {
+    await client.storage.from(COMPANY_LOGO_BUCKET).remove([storagePath]);
+    throw new Error("Logoet blev uploadet, men kunne ikke åbnes.");
+  }
+  return data.publicUrl;
+}
+
+export async function listCompanyLogos(
+  client: SupabaseClient,
+  tenantId: string,
+): Promise<CompanyLogoOption[]> {
+  const normalizedTenantId = required(tenantId, "Tenant");
+  const folder = `company-logos/${normalizedTenantId}`;
+  const { data, error } = await client.storage
+    .from(COMPANY_LOGO_BUCKET)
+    .list(folder, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
+  if (error) throw error;
+
+  return (data || []).flatMap((file) => {
+    const extension = file.name.split(".").pop()?.toLocaleLowerCase("da-DK") || "";
+    if (!file.id || !ALLOWED_LOGO_EXTENSIONS.has(extension)) return [];
+    const storagePath = `${folder}/${file.name}`;
+    const { data: publicData } = client.storage.from(COMPANY_LOGO_BUCKET).getPublicUrl(storagePath);
+    return publicData.publicUrl
+      ? [{ name: file.name, storagePath, publicUrl: publicData.publicUrl }]
+      : [];
+  });
 }
 
 export async function listCompanyAssets(

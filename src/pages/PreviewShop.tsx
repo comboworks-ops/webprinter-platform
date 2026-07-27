@@ -21,6 +21,11 @@ import { StorefrontHomeContent } from "@/components/storefront/StorefrontHomeCon
 import { StorefrontSeo } from "@/components/storefront/StorefrontSeo";
 import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
 import { getSiteDesignTargetLabel, SITE_DESIGN_SELECTION_EVENT } from "@/lib/siteDesignTargets";
+import {
+    getSiteDesignPreviewPathname,
+    getSiteDesignPreviewProductSlug,
+    normalizeSiteDesignPreviewPath,
+} from "@/lib/preview/siteDesignPreviewNavigation";
 
 // List of ALLOWED customer-visible routes in preview mode
 // This prevents navigation to admin/backend routes
@@ -208,6 +213,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         resolvedBranding.shop_name || tenantName || "Din Shop",
     ).trim() || "Din Shop";
     const checkoutOrderButtons = resolvedBranding.productPage?.orderButtons;
+    const currentPathname = getSiteDesignPreviewPathname(currentPage);
     const checkoutButtonShape: React.CSSProperties = {
         borderRadius: `${checkoutOrderButtons?.radiusPx ?? 10}px`,
         borderWidth: `${checkoutOrderButtons?.borderWidthPx ?? 1}px`,
@@ -220,9 +226,13 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
 
     // Render page content based on virtual navigation
     const renderPageContent = () => {
-        if (currentPage === '/checkout') {
+        if (currentPathname === '/checkout') {
             return (
-                <main data-branding-id="colors.background" className="flex-1 px-4 py-12">
+                <main
+                    data-branding-id="colors.background"
+                    data-storefront-order-flow="checkout"
+                    className="storefront-order-flow storefront-checkout-flow flex-1 px-4 py-12"
+                >
                     <div className="mx-auto max-w-5xl">
                         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
                             <div>
@@ -235,8 +245,8 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
                                 <span data-branding-id="colors.card" className="rounded-md border bg-card px-3 py-2">3. Betaling</span>
                             </div>
                         </div>
-                        <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-                            <section data-branding-id="colors.card" className="rounded-lg border bg-card p-6 shadow-sm">
+                        <div className="storefront-checkout-layout grid gap-6 lg:grid-cols-[1fr_340px]">
+                            <section data-branding-id="colors.card" className="storefront-checkout-primary rounded-lg border bg-card p-6 shadow-sm">
                                 <h2 data-branding-id="typography.heading" className="font-heading text-xl font-semibold">Kontakt og modtager</h2>
                                 <p data-branding-id="typography.body" className="mt-2 text-sm text-muted-foreground">Kundeoplysninger, levering og fakturering vises her.</p>
                                 <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -245,7 +255,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
                                     <div className="h-11 rounded-md border bg-background sm:col-span-2" />
                                 </div>
                             </section>
-                            <aside data-branding-id="productPage.pricePanel.box" className="rounded-lg border bg-card p-6 shadow-sm">
+                            <aside data-branding-id="productPage.pricePanel.box" className="storefront-checkout-secondary rounded-lg border bg-card p-6 shadow-sm">
                                 <h2 data-branding-id="productPage.pricePanel.titleColor" className="font-heading text-xl font-semibold">Ordreoversigt</h2>
                                 <div data-branding-id="productPage.pricePanel.text" className="mt-5 space-y-3 text-sm">
                                     <div className="flex justify-between"><span>Produkt</span><span>1.250,00 kr.</span></div>
@@ -287,8 +297,8 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         }
 
         // Specific product page
-        if (currentPage.startsWith('/produkt/')) {
-            const slug = currentPage.split('/').pop();
+        if (currentPathname.startsWith('/produkt/')) {
+            const slug = getSiteDesignPreviewProductSlug(currentPage) || undefined;
             return (
                 <main className="flex-1 py-8">
                     <ProductPriceContent slug={slug} />
@@ -297,7 +307,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         }
 
         // Contact page
-        if (currentPage === '/kontakt') {
+        if (currentPathname === '/kontakt') {
             return (
                 <main className="flex-1 py-16">
                     <ContactContent />
@@ -306,7 +316,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         }
 
         // About page
-        if (currentPage === '/om-os') {
+        if (currentPathname === '/om-os') {
             return (
                 <main className="flex-1">
                     <AboutContent />
@@ -315,7 +325,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         }
 
         // Grafisk Vejledning
-        if (currentPage === '/grafisk-vejledning') {
+        if (currentPathname === '/grafisk-vejledning') {
             return (
                 <main className="flex-1 py-12">
                     <GrafiskVejledningContent />
@@ -324,7 +334,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         }
 
         // Terms / Conditions pages
-        if (currentPage === '/vilkaar' || currentPage === '/betingelser') {
+        if (currentPathname === '/vilkaar' || currentPathname === '/betingelser') {
             return (
                 <main className="flex-1 py-16 pt-24">
                     <TermsContent />
@@ -334,7 +344,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
 
 
         // Privacy Policy
-        if (currentPage === '/privatliv') {
+        if (currentPathname === '/privatliv') {
             return (
                 <main className="flex-1 py-16 pt-24">
                     <PrivacyPolicyContent />
@@ -343,7 +353,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         }
 
         // Cookie Policy
-        if (currentPage === '/cookies' || currentPage === '/cookiepolitik') {
+        if (currentPathname === '/cookies' || currentPathname === '/cookiepolitik') {
             return (
                 <main className="flex-1 py-16 pt-24">
                     <CookiePolicyContent />
@@ -536,7 +546,7 @@ export default function PreviewShop() {
             }
 
             if (event.data?.type === 'NAVIGATE_TO') {
-                const path = typeof event.data.path === 'string' ? event.data.path : '/';
+                const path = normalizeSiteDesignPreviewPath(event.data.path);
                 setCurrentPage(path);
                 window.scrollTo(0, 0);
             }
@@ -649,7 +659,7 @@ export default function PreviewShop() {
                 e.stopPropagation();
 
                 // Normalize the path
-                const path = href === '/' ? '/' : href;
+                const path = normalizeSiteDesignPreviewPath(href);
                 setCurrentPage(path);
 
                 // Scroll to top on navigation
@@ -750,7 +760,7 @@ export default function PreviewShop() {
             <PreviewBrandingProvider
                 initialBranding={initialBranding}
                 initialTenantName={tenantName}
-                previewPath={currentPage}
+                previewPath={getSiteDesignPreviewPathname(currentPage)}
             >
                 <PreviewShopContent currentPage={currentPage} />
             </PreviewBrandingProvider>

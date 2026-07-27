@@ -1,9 +1,36 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, ExternalLink, Monitor, Smartphone, Tablet, Loader2, Home, Send, AlertTriangle, RotateCcw, Trash2, MousePointer2 } from "lucide-react";
+import { RefreshCw, ExternalLink, Monitor, Smartphone, Tablet, Loader2, Home, Send, AlertTriangle, RotateCcw, Trash2, Crosshair, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { BrandingData } from "@/hooks/useBrandingDraft";
+import {
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectSeparator,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+    getSiteDesignPreviewPathname,
+    getSiteDesignPreviewProductSlug,
+    normalizeSiteDesignPreviewPath,
+} from "@/lib/preview/siteDesignPreviewNavigation";
+
+export interface SiteDesignPreviewProductOption {
+    id: string;
+    name: string;
+    slug: string;
+}
 
 interface SiteDesignPreviewFrameProps {
     previewUrl: string;
@@ -36,6 +63,8 @@ interface SiteDesignPreviewFrameProps {
     onEditModeChange?: (enabled: boolean) => void;
     /** Signal to clear selection in preview */
     clearSelectionSignal?: number;
+    /** Products available for direct product-page preview */
+    previewProducts?: SiteDesignPreviewProductOption[];
 }
 
 type ViewportSize = "desktop" | "tablet" | "mobile";
@@ -45,6 +74,10 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: number; height: number; labe
     tablet: { width: 768, height: 1024, label: "Tablet" },
     mobile: { width: 390, height: 844, label: "Mobil" },
 };
+
+const DESKTOP_FRAME_WIDTH = VIEWPORT_SIZES.desktop.width + 24;
+const DESKTOP_SCREEN_FRAME_HEIGHT = VIEWPORT_SIZES.desktop.height + 24;
+const DESKTOP_FRAME_HEIGHT = DESKTOP_SCREEN_FRAME_HEIGHT + 32;
 
 // Allowed preview routes - only customer-visible pages
 const ALLOWED_PREVIEW_PATHS = [
@@ -77,6 +110,7 @@ export function SiteDesignPreviewFrame({
     editMode = false,
     onEditModeChange,
     clearSelectionSignal,
+    previewProducts = [],
 }: SiteDesignPreviewFrameProps) {
     // Broadcast channel so detached preview windows get live updates
     const broadcastRef = useRef<BroadcastChannel | null>(null);
@@ -85,8 +119,11 @@ export function SiteDesignPreviewFrame({
     const [isLoading, setIsLoading] = useState(true);
     const [iframeReady, setIframeReady] = useState(false);
     const [currentPath, setCurrentPath] = useState("/");
+    const [menuPreviewOpen, setMenuPreviewOpen] = useState(false);
+    const [desktopScale, setDesktopScale] = useState(0.6);
     const [isSavingForPreview, setIsSavingForPreview] = useState(false);
     const iframeRef = useRef<HTMLIFrameElement>(null);
+    const previewAreaRef = useRef<HTMLDivElement>(null);
     const lastNavigationIdRef = useRef<number | null>(null);
 
     const syncEditModeToIframe = useCallback(() => {
@@ -108,6 +145,26 @@ export function SiteDesignPreviewFrame({
             console.log('[PreviewFrame] Cannot send SET_EDIT_MODE - no contentWindow');
         }
     }, [editMode, iframeReady]);
+
+    const syncMenuPreviewToIframe = useCallback((open = menuPreviewOpen) => {
+        if (!iframeRef.current?.contentWindow || !iframeReady) return;
+        iframeRef.current.contentWindow.postMessage(
+            { type: "SET_PREVIEW_PRODUCT_MENU", open },
+            "*"
+        );
+    }, [iframeReady, menuPreviewOpen]);
+
+    const navigatePreviewToPath = useCallback((rawPath: string) => {
+        const path = normalizeSiteDesignPreviewPath(rawPath);
+        iframeRef.current?.contentWindow?.postMessage(
+            { type: "NAVIGATE_TO", path },
+            "*"
+        );
+        setCurrentPath(path);
+        onPreviewPathChange?.(path);
+        setMenuPreviewOpen(false);
+        syncMenuPreviewToIframe(false);
+    }, [onPreviewPathChange, syncMenuPreviewToIframe]);
     
     // Function to clear selection in iframe
     const clearSelection = useCallback(() => {
@@ -157,7 +214,7 @@ export function SiteDesignPreviewFrame({
 
             // Handle navigation events from iframe
             if (event.data?.type === 'PREVIEW_NAVIGATION') {
-                const path = event.data.path;
+                const path = normalizeSiteDesignPreviewPath(event.data.path);
 
                 // Check if navigation is allowed
                 const isAllowed = ALLOWED_PREVIEW_PATHS.some(allowed =>
@@ -169,14 +226,18 @@ export function SiteDesignPreviewFrame({
                     onPreviewPathChange?.(path);
                 } else {
                     // Block navigation to non-customer pages
-                    navigateToFrontpage();
+                    navigatePreviewToPath("/");
                 }
+            }
+
+            if (event.data?.type === "PREVIEW_PRODUCT_MENU_CHANGED") {
+                setMenuPreviewOpen(Boolean(event.data.open));
             }
         };
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, [sendBrandingToIframe, onPreviewPathChange]);
+    }, [navigatePreviewToPath, onPreviewPathChange, sendBrandingToIframe]);
 
     useEffect(() => {
         if (!navigationRequest || !iframeReady || !iframeRef.current?.contentWindow) return;
@@ -189,11 +250,12 @@ export function SiteDesignPreviewFrame({
             );
             setCurrentPath("/produkt");
         } else if (navigationRequest.path) {
+            const path = normalizeSiteDesignPreviewPath(navigationRequest.path);
             iframeRef.current.contentWindow.postMessage(
-                { type: "NAVIGATE_TO", path: navigationRequest.path },
+                { type: "NAVIGATE_TO", path },
                 "*"
             );
-            setCurrentPath(navigationRequest.path);
+            setCurrentPath(path);
         }
 
         lastNavigationIdRef.current = navigationRequest.id;
@@ -224,9 +286,32 @@ export function SiteDesignPreviewFrame({
         if (!iframeReady) return;
         const timer = window.setTimeout(() => {
             syncEditModeToIframe();
+            syncMenuPreviewToIframe();
         }, 80);
         return () => window.clearTimeout(timer);
-    }, [iframeReady, syncEditModeToIframe]);
+    }, [iframeReady, syncEditModeToIframe, syncMenuPreviewToIframe]);
+
+    useEffect(() => {
+        if (viewport !== "desktop") return;
+        const previewArea = previewAreaRef.current;
+        if (!previewArea) return;
+
+        const updateDesktopScale = () => {
+            const availableWidth = Math.max(320, previewArea.clientWidth - 64);
+            const availableHeight = Math.max(240, previewArea.clientHeight - 64);
+            const nextScale = Math.min(
+                availableWidth / DESKTOP_FRAME_WIDTH,
+                availableHeight / DESKTOP_FRAME_HEIGHT,
+                1,
+            );
+            setDesktopScale(Math.max(0.25, nextScale));
+        };
+
+        updateDesktopScale();
+        const observer = new ResizeObserver(updateDesktopScale);
+        observer.observe(previewArea);
+        return () => observer.disconnect();
+    }, [viewport]);
 
     // Setup broadcast channel for cross-window preview updates
     useEffect(() => {
@@ -267,18 +352,6 @@ export function SiteDesignPreviewFrame({
         }
     };
 
-    const navigateToFrontpage = () => {
-        if (iframeRef.current?.contentWindow) {
-            // Send navigation command to iframe
-            iframeRef.current.contentWindow.postMessage(
-                { type: 'NAVIGATE_TO', path: '/' },
-                '*'
-            );
-        }
-        setCurrentPath("/");
-        onPreviewPathChange?.("/");
-    };
-
     const openInNewTab = async () => {
         // If we have a save callback, save draft first so new tab has current changes
         if (onSaveDraft) {
@@ -313,13 +386,39 @@ export function SiteDesignPreviewFrame({
         ? { ...baseSize, width: baseSize.height, height: baseSize.width }
         : baseSize;
     // Increased scale for tablet/mobile
-    const scale = viewport === "desktop" ? 0.6 : viewport === "tablet" ? 0.75 : 0.7;
+    const scale = viewport === "tablet" ? 0.75 : 0.7;
+    const currentPathname = getSiteDesignPreviewPathname(currentPath);
+    const currentProductSlug = getSiteDesignPreviewProductSlug(currentPath);
+    const previewDestinationValue = currentProductSlug
+        ? `product:${currentProductSlug}`
+        : currentPathname === "/checkout"
+            ? "page:/checkout"
+            : currentPathname === "/produkter" || currentPathname === "/shop"
+                ? "page:/produkter"
+                : "page:/";
+
+    const handlePreviewDestinationChange = (value: string) => {
+        if (value.startsWith("product:")) {
+            const slug = value.slice("product:".length);
+            navigatePreviewToPath(`/produkt/${encodeURIComponent(slug)}`);
+            return;
+        }
+
+        navigatePreviewToPath(value.slice("page:".length) || "/");
+    };
+
+    const handleMenuPreviewToggle = () => {
+        const nextOpen = !menuPreviewOpen;
+        setMenuPreviewOpen(nextOpen);
+        syncMenuPreviewToIframe(nextOpen);
+    };
 
     return (
+        <TooltipProvider delayDuration={180}>
         <div className="flex flex-col h-full bg-gradient-to-br from-slate-100 to-slate-200 rounded-lg overflow-hidden">
             {/* Toolbar */}
-            <div className="flex items-center justify-between p-2 border-b bg-white/80 backdrop-blur">
-                <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2 border-b bg-white/80 backdrop-blur">
+                <div className="flex min-w-0 flex-wrap items-center gap-1">
                     {(["desktop", "tablet", "mobile"] as ViewportSize[]).map((size) => (
                         <Button
                             key={size}
@@ -353,19 +452,85 @@ export function SiteDesignPreviewFrame({
                     )}
 
                     {onEditModeChange && (
-                        <Button
-                            variant={editMode ? "default" : "outline"}
-                            size="sm"
-                            className="ml-2 h-8 gap-1.5"
-                            onClick={() => onEditModeChange(!editMode)}
-                            title={editMode ? "Slå klik-for-redigering fra" : "Slå klik-for-redigering til"}
-                        >
-                            <MousePointer2 className="w-4 h-4" />
-                            <span className="hidden lg:inline text-xs">
-                                {editMode ? "Klik redigering" : "Klik navigation"}
-                            </span>
-                        </Button>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant={editMode ? "default" : "outline"}
+                                    size="sm"
+                                    className="ml-2 h-8 gap-1.5"
+                                    onClick={() => onEditModeChange(!editMode)}
+                                    aria-label={editMode ? "Afslut klik-redigering" : "Aktivér klik-redigering"}
+                                    aria-pressed={editMode}
+                                >
+                                    <Crosshair className="w-4 h-4" />
+                                    <span className="hidden lg:inline text-xs">
+                                        {editMode ? "Redigering aktiv" : "Redigér"}
+                                    </span>
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                {editMode
+                                    ? "Afslut klik-redigering og brug previewet normalt"
+                                    : "Aktivér klik-redigering i previewet"}
+                            </TooltipContent>
+                        </Tooltip>
                     )}
+
+                    <Select
+                        value={previewDestinationValue}
+                        onValueChange={handlePreviewDestinationChange}
+                    >
+                        <SelectTrigger
+                            className="ml-1 h-8 w-[172px] bg-white text-xs sm:w-[210px]"
+                            aria-label="Vælg side eller produkt til preview"
+                        >
+                            <SelectValue placeholder="Vælg preview" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectGroup>
+                                <SelectLabel>Sider</SelectLabel>
+                                <SelectItem value="page:/">Forside</SelectItem>
+                                <SelectItem value="page:/produkter">Produktoversigt</SelectItem>
+                                <SelectItem value="page:/checkout">Checkout</SelectItem>
+                            </SelectGroup>
+                            {previewProducts.some((product) => Boolean(product.slug)) ? (
+                                <>
+                                    <SelectSeparator />
+                                    <SelectGroup>
+                                        <SelectLabel>Produktsider</SelectLabel>
+                                        {previewProducts
+                                            .filter((product) => Boolean(product.slug))
+                                            .map((product) => (
+                                                <SelectItem
+                                                    key={product.id}
+                                                    value={`product:${product.slug}`}
+                                                >
+                                                    {product.name}
+                                                </SelectItem>
+                                            ))}
+                                    </SelectGroup>
+                                </>
+                            ) : null}
+                        </SelectContent>
+                    </Select>
+
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant={menuPreviewOpen ? "default" : "outline"}
+                                size="icon"
+                                className="ml-1 h-8 w-8 shrink-0"
+                                onClick={handleMenuPreviewToggle}
+                                aria-label={menuPreviewOpen ? "Skjul produktmenu" : "Vis produktmenu"}
+                                aria-pressed={menuPreviewOpen}
+                            >
+                                <Menu className="h-4 w-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            {menuPreviewOpen ? "Skjul produktmenu" : "Vis produktmenu"}
+                        </TooltipContent>
+                    </Tooltip>
                 </div>
 
                 <div className="flex items-center gap-1">
@@ -392,7 +557,7 @@ export function SiteDesignPreviewFrame({
                         variant="ghost"
                         size="sm"
                         className="h-8 gap-1"
-                        onClick={navigateToFrontpage}
+                        onClick={() => navigatePreviewToPath("/")}
                         title="Tilbage til forside"
                     >
                         <Home className="w-4 h-4" />
@@ -428,42 +593,69 @@ export function SiteDesignPreviewFrame({
             </div>
 
             {/* Device Preview Area */}
-            <div className="flex-1 flex items-center justify-center bg-slate-100 overflow-hidden relative p-8">
+            <div
+                ref={previewAreaRef}
+                className="flex-1 flex items-center justify-center bg-slate-100 overflow-hidden relative p-8"
+            >
                 {viewport === "desktop" ? (
-                    /* Full Width Desktop View with Monitor Frame */
-                    <div className="relative w-full h-full max-w-[1400px] flex flex-col items-center">
-                        <div className="relative w-full h-full bg-gray-800 rounded-xl shadow-2xl p-3 ring-1 ring-white/10">
-                            {/* Camera Dot */}
-                            <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-gray-700 rounded-full z-10" />
+                    <div
+                        className="relative shrink-0"
+                        style={{
+                            width: DESKTOP_FRAME_WIDTH * desktopScale,
+                            height: DESKTOP_FRAME_HEIGHT * desktopScale,
+                        }}
+                    >
+                        <div
+                            className="absolute left-0 top-0 flex flex-col items-center"
+                            style={{
+                                width: DESKTOP_FRAME_WIDTH,
+                                height: DESKTOP_FRAME_HEIGHT,
+                                transform: `scale(${desktopScale})`,
+                                transformOrigin: "top left",
+                            }}
+                        >
+                            <div
+                                className="relative shrink-0 rounded-xl bg-gray-800 p-3 shadow-2xl ring-1 ring-white/10"
+                                style={{
+                                    width: DESKTOP_FRAME_WIDTH,
+                                    height: DESKTOP_SCREEN_FRAME_HEIGHT,
+                                }}
+                            >
+                                <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-gray-700 rounded-full z-10" />
 
-                            {/* Screen Content */}
-                            <div className="relative w-full h-full bg-white rounded-lg overflow-hidden border border-gray-700/50">
-                                {isLoading && (
-                                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-20 backdrop-blur-sm">
-                                        <div className="flex flex-col items-center gap-2">
-                                            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                                            <span className="text-sm text-muted-foreground">Indlæser preview...</span>
-                                        </div>
-                                    </div>
-                                )}
-                                <iframe
-                                    ref={iframeRef}
-                                    src={previewUrl}
-                                    className="w-full h-full border-0"
-                                    onLoad={() => {
-                                        handleLoad();
-                                        // Proactive send for production stability
-                                        setTimeout(sendBrandingToIframe, 500);
-                                        setTimeout(syncEditModeToIframe, 600);
+                                <div
+                                    className="relative overflow-hidden rounded-lg border border-gray-700/50 bg-white"
+                                    style={{
+                                        width: VIEWPORT_SIZES.desktop.width,
+                                        height: VIEWPORT_SIZES.desktop.height,
                                     }}
-                                    title="Branding Preview"
-                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                                />
+                                >
+                                    {isLoading && (
+                                        <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-20 backdrop-blur-sm">
+                                            <div className="flex flex-col items-center gap-2">
+                                                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                                                <span className="text-sm text-muted-foreground">Indlæser preview...</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <iframe
+                                        ref={iframeRef}
+                                        src={previewUrl}
+                                        className="h-full w-full border-0"
+                                        onLoad={() => {
+                                            handleLoad();
+                                            setTimeout(sendBrandingToIframe, 500);
+                                            setTimeout(syncEditModeToIframe, 600);
+                                            setTimeout(syncMenuPreviewToIframe, 650);
+                                        }}
+                                        title="Branding Preview"
+                                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                                    />
+                                </div>
                             </div>
+                            <div className="mt-[1px] h-4 w-32 rounded-b-xl bg-gray-700/50 shadow-lg" />
+                            <div className="mt-1 h-1.5 w-48 rounded-full bg-gray-800/20 blur-sm" />
                         </div>
-                        {/* Monitor Stand Base */}
-                        <div className="w-32 h-4 bg-gray-700/50 rounded-b-xl shadow-lg mt-[1px]" />
-                        <div className="w-48 h-1.5 bg-gray-800/20 rounded-full mt-1 blur-sm" />
                     </div>
                 ) : (
                     /* Scaled Device Frame (Tablet/Mobile) */
@@ -525,6 +717,7 @@ export function SiteDesignPreviewFrame({
                                     onLoad={() => {
                                         handleLoad();
                                         setTimeout(syncEditModeToIframe, 600);
+                                        setTimeout(syncMenuPreviewToIframe, 650);
                                     }}
                                     title="Branding Preview"
                                     sandbox="allow-scripts allow-same-origin"
@@ -558,5 +751,6 @@ export function SiteDesignPreviewFrame({
                 )}
             </div>
         </div>
+        </TooltipProvider>
     );
 }

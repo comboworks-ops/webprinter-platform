@@ -161,8 +161,8 @@ export function AdminCompanyHubManager({ tenantId }: AdminCompanyHubManagerProps
                                     key={company.id}
                                     onClick={() => setSelectedCompanyId(company.id)}
                                     className={`w-full flex items-center gap-2 px-3 py-2 rounded-md transition-colors text-sm ${selectedCompanyId === company.id
-                                        ? "bg-primary text-primary-foreground"
-                                        : "hover:bg-muted"
+                                        ? "border border-primary/40 bg-primary/10 font-medium text-foreground"
+                                        : "border border-transparent text-foreground hover:bg-muted"
                                         }`}
                                 >
                                     <Building2 className="h-4 w-4" />

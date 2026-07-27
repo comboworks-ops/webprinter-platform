@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Pencil, Plus, UserRoundX, Users } from "lucide-react";
+import { useState } from "react";
+import { Loader2, MailPlus, Pencil, Plus, UserRoundX, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -32,17 +33,18 @@ import {
 } from "@/components/ui/select";
 import type {
   AdminCompanyMember,
+  InviteCompanyMemberInput,
+  InviteCompanyMemberResult,
   SaveCompanyMemberInput,
-  TenantCompanyUser,
 } from "@/hooks/useAdminCompanyWorkspace";
 import type { CompanyOffice, CompanyRole } from "@/lib/company-hub";
 
 interface AdminCompanyMembersProps {
   members: AdminCompanyMember[];
-  tenantUsers: TenantCompanyUser[];
   offices: CompanyOffice[];
   isSaving: boolean;
   onSave: (input: SaveCompanyMemberInput) => Promise<void>;
+  onInvite: (input: InviteCompanyMemberInput) => Promise<InviteCompanyMemberResult>;
   onDisable: (userId: string) => Promise<void>;
 }
 
@@ -63,14 +65,14 @@ const roleDescriptions: Record<CompanyRole, string> = {
 };
 
 interface MemberFormState {
-  userId: string;
+  email: string;
   role: CompanyRole;
   isAllOffices: boolean;
   officeIds: string[];
 }
 
 const emptyMember: MemberFormState = {
-  userId: "",
+  email: "",
   role: "company_buyer",
   isAllOffices: true,
   officeIds: [],
@@ -82,10 +84,10 @@ function errorMessage(error: unknown): string {
 
 export function AdminCompanyMembers({
   members,
-  tenantUsers,
   offices,
   isSaving,
   onSave,
+  onInvite,
   onDisable,
 }: AdminCompanyMembersProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -94,10 +96,6 @@ export function AdminCompanyMembers({
   const [disableTarget, setDisableTarget] = useState<AdminCompanyMember | null>(null);
 
   const activeMembers = members.filter((member) => member.status !== "disabled");
-  const availableUsers = useMemo(() => {
-    const memberIds = new Set(activeMembers.map((member) => member.user_id));
-    return tenantUsers.filter((user) => !memberIds.has(user.id) || user.id === editingUserId);
-  }, [activeMembers, editingUserId, tenantUsers]);
 
   const openNew = () => {
     setEditingUserId(null);
@@ -108,7 +106,7 @@ export function AdminCompanyMembers({
   const openEdit = (member: AdminCompanyMember) => {
     setEditingUserId(member.user_id);
     setForm({
-      userId: member.user_id,
+      email: member.user_email || "",
       role: member.role as CompanyRole,
       isAllOffices: member.is_all_offices !== false,
       officeIds: member.office_ids,
@@ -126,13 +124,32 @@ export function AdminCompanyMembers({
   };
 
   const save = async () => {
-    if (!form.userId) {
-      toast.error("Vælg en bruger.");
+    if (!editingUserId && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      toast.error("Indtast en gyldig e-mailadresse.");
       return;
     }
     try {
-      await onSave(form);
-      toast.success(editingUserId ? "Adgangen er opdateret" : "Medlemmet er tilføjet");
+      if (editingUserId) {
+        await onSave({
+          userId: editingUserId,
+          role: form.role,
+          isAllOffices: form.isAllOffices,
+          officeIds: form.officeIds,
+        });
+        toast.success("Adgangen er opdateret");
+      } else {
+        const result = await onInvite({
+          email: form.email,
+          role: form.role,
+          isAllOffices: form.isAllOffices,
+          officeIds: form.officeIds,
+        });
+        toast.success(
+          result.invitationSent
+            ? `Invitationen er sendt til ${result.email}`
+            : `${result.email} har nu adgang med sin eksisterende konto`,
+        );
+      }
       setDialogOpen(false);
     } catch (error) {
       toast.error(errorMessage(error));
@@ -213,19 +230,30 @@ export function AdminCompanyMembers({
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingUserId ? "Rediger adgang" : "Tilføj medlem"}</DialogTitle>
-            <DialogDescription>Vælg en forståelig rolle og afgræns adgang til kontorer efter behov.</DialogDescription>
+            <DialogDescription>
+              {editingUserId
+                ? "Tilpas rolle og kontoradgang for medlemmet."
+                : "Invitér en kollega direkte med e-mail. Personen behøver ikke allerede være bruger på platformen."}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-2">
             <div className="space-y-2">
-              <Label>Bruger</Label>
-              <Select value={form.userId} onValueChange={(userId) => setForm({ ...form, userId })} disabled={Boolean(editingUserId)}>
-                <SelectTrigger><SelectValue placeholder="Vælg bruger" /></SelectTrigger>
-                <SelectContent>
-                  {availableUsers.map((user) => (
-                    <SelectItem key={user.id} value={user.id}>{user.name}{user.email ? ` · ${user.email}` : ""}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="company-member-email">E-mail</Label>
+              <Input
+                id="company-member-email"
+                type="email"
+                autoComplete="email"
+                value={form.email}
+                placeholder="navn@firma.dk"
+                disabled={Boolean(editingUserId)}
+                onChange={(event) => setForm({ ...form, email: event.target.value })}
+              />
+              {!editingUserId && (
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <MailPlus className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  Nye brugere får en invitation til at oprette adgang. Eksisterende brugere får adgang med deres nuværende konto.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Rolle</Label>
@@ -268,7 +296,10 @@ export function AdminCompanyMembers({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Annuller</Button>
-            <Button onClick={save} disabled={isSaving}>Gem adgang</Button>
+            <Button onClick={save} disabled={isSaving} className="gap-2">
+              {isSaving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+              {editingUserId ? "Gem adgang" : "Send invitation"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
