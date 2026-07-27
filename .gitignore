@@ -118,6 +118,16 @@ dist-check/
 dist-check*/
 .TODO_DROPDOWN_IMAGE
 .agent/SITE_DESIGN_V2_SCRATCHPAD.tmp
+.agents/
+.codex/
+tmp/
+output/
+supabase/.temp/
+deno.lock
+
+# Finder/cloud-sync duplicate copies are never release inputs.
+**/* 2.*
+**/* 3.*
 
 # Generated supplier exports
 pricing_raw/*
