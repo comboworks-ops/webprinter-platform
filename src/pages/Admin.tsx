@@ -59,6 +59,7 @@ import AdminPrintDesignerRedirect from '@/pages/admin/AdminPrintDesignerRedirect
 import SupplierBank from '@/pages/admin/SupplierBank';
 import CommercialReadiness from '@/pages/admin/CommercialReadiness';
 import PrintProduction from '@/pages/admin/PrintProduction';
+import { MasterPodRouteGate } from '@/components/admin/MasterPodRouteGate';
 
 
 export default function Admin() {
@@ -163,17 +164,17 @@ export default function Admin() {
                 <Route path="/supplier-bank" element={<SupplierBank />} />
                 <Route path="/printproduktion" element={<PrintProduction />} />
                 {/* Print on Demand Routes */}
-                <Route path="/pod" element={<PodAdmin />} />
-                <Route path="/pod-katalog" element={<PodKatalog />} />
-                <Route path="/pod-ordrer" element={<PodOrdrer />} />
-                <Route path="/pod-betaling" element={<PodBetaling />} />
+                <Route path="/pod" element={<MasterPodRouteGate><PodAdmin /></MasterPodRouteGate>} />
+                <Route path="/pod-katalog" element={<MasterPodRouteGate><PodKatalog /></MasterPodRouteGate>} />
+                <Route path="/pod-ordrer" element={<MasterPodRouteGate><PodOrdrer /></MasterPodRouteGate>} />
+                <Route path="/pod-betaling" element={<MasterPodRouteGate><PodBetaling /></MasterPodRouteGate>} />
                 {/* Print on Demand v2 Routes */}
-                <Route path="/pod2" element={<Pod2Admin />} />
-                <Route path="/pod2-katalog" element={<Pod2Katalog />} />
-                <Route path="/pod2-ordrer" element={<Pod2Ordrer />} />
-                <Route path="/pod2-betaling" element={<Pod2Betaling />} />
+                <Route path="/pod2" element={<MasterPodRouteGate><Pod2Admin /></MasterPodRouteGate>} />
+                <Route path="/pod2-katalog" element={<MasterPodRouteGate><Pod2Katalog /></MasterPodRouteGate>} />
+                <Route path="/pod2-ordrer" element={<MasterPodRouteGate><Pod2Ordrer /></MasterPodRouteGate>} />
+                <Route path="/pod2-betaling" element={<MasterPodRouteGate><Pod2Betaling /></MasterPodRouteGate>} />
                 {/* Print on Demand v3 Routes (Flyer Alarm) */}
-                <Route path="/pod3" element={<Pod3FlyerAlarm />} />
+                <Route path="/pod3" element={<MasterPodRouteGate><Pod3FlyerAlarm /></MasterPodRouteGate>} />
               </Routes>
               </div>
             </div>

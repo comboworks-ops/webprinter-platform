@@ -4,7 +4,6 @@ import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { USE_POD2_ORDER_SUBMIT } from '@/lib/api/featureFlags';
 import type {
     PodSupplierConnection,
     PodApiPreset,
@@ -552,21 +551,14 @@ export function usePodSyncPrintcomStatus() {
 // Automated Print.com submission. Replaces the manual "mark as forwarded"
 // flow when everything (credentials, sender, files) is in order.
 //
-// Two adapters live in parallel, toggled by USE_POD2_ORDER_SUBMIT:
-//   - pod2-order-submit (new) — single real Print.com POST /orders call.
-//   - pod2-submit-to-printcom (legacy) — 7-step pipeline built against a
-//     fictional Print.com API; kept deployed as a fallback until the new
-//     adapter proves out on real orders.
-//
-// The manual fallback (usePodMasterForwardJob) is kept for operators who
-// want to forward outside of Print.com.
+// Live submission always uses the verified single-call adapter. The obsolete
+// fictional cart adapter is intentionally not selectable from the browser.
 export function usePodSubmitToPrintcom() {
     const queryClient = useQueryClient();
 
     return useMutation({
         mutationFn: async (params: { jobId: string; paymentMethod?: 'invoice' | 'psp'; dryRun?: boolean }) => {
-            const functionName = USE_POD2_ORDER_SUBMIT ? 'pod2-order-submit' : 'pod2-submit-to-printcom';
-            const { data, error } = await supabase.functions.invoke(functionName, {
+            const { data, error } = await supabase.functions.invoke('pod2-order-submit', {
                 body: params,
             });
 
@@ -578,6 +570,7 @@ export function usePodSubmitToPrintcom() {
                 let bodyError = error.message || 'Print.com submission failed';
                 let bodyPayload: any = undefined;
                 let bodyResponse: any = undefined;
+                let bodyUncertain: boolean | undefined = undefined;
                 const ctx: any = (error as any).context;
                 if (ctx && typeof ctx.json === 'function') {
                     try {
@@ -585,6 +578,7 @@ export function usePodSubmitToPrintcom() {
                         bodyError = body?.error || body?.message || bodyError;
                         bodyPayload = body?.payload;
                         bodyResponse = body?.response;
+                        bodyUncertain = typeof body?.uncertain === 'boolean' ? body.uncertain : undefined;
                     } catch {
                         // fall through with plain message
                     }
@@ -592,6 +586,7 @@ export function usePodSubmitToPrintcom() {
                 const err: any = new Error(bodyError);
                 err.payload = bodyPayload;
                 err.response = bodyResponse;
+                err.uncertain = bodyUncertain;
                 throw err;
             }
             if (!data?.success) {
@@ -603,6 +598,7 @@ export function usePodSubmitToPrintcom() {
                 );
                 err.payload = data?.payload;
                 err.response = data?.response;
+                err.uncertain = typeof data?.uncertain === 'boolean' ? data.uncertain : undefined;
                 throw err;
             }
             return data;

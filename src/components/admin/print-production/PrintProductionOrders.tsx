@@ -279,9 +279,32 @@ export function PrintProductionOrders({
       await submitToPrintcom.mutateAsync({ jobId, paymentMethod, dryRun: false });
       setValidation(null);
       await onRefetch();
-    } catch {
-      setValidation(null);
+    } catch (error: unknown) {
+      const technicalError = getTechnicalError(error);
       setPendingValidation(null);
+      if (technicalError.uncertain === false) {
+        setValidation({
+          jobId,
+          jobVersion: currentJob.updated_at,
+          paymentMethod,
+          semanticFingerprint: buildSubmissionFingerprint(currentJob),
+          passed: false,
+          kind: "blocked",
+          interpretation: {
+            ...blockedInterpretation(technicalError.message || "Leverandørordren blev afvist. Kontrollér ordren igen."),
+            payload: technicalError.payload,
+            response: technicalError.response,
+          },
+        });
+        try {
+          await onRefetch();
+        } catch {
+          // The definitive server rejection remains visible with the current snapshot.
+        }
+        return;
+      }
+
+      setValidation(null);
       setSessionState((current) => startUncertainSubmissionReconciliation(current, jobId));
 
       try {
@@ -733,6 +756,7 @@ function canSubmitCurrentJob(
       jobId: job.id,
       status: job.status,
       printcomOrderId: job.printcom_order_id ?? null,
+      submissionLockToken: job.printcom_submission_lock_token ?? null,
       validatedJobId: validation?.jobId ?? "",
       validationPassed: validation?.passed === true,
       paymentMethod,
@@ -788,7 +812,17 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function getTechnicalError(error: unknown): { payload?: unknown; response?: unknown } {
+function getTechnicalError(error: unknown): {
+  message?: string;
+  payload?: unknown;
+  response?: unknown;
+  uncertain?: boolean;
+} {
   const record = asRecord(error);
-  return { payload: record.payload, response: record.response };
+  return {
+    message: typeof record.message === "string" ? record.message : undefined,
+    payload: record.payload,
+    response: record.response,
+    uncertain: typeof record.uncertain === "boolean" ? record.uncertain : undefined,
+  };
 }

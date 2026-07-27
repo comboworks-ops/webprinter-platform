@@ -8,6 +8,7 @@ export interface RealSubmissionCheck {
   jobId: string;
   status: PodFulfillmentJob["status"];
   printcomOrderId: string | null;
+  submissionLockToken: string | null;
   validatedJobId: string;
   validationPassed: boolean;
   paymentMethod: PrintcomPaymentMethod;
@@ -67,12 +68,7 @@ export interface ProductionOrderPresentation {
   nextAction: string;
 }
 
-const LIVE_SUBMISSION_STATUSES = new Set<PodFulfillmentJob["status"]>([
-  "awaiting_approval",
-  "paid",
-  "processing",
-  "submitted",
-]);
+const LIVE_SUBMISSION_STATUSES = new Set<PodFulfillmentJob["status"]>(["paid"]);
 const SUPPORTED_SUPPLIER_SUCCESS_RESULTS = new Set(["SUCCESS", "OK", "ACCEPTED", "READY", "VALID"]);
 
 export function buildValidationRequest(
@@ -89,6 +85,7 @@ export function buildValidationRequest(
 export function canConfirmRealSubmission(input: RealSubmissionCheck): boolean {
   return hasText(input.jobId)
     && input.printcomOrderId === null
+    && input.submissionLockToken === null
     && LIVE_SUBMISSION_STATUSES.has(input.status)
     && input.validationPassed
     && hasText(input.validatedJobId)
@@ -170,6 +167,8 @@ export function buildSubmissionFingerprint(job: PodFulfillmentJob): string {
     printcom_printjob_id: job.printcom_printjob_id,
     printcom_design_id: job.printcom_design_id,
     printcom_order_id: job.printcom_order_id,
+    printcom_submission_lock_token: job.printcom_submission_lock_token,
+    printcom_submission_locked_at: job.printcom_submission_locked_at,
     printcom_submission_step: job.printcom_submission_step,
   });
 }
@@ -189,6 +188,9 @@ export function resolvePendingValidation(input: PendingValidationResolutionInput
   }
   if (currentJob.printcom_order_id != null) {
     return { kind: "rejected", message: "En leverandørreference er gemt. Ordren kan ikke sendes igen." };
+  }
+  if (currentJob.printcom_submission_lock_token != null) {
+    return { kind: "rejected", message: "En leverandørindsendelse afventer afklaring. Ordren kan ikke sendes igen." };
   }
   if (!LIVE_SUBMISSION_STATUSES.has(currentJob.status)) {
     return { kind: "rejected", message: "Jobstatus er ikke længere klar til leverandørindsendelse. Kontrollér ordren igen." };
@@ -281,7 +283,8 @@ export function canReconcileUncertainSubmission(
   return Boolean(job)
     && isReconciliationBlocked(state, job.id)
     && state.blockedJobIds[job.id]?.refreshConfirmed === true
-    && job.printcom_order_id == null;
+    && job.printcom_order_id == null
+    && job.printcom_submission_lock_token == null;
 }
 
 export function reconcileUncertainSubmission(
@@ -310,6 +313,9 @@ export function getProductionOrderPresentation(
   const baseline = classifyOrder(job);
   const validationIsCurrent = isCurrentPassingValidation(job, context.validation, context.paymentMethod);
 
+  if (job.printcom_submission_lock_token) {
+    return presentation("attention", "Indsendelse skal afklares", false, false, "Kontrollér leverandøren");
+  }
   if (context.reconciliationBlocked) {
     return presentation("attention", "Kræver afklaring", false, false, "Bekræft afklaring");
   }
@@ -323,22 +329,19 @@ export function getProductionOrderPresentation(
     return presentation("attention", "Leverandørreference fundet", false, false, "Følg leverandørstatus");
   }
   if (job.status === "submitted" || job.status === "processing") {
-    if (isCurrentManualCheck(job, context.validation, context.paymentMethod)) {
-      return presentation("attention", "Leverandørgennemgang", false, false, "Afventer leverandørgennemgang");
-    }
-    if (validationIsCurrent) {
-      return presentation("ready", "Klar til produktion", true, true, "Bekræft leverandørordre");
-    }
-    return presentation("attention", "Mangler leverandørreference", true, false, "Kontrollér ordre");
+    return presentation("attention", "Mangler leverandørreference", false, false, "Afklar leverandørordren");
   }
   if (job.status === "failed") {
-    return presentation("attention", "Kræver handling", true, false, "Gennemgå og kontrollér");
+    return presentation("attention", "Kræver handling", false, false, "Gennemgå jobstatus");
   }
   if (isCurrentManualCheck(job, context.validation, context.paymentMethod)) {
     return presentation("attention", "Leverandørgennemgang", false, false, "Afventer leverandørgennemgang");
   }
   if (job.status === "payment_pending") {
     return presentation("waiting", "Afventer betaling", false, false, "Afventer betaling");
+  }
+  if (job.status === "awaiting_approval") {
+    return presentation("waiting", "Afventer godkendelse", false, false, "Afventer godkendelse");
   }
   if (LIVE_SUBMISSION_STATUSES.has(job.status)) {
     if (validationIsCurrent) {

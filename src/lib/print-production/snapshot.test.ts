@@ -26,7 +26,7 @@ test("snapshot joins catalog, master import, notifications, tenants, and jobs", 
       }],
     }],
     imports: [{ catalog_product_id: "catalog-1", product_id: "product-1" }],
-    masterProducts: [{ id: "product-1", name: "Flyer", slug: "flyer", category: "Flyers", image_url: "image", is_published: false }],
+    masterProducts: [{ id: "product-1", name: "Flyer", slug: "flyer", category: "Flyers", image_url: "image", is_published: true, is_ready: true }],
     tenants: [
       { id: "tenant-a", name: "A", domain: "a.dk", pod2_auto_forward: true },
       { id: "tenant-b", name: "B", domain: "b.dk", pod2_auto_forward: true },
@@ -133,6 +133,7 @@ test("activity labels communicate catalog, distribution, and actual job status e
       category: "Tryksager",
       image_url: null,
       is_published: false,
+      is_ready: false,
     }],
     tenants: [{
       id: "tenant-activity",

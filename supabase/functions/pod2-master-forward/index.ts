@@ -1,56 +1,67 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+import { requireRole } from "../_shared/auth.ts";
+import {
+  getSubmissionEligibility,
+  MASTER_TENANT_ID,
+  normalizeJobIds,
+} from "../_shared/pod2PrintcomSafety.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
-const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   try {
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: req.headers.get("Authorization")! } } },
-    );
+    const auth = await requireRole(req, ["master_admin"], MASTER_TENANT_ID);
+    if (!auth.ok) return auth.response;
 
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const body = asRecord(await req.json().catch(() => ({})));
+    let jobId: string;
+    try {
+      [jobId] = normalizeJobIds([body.jobId], 1) || [];
+    } catch (error) {
+      return json({
+        error: error instanceof Error ? error.message : "Invalid jobId",
+      }, 400);
     }
+    if (!jobId) return json({ error: "A valid jobId is required" }, 400);
 
-    const { jobId, providerJobRef, masterNotes } = await req.json();
-    if (!jobId) {
-      return new Response(JSON.stringify({ error: "jobId required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const providerJobRef = typeof body.providerJobRef === "string"
+      ? body.providerJobRef.trim()
+      : "";
+    if (
+      !providerJobRef || providerJobRef.length > 200 ||
+      /[\u0000-\u001f]/.test(providerJobRef)
+    ) {
+      return json({
+        error: "A valid supplier reference is required for manual forwarding",
+      }, 400);
     }
-
-    const { data: masterRole } = await supabaseClient
-      .from("user_roles")
-      .select("tenant_id, role")
-      .eq("user_id", user.id)
-      .eq("tenant_id", MASTER_TENANT_ID)
-      .in("role", ["admin", "master_admin"])
-      .limit(1)
-      .maybeSingle();
-
-    if (!masterRole) {
-      return new Response(JSON.stringify({ error: "Kun master admin kan videresende POD v2 jobs" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const masterNotes = typeof body.masterNotes === "string"
+      ? body.masterNotes.trim().slice(0, 2000)
+      : "";
 
     const serviceClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -59,62 +70,64 @@ serve(async (req) => {
 
     const { data: job, error: jobError } = await serviceClient
       .from("pod2_fulfillment_jobs")
-      .select("id, status")
+      .select(
+        "id, tenant_id, status, qty, tenant_cost, currency, stripe_payment_intent_id, provider_job_ref, printcom_order_id, printcom_submission_lock_token",
+      )
       .eq("id", jobId)
       .maybeSingle();
+    if (jobError || !job) return json({ error: "Job not found" }, 404);
 
-    if (jobError || !job) {
-      return new Response(JSON.stringify({ error: "Job not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const { data: tenant } = await serviceClient
+      .from("tenants")
+      .select("id, pod2_auto_forward")
+      .eq("id", job.tenant_id)
+      .maybeSingle();
+    if (!tenant) return json({ error: "Tenant not found" }, 404);
+
+    const eligibility = getSubmissionEligibility({
+      job,
+      tenantAutoForward: tenant.pod2_auto_forward === true,
+    });
+    if (!eligibility.ok) {
+      return json({ error: eligibility.message, code: eligibility.code }, 409);
     }
 
-    if (job.status !== "paid") {
-      return new Response(JSON.stringify({ error: `Job status is ${job.status}, expected paid` }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const payload: Record<string, unknown> = {
-      status: "submitted",
-      submitted_by_master_at: new Date().toISOString(),
-      submitted_by_master_user_id: user.id,
-      updated_at: new Date().toISOString(),
-    };
-
-    if (typeof providerJobRef === "string" && providerJobRef.trim()) {
-      payload.provider_job_ref = providerJobRef.trim();
-    }
-    if (typeof masterNotes === "string") {
-      payload.master_notes = masterNotes.trim() || null;
-    }
-
+    const now = new Date().toISOString();
     const { data: updatedJob, error: updateError } = await serviceClient
       .from("pod2_fulfillment_jobs")
-      .update(payload)
+      .update({
+        status: "submitted",
+        provider_job_ref: providerJobRef,
+        master_notes: masterNotes || null,
+        submitted_by_master_at: now,
+        submitted_by_master_user_id: auth.user.id,
+        printcom_payment_verification: eligibility.paymentVerification,
+        printcom_payment_verified_at: now,
+        updated_at: now,
+      })
       .eq("id", jobId)
-      .select()
+      .eq("status", "paid")
+      .is("provider_job_ref", null)
+      .is("printcom_order_id", null)
+      .is("printcom_submission_lock_token", null)
+      .select("*")
       .maybeSingle();
 
     if (updateError || !updatedJob) {
-      throw updateError || new Error("Failed to update POD v2 job");
+      return json({
+        error: "Jobbet blev ændret og kunne ikke markeres som videresendt",
+      }, 409);
     }
 
-    return new Response(JSON.stringify({
+    return json({
       success: true,
       job: updatedJob,
-      message: "Job markeret som videresendt fra master.",
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      message: "Job markeret som manuelt videresendt fra master.",
     });
   } catch (error) {
     console.error("POD2 Master Forward error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({
+      error: error instanceof Error ? error.message : "POD2 forwarding failed",
+    }, 500);
   }
 });

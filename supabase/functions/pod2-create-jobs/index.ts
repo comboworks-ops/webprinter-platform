@@ -1,9 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+import { normalizeJobIds } from "../_shared/pod2PrintcomSafety.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
 const parseTaggedValue = (note: string | null | undefined, tag: string) => {
@@ -16,16 +19,24 @@ const parseSenderMode = (note: string | null | undefined) => {
   const blindValue = parseTaggedValue(note, "BLIND_SHIPPING");
   if (blindValue && blindValue.toLowerCase() === "ja") return "blind" as const;
   const sender = parseTaggedValue(note, "AFSENDER");
-  if (sender && sender !== "Standard WebPrinter-afsender") return "custom" as const;
+  if (sender && sender !== "Standard WebPrinter-afsender") {
+    return "custom" as const;
+  }
   return "standard" as const;
 };
 
-const resolveTenantCost = (quantities: number[] = [], baseCosts: number[] = [], qty: number) => {
+const resolveTenantCost = (
+  quantities: number[] = [],
+  baseCosts: number[] = [],
+  qty: number,
+) => {
   let resolved = 0;
   for (let i = quantities.length - 1; i >= 0; i -= 1) {
     const tierQty = Number(quantities[i]);
     const tierCost = Number(baseCosts[i]);
-    if (Number.isFinite(tierQty) && Number.isFinite(tierCost) && qty >= tierQty) {
+    if (
+      Number.isFinite(tierQty) && Number.isFinite(tierCost) && qty >= tierQty
+    ) {
       resolved = tierCost;
       break;
     }
@@ -41,6 +52,12 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   try {
     // This endpoint is called from two places:
@@ -52,12 +69,21 @@ serve(async (req) => {
     // product, qty, etc. all come from the DB, not the caller) and is
     // idempotent (one job per order+catalog_product). So the orderId
     // itself is the authorization — no role gate.
-    const { orderId } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    let orderId = "";
+    try {
+      orderId = normalizeJobIds([body?.orderId], 1)?.[0] || "";
+    } catch {
+      // The same UUID contract is used for order and fulfillment identifiers.
+    }
     if (!orderId) {
-      return new Response(JSON.stringify({ error: "orderId required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "A valid orderId is required" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const serviceClient = createClient(
@@ -67,7 +93,9 @@ serve(async (req) => {
 
     const { data: order, error: orderError } = await serviceClient
       .from("orders")
-      .select("id, tenant_id, product_slug, product_name, quantity, customer_email, customer_name, delivery_type, delivery_address, delivery_city, delivery_zip, status_note, product_configuration")
+      .select(
+        "id, tenant_id, product_slug, product_name, quantity, customer_email, customer_name, delivery_type, delivery_address, delivery_city, delivery_zip, status_note, product_configuration",
+      )
       .eq("id", orderId)
       .maybeSingle();
 
@@ -102,19 +130,28 @@ serve(async (req) => {
       .maybeSingle();
 
     if (!product) {
-      return new Response(JSON.stringify({ error: "Product for order not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Product for order not found" }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
-    const technicalSpecs = (product.technical_specs || {}) as Record<string, any>;
+    const technicalSpecs = (product.technical_specs || {}) as Record<
+      string,
+      any
+    >;
     const catalogProductId = technicalSpecs.pod2_catalog_id;
     if (!technicalSpecs.is_pod_v2 || !catalogProductId) {
-      return new Response(JSON.stringify({ error: "Order product is not linked to POD v2" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Order product is not linked to POD v2" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const { data: existingJob } = await serviceClient
@@ -122,56 +159,96 @@ serve(async (req) => {
       .select("id")
       .eq("order_id", order.id)
       .eq("catalog_product_id", catalogProductId)
+      .limit(1)
       .maybeSingle();
 
     if (existingJob) {
-      return new Response(JSON.stringify({
-        success: true,
-        jobsCreated: 0,
-        jobs: [],
-        message: "Job already exists for this order",
-      }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          success: true,
+          jobsCreated: 0,
+          jobs: [],
+          message: "Job already exists for this order",
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
-    const requestedVariant = parseTaggedValue(order.status_note, "VARIANT")
-      || String(order.product_configuration || "").trim()
-      || String(product.default_variant || "default");
+    const requestedVariant = parseTaggedValue(order.status_note, "VARIANT") ||
+      String(order.product_configuration || "").trim() ||
+      String(product.default_variant || "default");
 
     let { data: priceMatrix } = await serviceClient
       .from("pod2_catalog_price_matrix")
-      .select("variant_signature, quantities, base_costs, currency")
+      .select(
+        "variant_signature, quantities, base_costs, currency, needs_quote",
+      )
       .eq("catalog_product_id", catalogProductId)
       .eq("variant_signature", requestedVariant)
+      .eq("needs_quote", false)
       .maybeSingle();
 
     if (!priceMatrix) {
       const { data: fallbackMatrix } = await serviceClient
         .from("pod2_catalog_price_matrix")
-        .select("variant_signature, quantities, base_costs, currency")
+        .select(
+          "variant_signature, quantities, base_costs, currency, needs_quote",
+        )
         .eq("catalog_product_id", catalogProductId)
+        .eq("needs_quote", false)
         .limit(1)
         .maybeSingle();
       priceMatrix = fallbackMatrix || null;
     }
 
     if (!priceMatrix) {
-      return new Response(JSON.stringify({ error: "No POD v2 price matrix found for product" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "No POD v2 price matrix found for product" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const qty = Number(order.quantity || 1);
-    const tenantCost = resolveTenantCost(priceMatrix.quantities, priceMatrix.base_costs, qty);
-    const deliverySummary = parseTaggedValue(order.status_note, "LEVERING")
-      || [order.delivery_address, `${order.delivery_zip || ""} ${order.delivery_city || ""}`.trim()].filter(Boolean).join(", ")
-      || null;
-    const recipientName = parseTaggedValue(order.status_note, "MODTAGER") || order.customer_name || null;
-    const recipientCompany = parseTaggedValue(order.status_note, "MODTAGER-FIRMA");
-    const shippingMethod = parseTaggedValue(order.status_note, "LEVERINGSMETODE") || order.delivery_type || null;
+    const tenantCost = resolveTenantCost(
+      priceMatrix.quantities,
+      priceMatrix.base_costs,
+      qty,
+    );
+    if (
+      !Number.isInteger(qty) || qty <= 0 || !Number.isFinite(tenantCost) ||
+      tenantCost <= 0
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: "POD v2 quantity or supplier cost is invalid",
+        }),
+        {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+    const deliverySummary = parseTaggedValue(order.status_note, "LEVERING") ||
+      [
+        order.delivery_address,
+        `${order.delivery_zip || ""} ${order.delivery_city || ""}`.trim(),
+      ].filter(Boolean).join(", ") ||
+      null;
+    const recipientName = parseTaggedValue(order.status_note, "MODTAGER") ||
+      order.customer_name || null;
+    const recipientCompany = parseTaggedValue(
+      order.status_note,
+      "MODTAGER-FIRMA",
+    );
+    const shippingMethod =
+      parseTaggedValue(order.status_note, "LEVERINGSMETODE") ||
+      order.delivery_type || null;
     const statusNoteSenderMode = parseSenderMode(order.status_note);
     const statusNoteHasExplicitSender = statusNoteSenderMode !== "standard";
 
@@ -179,7 +256,9 @@ serve(async (req) => {
     // Missing row is the normal case -> fall back to "standard".
     const { data: tenantProfile } = await serviceClient
       .from("tenant_pod_shipping_profile")
-      .select("sender_mode, sender_company_name, sender_contact_name, sender_email, sender_phone, sender_street, sender_house_number, sender_postcode, sender_city, sender_country, sender_vat_number, sender_logo_url")
+      .select(
+        "sender_mode, sender_company_name, sender_contact_name, sender_email, sender_phone, sender_street, sender_house_number, sender_postcode, sender_city, sender_country, sender_vat_number, sender_logo_url",
+      )
       .eq("tenant_id", order.tenant_id)
       .maybeSingle();
 
@@ -197,7 +276,10 @@ serve(async (req) => {
       senderName = senderMode === "custom"
         ? parseTaggedValue(order.status_note, "AFSENDER")
         : null;
-    } else if (tenantProfile && tenantProfile.sender_mode && tenantProfile.sender_mode !== "standard") {
+    } else if (
+      tenantProfile && tenantProfile.sender_mode &&
+      tenantProfile.sender_mode !== "standard"
+    ) {
       senderMode = tenantProfile.sender_mode as "standard" | "blind" | "custom";
       if (senderMode === "custom") {
         senderName = tenantProfile.sender_company_name || null;
@@ -247,23 +329,45 @@ serve(async (req) => {
       .select()
       .maybeSingle();
 
+    if (jobError?.code === "23505") {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          jobsCreated: 0,
+          jobs: [],
+          message: "Job already exists for this order",
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
     if (jobError || !createdJob) {
       throw jobError || new Error("Failed to create POD v2 job");
     }
 
-    return new Response(JSON.stringify({
-      success: true,
-      jobsCreated: 1,
-      jobs: [createdJob],
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        success: true,
+        jobsCreated: 1,
+        jobs: [createdJob],
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   } catch (error) {
     console.error("POD2 Create Jobs error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   }
 });

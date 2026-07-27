@@ -114,7 +114,7 @@ export function usePrintProductionData(input: UsePrintProductionDataInput): UseP
       const masterProductIds = imports.map((row) => row.product_id);
       const masterProductsResult = masterProductIds.length
         ? await (supabase.from("products" as any) as any)
-          .select("id, name, slug, category, image_url, is_published")
+          .select("id, name, slug, category, image_url, is_published, is_ready")
           .eq("tenant_id", MASTER_TENANT_ID)
           .in("id", masterProductIds)
         : { data: [], error: null };

@@ -62,7 +62,7 @@ These are **saved from the Step‑2 matrix wizard** and used for **all future im
 
 ## 5) Edge Functions (POD v2)
 Located in `supabase/functions/`:
-- `pod2-explorer-request` — proxy to Print.com API
+- `pod2-explorer-request` — master-only, read-only Print.com API explorer; supplier writes are rejected
 - `pod2-tenant-import` — import a catalog product into product configuration
 - `pod2-tenant-merge` — merge multiple POD imports into one matrix product
 - `pod2-tenant-remove` — remove tenant import
@@ -70,6 +70,9 @@ Located in `supabase/functions/`:
 - `pod2-create-jobs` — create a POD v2 fulfillment job from an order for products linked via `technical_specs.pod2_catalog_id`
 - `pod2-tenant-approve-charge` — tenant approves + pays supplier cost; job moves to `paid`
 - `pod2-master-forward` — master marks paid jobs as forwarded to supplier; job moves to `submitted`
+- `pod2-order-submit` — the only live Print.com order adapter; requires fresh server validation, payment evidence, and an atomic submission claim
+- `pod2-printcom-sync-status` — master/cron read-only supplier status polling with non-regressive status transitions
+- `pod2-submit-to-printcom` — disabled legacy adapter; returns `410 legacy_adapter_disabled`
 - `pod2-pdf-preflight` — exists but **not deployed** (optional future feature)
 
 Deployment reminder:
@@ -81,6 +84,9 @@ supabase functions deploy pod2-tenant-billing-setup
 supabase functions deploy pod2-create-jobs
 supabase functions deploy pod2-tenant-approve-charge
 supabase functions deploy pod2-master-forward
+supabase functions deploy pod2-order-submit
+supabase functions deploy pod2-printcom-sync-status
+supabase functions deploy pod2-submit-to-printcom
 ```
 
 Admin routes:
@@ -95,10 +101,15 @@ Admin routes:
 - **Price inserts are chunked** (500 rows per batch).
 - **Matrix preview** is capped at **500 combinations** (UI safeguard).
 - Large combinations should be imported in **chunks** and merged.
-- Current POD v2 fulfillment is **two-step**:
-  1. tenant approves and pays supplier cost
-  2. master forwards the paid job to the print house
-- `submitted` currently means "master has forwarded". It does **not** yet mean supplier status sync is complete.
+- Current POD v2 fulfillment requires a `paid` job. Payment evidence is either
+  a server-verified Stripe PaymentIntent or a tenant whose server-side
+  `pod2_auto_forward` flag created the job as paid.
+- A real Print.com call is always preceded by a fresh server-side payload
+  validation and a one-use database claim. A retained claim means the result
+  is uncertain and blocks all retries until manual reconciliation.
+- `submitted` means a supplier reference has been stored or a master operator
+  has recorded a manual supplier reference. Status polling can then advance it
+  to `processing`, `completed`, or `failed` without reopening terminal jobs.
 
 Recommended:
 - Import **base product** (formats + materials)
@@ -197,10 +208,35 @@ payload/dry-run detail, matrix tools, and manual forwarding stay under
 
 ### Order submission boundary
 
-`Kontrollér ordre` is validation only and always uses the supplier dry run. A
-successful validation of the current order data is required before the explicit
-`Send til produktion` confirmation can be enabled. Do not automatically retry
-an uncertain real submission.
+`Kontrollér ordre` is server-side validation only and performs no supplier
+write. A successful validation of the current order data is required before
+the explicit `Send til produktion` confirmation can be enabled. Do not
+automatically retry an uncertain real submission.
+
+Migration `20260714190000_harden_print_production_submission.sql` enforces this
+contract below the UI:
+
+- tenant users can select their POD v2 jobs but cannot insert, update, or delete
+  fulfillment state directly;
+- `pod2_claim_printcom_submission` atomically accepts only `paid`, unsubmitted,
+  unlocked jobs with an exact payload fingerprint validated within 15 minutes;
+- Stripe-backed jobs are checked against Stripe for successful status, amount,
+  currency, tenant, order, and job metadata before the claim;
+- auto-forward jobs are accepted only while the tenant remains enabled for
+  controlled forwarding;
+- supplier references are duplicate-protected, and uncertain network/5xx/409
+  results retain the lock instead of retrying;
+- fulfillment-job creation is unique per order and catalog product, and tenant
+  approval acquires an atomic state claim before creating a Stripe PaymentIntent
+  with a stable idempotency key;
+- manual forwarding requires a non-empty supplier reference and the same paid
+  or auto-forward evidence;
+- status synchronization accepts either an exact `master_admin` session or a
+  constant-time checked 32+ character cron secret, limits each batch, and
+  rejects status regression;
+- product distribution rechecks publication, master readiness, supplier link,
+  image/title, active Print.com connection, a complete fixed-price matrix, and
+  recipient auto-forward eligibility inside the database transaction.
 
 Only Print.com is currently permitted to report live submission and status sync
 as ready, via the verified `pod2-order-submit` adapter. Other providers may be
@@ -213,7 +249,8 @@ payload to another supplier endpoint.
 
 Rollback removes the new `Printproduktion` sidebar entry and route composition
 while leaving POD v2 data and edge functions untouched. Keep these deployed
-legacy/advanced routes available during rollout, including their
+legacy/advanced routes available to the master operator during rollout,
+including their
 `force_domain` context when linked from the control center:
 
 - `/admin/pod2` - supplier/API workbench
@@ -222,6 +259,11 @@ legacy/advanced routes available during rollout, including their
 - `/admin/pod2-betaling` - historical tenant billing
 - `/admin/pod` - POD v1
 - `/admin/pod3` - Flyer Alarm workbench
+
+All listed legacy POD routes are master-context gated in `src/pages/Admin.tsx`.
+A tenant-context request is redirected to the ordinary product area. The
+routes remain rollback tools without remaining tenant-accessible control
+surfaces.
 
 This control center does not change POD v1 tables, functions, routes, or UI
 behavior. It does not change the pricing engine, product-price calculations,

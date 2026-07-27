@@ -41,7 +41,8 @@ test("ready product requires active connection, prices, image, and master import
       slug: "a5-flyers",
       category: "Flyers",
       image_url: "https://example.test/flyer.jpg",
-      is_published: false,
+      is_published: true,
+      is_ready: true,
     },
   });
   assert.equal(result.status, "ready");
@@ -49,6 +50,27 @@ test("ready product requires active connection, prices, image, and master import
   assert.equal(result.minCost, 100);
   assert.equal(result.minRetail, 160);
   assert.equal(result.marginPercent, 37.5);
+});
+
+test("unpublished or unfinished master products are blocked before distribution", () => {
+  const result = evaluateProductReadiness({
+    connectionActive: true,
+    catalog: pricedCatalog,
+    masterProduct: {
+      id: "product-1",
+      name: "A5 Flyers",
+      slug: "a5-flyers",
+      category: "Flyers",
+      image_url: "https://example.test/flyer.jpg",
+      is_published: false,
+      is_ready: true,
+    },
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(
+    result.blockers.some((blocker) => blocker.code === "master_product_not_ready"),
+    true,
+  );
 });
 
 test("missing price data blocks distribution with a Danish recovery action", () => {
@@ -62,6 +84,40 @@ test("missing price data blocks distribution with a Danish recovery action", () 
   assert.match(result.blockers[0].actionLabel, /pris/i);
 });
 
+test("one complete row cannot hide an incomplete offered price row", () => {
+  const incompleteRow = {
+    ...pricedCatalog.pod2_catalog_price_matrix[0],
+    id: "price-2",
+    variant_signature: "size:a4",
+    recommended_retail: [],
+  };
+  const result = evaluateProductReadiness({
+    connectionActive: true,
+    catalog: {
+      ...pricedCatalog,
+      pod2_catalog_price_matrix: [
+        ...pricedCatalog.pod2_catalog_price_matrix,
+        incompleteRow,
+      ],
+    },
+    masterProduct: {
+      id: "product-1",
+      name: "A5 Flyers",
+      slug: "a5-flyers",
+      category: "Flyers",
+      image_url: "https://example.test/flyer.jpg",
+      is_published: true,
+      is_ready: true,
+    },
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.equal(
+    result.blockers.some((blocker) => blocker.code === "missing_prices"),
+    true,
+  );
+});
+
 test("submitted job without supplier order id requires attention", () => {
   const result = classifyOrder({
     id: "job-1",
@@ -69,7 +125,7 @@ test("submitted job without supplier order id requires attention", () => {
     printcom_order_id: null,
   } as never);
   assert.equal(result.group, "attention");
-  assert.equal(result.canValidate, true);
+  assert.equal(result.canValidate, false);
   assert.equal(result.canSubmit, false);
 });
 

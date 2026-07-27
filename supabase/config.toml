@@ -9,6 +9,9 @@ verify_jwt = true
 [functions.create-admin-user]
 verify_jwt = true
 
+[functions.company-hub-invite-member]
+verify_jwt = true
+
 [functions.designer-pdf-service]
 verify_jwt = true
 
@@ -61,7 +64,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.pod2-printcom-sync-status]
-verify_jwt = true
+verify_jwt = false
 
 [functions.pod2-submit-to-printcom]
 verify_jwt = true
@@ -127,6 +130,9 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.supplier-bank-create-delta-review]
+verify_jwt = true
+
+[functions.supplier-bank-url-import]
 verify_jwt = true
 
 [functions.stripe-connect-create-or-get]

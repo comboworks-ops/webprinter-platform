@@ -45,6 +45,7 @@ function validGate(overrides: Partial<Parameters<typeof canConfirmRealSubmission
     jobId: "job-1",
     status: "paid" as const,
     printcomOrderId: null,
+    submissionLockToken: null,
     validatedJobId: "job-1",
     validationPassed: true,
     paymentMethod: "invoice" as const,
@@ -96,6 +97,7 @@ test("real send requires every current validation binding", () => {
 
 test("stored supplier references always block a real send", () => {
   assert.equal(canConfirmRealSubmission(validGate({ printcomOrderId: "2106321" })), false);
+  assert.equal(canConfirmRealSubmission(validGate({ submissionLockToken: "8e702c83-b56b-4bfb-8dd1-c3a5b6eac50f" })), false);
 });
 
 test("semantic submission fingerprints ignore tracking but bind all submission-relevant job state", () => {
@@ -126,6 +128,7 @@ test("semantic submission fingerprints ignore tracking but bind all submission-r
     { product_name: "Plakat" },
     { status: "processing" as const },
     { printcom_order_id: "2106321" },
+    { printcom_submission_lock_token: "8e702c83-b56b-4bfb-8dd1-c3a5b6eac50f" },
   ]) {
     assert.notEqual(buildSubmissionFingerprint({ ...base, ...changed }), fingerprint);
   }
@@ -175,17 +178,23 @@ test("pending validation uses an absolute deadline for refresh binding", () => {
   }).kind, "rejected");
   assert.equal(resolvePendingValidation({
     pending,
+    currentJob: job({
+      updated_at: "2026-07-14T10:01:00.000Z",
+      printcom_submission_lock_token: "8e702c83-b56b-4bfb-8dd1-c3a5b6eac50f",
+    }),
+    now: 9_000,
+  }).kind, "rejected");
+  assert.equal(resolvePendingValidation({
+    pending,
     currentJob: job({ updated_at: "2026-07-14T10:01:00.000Z", status: "failed" }),
     now: 9_000,
   }).kind, "rejected");
 });
 
 test("only approved live statuses can pass the central gate", () => {
-  for (const status of ["awaiting_approval", "paid", "processing", "submitted"] as const) {
-    assert.equal(canConfirmRealSubmission(validGate({ status })), true);
-  }
+  assert.equal(canConfirmRealSubmission(validGate({ status: "paid" })), true);
 
-  for (const status of ["payment_pending", "failed", "completed"] as const) {
+  for (const status of ["awaiting_approval", "payment_pending", "processing", "submitted", "failed", "completed"] as const) {
     assert.equal(canConfirmRealSubmission(validGate({ status })), false);
   }
 });
@@ -288,6 +297,11 @@ test("uncertain live submission remains blocked until explicit safe reconciliati
   });
   assert.equal(isReconciliationBlocked(storedReference, "job-1"), true);
 
+  const retainedServerLock = markSubmissionReconciliationRefreshed(blocked, "job-1");
+  assert.equal(canReconcileUncertainSubmission(retainedServerLock, job({
+    printcom_submission_lock_token: "8e702c83-b56b-4bfb-8dd1-c3a5b6eac50f",
+  })), false);
+
   const notConfirmed = reconcileUncertainSubmission(blocked, {
     jobId: "job-1",
     job: job(),
@@ -332,6 +346,15 @@ test("operational presentation is honest about validation and supplier reference
     paymentMethod: "invoice",
   }).group, "attention");
   assert.equal(getProductionOrderPresentation(job(), { reconciliationBlocked: true }).group, "attention");
+  assert.deepEqual(getProductionOrderPresentation(job({
+    printcom_submission_lock_token: "8e702c83-b56b-4bfb-8dd1-c3a5b6eac50f",
+  })), {
+    group: "attention",
+    label: "Indsendelse skal afklares",
+    canValidate: false,
+    canSubmit: false,
+    nextAction: "Kontrollér leverandøren",
+  });
   for (const status of ["processing", "submitted"] as const) {
     const current = job({ status });
     assert.equal(getProductionOrderPresentation(current, { paymentMethod: "invoice" }).group, "attention");
@@ -339,11 +362,11 @@ test("operational presentation is honest about validation and supplier reference
       paymentMethod: "invoice",
       validation: { jobId: current.id, jobVersion: current.updated_at, paymentMethod: "invoice", semanticFingerprint: buildSubmissionFingerprint(current), passed: true, kind: "ready" },
     }), {
-      group: "ready",
-      label: "Klar til produktion",
-      canValidate: true,
-      canSubmit: true,
-      nextAction: "Bekræft leverandørordre",
+      group: "attention",
+      label: "Mangler leverandørreference",
+      canValidate: false,
+      canSubmit: false,
+      nextAction: "Afklar leverandørordren",
     });
   }
 });

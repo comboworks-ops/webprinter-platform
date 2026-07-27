@@ -12,7 +12,8 @@ export type ProductBlockerCode =
   | "quote_only"
   | "missing_title"
   | "missing_image"
-  | "master_import_missing";
+  | "master_import_missing"
+  | "master_product_not_ready";
 
 export interface MasterProductRow {
   id: string;
@@ -21,6 +22,7 @@ export interface MasterProductRow {
   category: string;
   image_url: string | null;
   is_published: boolean;
+  is_ready: boolean;
 }
 
 export interface TenantRow {
