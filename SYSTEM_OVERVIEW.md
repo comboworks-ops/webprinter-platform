@@ -14,6 +14,13 @@
 3. Manage orders, products, pricing, and branding per tenant
 4. Provide a B2B Reorder Portal (Company Hub) for business clients to reorder customized products
 
+Latest non-destructive system review:
+- `docs/SYSTEM_REVIEW_RECOMMENDATIONS_2026-06-27.md`
+
+The main review guidance is to harden service-role Edge Functions, Stripe
+amount calculation, admin role verification, and PDF-service input ownership
+before adding more large product surfaces.
+
 ---
 
 ## 🏗️ Tech Stack
@@ -134,6 +141,40 @@ company_hub_items (id, company_id, product_id, design_id, title, thumbnail_url, 
 3. **CMYK Soft Proofing**: ICC profile simulation overlay
 4. **Design Save**: Saves to `designer_saved_designs` with thumbnail in `product-images` bucket
 5. **PDF Export**: High-DPI canvas export to PDF with bleed
+6. **Vector-Preserved PDF Import**: Imported PDFs keep original bytes for vector PDF export.
+
+### PDF Designer + Service Foundation
+
+Current implemented slice:
+- `src/components/designer/PDFImportModal.tsx`
+  - Imports PDF pages with PDF.js.
+  - Supports page selection, rotate, crop-to-document ratio, stamp text,
+    signature text, and text color.
+  - Rebuilds edited pages with `pdf-lib` and passes edited bytes through the
+    same vector-preserving import path.
+- `src/components/designer/PdfToolsPanel.tsx`
+  - Appears when a PDF background is selected.
+  - Supports center/fit, previous/next page switching, reopen/edit selected PDF,
+    replace selected PDF, CutContour extraction, vector export handoff, PDF
+    service scan, and a compact design-product-flow checklist.
+- `src/lib/designer/pdfService.ts`
+  - Shared browser/edge PDF service report model.
+  - Browser inspection fallback for page count, first-page size, file size, and
+    warnings.
+- `supabase/functions/designer-pdf-service/index.ts`
+  - Generic designer PDF Edge Function, separate from POD v2.
+  - Supports `inspect` now and reports future capability states for OCR,
+    compression, repair, PDF/A, true redaction, and form flattening.
+
+Remaining expansion points:
+- Deploy `designer-pdf-service` when server-side inspection is needed:
+  `supabase functions deploy designer-pdf-service`.
+- Connect a real external PDF processor before enabling OCR, compression,
+  repair, PDF/A conversion, true redaction, or form flattening.
+- Add deeper save/load/export regression tests for designs containing edited PDF
+  backgrounds.
+- Keep Stirling-PDF as architecture inspiration only unless licensing and
+  deployment/privacy review explicitly approve direct reuse.
 
 ### Document Specification
 ```typescript
@@ -263,6 +304,16 @@ interface BrandingData {
 1. Changes saved to `branding_drafts` table
 2. Preview mode loads draft data
 3. Publish copies draft → `tenant_branding` (live)
+
+### Shopdesign
+
+Site Design V2 separates complete shop presentation recipes from visual themes.
+Ten versioned recipes control header, product menu, category navigation,
+catalogue, product cards, product page, checkout, footer and motion while
+preserving tenant products, prices, content and brand settings. Five product
+menu layouts can be selected independently. Architecture, compatibility rules
+and the template list are documented in
+`docs/SHOP_TEMPLATE_SYSTEM_2026-07-27.md`.
 
 ---
 
@@ -616,6 +667,21 @@ When `showGamutWarning` is enabled:
 8. **Worker uses lcms-wasm** - the API returns output, not modifies input
 9. **Company Hub uses RLS** - admins of matching `tenant_id` can manage companies; members can see `hub_items`.
 
+## Designer PDF Processing
+
+The online designer keeps Fabric and vector PDF export as its production
+authoring path. Optional heavy PDF operations go through the authenticated
+`designer-pdf-service` Edge Function and a private Stirling-PDF provider.
+
+- Inputs are downloaded with the caller's Supabase RLS context.
+- Provider credentials remain server-side.
+- Results are stored immutably under the authenticated user's ID.
+- Redaction is intentionally rasterized; form flattening is forms-only.
+- PDF/A is archival and does not replace PDF/X or print preflight.
+- The provider is disabled until its enablement and license secrets are set.
+
+See `docs/STIRLING_PDF_INTEGRATION.md` for deployment and rollback.
+
 ---
 
 ## 🏢 Company Hub (B2B portal) Deep Dive
@@ -661,4 +727,3 @@ never copy or recalculate pricing.
 ---
 
 *Last updated: January 6, 2026*
-

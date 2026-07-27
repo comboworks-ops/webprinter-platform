@@ -546,6 +546,24 @@ Recent work:
 - Added option/matrix box controls and hotspots.
 - Connected price panel Download Tilbud styling target.
 - Added page transitions and dropdown motion presets.
+- Added ten versioned shopdesigns as a presentation layer separate from themes.
+  They now resolve complete component recipes for header, product dropdown,
+  category navigation, catalogue, product cards, product page, checkout,
+  footer and motion without changing products, pricing, content or brand
+  colours. Five product-menu patterns can be selected independently.
+  See `docs/SHOP_TEMPLATE_SYSTEM_2026-07-27.md`.
+- Site Design V2 preview can now open exact product pages, product overview,
+  checkout and homepage from one selector. Its product-menu button exposes the
+  real storefront dropdown/submenu, and desktop preview renders at a fixed
+  1280 x 800 viewport before scaling into the editor. Preview URL
+  normalization prevents tenant query parameters from becoming part of a
+  product slug. The collapsed editor control now lives in the action bar as a
+  pencil button instead of a floating expansion arrow.
+- Preview navigation and click editing are explicitly separated. Legacy
+  product-option selection messages are ignored unless click editing is
+  active, so ordering controls work normally in navigation mode. The preview
+  toolbar uses a crosshair control labelled `Redigér` / `Redigering aktiv` to
+  make the active editing state unambiguous.
 
 Key files:
 - `src/components/admin/SiteDesignEditorV2.tsx`
@@ -1224,7 +1242,8 @@ vercel deploy . --prod -y
   integration; this adds an operating shell only.
 - Existing pricing and product-price calculations remain authoritative and
   unchanged. Supplier Bank remains separate.
-- The legacy rollback routes remain deployed: `/admin/pod2`,
+- The legacy rollback routes remain deployed but are master-context gated:
+  `/admin/pod2`,
   `/admin/pod2-katalog`, `/admin/pod2-ordrer`, `/admin/pod2-betaling`,
   `/admin/pod`, and `/admin/pod3`. Rollback removes the new sidebar entry and
   route composition without deleting POD, product, price, order, or tenant
@@ -1232,6 +1251,61 @@ vercel deploy . --prod -y
 - No live supplier order, real distribution, or real import was run in
   automated QA. The controller owns fresh-server, signed-in desktop/mobile
   browser QA after this documentation commit.
+
+### Approved corrective hardening wave (2026-07-14)
+
+- The user approved hardening Print.com submission, server-side validation and
+  duplicate protection, payment/auto-forward evidence, master-gating legacy
+  POD routes, and strict server-side product readiness before distribution.
+- Migration `20260714190000_harden_print_production_submission.sql` narrows
+  tenant fulfillment access to `SELECT`, adds validation/payment/lock audit
+  fields, adds supplier-reference uniqueness, and creates the private
+  service-role-only `pod2_claim_printcom_submission` RPC.
+- `pod2-order-submit` is the only live Print.com order path. It requires exact
+  `master_admin`, a `paid` job, Stripe or server auto-forward evidence, a fresh
+  matching dry-run fingerprint, an atomic claim, an approved Print.com origin,
+  and a complete server-validated payload.
+- Uncertain network, conflict, rate-limit, or supplier 5xx outcomes retain the
+  database lock. The UI shows `Indsendelse skal afklares` and does not offer a
+  second live attempt. Definitive 4xx validation/auth rejections release the
+  claim and require a new dry run.
+- `pod2-submit-to-printcom` is deliberately disabled with HTTP 410. The API
+  explorer is read-only. Manual forwarding requires a supplier reference and
+  server payment evidence. Status sync is bounded and cannot regress terminal
+  jobs.
+- Job creation is duplicate-protected per order and catalog product. Tenant
+  approval claims `awaiting_approval` atomically before creating a Stripe
+  PaymentIntent with a stable job-scoped idempotency key; uncertain Stripe
+  results remain `payment_pending` for reconciliation.
+- `/admin/pod`, `/admin/pod-katalog`, `/admin/pod-ordrer`,
+  `/admin/pod-betaling`, `/admin/pod2`, `/admin/pod2-katalog`,
+  `/admin/pod2-ordrer`, `/admin/pod2-betaling`, and `/admin/pod3` are now
+  master-context gated. Their underlying POD v1/v2 data and behavior were not
+  removed.
+- Distribution now fails closed in the RPC unless the master product is ready
+  and published and the POD catalog, supplier link, image/title, fixed price
+  matrix, active connection, and selected tenant eligibility are current.
+- Rollback instructions are embedded at the top of the migration. Do not clear
+  a retained submission lock merely to make a retry button work; first verify
+  at the supplier that no order exists.
+
+### Corrective hardening rollout state (2026-07-14)
+
+- The linked Supabase project has migration
+  `20260714190000_harden_print_production_submission.sql` applied and recorded.
+  Preflight found three fulfillment jobs, zero duplicate order/catalog pairs,
+  and zero duplicate Print.com references.
+- The hardened `pod2-order-submit`, disabled legacy adapter, explorer, status
+  sync, manual forwarding, job creation, tenant charge approval, and POD2X
+  proxy functions are deployed and active. The status-sync endpoint remains
+  gateway-public for cron delivery but rejects calls without exact master auth
+  or the configured long cron secret.
+- The frontend route gate and Printproduktion presentation changes passed the
+  production build and local signed-in browser QA. They were not Vercel-deployed
+  in this wave because the working branch is 43 commits ahead and contains
+  unrelated unfinished changes; deploy them only through the next reviewed
+  frontend release.
+- No live Print.com order and no Stripe charge was created during rollout or QA.
 
 ### Verification commands
 

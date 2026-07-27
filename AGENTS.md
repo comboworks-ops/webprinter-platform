@@ -14,6 +14,9 @@ General expectations:
 - Do not introduce major workflow/UI architecture changes (for example replacing manual product creation flow) without explicit user approval first.
 - For Pixart wide-format imports, use `.agent/skills/pixart/SKILL.md` and `scripts/fetch-pixart-flat-surface-adhesive-import.mjs` (do not create a parallel import flow).
 - For t-shirt imports with size distribution, use `.agent/skills/tshirt-fetch/SKILL.md` and keep scope limited to t-shirt products.
+- For Supabase migrations that create `public` tables, views, or RPC/functions,
+  follow `docs/SUPABASE_DATA_API_GRANTS.md`: add explicit `GRANT`/`REVOKE`
+  decisions beside RLS policies and run `npm run check:supabase-grants`.
 
 Quick Do/Don't checklist:
 
@@ -30,3 +33,5 @@ Don't:
 - Reuse POD v1 tables for POD v2.
 - Hard-delete shared data or change tenant scoping.
 - Ship schema or edge changes without a short rollback note.
+- Create new Supabase `public` tables/functions that rely on automatic Data API
+  exposure defaults.

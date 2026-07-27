@@ -41,7 +41,10 @@ The following files are PROTECTED and should NOT be modified without explicit us
 
 3. **Vector Export Process** (`exportVectorPdfBackground.ts`):
    - Loads original PDF using `pdf-lib`
-   - Copies the referenced page (preserves vector content)
+   - Creates a page matching the selected print format
+   - Embeds the referenced page as vector content
+   - Applies the PDF object's artboard position, scale, and rotation
+   - Clips content outside the print page without rasterizing the source PDF
    - Detects overlay objects (user-added text, shapes, images)
    - If overlays exist:
      - Hides background and guides
@@ -81,6 +84,7 @@ Before any changes to protected files, verify:
 - [ ] PDF with overlay text → Export preserves vector base + overlay
 - [ ] Wide format PDF (e.g., 1000mm x 500mm) → Correct dimensions
 - [ ] Multi-page PDF → Correct page exported
+- [ ] Moved/scaled PDF → Export matches artboard placement
 - [ ] Print PDF mode still works
 - [ ] Proof PDF mode still works
 - [ ] No guide lines appear in any export mode
@@ -115,7 +119,8 @@ exportActions.ts (runDesignerExport)
 exportVectorPdfBackground.ts
       │
       ├── PDFDocument.load() - Load original PDF
-      ├── copyPages() - Copy referenced page
+      ├── embedPdf() - Embed referenced page as vector content
+      ├── drawPage() - Apply artboard position, scale and rotation
       ├── renderOverlaysOnly() - Capture overlays as PNG
       ├── embedPng() + drawImage() - Composite
       └── Download final PDF
