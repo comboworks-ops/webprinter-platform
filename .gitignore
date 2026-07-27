@@ -134,6 +134,8 @@ pricing_raw/*
 !pricing_raw/.gitkeep
 pricing_clean/*
 !pricing_clean/.gitkeep
+docs/SUPPLIER_BANK_*.md
+docs/PIXART_*.md
 
 # One-off scratch files
 diff_output.txt
@@ -142,4 +144,5 @@ webprinter_home.png
 homepage.png
 classic-race-tilbud.html
 Salgsmapper_A4_4plus4_pricinghub_import_ready.csv
+.vercelignore 2
 .env*.local

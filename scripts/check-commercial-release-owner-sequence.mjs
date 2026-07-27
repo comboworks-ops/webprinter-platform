@@ -65,9 +65,10 @@ function readArg(name, fallback) {
 }
 
 async function readRepositoryState() {
-  const [statusResult, stagedResult, headResult] = await Promise.all([
+  const [statusResult, stagedResult, committedResult, headResult] = await Promise.all([
     runQuietCommand("git", ["status", "--short", "--branch"]),
     runQuietCommand("git", ["diff", "--cached", "--name-status"]),
+    runQuietCommand("git", ["diff", "--name-status", "@{u}..HEAD"]),
     runQuietCommand("git", ["rev-parse", "--short", "HEAD"]),
   ]);
   const lines = statusResult.stdout
@@ -83,6 +84,13 @@ async function readRepositoryState() {
     .map((line) => line.trimEnd())
     .filter(Boolean)
     .map(parseStagedEntry);
+  const committedEntries = committedResult.code === 0
+    ? committedResult.stdout
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter(Boolean)
+      .map(parseStagedEntry)
+    : [];
 
   return {
     branchLine,
@@ -90,6 +98,7 @@ async function readRepositoryState() {
     branchAhead: branchLine.includes("[ahead"),
     entries,
     stagedEntries,
+    committedEntries,
     headCommit: (headResult.stdout || "unknown").trim() || "unknown",
   };
 }
@@ -181,16 +190,28 @@ function readNumberLine(content, prefix) {
 
 function buildReleaseOwnerSequence(repositoryState, inputs) {
   const releasePassed = inputs.release.content.includes("Status: PASSED");
-  const stagedPassed = inputs.stagedPacket.content.includes("Status: PASS")
+  const committedPacket = repositoryState.stagedEntries.length === 0
+    && !repositoryState.branchBehind
+    && inputs.stagedPacket.content.includes("Status: NO STAGED PACKET")
     && inputs.stagedPacket.content.includes("Forbidden staged files: 0");
+  const stagedPassed = (
+    inputs.stagedPacket.content.includes("Status: PASS")
+    && inputs.stagedPacket.content.includes("Forbidden staged files: 0")
+  ) || committedPacket;
   const unresolvedOverlaps = readNumberLine(inputs.upstreamReconciliation.content, "Unresolved overlaps: ");
   const ownerMergeSimulationPassed = inputs.ownerMergeReadiness.content.includes("Merge simulation: PASS")
     && !inputs.ownerMergeReadiness.content.includes("| BLOCKED |");
   const temporaryMergedTree = readLine(inputs.ownerMergeReadiness.content, "Temporary merged tree: ");
   const deployStatus = "generated after release-owner sequence";
   const stagedCount = repositoryState.stagedEntries.length;
-  const unstagedCount = repositoryState.entries.filter((entry) => entry.worktreeStatus || entry.status === "??").length;
-  const supabaseStaged = repositoryState.stagedEntries.filter((entry) => entry.path.startsWith("supabase/"));
+  const unstagedCount = repositoryState.entries.filter((entry) => (
+    (entry.worktreeStatus || entry.status === "??")
+    && !isGeneratedCommercialReportPath(entry.path)
+  )).length;
+  const supabaseReleaseEntries = mergeEntriesByPath([
+    ...repositoryState.stagedEntries,
+    ...repositoryState.committedEntries,
+  ]).filter((entry) => entry.path.startsWith("supabase/"));
   const blockers = [];
 
   if (!releasePassed) blockers.push("Latest commercial release report is not PASSED.");
@@ -204,7 +225,7 @@ function buildReleaseOwnerSequence(repositoryState, inputs) {
   const holds = [
     repositoryState.branchBehind ? "Actual branch freshness step is still pending." : "",
     unstagedCount ? `${unstagedCount} unstaged/untracked entries remain outside the staged packet.` : "",
-    supabaseStaged.length ? "Supabase migration/function deployment needs an explicit owner decision." : "",
+    supabaseReleaseEntries.length ? "Supabase migration/function deployment needs an explicit owner decision." : "",
     "Commit, push, Vercel deploy, Supabase deploy and rollback note are still human-owned.",
   ].filter(Boolean);
 
@@ -218,14 +239,15 @@ function buildReleaseOwnerSequence(repositoryState, inputs) {
     deployStatus,
     stagedCount,
     unstagedCount,
-    supabaseStaged,
+    supabaseReleaseEntries,
     blockers,
     holds,
-    steps: buildSequenceSteps({ repositoryState, supabaseStaged }),
+    steps: buildSequenceSteps({ repositoryState, supabaseReleaseEntries }),
   };
 }
 
-function buildSequenceSteps({ repositoryState, supabaseStaged }) {
+function buildSequenceSteps({ repositoryState, supabaseReleaseEntries }) {
+  const committedPacket = repositoryState.stagedEntries.length === 0 && !repositoryState.branchBehind;
   return [
     {
       step: "1",
@@ -254,9 +276,11 @@ function buildSequenceSteps({ repositoryState, supabaseStaged }) {
     {
       step: "4",
       owner: "Release owner",
-      status: "hold",
-      action: "Commit only the reviewed staged packet.",
-      command: "git diff --cached --check && git commit -m \"chore: add commercial readiness proof gates\"",
+      status: committedPacket ? "done" : "hold",
+      action: committedPacket ? "Keep the reviewed committed packet unchanged." : "Commit only the reviewed staged packet.",
+      command: committedPacket
+        ? "git diff --cached --quiet"
+        : "git diff --cached --check && git commit -m \"chore: add commercial readiness proof gates\"",
       stopRule: "Stop if forbidden local/debug artifacts enter the staged packet.",
     },
     {
@@ -270,14 +294,27 @@ function buildSequenceSteps({ repositoryState, supabaseStaged }) {
     {
       step: "6",
       owner: "Supabase owner",
-      status: supabaseStaged.length ? "hold" : "ready",
+      status: supabaseReleaseEntries.length ? "hold" : "ready",
       action: "Deploy Supabase migration/functions only after explicit approval.",
-      command: supabaseStaged.length
+      command: supabaseReleaseEntries.length
         ? "Review supabase/config.toml, pricing-read, product-detail-read and migration scope before deploy."
-        : "No Supabase deploy step is visible in the staged packet.",
+        : "No Supabase deploy step is visible in the staged or committed release delta.",
       stopRule: "Stop if function exposure or grant checks fail.",
     },
   ];
+}
+
+function isGeneratedCommercialReportPath(path) {
+  return path.startsWith("docs/COMMERCIAL_") && path.endsWith(".md");
+}
+
+function mergeEntriesByPath(entries) {
+  const byPath = new Map();
+  for (const entry of entries) {
+    if (!entry.path) continue;
+    byPath.set(entry.path, entry);
+  }
+  return [...byPath.values()];
 }
 
 async function writeReleaseOwnerSequenceReport({ reportPath, repositoryState, inputs, sequence }) {
@@ -362,10 +399,10 @@ function stopRuleLines(sequence) {
 }
 
 function supabaseScopeLines(sequence) {
-  if (!sequence.supabaseStaged.length) {
-    return ["- No Supabase files are staged in this packet."];
+  if (!sequence.supabaseReleaseEntries.length) {
+    return ["- No Supabase files are visible in the staged or committed release delta."];
   }
-  return sequence.supabaseStaged.map((entry) => `- ${entry.path}`);
+  return sequence.supabaseReleaseEntries.map((entry) => `- ${entry.path}`);
 }
 
 async function verifyReleaseOwnerSequenceReport(path) {
@@ -386,7 +423,6 @@ async function verifyReleaseOwnerSequenceReport(path) {
     "Deploy readiness status:",
     "## Owner Sequence",
     "Freshen the branch while preserving the staged packet.",
-    "Commit only the reviewed staged packet.",
     "## Stop Rules",
     "## Supabase Scope",
     "## Operator Commands",
@@ -398,6 +434,12 @@ async function verifyReleaseOwnerSequenceReport(path) {
     if (!content.includes(marker)) {
       problems.push(`Missing release-owner sequence report marker: ${marker}`);
     }
+  }
+  if (
+    !content.includes("Commit only the reviewed staged packet.")
+    && !content.includes("Keep the reviewed committed packet unchanged.")
+  ) {
+    problems.push("Release-owner sequence report is missing the staged or committed packet action.");
   }
 
   const statusLine = content.split("\n").find((line) => line.startsWith("Status: "));

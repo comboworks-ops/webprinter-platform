@@ -67,9 +67,10 @@ function readArg(name, fallback) {
 }
 
 async function readRepositoryState() {
-  const [statusResult, stagedResult, headResult] = await Promise.all([
+  const [statusResult, stagedResult, committedResult, headResult] = await Promise.all([
     runQuietCommand("git", ["status", "--short", "--branch"]),
     runQuietCommand("git", ["diff", "--cached", "--name-status"]),
+    runQuietCommand("git", ["diff", "--name-status", "@{u}..HEAD"]),
     runQuietCommand("git", ["rev-parse", "--short", "HEAD"]),
   ]);
   const lines = statusResult.stdout
@@ -85,6 +86,13 @@ async function readRepositoryState() {
     .map((line) => line.trimEnd())
     .filter(Boolean)
     .map(parseStagedEntry);
+  const committedEntries = committedResult.code === 0
+    ? committedResult.stdout
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter(Boolean)
+      .map(parseStagedEntry)
+    : [];
 
   return {
     branchLine,
@@ -92,6 +100,7 @@ async function readRepositoryState() {
     branchAhead: branchLine.includes("[ahead"),
     entries,
     stagedEntries,
+    committedEntries,
     headCommit: (headResult.stdout || "unknown").trim() || "unknown",
   };
 }
@@ -210,12 +219,18 @@ function buildReleaseHandoff(repositoryState, reportInputs) {
     && !reportInputs.releaseOwnerSequence.content.includes("- BLOCKED:");
   const stagedForbidden = reportInputs.stagedPacket.content.includes("Forbidden staged files: 0");
   const stagedCount = repositoryState.stagedEntries.length;
-  const unstagedCount = repositoryState.entries.filter((entry) => entry.worktreeStatus || entry.status === "??").length;
+  const unstagedCount = repositoryState.entries.filter((entry) => (
+    (entry.worktreeStatus || entry.status === "??")
+    && !isGeneratedCommercialReportPath(entry.path)
+  )).length;
   const releaseImpactingUnstaged = repositoryState.entries.filter((entry) => (
     (entry.worktreeStatus || entry.status === "??")
     && isReleaseImpactingOutsidePath(entry.path)
   ));
-  const supabaseStaged = repositoryState.stagedEntries.filter((entry) => entry.path.startsWith("supabase/"));
+  const supabaseReleaseEntries = mergeEntriesByPath([
+    ...repositoryState.stagedEntries,
+    ...repositoryState.committedEntries,
+  ]).filter((entry) => entry.path.startsWith("supabase/"));
   const blockers = [];
 
   if (!releasePassed) blockers.push("Latest commercial release proof is not PASSED.");
@@ -251,7 +266,7 @@ function buildReleaseHandoff(repositoryState, reportInputs) {
       : "",
     releaseImpactingUnstaged.length ? `${releaseImpactingUnstaged.length} release-impacting unstaged source/config file(s) remain outside the staged packet.` : "",
     unstagedCount ? `${unstagedCount} unstaged/untracked entries remain outside the staged packet.` : "",
-    supabaseStaged.length ? "Supabase migration/function changes require deliberate deploy-owner review." : "",
+    supabaseReleaseEntries.length ? "Supabase migration/function changes require deliberate deploy-owner review." : "",
     "Commit message, push target, Vercel deploy path, Supabase deploy path and rollback note still need human ownership.",
   ].filter(Boolean);
 
@@ -271,7 +286,7 @@ function buildReleaseHandoff(repositoryState, reportInputs) {
     stagedCount,
     unstagedCount,
     releaseImpactingUnstagedCount: releaseImpactingUnstaged.length,
-    supabaseStaged,
+    supabaseReleaseEntries,
     blockers,
     holds,
     suggestedCommitSubject: "chore: add commercial readiness proof gates",
@@ -398,13 +413,13 @@ function ownerDecisionLines(handoff) {
 }
 
 function supabaseScopeLines(handoff) {
-  if (!handoff.supabaseStaged.length) {
-    return ["- No Supabase files are staged in this packet."];
+  if (!handoff.supabaseReleaseEntries.length) {
+    return ["- No Supabase files are visible in the staged or committed release delta."];
   }
   return [
-    "The staged packet includes Supabase deploy-review files. Do not apply them implicitly with a frontend push.",
+    "The release includes Supabase deploy-review files. Do not apply them implicitly with a frontend push.",
     "",
-    ...handoff.supabaseStaged.map((entry) => `- ${entry.path}`),
+    ...handoff.supabaseReleaseEntries.map((entry) => `- ${entry.path}`),
   ];
 }
 
@@ -508,6 +523,19 @@ function isReleaseImpactingOutsidePath(path) {
     || path === "vite.config.ts"
     || path === ".vercelignore"
   );
+}
+
+function isGeneratedCommercialReportPath(path) {
+  return path.startsWith("docs/COMMERCIAL_") && path.endsWith(".md");
+}
+
+function mergeEntriesByPath(entries) {
+  const byPath = new Map();
+  for (const entry of entries) {
+    if (!entry.path) continue;
+    byPath.set(entry.path, entry);
+  }
+  return [...byPath.values()];
 }
 
 function runQuietCommand(command, commandArgs) {

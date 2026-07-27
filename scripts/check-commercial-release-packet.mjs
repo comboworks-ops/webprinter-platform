@@ -163,9 +163,10 @@ function readArg(name, fallback) {
 }
 
 async function readRepositoryState() {
-  const [statusResult, stagedResult, headResult] = await Promise.all([
+  const [statusResult, stagedResult, committedResult, headResult] = await Promise.all([
     runQuietCommand("git", ["status", "--short", "--branch"]),
     runQuietCommand("git", ["diff", "--cached", "--name-status"]),
+    runQuietCommand("git", ["diff", "--name-status", "@{u}..HEAD"]),
     runQuietCommand("git", ["rev-parse", "--short", "HEAD"]),
   ]);
   const lines = statusResult.stdout
@@ -181,12 +182,20 @@ async function readRepositoryState() {
     .map((line) => line.trimEnd())
     .filter(Boolean)
     .map(parseStagedEntry);
+  const committedEntries = committedResult.code === 0
+    ? committedResult.stdout
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter(Boolean)
+      .map(parseStagedEntry)
+    : [];
 
   return {
     branchLine,
     branchBehind: branchLine.includes("[behind"),
     entries,
     stagedEntries,
+    committedEntries,
     stagedWorktreeDriftEntries: entries.filter((entry) => (
       stagedEntries.some((stagedEntry) => stagedEntry.path === entry.path)
       && Boolean(entry.worktreeStatus)
@@ -278,8 +287,14 @@ function readNumberLine(content, prefix) {
 function buildReleasePacket(repositoryState, reportInputs) {
   const releaseReady = reportInputs.release.expectedPresent;
   const proofReady = reportInputs.proof.expectedPresent;
-  const stagedReady = reportInputs.stagedPacket.expectedPresent
+  const committedPacket = repositoryState.stagedEntries.length === 0
+    && !repositoryState.branchBehind
+    && reportInputs.stagedPacket.content.includes("Status: NO STAGED PACKET")
     && reportInputs.stagedPacket.content.includes("Forbidden staged files: 0");
+  const stagedReady = (
+    reportInputs.stagedPacket.expectedPresent
+    && reportInputs.stagedPacket.content.includes("Forbidden staged files: 0")
+  ) || committedPacket;
   const unresolvedOverlaps = readNumberLine(reportInputs.upstreamReconciliation.content, "Unresolved overlaps: ");
   const ownerMergeSimulationPassed = reportInputs.ownerMergeReadiness.content.includes("Merge simulation: PASS")
     && !reportInputs.ownerMergeReadiness.content.includes("| BLOCKED |");
@@ -295,7 +310,10 @@ function buildReleasePacket(repositoryState, reportInputs) {
     && !GENERATED_REPORT_PATHS.has(entry.path)
   ));
   const stagedWorktreeDriftCount = repositoryState.stagedWorktreeDriftEntries.length;
-  const supabaseStaged = repositoryState.stagedEntries.filter((entry) => entry.path.startsWith("supabase/"));
+  const supabaseReleaseEntries = mergeEntriesByPath([
+    ...repositoryState.stagedEntries,
+    ...repositoryState.committedEntries,
+  ]).filter((entry) => entry.path.startsWith("supabase/"));
   const missingReports = Object.values(reportInputs).filter((report) => !report.exists);
   const blockers = [];
 
@@ -323,7 +341,7 @@ function buildReleasePacket(repositoryState, reportInputs) {
     stagedWorktreeDriftCount ? `${stagedWorktreeDriftCount} staged file(s) also have unstaged working-tree changes.` : "",
     releaseImpactingUnstaged.length ? `${releaseImpactingUnstaged.length} release-impacting unstaged source/config file(s) remain outside the packet.` : "",
     unstagedCount ? `${unstagedCount} unstaged/untracked entries remain outside the staged packet.` : "",
-    supabaseStaged.length ? "Supabase migration/function files are staged and need explicit deploy approval." : "",
+    supabaseReleaseEntries.length ? "Supabase migration/function files are in the release delta and need explicit deploy approval." : "",
   ].filter(Boolean);
 
   return {
@@ -338,7 +356,7 @@ function buildReleasePacket(repositoryState, reportInputs) {
     unstagedCount,
     releaseImpactingUnstagedCount: releaseImpactingUnstaged.length,
     stagedWorktreeDriftCount,
-    supabaseStaged,
+    supabaseReleaseEntries,
     blockers,
     holds,
   };
@@ -370,7 +388,7 @@ async function writeReleasePacketReport({ reportPath, repositoryState, reportInp
     `Staged file drift: ${packet.stagedWorktreeDriftCount}`,
     `Release-impacting unstaged files: ${packet.releaseImpactingUnstagedCount}`,
     `Unstaged/untracked outside packet: ${packet.unstagedCount}`,
-    `Supabase staged files: ${packet.supabaseStaged.length}`,
+    `Supabase release files: ${packet.supabaseReleaseEntries.length}`,
     "",
     "## Report Index",
     "",
@@ -553,6 +571,15 @@ function isReleaseImpactingOutsidePath(path) {
     || path === "vite.config.ts"
     || path === ".vercelignore"
   );
+}
+
+function mergeEntriesByPath(entries) {
+  const byPath = new Map();
+  for (const entry of entries) {
+    if (!entry.path) continue;
+    byPath.set(entry.path, entry);
+  }
+  return [...byPath.values()];
 }
 
 function runQuietCommand(command, commandArgs) {

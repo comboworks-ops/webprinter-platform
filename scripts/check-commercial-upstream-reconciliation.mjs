@@ -95,7 +95,7 @@ async function buildUpstreamReconciliation() {
 
   const [commitResult, remoteDiffResult] = await Promise.all([
     runQuietCommand("git", ["log", "--oneline", `HEAD..${upstream}`]),
-    runQuietCommand("git", ["diff", "--name-status", `HEAD..${upstream}`]),
+    runQuietCommand("git", ["diff", "--name-status", `HEAD...${upstream}`]),
   ]);
   const remoteCommits = commitResult.stdout
     .split("\n")
@@ -154,7 +154,7 @@ async function reconcileOverlap(entry, upstream) {
   const [remoteContentResult, stagedContentResult, remotePatchResult] = await Promise.all([
     runQuietCommand("git", ["show", `${upstream}:${entry.path}`]),
     runQuietCommand("git", ["show", `:${entry.path}`]),
-    runQuietCommand("git", ["diff", `HEAD..${upstream}`, "--", entry.path]),
+    runQuietCommand("git", ["diff", `HEAD...${upstream}`, "--", entry.path]),
   ]);
   const remoteContent = remoteContentResult.stdout;
   const stagedContent = stagedContentResult.stdout;
@@ -333,7 +333,7 @@ async function writeUpstreamReconciliationReport({ reportPath, reconciliation })
     "",
     "```sh",
     `git log --oneline HEAD..${reconciliation.upstream}`,
-    `git diff --name-status HEAD..${reconciliation.upstream}`,
+    `git diff --name-status HEAD...${reconciliation.upstream}`,
     "npm run check:commercial-upstream-reconciliation:write",
     "```",
     "",

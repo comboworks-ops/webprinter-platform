@@ -74,9 +74,10 @@ function readArg(name, fallback) {
 }
 
 async function readRepositoryState() {
-  const [statusResult, stagedResult, diffCheckResult] = await Promise.all([
+  const [statusResult, stagedResult, committedResult, diffCheckResult] = await Promise.all([
     runQuietCommand("git", ["status", "--short", "--branch"]),
     runQuietCommand("git", ["diff", "--cached", "--name-status"]),
+    runQuietCommand("git", ["diff", "--name-status", "@{u}..HEAD"]),
     runQuietCommand("git", ["diff", "--cached", "--check"]),
   ]);
 
@@ -93,6 +94,13 @@ async function readRepositoryState() {
     .map((line) => line.trimEnd())
     .filter(Boolean)
     .map(parseStagedEntry);
+  const committedEntries = committedResult.code === 0
+    ? committedResult.stdout
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter(Boolean)
+      .map(parseStagedEntry)
+    : [];
 
   return {
     available: statusResult.code === 0 && stagedResult.code === 0,
@@ -101,6 +109,7 @@ async function readRepositoryState() {
     branchAhead: branchLine.includes("[ahead"),
     entries,
     stagedEntries,
+    committedEntries,
     stagedDiffCheckOk: diffCheckResult.code === 0,
     stagedDiffCheckOutput: (diffCheckResult.stdout || diffCheckResult.stderr || "").trim(),
     error: [statusResult.stderr, stagedResult.stderr].filter(Boolean).join("\n").trim(),
@@ -175,9 +184,19 @@ async function buildDeployReadinessChecks(repositoryState) {
     && releaseReport.content.includes("Vite production build passed.");
   const stagedPacketPassed = stagedPacketReport.content.includes("Status: PASS")
     && stagedPacketReport.content.includes("Forbidden staged files: 0");
+  const committedPacketPassed = repositoryState.stagedEntries.length === 0
+    && !repositoryState.branchBehind
+    && stagedPacketReport.content.includes("Status: NO STAGED PACKET")
+    && stagedPacketReport.content.includes("Forbidden staged files: 0");
+  const packetSafetyPassed = stagedPacketPassed || committedPacketPassed;
   const unstagedEntries = repositoryState.entries.filter((entry) => entry.worktreeStatus || entry.status === "??");
   const releaseImpactingUnstaged = unstagedEntries.filter((entry) => isReleaseImpactingOutsidePath(entry.path));
   const highRiskHeld = repositoryState.entries.filter((entry) => isHighRiskHeldPath(entry.path));
+  const releaseEntries = mergeEntriesByPath([
+    ...repositoryState.stagedEntries,
+    ...repositoryState.committedEntries,
+  ]);
+  const supabaseReleaseEntries = releaseEntries.filter((entry) => entry.path.startsWith("supabase/"));
 
   return [
     {
@@ -190,12 +209,16 @@ async function buildDeployReadinessChecks(repositoryState) {
     },
     {
       label: "Staged packet safety",
-      status: stagedPacketReport.exists && stagedPacketPassed && stagedForbiddenCount === 0 ? "PASS" : "BLOCKED",
+      status: stagedPacketReport.exists && packetSafetyPassed && stagedForbiddenCount === 0 ? "PASS" : "BLOCKED",
       evidence: stagedPacketReport.exists
-        ? `Staged report shows ${Number.isFinite(stagedForbiddenCount) ? stagedForbiddenCount : "unknown"} forbidden staged files.`
+        ? committedPacketPassed
+          ? "No staged packet remains because the reviewed release is committed; the report shows 0 forbidden staged files."
+          : `Staged report shows ${Number.isFinite(stagedForbiddenCount) ? stagedForbiddenCount : "unknown"} forbidden staged files.`
         : `Missing ${STAGED_PACKET_REPORT_PATH}.`,
-      next: stagedPacketReport.exists && stagedPacketPassed && stagedForbiddenCount === 0
-        ? "Keep held artifacts outside the staged packet."
+      next: stagedPacketReport.exists && packetSafetyPassed && stagedForbiddenCount === 0
+        ? committedPacketPassed
+          ? "Keep the reviewed committed packet unchanged."
+          : "Keep held artifacts outside the staged packet."
         : "Run npm run check:commercial-staged-packet:write and remove forbidden staged files.",
     },
     {
@@ -302,12 +325,11 @@ async function buildDeployReadinessChecks(repositoryState) {
     },
     {
       label: "Deployable Supabase scope",
-      status: repositoryState.stagedEntries.some((entry) => entry.path.startsWith("supabase/")) ? "HOLD" : "PASS",
-      evidence: repositoryState.stagedEntries
-        .filter((entry) => entry.path.startsWith("supabase/"))
+      status: supabaseReleaseEntries.length ? "HOLD" : "PASS",
+      evidence: supabaseReleaseEntries
         .map((entry) => entry.path)
-        .join(", ") || "No staged Supabase files.",
-      next: repositoryState.stagedEntries.some((entry) => entry.path.startsWith("supabase/"))
+        .join(", ") || "No Supabase files in the staged or committed release delta.",
+      next: supabaseReleaseEntries.length
         ? "Before DB/function deploy, apply migration/function deployment deliberately after Supabase owner review."
         : "No Supabase deploy step needed for this packet.",
     },
@@ -382,6 +404,15 @@ function isReleaseImpactingOutsidePath(path) {
   );
 }
 
+function mergeEntriesByPath(entries) {
+  const byPath = new Map();
+  for (const entry of entries) {
+    if (!entry.path) continue;
+    byPath.set(entry.path, entry);
+  }
+  return [...byPath.values()];
+}
+
 function getReadinessStatus(checks) {
   if (checks.some((check) => check.status === "BLOCKED")) return "BLOCKED";
   if (checks.some((check) => check.status === "HOLD")) return "HOLD";
@@ -405,6 +436,7 @@ async function writeDeployReadinessReport({ reportPath, repositoryState, checks,
     "",
     `Deploy readiness: ${status}`,
     `Staged entries: ${repositoryState.stagedEntries.length}`,
+    `Committed release entries: ${repositoryState.committedEntries.length}`,
     `Total dirty entries: ${repositoryState.entries.length}`,
     `Release-impacting unstaged files: ${readinessCheckValue(checks, "Release-impacting unstaged source/config")}`,
     `Branch behind remote: ${repositoryState.branchBehind ? "yes" : "no"}`,

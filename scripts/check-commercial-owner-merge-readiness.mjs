@@ -93,7 +93,7 @@ async function buildOwnerMergeReadiness() {
   const [remoteCommitResult, remoteDiffResult, upstreamCommitResult] = upstream
     ? await Promise.all([
       runQuietCommand("git", ["log", "--oneline", `HEAD..${upstream}`]),
-      runQuietCommand("git", ["diff", "--name-status", `HEAD..${upstream}`]),
+      runQuietCommand("git", ["diff", "--name-status", `HEAD...${upstream}`]),
       runQuietCommand("git", ["rev-parse", "--short", upstream]),
     ])
     : [
