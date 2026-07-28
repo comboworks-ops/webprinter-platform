@@ -62,6 +62,11 @@ export type StorefrontSeoMeta = {
 type BrandmarkVariant = "icon" | "og";
 
 const STOREFRONT_ICON_VERSION = "20260715";
+const OWNED_STOREFRONT_FAVICON_HOSTS = new Set([
+  "webprinter.dk",
+  "salgsmapper.dk",
+  "onlinetryksager.dk",
+]);
 
 export type StorefrontAiSeoFaqItem = {
   id?: string;
@@ -317,6 +322,19 @@ export function isPlatformRootHost(
   const normalizedHost = normalizeHostname(hostname);
   const normalizedRoot = normalizeHostname(rootDomain) || DEFAULT_ROOT_DOMAIN;
   return normalizedHost === normalizedRoot || normalizedHost === `www.${normalizedRoot}`;
+}
+
+export function resolveStableStorefrontFaviconUrl(origin: string): string | null {
+  try {
+    const url = new URL(origin);
+    const hostname = normalizeHostname(url.hostname).replace(/^www\./, "");
+
+    return OWNED_STOREFRONT_FAVICON_HOSTS.has(hostname)
+      ? `${url.origin}/favicon.ico`
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeStorefrontPathname(pathname: string | null | undefined): string {
@@ -630,9 +648,10 @@ export function resolveStorefrontSeoMeta(input: {
   const resolvedVisual = uploadedLogo
     ? resolveAbsoluteUrl(input.origin, uploadedLogo)
     : generatedOgImage;
-  const resolvedIcon = customFavicon
-    ? resolveAbsoluteUrl(input.origin, customFavicon)
-    : generatedIcon;
+  const resolvedIcon = resolveStableStorefrontFaviconUrl(input.origin)
+    || (customFavicon
+      ? resolveAbsoluteUrl(input.origin, customFavicon)
+      : generatedIcon);
 
   return {
     title,

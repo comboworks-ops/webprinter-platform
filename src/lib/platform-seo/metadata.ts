@@ -6,7 +6,7 @@ import type {
 
 const DEFAULT_BASE_URL = "https://www.webprinter.dk";
 const DEFAULT_PLATFORM_OG_IMAGE_PATH = "/platform-og-image.png";
-const DEFAULT_PLATFORM_ICON_PATH = "/platform-favicon.svg";
+const DEFAULT_PLATFORM_ICON_PATH = "/favicon.ico";
 
 export const PLATFORM_META_PATHS = new Set([
   "/",

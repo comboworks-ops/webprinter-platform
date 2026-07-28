@@ -186,7 +186,7 @@ function toHtmlMeta(input: {
     canonicalUrl: input.canonicalUrl,
     ogUrl: input.ogUrl,
     imageUrl: input.ogImageUrl || `${new URL(input.canonicalUrl).origin}/platform-og-image.png`,
-    iconUrl: `${new URL(input.canonicalUrl).origin}/platform-favicon.svg`,
+    iconUrl: `${new URL(input.canonicalUrl).origin}/favicon.ico`,
     siteName: input.siteName,
     author: input.author,
     structuredData: JSON.stringify(input.jsonLd[0] || {
