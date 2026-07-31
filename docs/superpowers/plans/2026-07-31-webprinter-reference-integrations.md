@@ -19,6 +19,10 @@
 - No task in this plan performs a live supplier catalog import, supplier order, price publication, product publication, production submission, payment, or customer-order mutation.
 - Frankfurter/ECB, VIES, official Danish company/address, and PostNord calls run server-side only. No provider URL, token, API key, signing secret, or service-role key may be stored in `VITE_*`, browser code, tenant settings, logs, or returned error detail.
 - Provider adapters use fixed allow-listed origins, bounded timeouts, bounded response sizes, explicit schema validation, and sanitized errors. A browser request may select a supported operation, never an arbitrary URL.
+- VIES uses the European Commission REST base `https://ec.europa.eu/taxation_customs/vies/rest-api/`: `POST check-vat-number` with separate `countryCode`/`vatNumber`, and `GET check-status` for provider/member-state availability. A `valid: false` response is `invalid`; HTTP/provider/member-state failure is `unavailable`.
+- The authoritative CVR distribution service remains disabled until Erhvervsstyrelsen credentials are issued and a credential-safe HTTPS transport is confirmed. Official examples currently document Basic authentication to `http://distribution.virk.dk/cvr-permanent/...`; never transmit credentials over plaintext HTTP and never scrape CVR.dk as a fallback.
+- New Danish address-data work uses a pinned, configured Datafordeler DAR GraphQL HTTPS schema (`https://graphql.datafordeler.dk/DAR/<version>`) with a server-only API key/OAuth credential. Do not build new work on DAWA, which closes 2026-10-01 10:00 CEST, and keep Adressevælger/Adressevask unavailable until KDS publishes/provides an implementable endpoint contract.
+- PostNord uses Track & Trace v5 only (`https://atapi2.postnord.com` sandbox, `https://api2.postnord.com` production, fixed `/rest/shipment/v5/trackandtrace/findByIdentifier.json`). Production remains disabled until a Customer/Partner plan, API key, retention terms, and approval exist; honor 429 and never bulk/constant poll.
 - VIES and Danish business/address evidence is optional. Provider timeout, outage, unavailable credentials, inconclusive data, or a negative result must not block account creation, tenant creation, login, checkout, ordering, or later edits.
 - VIES evidence is not a tax decision. Store the provider result and evidence timestamp; do not automatically alter VAT, prices, invoices, checkout, or customer eligibility.
 - PostNord ingestion is versioned and display-only. It must not update `orders.status`, `shipped_at`, `delivered_at`, email notifications, POD jobs, payment state, or supplier state.
@@ -536,8 +540,8 @@ Expected: FAIL because the shared module does not exist.
 Provider rules:
 
 - `viesProvider.ts`: fixed official VIES service boundary; map only VAT validity, request identifier, provider name/address summary when legally and technically returned, and provider timestamp/reference.
-- `danishCompanyProvider.ts`: fixed official Danish company-register adapter boundary. If approved endpoint/credentials are not configured, return `unavailable`; do not invent or scrape an alternative.
-- `danishAddressProvider.ts`: fixed official Danish address-data adapter boundary. Return normalized address candidates with stable official IDs; do not accept arbitrary coordinates/URLs from the browser.
+- `danishCompanyProvider.ts`: expose the bounded Erhvervsstyrelsen CVR query/response contract, but return `unavailable` unless credentials and a reviewed HTTPS endpoint are configured. Query only `Vrvirksomhed.cvrNummer` and the minimal approved `_source` fields; do not send Basic credentials to the documented plaintext origin and do not invent/scrape an alternative.
+- `danishAddressProvider.ts`: use a pinned configured Datafordeler DAR GraphQL schema and select only stable address ID plus the structured display fields required by the form. Keep API key/OAuth server-only and sanitized from URLs/logs. Do not call legacy DAWA or an undocumented Adressevælger/Adressevask endpoint.
 - Every adapter receives injected `fetch`, timeout signal, maximum bytes, and correlation ID.
 
 - [ ] **Step 3: Implement the authenticated Edge Function**
@@ -649,8 +653,8 @@ Cover:
 1. User invocation requires JWT plus tenant access and reads the tracking number from the existing order server-side.
 2. Master invocation may read any tenant order but still cannot submit an arbitrary tracking number or provider URL.
 3. Optional cron invocation requires a 32+ character secret, constant-time comparison, and a bounded maximum batch.
-4. Missing PostNord credential/config returns `provider_unavailable` without inserting an event.
-5. Provider fetch uses the fixed official PostNord origin, timeout, no cross-origin redirect, and bounded response bytes.
+4. Missing PostNord Customer/Partner approval, production API key, or configuration returns `provider_unavailable` without inserting an event.
+5. Provider fetch uses Track & Trace v5 on the exact environment allowlist (`atapi2.postnord.com` sandbox or `api2.postnord.com` production), the fixed `findByIdentifier.json` path, timeout, no cross-origin redirect, bounded response bytes, and 429 retry handling. It never accepts a browser-supplied tracking number; the order supplies it server-side.
 6. Event insert uses service role and `ON CONFLICT`/unique replay behavior.
 7. Success inserts tracking events only; mocked calls prove zero updates to `orders`, `order_status_history`, email functions, POD jobs, or supplier functions.
 
@@ -762,6 +766,7 @@ Do not add provider secrets or endpoint credentials to `supabase/config.toml`.
 `docs/REFERENCE_INTEGRATIONS.md` must include:
 
 - exact data flow and authoritative-system boundaries;
+- official-provider activation gates: VIES public REST; CVR disabled until credential-safe HTTPS access; Datafordeler DAR GraphQL version/key; no new DAWA; PostNord Customer/Partner production approval;
 - server environment variable names without values;
 - fixed-provider origin policy;
 - snapshot/evidence retention and PII minimization;
