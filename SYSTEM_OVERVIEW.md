@@ -479,7 +479,9 @@ src/
 1. User enables "Soft Proof" toggle
    ↓
 2. useColorProofing captures Fabric canvas (document area only, excluding pasteboard):
-   fabricCanvas.toDataURL({ left: pasteboardOffset, top: pasteboardOffset, ... })
+   - convert the logical document rectangle through the active Fabric viewport
+   - crop with the transformed left/top/width/height
+   - this keeps fit and zoom from shifting the proof image
    ↓
 3. ImageData extracted and sent to Web Worker:
    worker.postMessage({ type: 'transform', imageData, ... })

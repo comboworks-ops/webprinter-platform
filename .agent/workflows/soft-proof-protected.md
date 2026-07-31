@@ -34,10 +34,10 @@ These files have been tested and verified to work correctly. **DO NOT MODIFY** w
         ref={proofingOverlayRef}
         className="absolute pointer-events-none"
         style={{
-            left: PASTEBOARD_PADDING,  // 100px offset
-            top: PASTEBOARD_PADDING,   // 100px offset
-            width: docWidth,           // Document width only
-            height: docHeight,         // Document height only
+            left: viewportOffsetX + pasteboardPaddingPx * effectiveScale,
+            top: viewportOffsetY + pasteboardPaddingPx * effectiveScale,
+            width: docWidth * effectiveScale,
+            height: docHeight * effectiveScale,
             mixBlendMode: 'normal',
             zIndex: 10,  // Below guide lines (z-20+) but above canvas
         }}
@@ -58,10 +58,21 @@ const outputArray = lcmsModule.cmsDoTransform(proofTransform, inputArray, pixelC
 
 ### Document Area Cropping (DO NOT CHANGE!)
 ```typescript
-// Capture only the document area (excluding pasteboard)
-const srcX = pasteboardOffset;  // 100
-const srcY = pasteboardOffset;  // 100
-ctx.drawImage(sourceCanvas, srcX, srcY, srcWidth, srcHeight, 0, 0, width, height);
+// Fabric exports with the active viewport transform. Convert the logical
+// document rectangle to viewport coordinates before cropping.
+const viewportTransform = fabricCanvas.viewportTransform || fabric.iMatrix;
+const viewportZoom = fabricCanvas.getZoom() || 1;
+const captureLeft = viewportTransform[4] + pasteboardOffset * viewportZoom;
+const captureTop = viewportTransform[5] + pasteboardOffset * viewportZoom;
+const captureWidth = docWidth * viewportZoom;
+const captureHeight = docHeight * viewportZoom;
+
+fabricCanvas.toDataURL({
+    left: captureLeft,
+    top: captureTop,
+    width: captureWidth,
+    height: captureHeight,
+});
 ```
 
 ### Hook Parameters (Required)
@@ -80,10 +91,10 @@ useColorProofing({
 
 ## What Must Be Preserved
 
-1. **Overlay position**: `left/top: PASTEBOARD_PADDING` (100px)
-2. **Overlay size**: `docWidth × docHeight` (not canvasWidth/Height)
+1. **Overlay position**: the viewport document origin plus scaled pasteboard padding
+2. **Overlay size**: scaled `docWidth × docHeight` (not canvasWidth/Height)
 3. **Z-index**: 10 (below guide lines at z-20+)
-4. **Canvas cropping**: Source crop at pasteboardOffset
+4. **Canvas cropping**: transform the document rectangle through the active Fabric viewport
 5. **lcms-wasm 3-parameter API**: Returns output, doesn't take output buffer
 
 ## If Changes Are Needed

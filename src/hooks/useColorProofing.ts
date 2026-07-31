@@ -257,15 +257,23 @@ export function useColorProofing({
         }
 
         try {
-            // Use toDataURL to get a consistent snapshot of the document area, ignoring current viewport transform/zoom
+            const viewportTransform = fabricCanvas.viewportTransform || fabric.iMatrix;
+            const viewportZoom = fabricCanvas.getZoom() || 1;
+
+            // Fabric applies the current viewport transform while exporting. Convert
+            // the document crop to viewport coordinates so fit/zoom never shifts it.
+            const captureLeft = viewportTransform[4] + (pasteboardOffset * viewportZoom);
+            const captureTop = viewportTransform[5] + (pasteboardOffset * viewportZoom);
+            const captureWidth = docWidth * viewportZoom;
+            const captureHeight = docHeight * viewportZoom;
+
             const dataUrl = fabricCanvas.toDataURL({
                 format: 'png',
-                left: pasteboardOffset,
-                top: pasteboardOffset,
-                width: docWidth,
-                height: docHeight,
+                left: captureLeft,
+                top: captureTop,
+                width: captureWidth,
+                height: captureHeight,
                 multiplier: 1,
-                withoutTransform: true
             });
 
             // Load into an image for processing

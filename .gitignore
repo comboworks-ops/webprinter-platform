@@ -146,3 +146,6 @@ classic-race-tilbud.html
 Salgsmapper_A4_4plus4_pricinghub_import_ready.csv
 .vercelignore 2
 .env*.local
+
+# Local Superpowers execution ledger and task artifacts.
+.superpowers/
