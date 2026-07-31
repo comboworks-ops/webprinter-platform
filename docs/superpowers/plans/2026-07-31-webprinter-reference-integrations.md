@@ -26,7 +26,7 @@
 - Every new public table/function needs explicit `REVOKE`/`GRANT`, RLS, indexes, uniqueness/idempotency constraints, comments, and a rollback section in the same migration. Run `npm run check:supabase-grants` after every migration edit.
 - Edge Functions that accept user sessions must verify JWT and re-check tenant access server-side. Any cron path requires a constant-time checked, 32+ character server secret and bounded batch size.
 - Preserve the Print.com submission claim, fresh validation, payment evidence, uncertain-response lock, and duplicate supplier-reference safeguards in `20260714190000_harden_print_production_submission.sql` and `src/lib/print-production/orderSubmission.ts`.
-- Do not modify, move, stage, delete, format, import from, or overwrite the existing untracked ERPNext pilot:
+- Do not modify, move, delete, format, import from, or overwrite the pre-existing ERPNext pilot snapshot anchored in isolated baseline commit `58ccc6d0`:
   - `docs/ERPNEXT_SHADOW_PILOT.md`
   - `src/lib/erpnext/`
   - `supabase/functions/_shared/erpShadow.ts`
@@ -34,7 +34,7 @@
 - Do not reuse ERPNext outbox/event concepts for these integrations. They have independent schemas, flags, adapters, and rollback paths.
 - Use additive migrations only. Do not rename or reinterpret the undocumented remote `delivery_tracking` object; the PostNord stream gets a new versioned table.
 - Keep all runtime flags disabled by default. Enabling a hosted provider or cron schedule requires separate operator approval after source review and staging evidence.
-- Do not commit, deploy, push, link Supabase, apply migrations, or write hosted data while implementing this plan unless a later user request explicitly authorizes that action.
+- Commit each reviewed task locally on the isolated `codex/external-reference-integrations` branch as required by subagent-driven-development. Do not push, deploy, link Supabase, apply migrations, call live providers/suppliers, or write hosted data unless a later user request explicitly authorizes that action.
 
 ## Planned File Map
 
@@ -105,7 +105,7 @@ git status --short --branch
 git status --short -- docs/ERPNEXT_SHADOW_PILOT.md src/lib/erpnext supabase/functions/_shared/erpShadow.ts supabase/functions/_shared/erpShadow.test.ts
 ```
 
-Expected: the ERPNext paths remain untracked and are recorded as pre-existing owner work.
+Expected: the ERPNext paths are clean relative to isolated baseline `58ccc6d0` and are recorded as pre-existing owner work. Their original source working-tree state remains untouched.
 
 - [ ] **Step 2: Run the existing pricing and POD safety tests before edits**
 
@@ -834,9 +834,8 @@ Expected: PASS, with only already documented build warnings.
 Run:
 
 ```bash
-git status --short -- docs/ERPNEXT_SHADOW_PILOT.md src/lib/erpnext supabase/functions/_shared/erpShadow.ts supabase/functions/_shared/erpShadow.test.ts
-git diff --name-only -- src/lib/erpnext supabase/functions/_shared/erpShadow.ts supabase/functions/_shared/erpShadow.test.ts
-git diff -- scripts/product-import/shared/conversion.js src/lib/print-production/orderSubmission.ts supabase/migrations/20260714190000_harden_print_production_submission.sql
+git diff --name-only 58ccc6d0..HEAD -- docs/ERPNEXT_SHADOW_PILOT.md src/lib/erpnext supabase/functions/_shared/erpShadow.ts supabase/functions/_shared/erpShadow.test.ts
+git diff 58ccc6d0..HEAD -- scripts/product-import/shared/conversion.js src/lib/print-production/orderSubmission.ts supabase/migrations/20260714190000_harden_print_production_submission.sql
 ```
 
 Expected:
@@ -851,12 +850,12 @@ Run:
 
 ```bash
 git status --short
-git diff --name-only
+git diff --name-only 58ccc6d0..HEAD
 ```
 
 Classify every path as FX, Danish/VIES, PostNord, migration/config/security, or documentation. Stop if any unrelated, ERPNext, core pricing, POD, generated secret, `.env`, Supabase temp, build output, or lockfile change appears.
 
-- [ ] **Step 5: Prepare the handoff without committing or deploying**
+- [ ] **Step 5: Prepare the handoff after all reviewed local task commits, without pushing or deploying**
 
 Report:
 
@@ -867,6 +866,6 @@ Report:
 - evidence that published rows were not repriced;
 - evidence that VIES was non-blocking and PostNord display-only;
 - rollback order;
-- explicit confirmation that the untracked ERPNext work was not modified.
+- explicit confirmation that the pre-existing ERPNext snapshot was not modified relative to `58ccc6d0`.
 
-Do not commit, push, deploy, apply migrations, enable cron, call live suppliers, or change hosted data.
+Do not push, deploy, apply migrations, enable cron, call live suppliers/providers, or change hosted data. The isolated local task commits are the review and handoff artifact.
