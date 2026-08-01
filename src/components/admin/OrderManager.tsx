@@ -16,6 +16,11 @@ import { resolveAdminTenant } from '@/lib/adminTenant';
 import { Link } from 'react-router-dom';
 import { TrackingEventTimeline } from '@/components/account/TrackingEventTimeline';
 import { buildTrackingTimeline, type TrackingTimeline } from '@/lib/delivery/trackingEvents';
+import {
+    TrackingRequestCoordinator,
+    type TrackingRequestToken,
+    type TrackingViewToken,
+} from '@/lib/delivery/trackingRequestCoordinator';
 
 interface Order {
     id: string;
@@ -90,7 +95,7 @@ export function OrderManager() {
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-    const activeTrackingOrderIdRef = useRef<string | null>(null);
+    const trackingRequestCoordinatorRef = useRef(new TrackingRequestCoordinator());
     const [trackingTimeline, setTrackingTimeline] = useState<TrackingTimeline | null>(null);
     const [trackingSyncing, setTrackingSyncing] = useState(false);
     const [orderFiles, setOrderFiles] = useState<OrderFile[]>([]);
@@ -238,7 +243,13 @@ export function OrderManager() {
     };
 
     const fetchTrackingEvidence = async (orderId: string, providerUnavailable = false) => {
-        if (activeTrackingOrderIdRef.current !== orderId) return;
+        const coordinator = trackingRequestCoordinatorRef.current;
+        let requestToken: TrackingRequestToken;
+        try {
+            requestToken = coordinator.beginRequest(orderId);
+        } catch {
+            return;
+        }
         setTrackingTimeline(buildTrackingTimeline({ v1Rows: [], legacyRows: [], loading: true }));
         try {
             const [carrierResult, legacyResult] = await Promise.all([
@@ -253,14 +264,14 @@ export function OrderManager() {
                     .eq('order_id', orderId)
                     .order('occurred_at', { ascending: false }),
             ]);
-            if (activeTrackingOrderIdRef.current !== orderId) return;
+            if (!coordinator.isCurrentRequest(requestToken)) return;
             setTrackingTimeline(buildTrackingTimeline({
                 v1Rows: carrierResult.error ? [] : (carrierResult.data as unknown[]) || [],
                 legacyRows: legacyResult.error ? [] : (legacyResult.data as unknown[]) || [],
                 providerUnavailable: providerUnavailable || Boolean(carrierResult.error),
             }));
         } catch {
-            if (activeTrackingOrderIdRef.current !== orderId) return;
+            if (!coordinator.isCurrentRequest(requestToken)) return;
             setTrackingTimeline(buildTrackingTimeline({
                 v1Rows: [],
                 legacyRows: [],
@@ -273,19 +284,26 @@ export function OrderManager() {
         const order = selectedOrder;
         if (!order?.tracking_number || trackingSyncing) return;
         const orderId = order.id;
+        const coordinator = trackingRequestCoordinatorRef.current;
+        let viewToken: TrackingViewToken;
+        try {
+            viewToken = coordinator.captureView(orderId);
+        } catch {
+            return;
+        }
         setTrackingSyncing(true);
         try {
             const { data, error } = await supabase.functions.invoke('postnord-tracking-sync', {
                 body: { orderId },
             });
-            if (activeTrackingOrderIdRef.current !== orderId) return;
+            if (!coordinator.isCurrentView(viewToken)) return;
             if (error) throw new Error('PostNord sync failed');
             const response = data && typeof data === 'object'
                 ? data as { code?: unknown; inserted?: unknown; replayed?: unknown }
                 : {};
             const unavailable = response.code === 'provider_unavailable';
             await fetchTrackingEvidence(orderId, unavailable);
-            if (activeTrackingOrderIdRef.current !== orderId) return;
+            if (!coordinator.isCurrentView(viewToken)) return;
             if (unavailable) {
                 toast.info('PostNord er ikke aktiveret eller er midlertidigt utilgængelig');
                 return;
@@ -298,19 +316,19 @@ export function OrderManager() {
                     ? 'PostNord-hændelserne er allerede opdaterede'
                     : 'Ingen nye PostNord-hændelser');
         } catch {
-            if (activeTrackingOrderIdRef.current === orderId) {
+            if (coordinator.isCurrentView(viewToken)) {
                 console.debug('PostNord tracking sync unavailable');
                 toast.error('PostNord-status kunne ikke hentes');
             }
         } finally {
-            if (activeTrackingOrderIdRef.current === orderId) {
+            if (coordinator.isCurrentView(viewToken)) {
                 setTrackingSyncing(false);
             }
         }
     };
 
     const openOrderDetails = (order: Order) => {
-        activeTrackingOrderIdRef.current = order.id;
+        trackingRequestCoordinatorRef.current.open(order.id);
         setSelectedOrder(order);
         setTrackingSyncing(false);
         setTrackingTimeline(buildTrackingTimeline({ v1Rows: [], legacyRows: [], loading: true }));
@@ -334,7 +352,7 @@ export function OrderManager() {
     const handleDialogOpenChange = (open: boolean) => {
         setDialogOpen(open);
         if (!open) {
-            activeTrackingOrderIdRef.current = null;
+            trackingRequestCoordinatorRef.current.close();
             setTrackingSyncing(false);
             setTrackingTimeline(null);
         }
