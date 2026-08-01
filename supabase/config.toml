@@ -96,6 +96,9 @@ verify_jwt = false
 [functions.product-detail-read]
 verify_jwt = false
 
+[functions.reference-fx-snapshot]
+verify_jwt = true
+
 [functions.search-console]
 verify_jwt = true
 
