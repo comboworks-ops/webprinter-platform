@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,8 @@ import { toast } from 'sonner';
 import { downloadInvoice } from '@/lib/invoiceGenerator';
 import { resolveAdminTenant } from '@/lib/adminTenant';
 import { Link } from 'react-router-dom';
+import { TrackingEventTimeline } from '@/components/account/TrackingEventTimeline';
+import { buildTrackingTimeline, type TrackingTimeline } from '@/lib/delivery/trackingEvents';
 
 interface Order {
     id: string;
@@ -88,6 +90,9 @@ export function OrderManager() {
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+    const activeTrackingOrderIdRef = useRef<string | null>(null);
+    const [trackingTimeline, setTrackingTimeline] = useState<TrackingTimeline | null>(null);
+    const [trackingSyncing, setTrackingSyncing] = useState(false);
     const [orderFiles, setOrderFiles] = useState<OrderFile[]>([]);
     const [orderFileSummaryByOrderId, setOrderFileSummaryByOrderId] = useState<Record<string, OrderFileSummary>>({});
     const [searchTerm, setSearchTerm] = useState('');
@@ -232,8 +237,83 @@ export function OrderManager() {
         }
     };
 
+    const fetchTrackingEvidence = async (orderId: string, providerUnavailable = false) => {
+        if (activeTrackingOrderIdRef.current !== orderId) return;
+        setTrackingTimeline(buildTrackingTimeline({ v1Rows: [], legacyRows: [], loading: true }));
+        try {
+            const [carrierResult, legacyResult] = await Promise.all([
+                supabase
+                    .from('carrier_tracking_events_v1' as never)
+                    .select('id,schema_version,carrier,provider_status,display_type,occurred_at,received_at,location,description')
+                    .eq('order_id', orderId)
+                    .order('occurred_at', { ascending: false }),
+                supabase
+                    .from('delivery_tracking' as never)
+                    .select('id,event_type,occurred_at,location,description')
+                    .eq('order_id', orderId)
+                    .order('occurred_at', { ascending: false }),
+            ]);
+            if (activeTrackingOrderIdRef.current !== orderId) return;
+            setTrackingTimeline(buildTrackingTimeline({
+                v1Rows: carrierResult.error ? [] : (carrierResult.data as unknown[]) || [],
+                legacyRows: legacyResult.error ? [] : (legacyResult.data as unknown[]) || [],
+                providerUnavailable: providerUnavailable || Boolean(carrierResult.error),
+            }));
+        } catch {
+            if (activeTrackingOrderIdRef.current !== orderId) return;
+            setTrackingTimeline(buildTrackingTimeline({
+                v1Rows: [],
+                legacyRows: [],
+                providerUnavailable: true,
+            }));
+        }
+    };
+
+    const handlePostNordSync = async () => {
+        const order = selectedOrder;
+        if (!order?.tracking_number || trackingSyncing) return;
+        const orderId = order.id;
+        setTrackingSyncing(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('postnord-tracking-sync', {
+                body: { orderId },
+            });
+            if (activeTrackingOrderIdRef.current !== orderId) return;
+            if (error) throw new Error('PostNord sync failed');
+            const response = data && typeof data === 'object'
+                ? data as { code?: unknown; inserted?: unknown; replayed?: unknown }
+                : {};
+            const unavailable = response.code === 'provider_unavailable';
+            await fetchTrackingEvidence(orderId, unavailable);
+            if (activeTrackingOrderIdRef.current !== orderId) return;
+            if (unavailable) {
+                toast.info('PostNord er ikke aktiveret eller er midlertidigt utilgængelig');
+                return;
+            }
+            const inserted = Number.isSafeInteger(response.inserted) ? Number(response.inserted) : 0;
+            const replayed = Number.isSafeInteger(response.replayed) ? Number(response.replayed) : 0;
+            toast.success(inserted > 0
+                ? `${inserted} PostNord-hændelse${inserted === 1 ? '' : 'r'} hentet`
+                : replayed > 0
+                    ? 'PostNord-hændelserne er allerede opdaterede'
+                    : 'Ingen nye PostNord-hændelser');
+        } catch {
+            if (activeTrackingOrderIdRef.current === orderId) {
+                console.debug('PostNord tracking sync unavailable');
+                toast.error('PostNord-status kunne ikke hentes');
+            }
+        } finally {
+            if (activeTrackingOrderIdRef.current === orderId) {
+                setTrackingSyncing(false);
+            }
+        }
+    };
+
     const openOrderDetails = (order: Order) => {
+        activeTrackingOrderIdRef.current = order.id;
         setSelectedOrder(order);
+        setTrackingSyncing(false);
+        setTrackingTimeline(buildTrackingTimeline({ v1Rows: [], legacyRows: [], loading: true }));
         setEditStatus(order.status);
         setEditStatusNote(order.status_note || '');
         setEditTrackingNumber(order.tracking_number || '');
@@ -247,7 +327,17 @@ export function OrderManager() {
             order.delivery_type || readOrderTag(order.status_note, "LEVERINGSMETODE") || ""
         );
         fetchOrderFiles(order.id);
+        void fetchTrackingEvidence(order.id);
         setDialogOpen(true);
+    };
+
+    const handleDialogOpenChange = (open: boolean) => {
+        setDialogOpen(open);
+        if (!open) {
+            activeTrackingOrderIdRef.current = null;
+            setTrackingSyncing(false);
+            setTrackingTimeline(null);
+        }
     };
 
     const handleSaveOrder = async () => {
@@ -350,7 +440,7 @@ export function OrderManager() {
             }
 
             toast.success('Ordre opdateret');
-            setDialogOpen(false);
+            handleDialogOpenChange(false);
             fetchOrders();
         } catch (error) {
             console.error('Error saving order:', error);
@@ -786,7 +876,7 @@ export function OrderManager() {
             </Card>
 
             {/* Order details dialog */}
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
                 <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     {selectedOrder && (
                         <>
@@ -981,6 +1071,35 @@ export function OrderManager() {
                                         </div>
                                     </div>
 
+                                    {selectedOrder.tracking_number && (
+                                        <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50/40 p-4">
+                                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                                <div>
+                                                    <p className="text-sm font-medium">Gemt PostNord-sporingsnummer</p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {selectedOrder.tracking_number}
+                                                        {editTrackingNumber !== selectedOrder.tracking_number && (
+                                                            <> · Gem ændringen før du henter status for et nyt nummer.</>
+                                                        )}
+                                                    </p>
+                                                </div>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={trackingSyncing}
+                                                    onClick={handlePostNordSync}
+                                                >
+                                                    {trackingSyncing
+                                                        ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                        : <Truck className="mr-2 h-4 w-4" />}
+                                                    Hent PostNord-status
+                                                </Button>
+                                            </div>
+                                            <TrackingEventTimeline timeline={trackingTimeline} compact />
+                                        </div>
+                                    )}
+
                                     {editStatus === 'production' && (() => {
                                         const warning = getProductionStatusWarning(selectedOrder);
                                         if (!warning) return null;
@@ -1155,7 +1274,7 @@ export function OrderManager() {
                                     </Link>
                                 </Button>
                                 <div className="flex gap-2">
-                                    <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                                    <Button variant="outline" onClick={() => handleDialogOpenChange(false)}>
                                         Annuller
                                     </Button>
                                     <Button onClick={handleSaveOrder} disabled={saving}>

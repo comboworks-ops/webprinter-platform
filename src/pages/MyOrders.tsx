@@ -13,6 +13,8 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AccountLoadingShell } from '@/components/account/AccountLoadingShell';
+import { TrackingEventTimeline } from '@/components/account/TrackingEventTimeline';
+import { buildTrackingTimeline, type TrackingTimeline } from '@/lib/delivery/trackingEvents';
 
 interface Order {
     id: string;
@@ -42,14 +44,6 @@ interface Message {
     is_read: boolean;
 }
 
-interface TrackingEvent {
-    id: string;
-    event_type: string;
-    location: string | null;
-    description: string | null;
-    occurred_at: string;
-}
-
 interface Invoice {
     id: string;
     invoice_number: string;
@@ -66,18 +60,6 @@ const statusConfig: Record<string, { label: string; color: string; icon: any }> 
     delivered: { label: 'Leveret', color: 'bg-green-100 text-green-800', icon: CheckCircle },
     cancelled: { label: 'Annulleret', color: 'bg-gray-100 text-gray-800', icon: AlertCircle },
     problem: { label: 'Problem', color: 'bg-red-100 text-red-800', icon: AlertCircle },
-};
-
-const trackingEventLabels: Record<string, string> = {
-    order_placed: 'Ordre modtaget',
-    processing: 'Behandles',
-    in_production: 'I produktion',
-    quality_check: 'Kvalitetskontrol',
-    packed: 'Pakket',
-    picked_up: 'Afhentet af fragtfirma',
-    in_transit: 'Undervejs',
-    out_for_delivery: 'Ude til levering',
-    delivered: 'Leveret',
 };
 
 const sidebarItems = [
@@ -98,7 +80,7 @@ export default function MyOrders() {
     const [messages, setMessages] = useState<Record<string, Message[]>>({});
     const [newMessage, setNewMessage] = useState<Record<string, string>>({});
     const [sendingMessage, setSendingMessage] = useState<string | null>(null);
-    const [trackingEvents, setTrackingEvents] = useState<Record<string, TrackingEvent[]>>({});
+    const [trackingEvents, setTrackingEvents] = useState<Record<string, TrackingTimeline>>({});
     const [invoices, setInvoices] = useState<Record<string, Invoice | null>>({});
 
     useEffect(() => {
@@ -169,17 +151,42 @@ export default function MyOrders() {
             console.debug('Messages not available yet');
         }
 
-        // Fetch tracking events
+        // Fetch immutable carrier evidence plus the legacy display fallback.
+        setTrackingEvents(prev => ({
+            ...prev,
+            [orderId]: buildTrackingTimeline({ v1Rows: [], legacyRows: [], loading: true }),
+        }));
         try {
-            const { data: trackingData } = await supabase
-                .from('delivery_tracking' as any)
-                .select('*')
-                .eq('order_id', orderId)
-                .order('occurred_at', { ascending: false });
-
-            setTrackingEvents(prev => ({ ...prev, [orderId]: (trackingData as any[]) || [] }));
+            const [carrierResult, legacyResult] = await Promise.all([
+                supabase
+                    .from('carrier_tracking_events_v1' as never)
+                    .select('id,schema_version,carrier,provider_status,display_type,occurred_at,received_at,location,description')
+                    .eq('order_id', orderId)
+                    .order('occurred_at', { ascending: false }),
+                supabase
+                    .from('delivery_tracking' as never)
+                    .select('id,event_type,occurred_at,location,description')
+                    .eq('order_id', orderId)
+                    .order('occurred_at', { ascending: false }),
+            ]);
+            setTrackingEvents(prev => ({
+                ...prev,
+                [orderId]: buildTrackingTimeline({
+                    v1Rows: carrierResult.error ? [] : (carrierResult.data as unknown[]) || [],
+                    legacyRows: legacyResult.error ? [] : (legacyResult.data as unknown[]) || [],
+                    providerUnavailable: Boolean(carrierResult.error),
+                }),
+            }));
         } catch (e) {
             console.debug('Tracking not available yet');
+            setTrackingEvents(prev => ({
+                ...prev,
+                [orderId]: buildTrackingTimeline({
+                    v1Rows: [],
+                    legacyRows: [],
+                    providerUnavailable: true,
+                }),
+            }));
         }
 
         // Fetch invoice
@@ -405,7 +412,7 @@ export default function MyOrders() {
                                         const StatusIcon = status.icon;
                                         const isExpanded = expandedOrderId === order.id;
                                         const orderMessages = messages[order.id] || [];
-                                        const orderTracking = trackingEvents[order.id] || [];
+                                        const orderTracking = trackingEvents[order.id];
                                         const orderInvoice = invoices[order.id];
 
                                         return (
@@ -600,40 +607,9 @@ export default function MyOrders() {
                                                                 </div>
                                                             )}
 
-                                                            {/* Detailed tracking */}
-                                                            {orderTracking.length > 0 && (
-                                                                <div>
-                                                                    <h4 className="font-medium flex items-center gap-2 mb-3">
-                                                                        <Truck className="h-4 w-4" />
-                                                                        Leveringssporing
-                                                                    </h4>
-                                                                    <div className="space-y-3">
-                                                                        {orderTracking.map((event, idx) => (
-                                                                            <div key={event.id} className="flex gap-3">
-                                                                                <div className="flex flex-col items-center">
-                                                                                    <div className={`w-3 h-3 rounded-full ${idx === 0 ? 'bg-green-500' : 'bg-muted'}`} />
-                                                                                    {idx < orderTracking.length - 1 && (
-                                                                                        <div className="w-0.5 h-8 bg-muted" />
-                                                                                    )}
-                                                                                </div>
-                                                                                <div className="flex-1 pb-3">
-                                                                                    <p className="font-medium text-sm">
-                                                                                        {trackingEventLabels[event.event_type] || event.event_type}
-                                                                                    </p>
-                                                                                    {event.location && (
-                                                                                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                                                                            <MapPin className="h-3 w-3" />
-                                                                                            {event.location}
-                                                                                        </p>
-                                                                                    )}
-                                                                                    <p className="text-xs text-muted-foreground">
-                                                                                        {formatDateTime(event.occurred_at)}
-                                                                                    </p>
-                                                                                </div>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
+                                                            {/* Detailed carrier evidence; never an order-status mutation. */}
+                                                            {order.tracking_number && (
+                                                                <TrackingEventTimeline timeline={orderTracking} />
                                                             )}
 
                                                             {/* Messages */}
