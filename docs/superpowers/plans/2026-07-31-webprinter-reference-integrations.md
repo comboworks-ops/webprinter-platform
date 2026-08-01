@@ -281,7 +281,7 @@ Create three additive tables:
    - only `service_role` may insert;
    - no role may update/delete through the Data API.
 2. `public.tenant_business_evidence`
-   - `tenant_id`, `evidence_type`, normalized identifier, provider, result status, provider reference, checked/received timestamps, request fingerprint, response digest, minimal non-sensitive display fields, schema version;
+   - `tenant_id`, `evidence_type`, normalized identifier, provider, result status, provider reference, checked/received timestamps, request fingerprint, nullable exact-response-byte digest, normalized-evidence digest, minimal non-sensitive display fields, schema version;
    - unique idempotency key per tenant/provider/request fingerprint;
    - tenant members read their own rows; master admins read all; only `service_role` writes.
 3. `public.carrier_tracking_events_v1`
@@ -829,10 +829,14 @@ Expected: PASS.
 /Users/thomasprintmaker/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/check-supabase-migration-grants.js
 /Users/thomasprintmaker/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/check-supabase-function-exposure.js
 /Users/thomasprintmaker/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/vite/bin/vite.js build
+npm run check:reference-integrations:release
 git diff --check
 ```
 
-Expected: PASS, with only already documented build warnings.
+Expected: PASS, with only already documented build warnings. The reference
+integration release command must run both PostgreSQL 17 suites. Missing Docker,
+an unavailable daemon, an unavailable PostgreSQL 17 runner, or either suite
+failing is a blocking non-zero result and must never be recorded as green.
 
 - [ ] **Step 3: Prove forbidden paths and protected contracts were untouched**
 

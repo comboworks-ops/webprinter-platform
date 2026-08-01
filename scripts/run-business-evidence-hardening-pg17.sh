@@ -53,6 +53,8 @@ docker exec -i "$container_name" psql -U postgres -d postgres \
 docker exec -i "$container_name" psql -U postgres -d postgres \
   < "$repository_dir/supabase/migrations/20260801130000_postnord_tracking_contract_and_atomicity.sql"
 docker exec -i "$container_name" psql -U postgres -d postgres \
+  < "$repository_dir/supabase/migrations/20260801133000_postnord_tracking_admission.sql"
+docker exec -i "$container_name" psql -U postgres -d postgres \
   < "$repository_dir/scripts/business-evidence/__tests__/postgres/business-evidence-hardening-test.sql"
 
 docker exec "$container_name" psql -U postgres -d postgres -c \
@@ -73,6 +75,29 @@ in_flight_count="$(
 )"
 if [[ "$claimed_count" -ne 1 || "$in_flight_count" -ne 7 ]]; then
   echo "Expected one atomic provider claim and seven in-flight rejections; got claimed=$claimed_count in_flight=$in_flight_count" >&2
+  sed -n '1,20p' "$concurrency_dir"/* >&2
+  exit 1
+fi
+
+docker exec "$container_name" psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+  -c "truncate public.postnord_tracking_sync_claims; truncate public.postnord_tracking_provider_state; update public.orders set tracking_number = '0037 3500-4895 3047 0000' where id = '60000000-0000-4000-8000-000000000001';" \
+  >/dev/null
+
+for index in {1..8}; do
+  docker exec "$container_name" psql -U postgres -d postgres -Atc \
+    "set role service_role; select disposition from public.claim_postnord_tracking_sync('10000000-0000-4000-8000-000000000001','60000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000001','00373500489530470000');" \
+    >"$concurrency_dir/$index" &
+done
+wait
+
+claimed_count="$(
+  { rg -l '^claimed$' "$concurrency_dir" || true; } | wc -l | tr -d ' '
+)"
+in_flight_count="$(
+  { rg -l '^in_flight$' "$concurrency_dir" || true; } | wc -l | tr -d ' '
+)"
+if [[ "$claimed_count" -ne 1 || "$in_flight_count" -ne 7 ]]; then
+  echo "Expected one atomic PostNord claim and seven local in-flight rejections; got claimed=$claimed_count in_flight=$in_flight_count" >&2
   sed -n '1,20p' "$concurrency_dir"/* >&2
   exit 1
 fi

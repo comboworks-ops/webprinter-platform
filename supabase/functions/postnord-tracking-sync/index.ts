@@ -4,11 +4,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   type AuthorizedPostNordOrder,
   authorizePostNordSyncOrder,
+  claimPostNordTrackingSync,
   fetchPostNordTrackingPayload,
+  finishPostNordTrackingSync,
   parsePostNordSyncRequest,
   persistPostNordEventsAtomically,
   PostNordSyncError,
+  type PostNordStateRpcClient,
   type PostNordTrackingRepository,
+  renewPostNordTrackingSync,
   syncAuthorizedPostNordOrder,
 } from "../_shared/postnordTrackingSync.ts";
 import {
@@ -80,14 +84,30 @@ Deno.serve(async (req) => {
     }
 
     try {
+      const stateClient = createLazyStateClient();
       const result = await syncAuthorizedPostNordOrder(order, {
         now: new Date(),
+        admit: (authorizedOrder) =>
+          claimPostNordTrackingSync(
+            authorizedOrder,
+            authentication.userId,
+            stateClient,
+          ),
+        renew: (claimToken) =>
+          renewPostNordTrackingSync(claimToken, stateClient),
+        finish: (claimToken, outcome, retryAfterSeconds) =>
+          finishPostNordTrackingSync(
+            claimToken,
+            outcome,
+            retryAfterSeconds,
+            stateClient,
+          ),
         fetchPayload: (trackingNumber) =>
           fetchPostNordTrackingPayload(trackingNumber, {
             fetchImpl: fetch,
             providerConfig: readProviderConfig(),
           }),
-        repository: createLazyRepository(),
+        repository: createLazyRepository(stateClient),
       });
       logOutcome(requestId, "success", result.events.length);
       return jsonResponse(result);
@@ -201,21 +221,31 @@ function readProviderConfig() {
   });
 }
 
-function createLazyRepository(): PostNordTrackingRepository {
+function createLazyStateClient(): PostNordStateRpcClient {
   return Object.freeze({
-    insertEvents: async (events) => {
+    rpc: async (name: string, args: Readonly<Record<string, unknown>>) => {
       const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
       const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
       if (!supabaseUrl || !serviceRoleKey) {
         throw new PostNordSyncError("persistence_failed");
       }
       const client = createServiceClient(supabaseUrl, serviceRoleKey);
-      return await persistPostNordEventsAtomically(events, {
-        rpc: async (name, args) => {
-          const { data, error } = await client.rpc(name, args);
-          return { data, error };
-        },
-      });
+      const { data, error } = await client.rpc(name, args);
+      return { data, error };
+    },
+  });
+}
+
+function createLazyRepository(
+  stateClient: PostNordStateRpcClient,
+): PostNordTrackingRepository {
+  return Object.freeze({
+    insertEvents: async (claimToken, events) => {
+      return await persistPostNordEventsAtomically(
+        claimToken,
+        events,
+        stateClient,
+      );
     },
   });
 }

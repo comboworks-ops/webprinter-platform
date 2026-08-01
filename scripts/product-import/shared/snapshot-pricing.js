@@ -28,7 +28,21 @@ const THRESHOLD_POLICY_KEYS = Object.freeze([
 ]);
 const WRITE_TARGET_KEYS = Object.freeze(["snapshotMode", "isPublished"]);
 const WRITE_CONFIRMATION_KEYS = Object.freeze(["snapshotMode", "writeConfirmed"]);
+const ROUNDING_POLICY_KEYS = Object.freeze([
+  "embeddedRoundingStepDkk",
+  "explicitRoundingStepDkk",
+  "hasExplicitRoundingStep",
+]);
+const DRAFT_TARGET_KEYS = Object.freeze([
+  "mode",
+  "productId",
+  "expectedRevision",
+  "importId",
+  "payloadDigest",
+]);
 const SNAPSHOT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHA256 = /^[a-f0-9]{64}$/;
 const DECIMAL_NUMBER = /^(0|[1-9]\d*)(?:\.(\d+))?$/;
 
 const MAX_SUPPLIER_PRICE = decimalLiteral("1000000");
@@ -172,6 +186,69 @@ export function assertSnapshotDraftWriteConfirmation(untrustedInput) {
     throw new Error(
       "--write-snapshot-draft requires snapshot pricing evidence",
     );
+  }
+}
+
+export function resolveSnapshotRoundingPolicy(untrustedInput) {
+  try {
+    const input = captureExactRecord(untrustedInput, ROUNDING_POLICY_KEYS);
+    if (typeof input.hasExplicitRoundingStep !== "boolean") throw invalidPricingInput();
+    const embedded = input.embeddedRoundingStepDkk;
+    const explicit = input.explicitRoundingStepDkk;
+    if (
+      typeof embedded !== "number" ||
+      !Number.isSafeInteger(embedded) ||
+      embedded < 1 ||
+      embedded > 1_000 ||
+      typeof explicit !== "number" ||
+      !Number.isFinite(explicit)
+    ) {
+      throw invalidPricingInput();
+    }
+    if (input.hasExplicitRoundingStep && explicit !== embedded) {
+      throw invalidPricingInput();
+    }
+    const stepDkk = input.hasExplicitRoundingStep ? explicit : embedded;
+    if (!Number.isSafeInteger(stepDkk) || stepDkk < 1 || stepDkk > 1_000) {
+      throw invalidPricingInput();
+    }
+    return Object.freeze({ stepDkk, mode: "ceil_v1" });
+  } catch {
+    throw new TypeError("Invalid snapshot rounding policy");
+  }
+}
+
+export function buildSnapshotDraftTarget(untrustedInput) {
+  try {
+    const input = captureExactRecord(untrustedInput, DRAFT_TARGET_KEYS);
+    if (
+      (input.mode !== "create" && input.mode !== "replace") ||
+      !UUID.test(input.importId) ||
+      !SHA256.test(input.payloadDigest) ||
+      !Number.isSafeInteger(input.expectedRevision) ||
+      input.expectedRevision < 0
+    ) {
+      throw invalidPricingInput();
+    }
+    if (
+      (input.mode === "create" &&
+        (input.productId !== null || input.expectedRevision !== 0)) ||
+      (input.mode === "replace" &&
+        (typeof input.productId !== "string" ||
+          !UUID.test(input.productId) ||
+          input.expectedRevision < 1))
+    ) {
+      throw invalidPricingInput();
+    }
+    return Object.freeze({
+      mode: input.mode,
+      product_id: input.productId,
+      expected_revision: input.expectedRevision,
+      import_id: input.importId.toLowerCase(),
+      payload_digest: input.payloadDigest,
+    });
+  } catch {
+    throw new TypeError("Invalid snapshot draft target");
   }
 }
 

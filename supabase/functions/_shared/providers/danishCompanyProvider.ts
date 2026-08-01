@@ -24,18 +24,25 @@ export function createDanishCompanyProvider(
       if (!isCompanyInput(input) || credential === null) {
         return unavailable(input, context);
       }
+      let sourcePayloadSha256: string | null = null;
       try {
         const request = buildRequest(input, context, credential);
-        const payload = await fetchBoundedProviderJson({
+        const fetched = await fetchBoundedProviderJson({
           fetchImpl: context.fetchImpl,
           url: request.url,
           init: request.init,
           isAllowedResponseUrl: (url) =>
             isExactDatafordelerUrl(url, request.url),
         });
-        return parseCompanyResponse(payload, input, context);
+        sourcePayloadSha256 = fetched.sourcePayloadSha256;
+        return parseCompanyResponse(
+          fetched.value,
+          input,
+          context,
+          sourcePayloadSha256,
+        );
       } catch {
-        return unavailable(input, context);
+        return unavailable(input, context, sourcePayloadSha256);
       }
     },
   });
@@ -90,6 +97,7 @@ function parseCompanyResponse(
   payload: unknown,
   input: DanishCompanyProviderInput,
   context: ProviderContext,
+  sourcePayloadSha256: string,
 ): BusinessProviderEvidence {
   if (!isPlainRecord(payload) || hasGraphQlErrors(payload.errors)) {
     throw new Error("invalid provider response");
@@ -103,7 +111,7 @@ function parseCompanyResponse(
     throw new Error("invalid provider response");
   }
   if (nodes.length === 0) {
-    return evidence(input, context, "invalid", null, {
+    return evidence(input, context, sourcePayloadSha256, "invalid", null, {
       cvr: input.cvr,
       status: null,
       startDate: null,
@@ -118,7 +126,7 @@ function parseCompanyResponse(
   const status = requiredText(node.status, 120);
   const startDate = optionalIsoDate(node.virksomhedStartdato);
   const endDate = optionalIsoDate(node.virksomhedOphoersdato);
-  return evidence(input, context, "valid", providerReference, {
+  return evidence(input, context, sourcePayloadSha256, "valid", providerReference, {
     cvr: input.cvr,
     status,
     startDate,
@@ -129,6 +137,7 @@ function parseCompanyResponse(
 function evidence(
   input: DanishCompanyProviderInput,
   context: ProviderContext,
+  sourcePayloadSha256: string,
   status: "valid" | "invalid",
   providerReference: string | null,
   displayFields: Readonly<Record<string, string | null>>,
@@ -139,6 +148,7 @@ function evidence(
     evidenceType: "danish_company" as const,
     normalizedIdentifier: input.normalizedIdentifier,
     resultStatus: status,
+    sourcePayloadSha256,
     providerReference,
     checkedAt: context.now.toISOString(),
     displayFields,
@@ -148,6 +158,7 @@ function evidence(
 function unavailable(
   input: { normalizedIdentifier?: unknown },
   context: ProviderContext,
+  sourcePayloadSha256: string | null = null,
 ): BusinessProviderEvidence {
   const identifier = typeof input?.normalizedIdentifier === "string" &&
       /^DK\d{8}$/.test(input.normalizedIdentifier)
@@ -158,6 +169,7 @@ function unavailable(
     "danish_company",
     identifier,
     context.now,
+    sourcePayloadSha256,
   );
 }
 

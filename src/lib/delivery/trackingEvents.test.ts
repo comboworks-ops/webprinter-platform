@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildTrackingTimeline,
+  canonicalizePostNordTrackingNumber,
   mapTrackingEventRow,
 } from "./trackingEvents.ts";
 
@@ -10,6 +11,7 @@ const POSTNORD_ROW = {
   id: "10000000-0000-4000-8000-000000000001",
   schema_version: 1,
   carrier: "postnord",
+  tracking_number: "00373500489530470000",
   provider_status: "DELIVERED",
   display_type: "delivered",
   occurred_at: "2026-08-01T10:00:00.000Z",
@@ -64,6 +66,34 @@ test("legacy delivery_tracking rows remain available as a fallback", () => {
   assert.equal(timeline.events[0].label, "Afhentet af fragtfirma");
   assert.equal(timeline.events[0].source, "legacy");
   assert.equal(timeline.events[0].carrierLabel, "Leveringshistorik");
+});
+
+test("canonical tracking identity ignores display separators but rejects ambiguous characters", () => {
+  assert.equal(
+    canonicalizePostNordTrackingNumber(" 0037 3500-4895 3047 0000 "),
+    "00373500489530470000",
+  );
+  assert.equal(canonicalizePostNordTrackingNumber("96932007555se"), "96932007555SE");
+  assert.equal(canonicalizePostNordTrackingNumber("0037/3500"), null);
+  assert.equal(canonicalizePostNordTrackingNumber("   "), null);
+});
+
+test("a reassigned order shows events only for its current canonical tracking identity", () => {
+  const timeline = buildTrackingTimeline({
+    trackingNumber: "0037 3500-4895 3047 0000",
+    v1Rows: [
+      POSTNORD_ROW,
+      {
+        ...POSTNORD_ROW,
+        id: "10000000-0000-4000-8000-000000000099",
+        tracking_number: "OLD-TRACKING-IDENTITY",
+        description: "Old parcel",
+      },
+    ],
+    legacyRows: [],
+  });
+
+  assert.deepEqual(timeline.events.map((event) => event.id), [POSTNORD_ROW.id]);
 });
 
 test("mixed timelines sort newest first without inferring an order status", () => {

@@ -24,18 +24,25 @@ export function createDanishAddressProvider(
       if (!isAddressInput(input) || credential === null) {
         return unavailable(input, context);
       }
+      let sourcePayloadSha256: string | null = null;
       try {
         const request = buildRequest(input, context, credential);
-        const payload = await fetchBoundedProviderJson({
+        const fetched = await fetchBoundedProviderJson({
           fetchImpl: context.fetchImpl,
           url: request.url,
           init: request.init,
           isAllowedResponseUrl: (url) =>
             isExactDatafordelerUrl(url, request.url),
         });
-        return parseAddressResponse(payload, input, context);
+        sourcePayloadSha256 = fetched.sourcePayloadSha256;
+        return parseAddressResponse(
+          fetched.value,
+          input,
+          context,
+          sourcePayloadSha256,
+        );
       } catch {
-        return unavailable(input, context);
+        return unavailable(input, context, sourcePayloadSha256);
       }
     },
   });
@@ -90,6 +97,7 @@ function parseAddressResponse(
   payload: unknown,
   input: DanishAddressProviderInput,
   context: ProviderContext,
+  sourcePayloadSha256: string,
 ): BusinessProviderEvidence {
   if (!isPlainRecord(payload) || hasGraphQlErrors(payload.errors)) {
     throw new Error("invalid provider response");
@@ -103,7 +111,15 @@ function parseAddressResponse(
     throw new Error("invalid provider response");
   }
   if (nodes.length === 0) {
-    return evidence(input, context, "invalid", null, null, null);
+    return evidence(
+      input,
+      context,
+      sourcePayloadSha256,
+      "invalid",
+      null,
+      null,
+      null,
+    );
   }
   const node = nodes[0];
   if (!isPlainRecord(node)) throw new Error("invalid provider response");
@@ -119,12 +135,21 @@ function parseAddressResponse(
     throw new Error("invalid provider response");
   }
   const reference = requiredUuid(node.id_lokalId);
-  return evidence(input, context, "valid", reference, officialAddress, status);
+  return evidence(
+    input,
+    context,
+    sourcePayloadSha256,
+    "valid",
+    reference,
+    officialAddress,
+    status,
+  );
 }
 
 function evidence(
   input: DanishAddressProviderInput,
   context: ProviderContext,
+  sourcePayloadSha256: string,
   resultStatus: "valid" | "invalid",
   providerReference: string | null,
   officialAddress: string | null,
@@ -136,6 +161,7 @@ function evidence(
     evidenceType: "danish_address" as const,
     normalizedIdentifier: input.normalizedIdentifier,
     resultStatus,
+    sourcePayloadSha256,
     providerReference,
     checkedAt: context.now.toISOString(),
     displayFields: {
@@ -164,6 +190,7 @@ function formatOfficialAddress(input: DanishAddressProviderInput): string {
 function unavailable(
   input: { normalizedIdentifier?: unknown },
   context: ProviderContext,
+  sourcePayloadSha256: string | null = null,
 ): BusinessProviderEvidence {
   const identifier = typeof input?.normalizedIdentifier === "string" &&
       input.normalizedIdentifier.length >= 1 &&
@@ -175,6 +202,7 @@ function unavailable(
     "danish_address",
     identifier,
     context.now,
+    sourcePayloadSha256,
   );
 }
 

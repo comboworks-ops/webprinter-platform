@@ -75,7 +75,12 @@ SET is_published = false
 WHERE slug = 'wmd-roll-labels-test';
 SELECT public.apply_wmd_roll_label_snapshot_draft_import(
   '00000000-0000-4000-8000-000000000001',
-  public.test_wmd_payload('Before import-first race', 'Before import-first material')
+  public.test_wmd_replace_payload(
+    'Before import-first race',
+    'Before import-first material',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7',
+    repeat('3', 64)
+  )
 );
 SQL
 
@@ -98,7 +103,7 @@ done
 
 docker exec -e PGAPPNAME=wmd_import_first "$container_name" \
   psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
-  -c "SELECT public.apply_wmd_roll_label_snapshot_draft_import('00000000-0000-4000-8000-000000000001', public.test_wmd_payload('Import-first race', 'Import-first material'));" \
+  -c "SELECT public.apply_wmd_roll_label_snapshot_draft_import('00000000-0000-4000-8000-000000000001', public.test_wmd_replace_payload('Import-first race', 'Import-first material', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa8', repeat('4', 64)));" \
   >"$import_output" 2>&1 &
 import_pid=$!
 
@@ -163,7 +168,12 @@ SET is_published = false
 WHERE slug = 'wmd-roll-labels-test';
 SELECT public.apply_wmd_roll_label_snapshot_draft_import(
   '00000000-0000-4000-8000-000000000001',
-  public.test_wmd_payload('Before publish-first race', 'Before publish-first material')
+  public.test_wmd_replace_payload(
+    'Before publish-first race',
+    'Before publish-first material',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa9',
+    repeat('5', 64)
+  )
 );
 SQL
 
@@ -190,7 +200,7 @@ fi
 
 if docker exec -e PGAPPNAME=wmd_import_after_publish "$container_name" \
   psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
-  -c "SELECT public.apply_wmd_roll_label_snapshot_draft_import('00000000-0000-4000-8000-000000000001', public.test_wmd_payload('Must lose publish race', 'Must lose publish race'));" \
+  -c "SELECT public.apply_wmd_roll_label_snapshot_draft_import('00000000-0000-4000-8000-000000000001', public.test_wmd_replace_payload('Must lose publish race', 'Must lose publish race', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', repeat('6', 64)));" \
   >"$rejected_output" 2>&1; then
   echo "Import unexpectedly mutated a concurrently published product" >&2
   exit 1

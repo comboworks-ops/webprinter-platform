@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AccountLoadingShell } from '@/components/account/AccountLoadingShell';
 import { TrackingEventTimeline } from '@/components/account/TrackingEventTimeline';
-import { buildTrackingTimeline, type TrackingTimeline } from '@/lib/delivery/trackingEvents';
+import { buildTrackingTimeline, canonicalizePostNordTrackingNumber, type TrackingTimeline } from '@/lib/delivery/trackingEvents';
 
 interface Order {
     id: string;
@@ -138,6 +138,8 @@ export default function MyOrders() {
     };
 
     const fetchOrderDetails = async (orderId: string) => {
+        const savedTrackingNumber = orders.find(order => order.id === orderId)?.tracking_number ?? null;
+        const trackingIdentity = canonicalizePostNordTrackingNumber(savedTrackingNumber);
         // Fetch messages
         try {
             const { data: messagesData } = await supabase
@@ -154,15 +156,24 @@ export default function MyOrders() {
         // Fetch immutable carrier evidence plus the legacy display fallback.
         setTrackingEvents(prev => ({
             ...prev,
-            [orderId]: buildTrackingTimeline({ v1Rows: [], legacyRows: [], loading: true }),
+            [orderId]: buildTrackingTimeline({
+                trackingNumber: savedTrackingNumber,
+                v1Rows: [],
+                legacyRows: [],
+                loading: true,
+            }),
         }));
         try {
-            const [carrierResult, legacyResult] = await Promise.all([
-                supabase
+            const carrierRequest = trackingIdentity === null
+                ? Promise.resolve({ data: [] as unknown[], error: null })
+                : supabase
                     .from('carrier_tracking_events_v1' as never)
-                    .select('id,schema_version,carrier,provider_status,display_type,occurred_at,received_at,location,description')
+                    .select('id,schema_version,carrier,tracking_number,provider_status,display_type,occurred_at,received_at,location,description')
                     .eq('order_id', orderId)
-                    .order('occurred_at', { ascending: false }),
+                    .eq('tracking_number', trackingIdentity)
+                    .order('occurred_at', { ascending: false });
+            const [carrierResult, legacyResult] = await Promise.all([
+                carrierRequest,
                 supabase
                     .from('delivery_tracking' as never)
                     .select('id,event_type,occurred_at,location,description')
@@ -172,6 +183,7 @@ export default function MyOrders() {
             setTrackingEvents(prev => ({
                 ...prev,
                 [orderId]: buildTrackingTimeline({
+                    trackingNumber: savedTrackingNumber,
                     v1Rows: carrierResult.error ? [] : (carrierResult.data as unknown[]) || [],
                     legacyRows: legacyResult.error ? [] : (legacyResult.data as unknown[]) || [],
                     providerUnavailable: Boolean(carrierResult.error),
@@ -182,6 +194,7 @@ export default function MyOrders() {
             setTrackingEvents(prev => ({
                 ...prev,
                 [orderId]: buildTrackingTimeline({
+                    trackingNumber: savedTrackingNumber,
                     v1Rows: [],
                     legacyRows: [],
                     providerUnavailable: true,

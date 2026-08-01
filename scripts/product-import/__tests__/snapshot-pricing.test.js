@@ -6,6 +6,8 @@ import {
   applySnapshotPricing,
   assertSnapshotDraftWriteConfirmation,
   assertSnapshotDraftWriteTarget,
+  buildSnapshotDraftTarget,
+  resolveSnapshotRoundingPolicy,
 } from "../shared/snapshot-pricing.js";
 
 const HASH = "a".repeat(64);
@@ -35,6 +37,107 @@ function input(overrides = {}) {
     ...overrides,
   };
 }
+
+test("snapshot rounding resolves once from immutable extraction evidence", () => {
+  assert.deepEqual(
+    resolveSnapshotRoundingPolicy({
+      embeddedRoundingStepDkk: 5,
+      explicitRoundingStepDkk: 1,
+      hasExplicitRoundingStep: false,
+    }),
+    { stepDkk: 5, mode: "ceil_v1" },
+  );
+  assert.deepEqual(
+    resolveSnapshotRoundingPolicy({
+      embeddedRoundingStepDkk: 5,
+      explicitRoundingStepDkk: 5,
+      hasExplicitRoundingStep: true,
+    }),
+    { stepDkk: 5, mode: "ceil_v1" },
+  );
+
+  for (const value of [
+    {
+      embeddedRoundingStepDkk: 5,
+      explicitRoundingStepDkk: 1,
+      hasExplicitRoundingStep: true,
+    },
+    {
+      embeddedRoundingStepDkk: 0.05,
+      explicitRoundingStepDkk: 0.05,
+      hasExplicitRoundingStep: false,
+    },
+    {
+      embeddedRoundingStepDkk: 1001,
+      explicitRoundingStepDkk: 1001,
+      hasExplicitRoundingStep: false,
+    },
+  ]) {
+    assert.throws(
+      () => resolveSnapshotRoundingPolicy(value),
+      /Invalid snapshot rounding policy/,
+    );
+  }
+});
+
+test("snapshot draft targets require exact create or revision-checked replace identity", () => {
+  const importId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const payloadDigest = "b".repeat(64);
+
+  assert.deepEqual(
+    buildSnapshotDraftTarget({
+      mode: "create",
+      productId: null,
+      expectedRevision: 0,
+      importId,
+      payloadDigest,
+    }),
+    {
+      mode: "create",
+      product_id: null,
+      expected_revision: 0,
+      import_id: importId,
+      payload_digest: payloadDigest,
+    },
+  );
+  assert.deepEqual(
+    buildSnapshotDraftTarget({
+      mode: "replace",
+      productId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      expectedRevision: 7,
+      importId,
+      payloadDigest,
+    }),
+    {
+      mode: "replace",
+      product_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      expected_revision: 7,
+      import_id: importId,
+      payload_digest: payloadDigest,
+    },
+  );
+
+  for (const value of [
+    { mode: "create", productId: null, expectedRevision: 1, importId, payloadDigest },
+    { mode: "replace", productId: null, expectedRevision: 1, importId, payloadDigest },
+    {
+      mode: "replace",
+      productId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      expectedRevision: 0,
+      importId,
+      payloadDigest,
+    },
+    {
+      mode: "replace",
+      productId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      expectedRevision: 1,
+      importId: "not-a-uuid",
+      payloadDigest,
+    },
+  ]) {
+    assert.throws(() => buildSnapshotDraftTarget(value), /Invalid snapshot draft target/);
+  }
+});
 
 test("keeps supplier FX, buffer, markup, and final-only rounding as separate evidence", () => {
   const result = applySnapshotPricing(input());

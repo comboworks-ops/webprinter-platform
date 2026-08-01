@@ -1,5 +1,6 @@
 import {
   assertPostNordEventForPersistence,
+  canonicalizePostNordTrackingNumber,
   type NormalizedPostNordEvent,
   normalizePostNordTrackingPayload,
   POSTNORD_TRACKING_MAX_BODY_BYTES,
@@ -18,6 +19,14 @@ const STORED_UTC_INSTANT =
   /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(?:Z|\+00:00)$/;
 const REQUEST_KEYS = new Set(["orderId"]);
 const MAX_API_KEY_LENGTH = 2_048;
+const ADMISSION_DISPOSITIONS = new Set([
+  "claimed",
+  "cached",
+  "in_flight",
+  "provider_blocked",
+  "rate_limited",
+] as const);
+const DEFAULT_PROVIDER_RETRY_AFTER_SECONDS = 60;
 
 type FetchLike = (
   input: string | URL | Request,
@@ -71,16 +80,30 @@ export type PostNordProviderConfig = Readonly<{
 
 export type PostNordTrackingRepository = Readonly<{
   insertEvents: (
+    claimToken: string,
     events: readonly NormalizedPostNordEvent[],
   ) => Promise<Readonly<{ inserted: number; replayed: number }>>;
 }>;
 
-export type PostNordAtomicRpcClient = Readonly<{
+export type PostNordAdmission = Readonly<{
+  disposition:
+    | "claimed"
+    | "cached"
+    | "in_flight"
+    | "provider_blocked"
+    | "rate_limited";
+  retryAfterSeconds: number;
+  claimToken: string | null;
+}>;
+
+export type PostNordStateRpcClient = Readonly<{
   rpc: (
     name: string,
-    args: Readonly<{ _events: readonly Readonly<Record<string, unknown>>[] }>,
+    args: Readonly<Record<string, unknown>>,
   ) => PromiseLike<Readonly<{ data: unknown; error: unknown }>>;
 }>;
+
+export type PostNordClaimOutcome = "failed" | "provider_rate_limited";
 
 export type PostNordEventDisplayDto = Readonly<{
   schemaVersion: 1;
@@ -99,6 +122,7 @@ export type PostNordEventDisplayDto = Readonly<{
 export type PostNordSyncResult = Readonly<{
   provider: "postnord";
   effect: "display_only";
+  cached: boolean;
   inserted: number;
   replayed: number;
   events: readonly PostNordEventDisplayDto[];
@@ -149,7 +173,9 @@ export async function fetchPostNordTrackingPayload(
   }>,
 ): Promise<string> {
   try {
-    const normalizedTrackingNumber = requiredBoundedText(trackingNumber, 100);
+    const normalizedTrackingNumber = canonicalizePostNordTrackingNumber(
+      trackingNumber,
+    );
     const provider = normalizeProviderConfig(options.providerConfig);
     if (typeof options.fetchImpl !== "function") throw providerUnavailable();
 
@@ -231,48 +257,184 @@ export async function syncAuthorizedPostNordOrder(
   authorizedOrder: AuthorizedPostNordOrder,
   dependencies: Readonly<{
     now: Date;
+    admit: (order: AuthorizedPostNordOrder) => Promise<PostNordAdmission>;
+    renew: (claimToken: string) => Promise<void>;
+    finish: (
+      claimToken: string,
+      outcome: PostNordClaimOutcome,
+      retryAfterSeconds: number | null,
+    ) => Promise<void>;
     fetchPayload: (trackingNumber: string) => Promise<string>;
     repository: PostNordTrackingRepository;
   }>,
 ): Promise<PostNordSyncResult> {
   try {
     const order = normalizeAuthorizedOrder(authorizedOrder, authorizedOrder.id);
-    const rawBody = await dependencies.fetchPayload(order.trackingNumber);
-    const events = await normalizePostNordTrackingPayload(rawBody, {
-      requestedTenantId: order.tenantId,
-      requestedOrderId: order.id,
-      order: {
-        id: order.id,
-        tenantId: order.tenantId,
-        trackingNumber: order.trackingNumber,
-      },
-      receivedAt: dependencies.now,
-    });
-    for (const event of events) {
-      assertPostNordEventForPersistence(event, {
-        tenantId: order.tenantId,
-        orderId: order.id,
-        trackingNumber: order.trackingNumber,
+    const admission = normalizeAdmission(await dependencies.admit(order));
+    if (admission.disposition === "cached") {
+      return deepFreeze({
+        provider: "postnord" as const,
+        effect: "display_only" as const,
+        cached: true,
+        inserted: 0,
+        replayed: 0,
+        events: [],
       });
     }
-    const persistence = await dependencies.repository.insertEvents(events);
-    if (
-      !isNonNegativeSafeInteger(persistence.inserted) ||
-      !isNonNegativeSafeInteger(persistence.replayed) ||
-      persistence.inserted + persistence.replayed !== events.length
-    ) {
+    if (admission.disposition !== "claimed") {
+      throw new PostNordSyncError("rate_limited", {
+        retryAfterSeconds: admission.retryAfterSeconds,
+      });
+    }
+    const claimToken = admission.claimToken;
+    if (claimToken === null) throw persistenceFailed();
+
+    try {
+      await dependencies.renew(claimToken);
+      const rawBody = await dependencies.fetchPayload(order.trackingNumber);
+      const events = await normalizePostNordTrackingPayload(rawBody, {
+        requestedTenantId: order.tenantId,
+        requestedOrderId: order.id,
+        order: {
+          id: order.id,
+          tenantId: order.tenantId,
+          trackingNumber: order.trackingNumber,
+        },
+        receivedAt: dependencies.now,
+      });
+      for (const event of events) {
+        assertPostNordEventForPersistence(event, {
+          tenantId: order.tenantId,
+          orderId: order.id,
+          trackingNumber: order.trackingNumber,
+        });
+      }
+      await dependencies.renew(claimToken);
+      const persistence = await dependencies.repository.insertEvents(
+        claimToken,
+        events,
+      );
+      if (
+        !isNonNegativeSafeInteger(persistence.inserted) ||
+        !isNonNegativeSafeInteger(persistence.replayed) ||
+        persistence.inserted + persistence.replayed !== events.length
+      ) {
+        throw persistenceFailed();
+      }
+      return deepFreeze({
+        provider: "postnord" as const,
+        effect: "display_only" as const,
+        cached: false,
+        inserted: persistence.inserted,
+        replayed: persistence.replayed,
+        events: events.map(toDisplayDto),
+      });
+    } catch (error) {
+      const retryAfterSeconds = error instanceof PostNordSyncError &&
+          error.code === "rate_limited"
+        ? error.retryAfterSeconds ?? DEFAULT_PROVIDER_RETRY_AFTER_SECONDS
+        : null;
+      try {
+        await dependencies.finish(
+          claimToken,
+          retryAfterSeconds === null ? "failed" : "provider_rate_limited",
+          retryAfterSeconds,
+        );
+      } catch {
+        throw persistenceFailed();
+      }
+      if (retryAfterSeconds !== null) {
+        throw new PostNordSyncError("rate_limited", { retryAfterSeconds });
+      }
+      if (error instanceof PostNordSyncError) throw error;
+      if (error instanceof PostNordTrackingError) throw providerUnavailable();
       throw persistenceFailed();
     }
-    return deepFreeze({
-      provider: "postnord" as const,
-      effect: "display_only" as const,
-      inserted: persistence.inserted,
-      replayed: persistence.replayed,
-      events: events.map(toDisplayDto),
-    });
   } catch (error) {
     if (error instanceof PostNordSyncError) throw error;
     if (error instanceof PostNordTrackingError) throw providerUnavailable();
+    throw persistenceFailed();
+  }
+}
+
+export async function claimPostNordTrackingSync(
+  authorizedOrder: AuthorizedPostNordOrder,
+  verifiedUserId: string,
+  client: PostNordStateRpcClient,
+): Promise<PostNordAdmission> {
+  try {
+    const order = normalizeAuthorizedOrder(authorizedOrder, authorizedOrder.id);
+    if (!isUuid(verifiedUserId) || !client) throw persistenceFailed();
+    const response = await client.rpc("claim_postnord_tracking_sync", {
+      _tenant_id: order.tenantId,
+      _order_id: order.id,
+      _user_id: verifiedUserId,
+      _tracking_identity: order.trackingNumber,
+    });
+    if (
+      response.error !== null ||
+      !Array.isArray(response.data) ||
+      response.data.length !== 1
+    ) {
+      throw persistenceFailed();
+    }
+    return normalizeAdmission(response.data[0]);
+  } catch (error) {
+    if (error instanceof PostNordSyncError) throw error;
+    throw persistenceFailed();
+  }
+}
+
+export async function renewPostNordTrackingSync(
+  claimToken: string,
+  client: PostNordStateRpcClient,
+): Promise<void> {
+  try {
+    if (!isUuid(claimToken) || !client) throw persistenceFailed();
+    const response = await client.rpc("renew_postnord_tracking_sync", {
+      _claim_token: claimToken,
+    });
+    if (response.error !== null || response.data !== true) {
+      throw persistenceFailed();
+    }
+  } catch (error) {
+    if (error instanceof PostNordSyncError) throw error;
+    throw persistenceFailed();
+  }
+}
+
+export async function finishPostNordTrackingSync(
+  claimToken: string,
+  outcome: PostNordClaimOutcome,
+  retryAfterSeconds: number | null,
+  client: PostNordStateRpcClient,
+): Promise<void> {
+  try {
+    if (
+      !isUuid(claimToken) ||
+      !client ||
+      !["failed", "provider_rate_limited"].includes(outcome) ||
+      (outcome === "failed" && retryAfterSeconds !== null) ||
+      (outcome === "provider_rate_limited" &&
+        (!Number.isSafeInteger(retryAfterSeconds) ||
+          Number(retryAfterSeconds) < 1 ||
+          Number(retryAfterSeconds) > 3_600))
+    ) {
+      throw persistenceFailed();
+    }
+    const response = await client.rpc("finish_postnord_tracking_sync", {
+      _claim_token: claimToken,
+      _outcome: outcome,
+      _retry_after_seconds: retryAfterSeconds,
+    });
+    const expected = outcome === "provider_rate_limited"
+      ? retryAfterSeconds
+      : 0;
+    if (response.error !== null || response.data !== expected) {
+      throw persistenceFailed();
+    }
+  } catch (error) {
+    if (error instanceof PostNordSyncError) throw error;
     throw persistenceFailed();
   }
 }
@@ -302,11 +464,17 @@ export function isMatchingPostNordReplayRow(
 }
 
 export async function persistPostNordEventsAtomically(
+  claimToken: string,
   events: readonly NormalizedPostNordEvent[],
-  client: PostNordAtomicRpcClient,
+  client: PostNordStateRpcClient,
 ): Promise<Readonly<{ inserted: number; replayed: number }>> {
   try {
-    if (!Array.isArray(events) || events.length > 200 || !client) {
+    if (
+      !isUuid(claimToken) ||
+      !Array.isArray(events) ||
+      events.length > 200 ||
+      !client
+    ) {
       throw persistenceFailed();
     }
     for (const event of events) {
@@ -317,8 +485,11 @@ export async function persistPostNordEventsAtomically(
       });
     }
     const response = await client.rpc(
-      "persist_postnord_tracking_events_v1",
-      { _events: events.map(toAtomicRpcEvent) },
+      "complete_postnord_tracking_sync",
+      {
+        _claim_token: claimToken,
+        _events: events.map(toAtomicRpcEvent),
+      },
     );
     if (response.error !== null || !Array.isArray(response.data) ||
       response.data.length !== 1 || !isPlainRecord(response.data[0])) {
@@ -381,13 +552,17 @@ function normalizeAuthorizedOrder(
   if (!isPlainRecord(input)) throw orderNotFound();
   const id = input.id;
   const tenantId = input.tenantId;
-  const trackingNumber = input.trackingNumber;
+  let trackingNumber: string;
+  try {
+    trackingNumber = canonicalizePostNordTrackingNumber(input.trackingNumber);
+  } catch {
+    throw orderNotFound();
+  }
   if (
     !isUuid(expectedOrderId) ||
     !isUuid(id) ||
     id !== expectedOrderId ||
-    !isUuid(tenantId) ||
-    !isBoundedText(trackingNumber, 100)
+    !isUuid(tenantId)
   ) {
     throw orderNotFound();
   }
@@ -491,6 +666,38 @@ function nullableString(value: unknown): string | null {
   if (value === null) return null;
   if (typeof value !== "string") throw persistenceFailed();
   return value;
+}
+
+function normalizeAdmission(value: unknown): PostNordAdmission {
+  if (!isPlainRecord(value)) throw persistenceFailed();
+  const disposition = value.disposition;
+  const retryAfterSeconds = value.retryAfterSeconds ??
+    value.retry_after_seconds;
+  const claimToken = value.claimToken ?? value.claim_token ?? null;
+  const normalizedClaimToken = typeof claimToken === "string"
+    ? claimToken
+    : null;
+  if (
+    typeof disposition !== "string" ||
+    !ADMISSION_DISPOSITIONS.has(
+      disposition as PostNordAdmission["disposition"],
+    ) ||
+    !Number.isSafeInteger(retryAfterSeconds) ||
+    Number(retryAfterSeconds) < 0 ||
+    Number(retryAfterSeconds) > 3_600 ||
+    (["claimed", "cached"].includes(disposition) && retryAfterSeconds !== 0) ||
+    (!["claimed", "cached"].includes(disposition) &&
+      Number(retryAfterSeconds) < 1) ||
+    (disposition === "claimed" && !isUuid(normalizedClaimToken)) ||
+    (disposition !== "claimed" && claimToken !== null)
+  ) {
+    throw persistenceFailed();
+  }
+  return Object.freeze({
+    disposition: disposition as PostNordAdmission["disposition"],
+    retryAfterSeconds: Number(retryAfterSeconds),
+    claimToken: normalizedClaimToken,
+  });
 }
 
 function requiredBoundedText(value: unknown, maximum: number): string {

@@ -53,6 +53,7 @@ export type StorformatProduct = {
 
 export type StorformatConfig = {
   rounding_step: number;
+  rounding_mode?: "nearest_v1" | "ceil_v1";
   global_markup_pct: number;
   quantities: number[];
   layout_rows?: any[];
@@ -251,7 +252,10 @@ export const calculateStorformatPrice = ({
   const subtotal = materialCost + finishCost + productCost;
   const markup = config.global_markup_pct || 0;
   const rounding = config.rounding_step || 1;
-  const totalPrice = Math.round((subtotal * (1 + markup / 100)) / rounding) * rounding;
+  const scaledTotal = (subtotal * (1 + markup / 100)) / rounding;
+  const totalPrice = config.rounding_mode === "ceil_v1"
+    ? Math.ceil(scaledTotal - Number.EPSILON * Math.max(1, Math.abs(scaledTotal))) * rounding
+    : Math.round(scaledTotal) * rounding;
 
   return {
     areaM2,

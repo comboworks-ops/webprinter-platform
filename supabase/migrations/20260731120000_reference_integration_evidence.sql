@@ -63,8 +63,10 @@ create table public.tenant_business_evidence (
   received_at timestamptz not null default now(),
   request_fingerprint text not null
     check (request_fingerprint ~ '^[a-f0-9]{64}$'),
-  response_digest text not null
-    check (response_digest ~ '^[a-f0-9]{64}$'),
+  response_digest text
+    check (response_digest is null or response_digest ~ '^[a-f0-9]{64}$'),
+  evidence_digest text not null
+    check (evidence_digest ~ '^[a-f0-9]{64}$'),
   display_fields jsonb not null default '{}'::jsonb
     check (
       jsonb_typeof(display_fields) = 'object'
@@ -154,7 +156,7 @@ create index carrier_tracking_events_v1_order_occurred_idx
 create function public.reject_reference_evidence_mutation()
 returns trigger
 language plpgsql
-set search_path = pg_catalog, public
+set search_path = pg_catalog
 as $$
 begin
   raise exception using
@@ -166,7 +168,7 @@ $$;
 create function public.enforce_reference_tracking_order_tenant()
 returns trigger
 language plpgsql
-set search_path = pg_catalog, public
+set search_path = pg_catalog
 as $$
 begin
   perform 1
@@ -198,11 +200,11 @@ before update or delete on public.supplier_fx_rate_snapshots
 for each row execute function public.reject_reference_evidence_mutation();
 
 create trigger tenant_business_evidence_immutable
-before update on public.tenant_business_evidence
+before update or delete on public.tenant_business_evidence
 for each row execute function public.reject_reference_evidence_mutation();
 
 create trigger carrier_tracking_events_v1_immutable
-before update on public.carrier_tracking_events_v1
+before update or delete on public.carrier_tracking_events_v1
 for each row execute function public.reject_reference_evidence_mutation();
 
 create trigger carrier_tracking_events_v1_order_tenant_guard

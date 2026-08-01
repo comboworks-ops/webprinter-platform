@@ -73,6 +73,7 @@ export type BusinessProviderEvidence = Readonly<{
   evidenceType: BusinessEvidenceType;
   normalizedIdentifier: string;
   resultStatus: "valid" | "invalid" | "unavailable";
+  sourcePayloadSha256: string | null;
   providerReference: string | null;
   checkedAt: string;
   displayFields: ProviderDisplayFields;
@@ -104,7 +105,8 @@ export type BusinessEvidenceInsert = Readonly<{
   checkedAt: string;
   receivedAt: string;
   requestFingerprint: string;
-  responseDigest: string;
+  responseDigest: string | null;
+  evidenceDigest: string;
   displayFields: ProviderDisplayFields;
 }>;
 
@@ -345,8 +347,9 @@ export async function processBusinessEvidence(
     if (claim?.status !== "claimed") throw persistenceFailed();
 
     let normalizedProviderEvidence: BusinessProviderEvidence;
+    let providerEvidence: unknown = null;
     try {
-      const providerEvidence = await provider.verify(
+      providerEvidence = await provider.verify(
         normalizedRequest.providerInput,
         dependencies.context,
       );
@@ -362,13 +365,15 @@ export async function processBusinessEvidence(
           provider.evidenceType,
           normalizedRequest.providerInput.normalizedIdentifier,
           dependencies.context.now,
+          sourcePayloadDigestFromUnknown(providerEvidence),
         ),
         provider,
         normalizedRequest.providerInput.normalizedIdentifier,
       );
     }
     const receivedAt = now.toISOString();
-    const responseDigest = await evidenceResponseDigest(
+    const responseDigest = normalizedProviderEvidence.sourcePayloadSha256;
+    const evidenceDigest = await evidenceResponseDigest(
       normalizedProviderEvidence,
     );
     const insertRow: BusinessEvidenceInsert = deepFreeze({
@@ -383,6 +388,7 @@ export async function processBusinessEvidence(
       receivedAt,
       requestFingerprint,
       responseDigest,
+      evidenceDigest,
       displayFields: normalizedProviderEvidence.displayFields,
     });
 
@@ -447,6 +453,7 @@ export function unavailableProviderEvidence(
   evidenceType: BusinessEvidenceType,
   normalizedIdentifier: string,
   now: Date,
+  sourcePayloadSha256: string | null = null,
 ): BusinessProviderEvidence {
   return deepFreeze({
     schemaVersion: BUSINESS_EVIDENCE_SCHEMA_VERSION,
@@ -454,6 +461,7 @@ export function unavailableProviderEvidence(
     evidenceType,
     normalizedIdentifier,
     resultStatus: "unavailable" as const,
+    sourcePayloadSha256,
     providerReference: null,
     checkedAt: canonicalDate(now).toISOString(),
     displayFields: {},
@@ -483,6 +491,11 @@ export function normalizeDatafordelerCredential(
   return Object.freeze({ kind: input.kind, value });
 }
 
+export type BoundedProviderJson = Readonly<{
+  value: unknown;
+  sourcePayloadSha256: string;
+}>;
+
 export async function fetchBoundedProviderJson(
   options: Readonly<{
     fetchImpl: FetchLike;
@@ -492,7 +505,7 @@ export async function fetchBoundedProviderJson(
     maximumBytes?: number;
     timeoutMs?: number;
   }>,
-): Promise<unknown> {
+): Promise<BoundedProviderJson> {
   try {
     if (typeof options.fetchImpl !== "function") throw providerUnavailable();
     const maximumBytes = options.maximumBytes ??
@@ -560,11 +573,16 @@ export async function fetchBoundedProviderJson(
         throw providerUnavailable();
       }
       if (hasDuplicateJsonObjectKeys(text)) throw providerUnavailable();
+      let value: unknown;
       try {
-        return JSON.parse(text) as unknown;
+        value = JSON.parse(text) as unknown;
       } catch {
         throw providerUnavailable();
       }
+      return deepFreeze({
+        value,
+        sourcePayloadSha256: await sha256ExactBytes(bytes),
+      });
     })();
     try {
       return await Promise.race([providerPromise, timeoutPromise]);
@@ -596,7 +614,10 @@ export async function sha256CanonicalJson(value: unknown): Promise<string> {
   } catch {
     throw persistenceFailed();
   }
-  const bytes = new TextEncoder().encode(text);
+  return await sha256ExactBytes(new TextEncoder().encode(text));
+}
+
+async function sha256ExactBytes(bytes: Uint8Array): Promise<string> {
   const input = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(input).set(bytes);
   const digest = await crypto.subtle.digest("SHA-256", input);
@@ -658,6 +679,18 @@ function normalizeProviderEvidence(
     | "valid"
     | "invalid"
     | "unavailable";
+  let sourcePayloadSha256: string | null;
+  if (input.sourcePayloadSha256 === null) {
+    sourcePayloadSha256 = null;
+  } else if (
+    typeof input.sourcePayloadSha256 === "string" &&
+    SHA256_HEX.test(input.sourcePayloadSha256)
+  ) {
+    sourcePayloadSha256 = input.sourcePayloadSha256;
+  } else throw providerUnavailable();
+  if (resultStatus !== "unavailable" && sourcePayloadSha256 === null) {
+    throw providerUnavailable();
+  }
   const providerReference = resultStatus === "unavailable"
     ? null
     : optionalBoundedText(input.providerReference, 256);
@@ -671,6 +704,7 @@ function normalizeProviderEvidence(
     evidenceType: provider.evidenceType,
     normalizedIdentifier,
     resultStatus,
+    sourcePayloadSha256,
     providerReference,
     checkedAt,
     displayFields,
@@ -694,6 +728,7 @@ async function normalizeStoredEvidence(
         evidenceType: input.evidenceType,
         normalizedIdentifier: input.normalizedIdentifier,
         resultStatus: input.resultStatus,
+        sourcePayloadSha256: input.responseDigest,
         providerReference: input.providerReference,
         checkedAt: input.checkedAt,
         displayFields: input.displayFields,
@@ -707,13 +742,16 @@ async function normalizeStoredEvidence(
       input.tenantId !== expected.request.tenantId ||
       input.requestFingerprint !== expected.requestFingerprint ||
       !SHA256_HEX.test(input.requestFingerprint) ||
-      typeof input.responseDigest !== "string" ||
-      !SHA256_HEX.test(input.responseDigest)
+      (input.responseDigest !== null &&
+        (typeof input.responseDigest !== "string" ||
+          !SHA256_HEX.test(input.responseDigest))) ||
+      typeof input.evidenceDigest !== "string" ||
+      !SHA256_HEX.test(input.evidenceDigest)
     ) {
       throw persistenceFailed();
     }
     const expectedDigest = await evidenceResponseDigest(providerEvidence);
-    if (expectedDigest !== input.responseDigest) throw persistenceFailed();
+    if (expectedDigest !== input.evidenceDigest) throw persistenceFailed();
     return deepFreeze({
       id: input.id,
       tenantId: expected.request.tenantId,
@@ -727,6 +765,7 @@ async function normalizeStoredEvidence(
       receivedAt,
       requestFingerprint: input.requestFingerprint,
       responseDigest: input.responseDigest,
+      evidenceDigest: input.evidenceDigest,
       displayFields: providerEvidence.displayFields,
     });
   } catch {
@@ -761,10 +800,19 @@ function evidenceResponseDigest(
     normalizedIdentifier: input.normalizedIdentifier,
     provider: input.provider,
     resultStatus: input.resultStatus,
+    sourcePayloadSha256: input.sourcePayloadSha256,
     providerReference: input.providerReference,
     checkedAt: input.checkedAt,
     displayFields: input.displayFields,
   });
+}
+
+function sourcePayloadDigestFromUnknown(input: unknown): string | null {
+  if (!isPlainRecord(input)) return null;
+  return typeof input.sourcePayloadSha256 === "string" &&
+      SHA256_HEX.test(input.sourcePayloadSha256)
+    ? input.sourcePayloadSha256
+    : null;
 }
 
 function evidenceBucket(now: Date): string {
@@ -828,7 +876,8 @@ function normalizeDisplayFields(input: unknown): ProviderDisplayFields {
   for (const key of Object.keys(input).sort()) {
     if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key)) throw providerUnavailable();
     const value = input[key];
-    if (value === null || typeof value === "boolean") output[key] = value;
+    if (value === null) output[key] = null;
+    else if (typeof value === "boolean") output[key] = value;
     else if (
       typeof value === "string" && value.length <= 500 &&
       !hasControlCharacter(value)

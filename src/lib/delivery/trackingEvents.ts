@@ -75,12 +75,25 @@ export function mapTrackingEventRow(input: unknown): TrackingDisplayEvent {
 }
 
 export function buildTrackingTimeline(input: Readonly<{
+  trackingNumber?: string | null;
   v1Rows: readonly unknown[];
   legacyRows: readonly unknown[];
   loading?: boolean;
   providerUnavailable?: boolean;
 }>): TrackingTimeline {
-  const current = input.v1Rows.map(mapTrackingEventRow);
+  const expectedTrackingIdentity = input.trackingNumber === undefined
+    ? undefined
+    : canonicalizePostNordTrackingNumber(input.trackingNumber);
+  const scopedV1Rows = expectedTrackingIdentity === undefined
+    ? input.v1Rows
+    : expectedTrackingIdentity === null
+    ? []
+    : input.v1Rows.filter((candidate) => {
+      const row = isRecord(candidate) ? candidate : {};
+      return canonicalizePostNordTrackingNumber(row.tracking_number) ===
+        expectedTrackingIdentity;
+    });
+  const current = scopedV1Rows.map(mapTrackingEventRow);
   const legacy = input.legacyRows.map(mapLegacyTrackingEventRow);
   const events = [...current, ...legacy].sort(compareEventsNewestFirst);
   const state: TrackingTimelineState = input.loading
@@ -97,6 +110,21 @@ export function buildTrackingTimeline(input: Readonly<{
     effect: "display_only" as const,
     suggestedOrderStatus: null,
   });
+}
+
+export function canonicalizePostNordTrackingNumber(
+  value: unknown,
+): string | null {
+  if (
+    typeof value !== "string" ||
+    value.length < 1 ||
+    value.length > 256 ||
+    !/^[A-Za-z0-9 -]+$/.test(value)
+  ) {
+    return null;
+  }
+  const canonical = value.replace(/[ -]/g, "").toUpperCase();
+  return canonical.length >= 1 && canonical.length <= 100 ? canonical : null;
 }
 
 function mapLegacyTrackingEventRow(input: unknown): TrackingDisplayEvent {

@@ -21,8 +21,9 @@ export function createViesProvider(): BusinessEvidenceProvider {
       if (!isViesInput(input)) {
         return unavailable(input, context);
       }
+      let sourcePayloadSha256: string | null = null;
       try {
-        const payload = await fetchBoundedProviderJson({
+        const fetched = await fetchBoundedProviderJson({
           fetchImpl: context.fetchImpl,
           url: VIES_CHECK_URL,
           init: {
@@ -39,9 +40,14 @@ export function createViesProvider(): BusinessEvidenceProvider {
           },
           isAllowedResponseUrl: (url) => url === VIES_CHECK_URL,
         });
-        return parseViesResponse(payload, input);
+        sourcePayloadSha256 = fetched.sourcePayloadSha256;
+        return parseViesResponse(
+          fetched.value,
+          input,
+          sourcePayloadSha256,
+        );
       } catch {
-        return unavailable(input, context);
+        return unavailable(input, context, sourcePayloadSha256);
       }
     },
   });
@@ -50,6 +56,7 @@ export function createViesProvider(): BusinessEvidenceProvider {
 function parseViesResponse(
   payload: unknown,
   input: ViesProviderInput,
+  sourcePayloadSha256: string,
 ): BusinessProviderEvidence {
   if (!isPlainRecord(payload)) throw new Error("invalid provider response");
   const countryCode = payload.countryCode;
@@ -75,6 +82,7 @@ function parseViesResponse(
     evidenceType: "vies" as const,
     normalizedIdentifier: input.normalizedIdentifier,
     resultStatus: valid ? "valid" as const : "invalid" as const,
+    sourcePayloadSha256,
     providerReference,
     checkedAt,
     displayFields: {
@@ -88,6 +96,7 @@ function parseViesResponse(
 function unavailable(
   input: { normalizedIdentifier?: unknown },
   context: ProviderContext,
+  sourcePayloadSha256: string | null = null,
 ): BusinessProviderEvidence {
   const normalizedIdentifier =
     typeof input?.normalizedIdentifier === "string" &&
@@ -99,6 +108,7 @@ function unavailable(
     "vies",
     normalizedIdentifier,
     context.now,
+    sourcePayloadSha256,
   );
 }
 

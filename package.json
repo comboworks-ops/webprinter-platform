@@ -50,6 +50,7 @@
     "check:commercial-release-packet-report": "node scripts/check-commercial-release-packet.mjs --verify-report",
     "check:commercial-release": "node scripts/check-commercial-release.mjs",
     "check:commercial-release-report": "node scripts/check-commercial-release-report.mjs",
+    "check:reference-integrations:release": "bash scripts/check-reference-integrations-release.sh",
     "supabase:cli": "node scripts/supabase-cli.mjs",
     "check:company-hub-foundation": "node scripts/check-company-hub-v2-foundation.mjs",
     "check:supabase-grants": "node scripts/check-supabase-migration-grants.js",

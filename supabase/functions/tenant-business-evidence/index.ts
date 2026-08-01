@@ -284,7 +284,7 @@ function createRepository(
       const { data, error } = await serviceClient
         .from("tenant_business_evidence")
         .select(
-          "id,tenant_id,schema_version,evidence_type,normalized_identifier,provider,result_status,provider_reference,checked_at,received_at,request_fingerprint,response_digest,display_fields",
+          "id,tenant_id,schema_version,evidence_type,normalized_identifier,provider,result_status,provider_reference,checked_at,received_at,request_fingerprint,response_digest,evidence_digest,display_fields",
         )
         .eq("tenant_id", query.tenantId)
         .eq("provider", query.provider)
@@ -341,6 +341,7 @@ function createRepository(
           received_at: row.receivedAt,
           request_fingerprint: row.requestFingerprint,
           response_digest: row.responseDigest,
+          evidence_digest: row.evidenceDigest,
           display_fields: row.displayFields,
         })
         .select("id")
@@ -374,7 +375,10 @@ function rowFromDatabase(input: unknown): StoredBusinessEvidence {
     checkedAt: String(input.checked_at ?? ""),
     receivedAt: String(input.received_at ?? ""),
     requestFingerprint: String(input.request_fingerprint ?? ""),
-    responseDigest: String(input.response_digest ?? ""),
+    responseDigest: input.response_digest === null
+      ? null
+      : String(input.response_digest ?? ""),
+    evidenceDigest: String(input.evidence_digest ?? ""),
     displayFields: input.display_fields as ProviderDisplayFields,
   };
 }

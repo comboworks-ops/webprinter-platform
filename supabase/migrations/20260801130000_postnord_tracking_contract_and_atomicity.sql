@@ -49,7 +49,7 @@ create function public.persist_postnord_tracking_events_v1(_events jsonb)
 returns table(inserted_count integer, replayed_count integer)
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path = pg_catalog
 as $$
 declare
   candidate jsonb;

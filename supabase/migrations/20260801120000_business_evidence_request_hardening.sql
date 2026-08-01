@@ -94,7 +94,7 @@ create function public.claim_tenant_business_evidence_request(
 returns table(disposition text, retry_after_seconds integer)
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path = pg_catalog
 as $$
 declare
   claim_time timestamptz := clock_timestamp();

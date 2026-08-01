@@ -9,7 +9,7 @@ addresses, delivery state, payment, or supplier fulfilment.
 | Integration | Data flow | Stored evidence | Explicitly not authoritative for |
 | --- | --- | --- | --- |
 | EUR/DKK | Authenticated exact `master_admin` -> `reference-fx-snapshot` -> fixed Frankfurter ECB endpoint -> service-role insert | Immutable rate, provider date, fetch time, and exact response digest | Existing prices, published products, checkout, invoices, or supplier costs |
-| VIES/CVR/DAR | Authenticated tenant member or exact master -> `tenant-business-evidence` -> one fixed provider adapter -> service-role insert | Tenant-scoped result, normalized identifier, timestamps, digest, and bounded display fields | Tax decisions, onboarding, account access, company ownership, or address acceptance |
+| VIES/CVR/DAR | Authenticated tenant member or exact master -> `tenant-business-evidence` -> one fixed provider adapter -> service-role insert | Tenant-scoped result, normalized identifier, timestamps, exact source-byte digest when a response was received, normalized-evidence digest, and bounded display fields | Tax decisions, onboarding, account access, company ownership, or address acceptance |
 | PostNord | Authenticated order reader -> explicit `postnord-tracking-sync` action -> fixed Track & Trace v5 endpoint -> service-role insert | Versioned, tenant/order-bound carrier events | `orders.status`, shipment/delivery timestamps, email, POD, payment, or supplier state |
 
 All three Edge Functions require a JWT in `supabase/config.toml` and re-check
@@ -81,7 +81,10 @@ followed and a response is accepted only from the exact requested URL.
   displayable as unknown and never imply a workflow transition.
 - One provider response crosses one service-only database RPC boundary. Exact
   immutable replays are counted without inserting, while any conflicting event
-  rejects and rolls back the entire batch.
+  rejects and rolls back the entire batch. A UUID owner token and monotonically
+  increasing order-scope fence bind that completion to the current fetch;
+  event persistence and successful completion commit atomically, so an expired
+  worker cannot overwrite a successor.
 
 There is no cron authentication bypass in these functions. PostNord sync is an
 explicit user action against a saved order and saved tracking number. If cron
@@ -135,8 +138,11 @@ snapshot artifact readable during rollback even after removing the write flag.
 
 ## Evidence retention and minimization
 
-- Store digests of exact provider response bytes; do not store or log raw
-  provider payloads.
+- When provider bytes were received, `response_digest` hashes those exact UTF-8
+  bytes before JSON parsing; it is `NULL` when no response existed.
+  `evidence_digest` separately binds the validated, normalized evidence DTO.
+  Do not store or log raw provider payloads, and do not present one digest as
+  evidence of the other.
 - Business evidence stores a normalized CVR/VAT/address identifier and bounded
   display fields only. Do not add contacts, email, phone, ownership records, or
   unrestricted provider objects.
@@ -153,6 +159,15 @@ snapshot artifact readable during rollback even after removing the write flag.
   provider, a request fingerprint, and timestamps—not the raw identifier or
   provider payload—and are pruned to a rolling 24-hour window by the admission
   RPC.
+- PostNord admission claims contain only tenant/order/user IDs, the canonical
+  tracking identity, an opaque owner token/fence, bounded lifecycle state, and
+  timestamps. The database serializes each order scope, supports fenced lease
+  renewal and explicit success/failure release, serves one-minute successful
+  cache hits without quota debit, applies per-user/per-tenant and global
+  rolling provider windows, and prunes finished claims after 24 hours. A
+  separate private singleton retains only PostNord's global `blocked_until`;
+  an exact valid `Retry-After` from provider HTTP 429 sets that boundary before
+  another uncached provider call can be admitted.
 - A negative, stale, unknown, or unavailable result remains evidence of that
   check at that time. It is not silently converted to a positive result.
 
@@ -175,11 +190,41 @@ rates, provider-unavailable rates, idempotent replay rates, database failures,
 and schema-validation failures. Alert on sustained failures without sampling
 raw payloads.
 
+## Release verification evidence
+
+The mandatory database release gate is:
+
+```bash
+npm run check:reference-integrations:release
+```
+
+It runs both isolated PostgreSQL 17 suites: the business-evidence/PostNord
+admission, RLS, quota, and concurrency checks, and the WMD exact-target,
+idempotency, draft-only, atomic replacement, and publish/import race checks.
+The command fails closed before reporting success if Docker or its daemon is
+unavailable, if PostgreSQL is not major version 17, or if either suite fails.
+
+The restricted 2026-08-01 review sandbox could not reach the Docker daemon, so
+an in-sandbox attempt is **BLOCKED—not a pass**. The same command was then run
+through the approved local Docker execution boundary against
+`postgres:17-alpine`; both suites passed with these terminal markers:
+
+- `business evidence PostgreSQL 17 concurrency and quota checks passed`
+- `WMD snapshot draft PostgreSQL 17 race checks passed`
+- `Reference integrations PostgreSQL 17 release gate passed.`
+
+That approved run is the database evidence for this review. Static migration
+assertions, unit tests, Edge tests, and the production build remain separate
+gates and cannot replace a future database rerun after migration changes. If a
+future release owner cannot execute Docker/PostgreSQL 17, the status returns to
+blocked rather than skipped or green.
+
 ## Operator activation checklist
 
 - [ ] Review the fixed provider endpoint and current official provider terms.
-- [ ] Confirm the additive migration in an isolated PostgreSQL/Supabase test,
-      including grants, RLS, immutability, tenant/order binding, and rollback.
+- [ ] Run `npm run check:reference-integrations:release` on a Docker-capable
+      host and retain a pass for both PostgreSQL 17 suites. An unavailable
+      runner is a release blocker, not a skipped or green check.
 - [ ] Deploy all three functions with `verify_jwt = true`; do not add a public
       or secret-only bypass.
 - [ ] Configure server secrets without `VITE_*` exposure and scan built assets.

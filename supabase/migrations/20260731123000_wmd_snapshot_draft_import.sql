@@ -3,6 +3,40 @@
 -- insert, or constraint fails. The product row lock serializes publication
 -- against the import so this function can never rewrite a live product.
 
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+
+ALTER TABLE public.storformat_configs
+  ADD COLUMN IF NOT EXISTS rounding_mode text NOT NULL DEFAULT 'nearest_v1'
+  CHECK (rounding_mode IN ('nearest_v1', 'ceil_v1'));
+
+CREATE TABLE public.wmd_snapshot_draft_import_state (
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
+  product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+  revision bigint NOT NULL CHECK (revision >= 1),
+  mode text NOT NULL CHECK (mode IN ('create', 'replace')),
+  expected_revision bigint NOT NULL CHECK (expected_revision >= 0),
+  import_id uuid NOT NULL,
+  payload_digest text NOT NULL CHECK (payload_digest ~ '^[a-f0-9]{64}$'),
+  payload_fingerprint text NOT NULL
+    CHECK (payload_fingerprint ~ '^[a-f0-9]{64}$'),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, import_id),
+  UNIQUE (tenant_id, product_id, revision)
+);
+
+CREATE INDEX wmd_snapshot_draft_import_state_product_revision_idx
+  ON public.wmd_snapshot_draft_import_state (
+    tenant_id,
+    product_id,
+    revision DESC
+  );
+
+ALTER TABLE public.wmd_snapshot_draft_import_state ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.wmd_snapshot_draft_import_state
+  FROM public, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.wmd_snapshot_draft_import_state TO service_role;
+
 CREATE FUNCTION public.apply_wmd_roll_label_snapshot_draft_import(
   _tenant_id uuid,
   _payload jsonb
@@ -10,12 +44,17 @@ CREATE FUNCTION public.apply_wmd_roll_label_snapshot_draft_import(
 RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog
 AS $function$
 DECLARE
   target_product_id uuid;
   target_is_published boolean;
   target_config_is_published boolean;
+  target_input record;
+  target_state record;
+  existing_import_state record;
+  authoritative_payload_fingerprint text;
+  next_revision bigint;
   product_input record;
   config_input record;
 BEGIN
@@ -29,6 +68,7 @@ BEGIN
   END IF;
 
   IF NOT (_payload ?& ARRAY[
+      'target',
       'product',
       'materials',
       'material_price_tiers',
@@ -42,6 +82,7 @@ BEGIN
       SELECT 1
       FROM jsonb_object_keys(_payload) AS payload_key(key)
       WHERE payload_key.key <> ALL (ARRAY[
+        'target',
         'product',
         'materials',
         'material_price_tiers',
@@ -57,7 +98,8 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
-  IF jsonb_typeof(_payload -> 'product') IS DISTINCT FROM 'object'
+  IF jsonb_typeof(_payload -> 'target') IS DISTINCT FROM 'object'
+    OR jsonb_typeof(_payload -> 'product') IS DISTINCT FROM 'object'
     OR jsonb_typeof(_payload -> 'config') IS DISTINCT FROM 'object'
     OR jsonb_typeof(_payload -> 'materials') IS DISTINCT FROM 'array'
     OR jsonb_typeof(_payload -> 'material_price_tiers') IS DISTINCT FROM 'array'
@@ -73,6 +115,62 @@ BEGIN
     OR jsonb_array_length(_payload -> 'variant_m2_prices') > 10000
   THEN
     RAISE EXCEPTION 'Invalid snapshot draft import collections'
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF NOT ((_payload -> 'target') ?& ARRAY[
+      'mode',
+      'product_id',
+      'expected_revision',
+      'import_id',
+      'payload_digest'
+    ]::text[])
+    OR EXISTS (
+      SELECT 1
+      FROM jsonb_object_keys(_payload -> 'target') AS target_key(key)
+      WHERE target_key.key <> ALL (ARRAY[
+        'mode',
+        'product_id',
+        'expected_revision',
+        'import_id',
+        'payload_digest'
+      ]::text[])
+    )
+  THEN
+    RAISE EXCEPTION 'Invalid snapshot draft target shape'
+      USING ERRCODE = '22023';
+  END IF;
+
+  SELECT target_row.*
+  INTO target_input
+  FROM jsonb_to_record(_payload -> 'target') AS target_row(
+    mode text,
+    product_id uuid,
+    expected_revision bigint,
+    import_id uuid,
+    payload_digest text
+  );
+
+  IF target_input.mode NOT IN ('create', 'replace')
+    OR target_input.import_id IS NULL
+    OR COALESCE(target_input.payload_digest, '') !~ '^[a-f0-9]{64}$'
+    OR (
+      target_input.mode = 'create'
+      AND (
+        target_input.product_id IS NOT NULL
+        OR target_input.expected_revision IS DISTINCT FROM 0
+      )
+    )
+    OR (
+      target_input.mode = 'replace'
+      AND (
+        target_input.product_id IS NULL
+        OR target_input.expected_revision IS NULL
+        OR target_input.expected_revision < 1
+      )
+    )
+  THEN
+    RAISE EXCEPTION 'Invalid snapshot draft target values'
       USING ERRCODE = '22023';
   END IF;
 
@@ -104,6 +202,17 @@ BEGIN
     RAISE EXCEPTION 'Invalid snapshot draft product shape'
       USING ERRCODE = '22023';
   END IF;
+
+  -- JSONB text is canonical for object key order. The server fingerprints the
+  -- complete accepted payload while excluding only the caller-claimed digest
+  -- field, so a reused import ID cannot replay a mutated body as a false no-op.
+  authoritative_payload_fingerprint := encode(
+    extensions.digest(
+      (_payload #- '{target,payload_digest}'::text[])::text,
+      'sha256'
+    ),
+    'hex'
+  );
 
   SELECT product_row.*
   INTO product_input
@@ -165,6 +274,7 @@ BEGIN
 
   IF NOT ((_payload -> 'config') ?& ARRAY[
       'rounding_step',
+      'rounding_mode',
       'quantities',
       'layout_rows',
       'vertical_axis'
@@ -174,6 +284,7 @@ BEGIN
       FROM jsonb_object_keys(_payload -> 'config') AS config_key(key)
       WHERE config_key.key <> ALL (ARRAY[
         'rounding_step',
+        'rounding_mode',
         'quantities',
         'layout_rows',
         'vertical_axis'
@@ -188,12 +299,14 @@ BEGIN
   INTO config_input
   FROM jsonb_to_record(_payload -> 'config') AS config_row(
     rounding_step integer,
+    rounding_mode text,
     quantities integer[],
     layout_rows jsonb,
     vertical_axis jsonb
   );
 
   IF config_input.rounding_step NOT BETWEEN 1 AND 1000
+    OR config_input.rounding_mode IS DISTINCT FROM 'ceil_v1'
     OR COALESCE(array_length(config_input.quantities, 1), 0) NOT BETWEEN 1 AND 1000
     OR EXISTS (
       SELECT 1
@@ -444,41 +557,73 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
-  SELECT products.id, products.is_published
-  INTO target_product_id, target_is_published
-  FROM public.products
-  WHERE products.tenant_id = _tenant_id
-    AND products.slug = product_input.slug
-  FOR UPDATE;
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended(
+      'wmd-snapshot-draft:' || _tenant_id::text || ':' ||
+      CASE
+        WHEN target_input.mode = 'create' THEN 'slug:' || product_input.slug
+        ELSE 'product:' || target_input.product_id::text
+      END,
+      0
+    )
+  );
+
+  SELECT
+    import_state.product_id,
+    import_state.revision,
+    import_state.mode,
+    import_state.expected_revision,
+    import_state.import_id,
+    import_state.payload_digest,
+    import_state.payload_fingerprint,
+    products.slug
+  INTO existing_import_state
+  FROM public.wmd_snapshot_draft_import_state AS import_state
+  JOIN public.products
+    ON products.id = import_state.product_id
+   AND products.tenant_id = import_state.tenant_id
+  WHERE import_state.tenant_id = _tenant_id
+    AND import_state.import_id = target_input.import_id
+  FOR UPDATE OF import_state, products;
 
   IF FOUND THEN
-    IF target_is_published THEN
-      RAISE EXCEPTION 'Snapshot pricing may write only to an unpublished draft'
-        USING ERRCODE = '55000';
+    IF existing_import_state.payload_digest IS DISTINCT FROM target_input.payload_digest
+      OR existing_import_state.payload_fingerprint
+        IS DISTINCT FROM authoritative_payload_fingerprint
+    THEN
+      RAISE EXCEPTION 'Snapshot import id was reused with different payload'
+        USING ERRCODE = '22023';
     END IF;
 
-    SELECT configs.is_published
-    INTO target_config_is_published
-    FROM public.storformat_configs AS configs
-    WHERE configs.product_id = target_product_id
+    IF existing_import_state.mode IS DISTINCT FROM target_input.mode
+      OR existing_import_state.expected_revision IS DISTINCT FROM target_input.expected_revision
+      OR existing_import_state.slug IS DISTINCT FROM product_input.slug
+      OR (
+        target_input.mode = 'replace'
+        AND existing_import_state.product_id IS DISTINCT FROM target_input.product_id
+      )
+    THEN
+      RAISE EXCEPTION 'Snapshot import id does not match the requested target'
+        USING ERRCODE = '22023';
+    END IF;
+
+    RETURN existing_import_state.product_id;
+  END IF;
+
+  IF target_input.mode = 'create' THEN
+    SELECT products.id
+    INTO target_product_id
+    FROM public.products
+    WHERE products.tenant_id = _tenant_id
+      AND products.slug = product_input.slug
     FOR UPDATE;
 
-    IF target_config_is_published THEN
-      RAISE EXCEPTION 'Snapshot pricing may write only to an unpublished draft'
-        USING ERRCODE = '55000';
+    IF FOUND THEN
+      RAISE EXCEPTION 'Snapshot draft create target already exists'
+        USING ERRCODE = '23505';
     END IF;
 
-    UPDATE public.products
-    SET name = product_input.name,
-        icon_text = product_input.icon_text,
-        description = product_input.description,
-        category = product_input.category,
-        pricing_type = product_input.pricing_type,
-        preset_key = product_input.preset_key,
-        technical_specs = product_input.technical_specs
-    WHERE id = target_product_id;
-  ELSE
-    target_product_id := gen_random_uuid();
+    target_product_id := pg_catalog.gen_random_uuid();
     INSERT INTO public.products (
       id,
       tenant_id,
@@ -504,6 +649,75 @@ BEGIN
       product_input.preset_key,
       product_input.technical_specs
     );
+    next_revision := 1;
+  ELSE
+    SELECT products.id, products.is_published
+    INTO target_product_id, target_is_published
+    FROM public.products
+    WHERE products.tenant_id = _tenant_id
+      AND products.id = target_input.product_id
+    FOR UPDATE;
+
+    IF NOT FOUND OR target_product_id IS NULL THEN
+      RAISE EXCEPTION 'Snapshot draft replacement target does not exist'
+        USING ERRCODE = 'P0002';
+    END IF;
+
+    IF product_input.slug IS DISTINCT FROM (
+      SELECT products.slug
+      FROM public.products
+      WHERE products.id = target_product_id
+    ) THEN
+      RAISE EXCEPTION 'Snapshot draft replacement may not change the target slug'
+        USING ERRCODE = '22023';
+    END IF;
+
+    IF target_is_published THEN
+      RAISE EXCEPTION 'Snapshot pricing may write only to an unpublished draft'
+        USING ERRCODE = '55000';
+    END IF;
+
+    SELECT configs.is_published
+    INTO target_config_is_published
+    FROM public.storformat_configs AS configs
+    WHERE configs.product_id = target_product_id
+    FOR UPDATE;
+
+    IF target_config_is_published THEN
+      RAISE EXCEPTION 'Snapshot pricing may write only to an unpublished draft'
+        USING ERRCODE = '55000';
+    END IF;
+
+    SELECT import_state.*
+    INTO target_state
+    FROM public.wmd_snapshot_draft_import_state AS import_state
+    WHERE import_state.tenant_id = _tenant_id
+      AND import_state.product_id = target_product_id
+    ORDER BY import_state.revision DESC
+    LIMIT 1
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Snapshot draft replacement target has no import state'
+        USING ERRCODE = '55000';
+    END IF;
+
+    IF target_state.revision IS DISTINCT FROM target_input.expected_revision THEN
+      RAISE EXCEPTION 'Stale snapshot draft revision'
+        USING ERRCODE = '40001';
+    END IF;
+
+    next_revision := target_state.revision + 1;
+
+    UPDATE public.products
+    SET name = product_input.name,
+        icon_text = product_input.icon_text,
+        description = product_input.description,
+        category = product_input.category,
+        pricing_type = product_input.pricing_type,
+        preset_key = product_input.preset_key,
+        technical_specs = product_input.technical_specs
+    WHERE id = target_product_id;
   END IF;
 
   DELETE FROM public.storformat_product_m2_prices
@@ -618,6 +832,7 @@ BEGIN
     product_id,
     pricing_mode,
     rounding_step,
+    rounding_mode,
     global_markup_pct,
     quantities,
     layout_rows,
@@ -628,6 +843,7 @@ BEGIN
     target_product_id,
     'm2_rates',
     config_input.rounding_step,
+    config_input.rounding_mode,
     0,
     config_input.quantities,
     config_input.layout_rows,
@@ -638,10 +854,31 @@ BEGIN
   SET tenant_id = EXCLUDED.tenant_id,
       pricing_mode = EXCLUDED.pricing_mode,
       rounding_step = EXCLUDED.rounding_step,
+      rounding_mode = EXCLUDED.rounding_mode,
       global_markup_pct = EXCLUDED.global_markup_pct,
       quantities = EXCLUDED.quantities,
       layout_rows = EXCLUDED.layout_rows,
       vertical_axis = EXCLUDED.vertical_axis;
+
+  INSERT INTO public.wmd_snapshot_draft_import_state (
+    tenant_id,
+    product_id,
+    revision,
+    mode,
+    expected_revision,
+    import_id,
+    payload_digest,
+    payload_fingerprint
+  ) VALUES (
+    _tenant_id,
+    target_product_id,
+    next_revision,
+    target_input.mode,
+    target_input.expected_revision,
+    target_input.import_id,
+    target_input.payload_digest,
+    authoritative_payload_fingerprint
+  );
 
   RETURN target_product_id;
 END;

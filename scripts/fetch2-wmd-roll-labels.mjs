@@ -19,6 +19,8 @@ import {
   applySnapshotPricing,
   assertSnapshotDraftWriteConfirmation,
   assertSnapshotDraftWriteTarget,
+  buildSnapshotDraftTarget,
+  resolveSnapshotRoundingPolicy,
 } from "./product-import/shared/snapshot-pricing.js";
 
 const DEFAULT_URL =
@@ -77,8 +79,9 @@ function usage() {
     "  node scripts/fetch2-wmd-roll-labels.mjs import [--input <json>] [--dry-run]",
     "    [--out-dir <path>]",
     "    [--tenant-id <uuid>] [--product-name <name>] [--product-slug <slug>] [--category <name>] [--description <text>]",
-    "    [--quantities <csv>] [--delivery-mode cheapest|fastest|both] [--rounding-step <n>] [--publish]",
+    "    [--quantities <csv>] [--delivery-mode cheapest|fastest|both] [--rounding-step <integer>] [--publish]",
     "    [--fx-snapshot-file <json>] [--pricing-buffer-pct <non-negative-number>] [--write-snapshot-draft]",
+    "    [--target-product-id <uuid> --expected-target-revision <positive-integer>] [--import-id <uuid>]",
     "",
     "Notes:",
     "  - Uses /wmdrest/article/get-price and related endpoints.",
@@ -163,6 +166,7 @@ function parseArgs(argv) {
     getArgValue(argv, "--markup-high-pct") || DEFAULT_MARKUP_OVER_THRESHOLD
   );
   const thresholdDkk = Number(getArgValue(argv, "--threshold-dkk") || DEFAULT_THRESHOLD_DKK);
+  const hasRoundingStepFlag = argv.includes("--rounding-step");
   const roundingStep = Number(getArgValue(argv, "--rounding-step") || DEFAULT_ROUNDING_STEP);
   const hasFxSnapshotFlag = argv.includes("--fx-snapshot-file");
   const fxSnapshotFile = getArgValue(argv, "--fx-snapshot-file");
@@ -178,6 +182,12 @@ function parseArgs(argv) {
   const category = normalizeText(getArgValue(argv, "--category") || DEFAULT_PRODUCT_CATEGORY);
   const description = normalizeText(getArgValue(argv, "--description") || DEFAULT_PRODUCT_DESCRIPTION);
   const deliveryMode = normalizeKey(getArgValue(argv, "--delivery-mode") || DEFAULT_DELIVERY_MODE);
+  const targetProductId = getArgValue(argv, "--target-product-id");
+  const expectedTargetRevisionValue = getArgValue(argv, "--expected-target-revision");
+  const expectedTargetRevision = expectedTargetRevisionValue === null
+    ? null
+    : Number(expectedTargetRevisionValue);
+  const importId = getArgValue(argv, "--import-id");
 
   if (!["probe", "extract", "import"].includes(command)) {
     throw new Error("Command must be 'probe', 'extract', or 'import'");
@@ -188,6 +198,12 @@ function parseArgs(argv) {
     throw new Error("--markup-high-pct must be >= 0");
   if (!Number.isFinite(thresholdDkk) || thresholdDkk <= 0) throw new Error("--threshold-dkk must be > 0");
   if (!Number.isFinite(roundingStep) || roundingStep <= 0) throw new Error("--rounding-step must be > 0");
+  if (
+    expectedTargetRevisionValue !== null &&
+    (!Number.isSafeInteger(expectedTargetRevision) || expectedTargetRevision < 0)
+  ) {
+    throw new Error("--expected-target-revision must be a non-negative integer");
+  }
   if (hasFxSnapshotFlag && !fxSnapshotFile) {
     throw new Error("--fx-snapshot-file requires a JSON file path");
   }
@@ -228,6 +244,7 @@ function parseArgs(argv) {
     markupHighPct,
     thresholdDkk,
     roundingStep,
+    hasRoundingStepFlag,
     fxSnapshotFile,
     pricingBufferPct,
     hasPricingBufferFlag,
@@ -241,6 +258,9 @@ function parseArgs(argv) {
     category,
     description,
     deliveryMode,
+    targetProductId,
+    expectedTargetRevision,
+    importId,
   };
 }
 
@@ -1351,6 +1371,7 @@ function buildSnapshotDraftImportPayload({
   maxMm,
   quantities,
   roundingStep,
+  roundingMode,
 }) {
   const materials = materialModels.map((material, idx) => ({
     id: crypto.randomUUID(),
@@ -1491,6 +1512,7 @@ function buildSnapshotDraftImportPayload({
     variant_m2_prices: variantM2Prices,
     config: {
       rounding_step: roundingStep,
+      rounding_mode: roundingMode,
       quantities,
       layout_rows: layoutRows,
       vertical_axis: {
@@ -1507,6 +1529,15 @@ async function runImport(args) {
   const inputPath = resolveImportInputPath(args);
   const payload = readJsonFile(inputPath);
   const snapshotPricing = resolveSnapshotPricing(args, payload);
+  const embeddedRoundingStep =
+    toFiniteNumber(payload?.config?.roundingStep) ?? args.roundingStep;
+  const snapshotRoundingPolicy = snapshotPricing
+    ? resolveSnapshotRoundingPolicy({
+        embeddedRoundingStepDkk: embeddedRoundingStep,
+        explicitRoundingStepDkk: args.roundingStep,
+        hasExplicitRoundingStep: args.hasRoundingStepFlag,
+      })
+    : null;
   const pricingConfig = {
     ...args,
     markupLowPct:
@@ -1515,8 +1546,7 @@ async function runImport(args) {
       toFiniteNumber(payload?.config?.markupHighPct) ?? args.markupHighPct,
     thresholdDkk:
       toFiniteNumber(payload?.config?.thresholdDkk) ?? args.thresholdDkk,
-    roundingStep:
-      toFiniteNumber(payload?.config?.roundingStep) ?? args.roundingStep,
+    roundingStep: snapshotRoundingPolicy?.stepDkk ?? embeddedRoundingStep,
   };
   const parsedRows = parseImportRows(payload, snapshotPricing, pricingConfig);
   const snapshotPricingPreview = buildSnapshotPricingPreview(
@@ -1547,7 +1577,9 @@ async function runImport(args) {
   const productName = normalizeText(args.productName) || DEFAULT_PRODUCT_NAME;
   const productSlug = slugify(args.productSlug || productName || DEFAULT_PRODUCT_SLUG) || DEFAULT_PRODUCT_SLUG;
   const productDescription = normalizeText(args.description) || DEFAULT_PRODUCT_DESCRIPTION;
-  const roundingStep = Math.max(1, Math.round(args.roundingStep));
+  const roundingStep = snapshotRoundingPolicy?.stepDkk ??
+    Math.max(1, Math.round(args.roundingStep));
+  const roundingMode = snapshotRoundingPolicy?.mode ?? "nearest_v1";
   const maxCmHint = toFiniteNumber(payload?.source?.maxCmHint);
   const maxMm = Number.isFinite(maxCmHint) && maxCmHint > 0 ? Math.round(maxCmHint * 10) : null;
 
@@ -1585,6 +1617,7 @@ async function runImport(args) {
             markup_above_pct: pricingConfig.markupHighPct,
             threshold_dkk: pricingConfig.thresholdDkk,
             rounding_step_dkk: pricingConfig.roundingStep,
+            rounding_mode: roundingMode,
             preview: snapshotPricingPreview,
           },
         }
@@ -1615,6 +1648,8 @@ async function runImport(args) {
             fx_source_payload_sha256:
               snapshotPricing.fxSnapshot.snapshot.sourcePayloadSha256,
             pricing_buffer_pct: snapshotPricing.pricingBufferPct,
+            rounding_step_dkk: roundingStep,
+            rounding_mode: roundingMode,
           }
         : { eur_to_dkk: payload?.config?.fx ?? args.eurToDkk }),
       markup_low_pct: payload?.config?.markupLowPct ?? args.markupLowPct,
@@ -1638,8 +1673,6 @@ async function runImport(args) {
     snapshotMode: Boolean(snapshotPricing),
     isPublished: Boolean(args.publish),
   });
-  const client = createSupabaseServiceClient();
-
   if (snapshotPricing) {
     const rpcPayload = buildSnapshotDraftImportPayload({
       product: draftProductPayload,
@@ -1650,11 +1683,24 @@ async function runImport(args) {
       maxMm,
       quantities,
       roundingStep,
+      roundingMode,
     });
+    const payloadDigest = crypto
+      .createHash("sha256")
+      .update(JSON.stringify(rpcPayload), "utf8")
+      .digest("hex");
+    const target = buildSnapshotDraftTarget({
+      mode: args.targetProductId ? "replace" : "create",
+      productId: args.targetProductId,
+      expectedRevision: args.expectedTargetRevision ?? 0,
+      importId: args.importId,
+      payloadDigest,
+    });
+    const client = createSupabaseServiceClient();
     const { data: snapshotProductId, error: snapshotImportError } = await client
       .rpc("apply_wmd_roll_label_snapshot_draft_import", {
         _tenant_id: args.tenantId,
-        _payload: rpcPayload,
+        _payload: { target, ...rpcPayload },
       });
     assertNoError(snapshotImportError, "Atomic snapshot draft import");
     if (typeof snapshotProductId !== "string" || !snapshotProductId) {
@@ -1666,6 +1712,8 @@ async function runImport(args) {
     console.log(`Product id: ${snapshotProductId}`);
     return;
   }
+
+  const client = createSupabaseServiceClient();
 
   const productPayload = {
     tenant_id: args.tenantId,

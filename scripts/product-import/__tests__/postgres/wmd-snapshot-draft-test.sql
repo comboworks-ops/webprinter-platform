@@ -2,13 +2,25 @@
 
 CREATE OR REPLACE FUNCTION public.test_wmd_payload(
   _product_name text,
-  _material_name text
+  _material_name text,
+  _mode text DEFAULT 'create',
+  _product_id uuid DEFAULT NULL,
+  _expected_revision bigint DEFAULT 0,
+  _import_id uuid DEFAULT 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+  _payload_digest text DEFAULT repeat('b', 64)
 )
 RETURNS jsonb
 LANGUAGE sql
 IMMUTABLE
 AS $test_payload$
   SELECT jsonb_build_object(
+    'target', jsonb_build_object(
+      'mode', _mode,
+      'product_id', _product_id,
+      'expected_revision', _expected_revision,
+      'import_id', _import_id,
+      'payload_digest', _payload_digest
+    ),
     'product', jsonb_build_object(
       'name', _product_name,
       'slug', 'wmd-roll-labels-test',
@@ -100,6 +112,7 @@ AS $test_payload$
     )),
     'config', jsonb_build_object(
       'rounding_step', 1,
+      'rounding_mode', 'ceil_v1',
       'quantities', jsonb_build_array(100, 500),
       'layout_rows', jsonb_build_array(),
       'vertical_axis', jsonb_build_object(
@@ -111,6 +124,38 @@ AS $test_payload$
     )
   );
 $test_payload$;
+
+CREATE OR REPLACE FUNCTION public.test_wmd_replace_payload(
+  _product_name text,
+  _material_name text,
+  _import_id uuid,
+  _payload_digest text,
+  _expected_revision bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $test_replace_payload$
+  SELECT public.test_wmd_payload(
+    _product_name,
+    _material_name,
+    'replace',
+    import_state.product_id,
+    COALESCE(_expected_revision, import_state.revision),
+    _import_id,
+    _payload_digest
+  )
+  FROM public.wmd_snapshot_draft_import_state AS import_state
+  JOIN public.products
+    ON products.id = import_state.product_id
+   AND products.tenant_id = import_state.tenant_id
+  WHERE import_state.tenant_id = '00000000-0000-4000-8000-000000000001'
+    AND products.slug = 'wmd-roll-labels-test'
+  ORDER BY import_state.revision DESC
+  LIMIT 1;
+$test_replace_payload$;
 
 CREATE OR REPLACE FUNCTION public.test_assert(_condition boolean, _message text)
 RETURNS void
@@ -149,6 +194,12 @@ SELECT public.test_assert(
     'EXECUTE'
   ),
   'service_role must execute the import RPC'
+);
+SELECT public.test_assert(
+  NOT has_table_privilege('service_role', 'public.wmd_snapshot_draft_import_state', 'INSERT')
+  AND NOT has_table_privilege('service_role', 'public.wmd_snapshot_draft_import_state', 'UPDATE')
+  AND NOT has_table_privilege('service_role', 'public.wmd_snapshot_draft_import_state', 'DELETE'),
+  'service_role must not mutate snapshot revision state directly'
 );
 
 SET ROLE anon;
@@ -192,6 +243,109 @@ SELECT public.test_assert(
   (SELECT count(*) = 1 FROM public.storformat_product_m2_prices),
   'variant m2 pricing must be inserted'
 );
+SELECT public.test_assert(
+  (SELECT max(revision) = 1 FROM public.wmd_snapshot_draft_import_state),
+  'a new snapshot target must start at revision one'
+);
+SELECT public.test_assert(
+  (SELECT rounding_mode = 'ceil_v1' FROM public.storformat_configs),
+  'snapshot rounding mode must be persisted with its step'
+);
+
+UPDATE public.products
+SET technical_specs = technical_specs || jsonb_build_object(
+  'wmd_import_revision', 999,
+  'wmd_import_id', 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+)
+WHERE slug = 'wmd-roll-labels-test';
+
+DO $technical_specs_not_authority$
+BEGIN
+  PERFORM public.apply_wmd_roll_label_snapshot_draft_import(
+    '00000000-0000-4000-8000-000000000001',
+    public.test_wmd_replace_payload(
+      'Must reject fake revision',
+      'Must reject fake revision',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+      repeat('c', 64),
+      999
+    )
+  );
+  RAISE EXCEPTION 'technical_specs unexpectedly controlled the revision';
+EXCEPTION WHEN SQLSTATE '40001' THEN
+  NULL;
+END;
+$technical_specs_not_authority$;
+
+SET ROLE service_role;
+SELECT public.apply_wmd_roll_label_snapshot_draft_import(
+  '00000000-0000-4000-8000-000000000001',
+  public.test_wmd_replace_payload(
+    'Revision two snapshot',
+    'Revision two material',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3',
+    repeat('d', 64)
+  )
+);
+-- Exact replay is a no-op and must not advance the private revision state.
+SELECT public.apply_wmd_roll_label_snapshot_draft_import(
+  '00000000-0000-4000-8000-000000000001',
+  public.test_wmd_replace_payload(
+    'Revision two snapshot',
+    'Revision two material',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3',
+    repeat('d', 64),
+    1
+  )
+);
+RESET ROLE;
+
+SELECT public.test_assert(
+  (
+    SELECT max(revision) = 2 AND count(*) = 2
+    FROM public.wmd_snapshot_draft_import_state
+  ),
+  'successful replacement advances revision exactly once despite replay'
+);
+SELECT public.test_assert(
+  (SELECT name = 'Revision two snapshot' FROM public.products WHERE slug = 'wmd-roll-labels-test'),
+  'the exact product target must be replaced'
+);
+
+DO $import_id_digest_mismatch$
+BEGIN
+  PERFORM public.apply_wmd_roll_label_snapshot_draft_import(
+    '00000000-0000-4000-8000-000000000001',
+    public.test_wmd_replace_payload(
+      'Must reject changed replay',
+      'Must reject changed replay',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3',
+      repeat('e', 64)
+    )
+  );
+  RAISE EXCEPTION 'changed import replay unexpectedly succeeded';
+EXCEPTION WHEN SQLSTATE '22023' THEN
+  NULL;
+END;
+$import_id_digest_mismatch$;
+
+DO $import_id_mutated_body_same_claimed_digest$
+BEGIN
+  PERFORM public.apply_wmd_roll_label_snapshot_draft_import(
+    '00000000-0000-4000-8000-000000000001',
+    public.test_wmd_replace_payload(
+      'Must reject mutated body with reused claim',
+      'Must reject mutated body with reused claim',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3',
+      repeat('d', 64),
+      1
+    )
+  );
+  RAISE EXCEPTION 'mutated body with reused claimed digest unexpectedly replayed';
+EXCEPTION WHEN SQLSTATE '22023' THEN
+  NULL;
+END;
+$import_id_mutated_body_same_claimed_digest$;
 
 DO $published_key_denied$
 DECLARE
@@ -242,7 +396,7 @@ END;
 $overprecision_denied$;
 
 SELECT public.test_assert(
-  (SELECT name = 'Initial snapshot' FROM public.products WHERE slug = 'wmd-roll-labels-test'),
+  (SELECT name = 'Revision two snapshot' FROM public.products WHERE slug = 'wmd-roll-labels-test'),
   'invalid payloads must not mutate the product'
 );
 
@@ -254,7 +408,12 @@ DO $published_product$
 BEGIN
   PERFORM public.apply_wmd_roll_label_snapshot_draft_import(
     '00000000-0000-4000-8000-000000000001',
-    public.test_wmd_payload('Must not replace live', 'Must not replace live')
+    public.test_wmd_replace_payload(
+      'Must not replace live',
+      'Must not replace live',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4',
+      repeat('f', 64)
+    )
   );
   RAISE EXCEPTION 'published product import unexpectedly succeeded';
 EXCEPTION WHEN SQLSTATE '55000' THEN
@@ -263,11 +422,11 @@ END;
 $published_product$;
 
 SELECT public.test_assert(
-  (SELECT name = 'Initial snapshot' FROM public.products WHERE slug = 'wmd-roll-labels-test'),
+  (SELECT name = 'Revision two snapshot' FROM public.products WHERE slug = 'wmd-roll-labels-test'),
   'published product must not be mutated'
 );
 SELECT public.test_assert(
-  (SELECT name = 'Initial material' FROM public.storformat_materials),
+  (SELECT name = 'Revision two material' FROM public.storformat_materials),
   'published product pricing must not be mutated'
 );
 
@@ -280,7 +439,12 @@ DO $published_config$
 BEGIN
   PERFORM public.apply_wmd_roll_label_snapshot_draft_import(
     '00000000-0000-4000-8000-000000000001',
-    public.test_wmd_payload('Must not unpublish config', 'Must not replace config')
+    public.test_wmd_replace_payload(
+      'Must not unpublish config',
+      'Must not replace config',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5',
+      repeat('1', 64)
+    )
   );
   RAISE EXCEPTION 'published config import unexpectedly succeeded';
 EXCEPTION WHEN SQLSTATE '55000' THEN
@@ -298,7 +462,15 @@ DO $rollback$
 DECLARE
   bad_payload jsonb := public.test_wmd_payload(
     'Must roll back',
-    'Must roll back'
+    'Must roll back',
+    'replace',
+    (SELECT product_id
+     FROM public.wmd_snapshot_draft_import_state
+     ORDER BY revision DESC
+     LIMIT 1),
+    2,
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6',
+    repeat('2', 64)
   );
 BEGIN
   bad_payload := jsonb_set(
@@ -319,11 +491,11 @@ END;
 $rollback$;
 
 SELECT public.test_assert(
-  (SELECT name = 'Initial snapshot' FROM public.products WHERE slug = 'wmd-roll-labels-test'),
+  (SELECT name = 'Revision two snapshot' FROM public.products WHERE slug = 'wmd-roll-labels-test'),
   'failed replacement must roll the product update back'
 );
 SELECT public.test_assert(
-  (SELECT name = 'Initial material' FROM public.storformat_materials),
+  (SELECT name = 'Revision two material' FROM public.storformat_materials),
   'failed replacement must roll destructive deletes back'
 );
 

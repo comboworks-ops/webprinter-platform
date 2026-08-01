@@ -29,6 +29,7 @@ const TENANT_A = "10000000-0000-4000-8000-000000000001";
 const TENANT_B = "20000000-0000-4000-8000-000000000002";
 const EVIDENCE_ID = "30000000-0000-4000-8000-000000000003";
 const USER_A = "50000000-0000-4000-8000-000000000005";
+const RAW_RESPONSE_DIGEST = "a".repeat(64);
 
 function response(body: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
@@ -242,6 +243,7 @@ test("provider orchestration persists minimal display-only evidence and exact re
         evidenceType: "vies",
         normalizedIdentifier: "DK12345678",
         resultStatus: "valid",
+        sourcePayloadSha256: RAW_RESPONSE_DIGEST,
         providerReference: "reference-1",
         checkedAt: NOW.toISOString(),
         displayFields: { vatId: "DK12345678", registeredName: "Example ApS" },
@@ -295,6 +297,13 @@ test("provider orchestration persists minimal display-only evidence and exact re
   assert.equal(first.replayed, false);
   assert.equal(insertedTenant, TENANT_A);
   assert.match(insertedFingerprint, /^[a-f0-9]{64}$/);
+  const capturedRow = storedRow as
+    | Parameters<BusinessEvidenceRepository["insert"]>[0]
+    | null;
+  assert.ok(capturedRow);
+  assert.equal(capturedRow.responseDigest, RAW_RESPONSE_DIGEST);
+  assert.match(capturedRow.evidenceDigest, /^[a-f0-9]{64}$/);
+  assert.notEqual(capturedRow.evidenceDigest, capturedRow.responseDigest);
   assert.equal("requestFingerprint" in first, false);
   assert.equal("responseDigest" in first, false);
   assert.equal("normalizedIdentifier" in first, false);
@@ -332,6 +341,7 @@ test("repository scope always uses the request tenant and rejects a mismatched s
         receivedAt: NOW.toISOString(),
         requestFingerprint: query.requestFingerprint,
         responseDigest: "0".repeat(64),
+        evidenceDigest: "1".repeat(64),
         displayFields: {},
       }),
     claim: () => Promise.resolve({ status: "replay" }),
@@ -413,6 +423,7 @@ test("malformed provider output is persisted only as sanitized unavailable evide
         evidenceType: "vies",
         normalizedIdentifier: "DK12345678",
         resultStatus: "valid",
+        sourcePayloadSha256: RAW_RESPONSE_DIGEST,
         providerReference: "secret".repeat(100),
         checkedAt: "not-a-date",
         displayFields: { registeredName: "upstream secret detail" },
@@ -483,6 +494,7 @@ test("an atomic in-flight claim prevents simultaneous duplicate provider calls",
         evidenceType: "vies",
         normalizedIdentifier: input.normalizedIdentifier,
         resultStatus: "valid",
+        sourcePayloadSha256: RAW_RESPONSE_DIGEST,
         providerReference: null,
         checkedAt: NOW.toISOString(),
         displayFields: {},
@@ -610,12 +622,47 @@ test("VIES pins the official REST endpoint and maps valid false to display-only 
     vatNumber: "12345678",
   });
   assert.equal(result.resultStatus, "invalid");
+  assert.match(result.sourcePayloadSha256 ?? "", /^[a-f0-9]{64}$/);
   assert.equal(result.providerReference, "vies-reference");
   assert.deepEqual(result.displayFields, {
     vatId: "DK12345678",
     registeredName: "Example ApS",
     registeredAddress: "Virksomhedsvej 12, 2100 København Ø",
   });
+});
+
+test("business source evidence hashes exact provider bytes independently of normalized evidence", async () => {
+  const providerPayload = {
+    countryCode: "DK",
+    vatNumber: "12345678",
+    requestDate: "2026-08-01T08:03:00.000Z",
+    valid: true,
+  };
+  const compact = JSON.stringify(providerPayload);
+  const spaced = JSON.stringify(providerPayload, null, 2);
+  const input = {
+    kind: "vies" as const,
+    countryCode: "DK" as const,
+    vatNumber: "12345678",
+    normalizedIdentifier: "DK12345678",
+  };
+  const [first, second] = await Promise.all([
+    createViesProvider().verify(input, {
+      now: NOW,
+      correlationId: "raw-compact",
+      fetchImpl: () => Promise.resolve(response(compact)),
+    }),
+    createViesProvider().verify(input, {
+      now: NOW,
+      correlationId: "raw-spaced",
+      fetchImpl: () => Promise.resolve(response(spaced)),
+    }),
+  ]);
+
+  assert.equal(first.resultStatus, "valid");
+  assert.equal(second.resultStatus, "valid");
+  assert.notEqual(first.sourcePayloadSha256, second.sourcePayloadSha256);
+  assert.deepEqual(first.displayFields, second.displayFields);
 });
 
 test("VIES sanitizes redirects, bad status, malformed or oversized responses as unavailable", async () => {

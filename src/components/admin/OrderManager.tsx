@@ -15,7 +15,7 @@ import { downloadInvoice } from '@/lib/invoiceGenerator';
 import { resolveAdminTenant } from '@/lib/adminTenant';
 import { Link } from 'react-router-dom';
 import { TrackingEventTimeline } from '@/components/account/TrackingEventTimeline';
-import { buildTrackingTimeline, type TrackingTimeline } from '@/lib/delivery/trackingEvents';
+import { buildTrackingTimeline, canonicalizePostNordTrackingNumber, type TrackingTimeline } from '@/lib/delivery/trackingEvents';
 import {
     TrackingRequestCoordinator,
     type TrackingRequestToken,
@@ -242,22 +242,36 @@ export function OrderManager() {
         }
     };
 
-    const fetchTrackingEvidence = async (orderId: string, providerUnavailable = false) => {
+    const fetchTrackingEvidence = async (
+        orderId: string,
+        savedTrackingNumber: string | null,
+        providerUnavailable = false,
+    ) => {
+        const trackingIdentity = canonicalizePostNordTrackingNumber(savedTrackingNumber);
         const coordinator = trackingRequestCoordinatorRef.current;
         let requestToken: TrackingRequestToken;
         try {
-            requestToken = coordinator.beginRequest(orderId);
+            requestToken = coordinator.beginRequest(orderId, trackingIdentity);
         } catch {
             return;
         }
-        setTrackingTimeline(buildTrackingTimeline({ v1Rows: [], legacyRows: [], loading: true }));
+        setTrackingTimeline(buildTrackingTimeline({
+            trackingNumber: trackingIdentity,
+            v1Rows: [],
+            legacyRows: [],
+            loading: true,
+        }));
         try {
-            const [carrierResult, legacyResult] = await Promise.all([
-                supabase
+            const carrierRequest = trackingIdentity === null
+                ? Promise.resolve({ data: [] as unknown[], error: null })
+                : supabase
                     .from('carrier_tracking_events_v1' as never)
-                    .select('id,schema_version,carrier,provider_status,display_type,occurred_at,received_at,location,description')
+                    .select('id,schema_version,carrier,tracking_number,provider_status,display_type,occurred_at,received_at,location,description')
                     .eq('order_id', orderId)
-                    .order('occurred_at', { ascending: false }),
+                    .eq('tracking_number', trackingIdentity)
+                    .order('occurred_at', { ascending: false });
+            const [carrierResult, legacyResult] = await Promise.all([
+                carrierRequest,
                 supabase
                     .from('delivery_tracking' as never)
                     .select('id,event_type,occurred_at,location,description')
@@ -266,6 +280,7 @@ export function OrderManager() {
             ]);
             if (!coordinator.isCurrentRequest(requestToken)) return;
             setTrackingTimeline(buildTrackingTimeline({
+                trackingNumber: trackingIdentity,
                 v1Rows: carrierResult.error ? [] : (carrierResult.data as unknown[]) || [],
                 legacyRows: legacyResult.error ? [] : (legacyResult.data as unknown[]) || [],
                 providerUnavailable: providerUnavailable || Boolean(carrierResult.error),
@@ -273,6 +288,7 @@ export function OrderManager() {
         } catch {
             if (!coordinator.isCurrentRequest(requestToken)) return;
             setTrackingTimeline(buildTrackingTimeline({
+                trackingNumber: trackingIdentity,
                 v1Rows: [],
                 legacyRows: [],
                 providerUnavailable: true,
@@ -287,7 +303,7 @@ export function OrderManager() {
         const coordinator = trackingRequestCoordinatorRef.current;
         let viewToken: TrackingViewToken;
         try {
-            viewToken = coordinator.captureView(orderId);
+            viewToken = coordinator.captureView(orderId, order.tracking_number);
         } catch {
             return;
         }
@@ -302,7 +318,7 @@ export function OrderManager() {
                 ? data as { code?: unknown; inserted?: unknown; replayed?: unknown }
                 : {};
             const unavailable = response.code === 'provider_unavailable';
-            await fetchTrackingEvidence(orderId, unavailable);
+            await fetchTrackingEvidence(orderId, order.tracking_number, unavailable);
             if (!coordinator.isCurrentView(viewToken)) return;
             if (unavailable) {
                 toast.info('PostNord er ikke aktiveret eller er midlertidigt utilgængelig');
@@ -328,7 +344,7 @@ export function OrderManager() {
     };
 
     const openOrderDetails = (order: Order) => {
-        trackingRequestCoordinatorRef.current.open(order.id);
+        trackingRequestCoordinatorRef.current.open(order.id, order.tracking_number);
         setSelectedOrder(order);
         setTrackingSyncing(false);
         setTrackingTimeline(buildTrackingTimeline({ v1Rows: [], legacyRows: [], loading: true }));
@@ -345,7 +361,7 @@ export function OrderManager() {
             order.delivery_type || readOrderTag(order.status_note, "LEVERINGSMETODE") || ""
         );
         fetchOrderFiles(order.id);
-        void fetchTrackingEvidence(order.id);
+        void fetchTrackingEvidence(order.id, order.tracking_number);
         setDialogOpen(true);
     };
 

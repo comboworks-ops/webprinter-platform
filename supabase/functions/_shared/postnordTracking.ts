@@ -138,6 +138,22 @@ export class PostNordTrackingError extends Error {
   }
 }
 
+export function canonicalizePostNordTrackingNumber(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    value.length < 1 ||
+    value.length > 256 ||
+    !/^[A-Za-z0-9 -]+$/.test(value)
+  ) {
+    throw invalidTrackingData();
+  }
+  const canonical = value.replace(/[ -]/g, "").toUpperCase();
+  if (canonical.length < 1 || canonical.length > 100) {
+    throw invalidTrackingData();
+  }
+  return canonical;
+}
+
 export async function normalizePostNordTrackingPayload(
   rawBody: string,
   context: PostNordOrderContext,
@@ -365,14 +381,17 @@ function normalizeScope(input: TrackingOrderScope): TrackingOrderScope {
     !isPlainRecord(input) ||
     !isUuid(input.tenantId) ||
     !isUuid(input.orderId) ||
-    !isBoundedText(input.trackingNumber, 100)
+    typeof input.trackingNumber !== "string"
   ) {
     throw invalidTrackingData();
   }
+  const trackingNumber = canonicalizePostNordTrackingNumber(
+    input.trackingNumber,
+  );
   return Object.freeze({
     tenantId: input.tenantId,
     orderId: input.orderId,
-    trackingNumber: input.trackingNumber,
+    trackingNumber,
   });
 }
 
@@ -511,7 +530,7 @@ function optionalIdentifier(value: unknown): string | null {
 }
 
 function canonicalIdentifier(value: string): string {
-  return value.toUpperCase();
+  return canonicalizePostNordTrackingNumber(value);
 }
 
 function requiredBoundedText(value: unknown, maximum: number): string {
