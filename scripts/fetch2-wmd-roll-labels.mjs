@@ -17,6 +17,7 @@ import { applyConversionRule } from "./product-import/shared/conversion.js";
 import { parseFxSnapshot } from "./product-import/shared/fx-snapshot.js";
 import {
   applySnapshotPricing,
+  assertSnapshotDraftWriteConfirmation,
   assertSnapshotDraftWriteTarget,
 } from "./product-import/shared/snapshot-pricing.js";
 
@@ -77,14 +78,14 @@ function usage() {
     "    [--out-dir <path>]",
     "    [--tenant-id <uuid>] [--product-name <name>] [--product-slug <slug>] [--category <name>] [--description <text>]",
     "    [--quantities <csv>] [--delivery-mode cheapest|fastest|both] [--rounding-step <n>] [--publish]",
-    "    [--fx-snapshot-file <json>] [--pricing-buffer-pct <non-negative-number>]",
+    "    [--fx-snapshot-file <json>] [--pricing-buffer-pct <non-negative-number>] [--write-snapshot-draft]",
     "",
     "Notes:",
     "  - Uses /wmdrest/article/get-price and related endpoints.",
     "  - Circle rows are derived from rectangle quotes (same price, radius = min(width,height)/2).",
     "  - Markup rule default: EUR*7.6 then +70%, but when base DKK > 3000 then +60%.",
     "  - Snapshot mode reads an already captured local file; it never fetches an FX provider.",
-    "  - Snapshot-priced writes are limited to new or existing unpublished draft products.",
+    "  - Snapshot-priced writes require --write-snapshot-draft and one atomic draft-only RPC.",
     "  - Base extraction price source is supplier net price (response.price).",
   ].join("\n");
 }
@@ -233,6 +234,7 @@ function parseArgs(argv) {
     inputPath,
     dryRun,
     publish,
+    writeSnapshotDraft: argv.includes("--write-snapshot-draft"),
     tenantId,
     productName,
     productSlug,
@@ -1340,6 +1342,167 @@ async function runExtract(args) {
   }
 }
 
+function buildSnapshotDraftImportPayload({
+  product,
+  materialModels,
+  variantModels,
+  shapeModels,
+  deliveryModels,
+  maxMm,
+  quantities,
+  roundingStep,
+}) {
+  const materials = materialModels.map((material, idx) => ({
+    id: crypto.randomUUID(),
+    name: material.name,
+    group_label: material.groupLabel || "Material",
+    bleed_mm: 3,
+    safe_area_mm: 3,
+    max_width_mm: maxMm,
+    max_height_mm: maxMm,
+    allow_split: false,
+    interpolation_enabled: true,
+    markup_pct: 0,
+    sort_order: idx,
+  }));
+  const materialIdByName = new Map(
+    materials.map((row) => [normalizeKey(row.name), row.id]),
+  );
+  const materialPriceTiers = [];
+  const materialM2Prices = [];
+  for (const material of materialModels) {
+    const materialId = materialIdByName.get(normalizeKey(material.name));
+    if (!materialId) continue;
+    material.tiers.forEach((tier, idx) => {
+      materialPriceTiers.push({
+        id: crypto.randomUUID(),
+        material_id: materialId,
+        from_m2: tier.from_m2,
+        to_m2: tier.to_m2,
+        price_per_m2: tier.price_per_m2,
+        is_anchor: true,
+        markup_pct: 0,
+        sort_order: idx,
+      });
+      materialM2Prices.push({
+        id: crypto.randomUUID(),
+        material_id: materialId,
+        from_m2: tier.from_m2,
+        to_m2: tier.to_m2,
+        price_per_m2: tier.price_per_m2,
+        is_anchor: true,
+      });
+    });
+  }
+
+  const variants = variantModels.map((variant, idx) => ({
+    id: crypto.randomUUID(),
+    name: variant.name,
+    group_label: "Delivery",
+    pricing_mode: variant.pricing_mode,
+    initial_price: 0,
+    interpolation_enabled: true,
+    markup_pct: 0,
+    sort_order: idx,
+    pricing_type: variant.pricing_mode === "per_m2" ? "m2" : "fixed",
+    percentage_markup: 0,
+    min_price: 0,
+  }));
+  const variantIdByKey = new Map(
+    variantModels
+      .map((variant, idx) => [variant.key, variants[idx]?.id])
+      .filter((entry) => entry[1]),
+  );
+  const variantPriceTiers = [];
+  const variantM2Prices = [];
+  for (const variant of variantModels) {
+    if (variant.pricing_mode !== "per_m2") continue;
+    const variantId = variantIdByKey.get(variant.key);
+    if (!variantId) continue;
+    variant.tiers.forEach((tier, idx) => {
+      variantPriceTiers.push({
+        id: crypto.randomUUID(),
+        variant_id: variantId,
+        from_m2: tier.from_m2,
+        to_m2: tier.to_m2,
+        price_per_m2: tier.price_per_m2,
+        is_anchor: true,
+        markup_pct: 0,
+        sort_order: idx,
+      });
+      variantM2Prices.push({
+        id: crypto.randomUUID(),
+        variant_id: variantId,
+        from_m2: tier.from_m2,
+        to_m2: tier.to_m2,
+        price_per_m2: tier.price_per_m2,
+        is_anchor: true,
+      });
+    });
+  }
+
+  const layoutRows = [];
+  const shapeVariantIds = shapeModels
+    .map((variant) => variantIdByKey.get(variant.key))
+    .filter(Boolean);
+  const deliveryVariantIds = deliveryModels
+    .map((variant) => variantIdByKey.get(variant.key))
+    .filter(Boolean);
+  if (shapeVariantIds.length) {
+    layoutRows.push({
+      id: "row-shape",
+      title: "Shape",
+      sections: [
+        {
+          id: "section-shape-products",
+          sectionType: "products",
+          ui_mode: "buttons",
+          selection_mode: "required",
+          valueIds: shapeVariantIds,
+          valueSettings: {},
+        },
+      ],
+    });
+  }
+  if (deliveryVariantIds.length) {
+    layoutRows.push({
+      id: "row-delivery",
+      title: "Delivery",
+      sections: [
+        {
+          id: "section-delivery-products",
+          sectionType: "products",
+          ui_mode: "buttons",
+          selection_mode: "required",
+          valueIds: deliveryVariantIds,
+          valueSettings: {},
+        },
+      ],
+    });
+  }
+
+  return {
+    product,
+    materials,
+    material_price_tiers: materialPriceTiers,
+    material_m2_prices: materialM2Prices,
+    variants,
+    variant_price_tiers: variantPriceTiers,
+    variant_m2_prices: variantM2Prices,
+    config: {
+      rounding_step: roundingStep,
+      quantities,
+      layout_rows: layoutRows,
+      vertical_axis: {
+        id: "vertical-axis",
+        sectionType: "materials",
+        valueIds: materials.map((row) => row.id),
+        valueSettings: {},
+      },
+    },
+  };
+}
+
 async function runImport(args) {
   const inputPath = resolveImportInputPath(args);
   const payload = readJsonFile(inputPath);
@@ -1428,27 +1591,13 @@ async function runImport(args) {
       : {}),
   };
 
-  if (args.dryRun) {
-    console.log("Import dry-run summary:");
-    console.log(JSON.stringify(summary, null, 2));
-    return;
-  }
-
-  assertSnapshotDraftWriteTarget({
-    snapshotMode: Boolean(snapshotPricing),
-    isPublished: Boolean(args.publish),
-  });
-  const client = createSupabaseServiceClient();
-
-  const productPayload = {
-    tenant_id: args.tenantId,
+  const draftProductPayload = {
     name: productName,
     slug: productSlug,
     icon_text: productName,
     description: productDescription,
     category: normalizeText(args.category) || DEFAULT_PRODUCT_CATEGORY,
     pricing_type: "STORFORMAT",
-    is_published: !!args.publish,
     preset_key: "custom",
     technical_specs: {
       source: "wmd",
@@ -1473,6 +1622,55 @@ async function runImport(args) {
       threshold_dkk: payload?.config?.thresholdDkk ?? args.thresholdDkk,
       max_size_cm: maxCmHint,
     },
+  };
+
+  if (args.dryRun) {
+    console.log("Import dry-run summary:");
+    console.log(JSON.stringify(summary, null, 2));
+    return;
+  }
+
+  assertSnapshotDraftWriteConfirmation({
+    snapshotMode: Boolean(snapshotPricing),
+    writeConfirmed: Boolean(args.writeSnapshotDraft),
+  });
+  assertSnapshotDraftWriteTarget({
+    snapshotMode: Boolean(snapshotPricing),
+    isPublished: Boolean(args.publish),
+  });
+  const client = createSupabaseServiceClient();
+
+  if (snapshotPricing) {
+    const rpcPayload = buildSnapshotDraftImportPayload({
+      product: draftProductPayload,
+      materialModels,
+      variantModels,
+      shapeModels,
+      deliveryModels,
+      maxMm,
+      quantities,
+      roundingStep,
+    });
+    const { data: snapshotProductId, error: snapshotImportError } = await client
+      .rpc("apply_wmd_roll_label_snapshot_draft_import", {
+        _tenant_id: args.tenantId,
+        _payload: rpcPayload,
+      });
+    assertNoError(snapshotImportError, "Atomic snapshot draft import");
+    if (typeof snapshotProductId !== "string" || !snapshotProductId) {
+      throw new Error("Atomic snapshot draft import did not return a product id");
+    }
+
+    console.log("Import complete:");
+    console.log(JSON.stringify(summary, null, 2));
+    console.log(`Product id: ${snapshotProductId}`);
+    return;
+  }
+
+  const productPayload = {
+    tenant_id: args.tenantId,
+    ...draftProductPayload,
+    is_published: !!args.publish,
   };
 
   const { data: existingProduct, error: existingProductError } = await client

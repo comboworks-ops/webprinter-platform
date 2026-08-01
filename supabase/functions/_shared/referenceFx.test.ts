@@ -195,6 +195,26 @@ test("bad status, media type, size, schema, dates, and staleness are sanitized",
   }
 });
 
+test("provider rates beyond the six-decimal evidence contract fail at the boundary", async () => {
+  for (const rate of ["7.4601234", "100.0000004", "0.0000001"]) {
+    await assert.rejects(
+      fetchFrankfurterEurDkkSnapshot({
+        now: NOW,
+        fetchImpl: () =>
+          Promise.resolve(
+            jsonResponse(
+              `{"date":"2026-07-31","base":"EUR","quote":"DKK","rate":${rate}}`,
+            ),
+          ),
+      }),
+      (error) =>
+        error instanceof ReferenceFxError &&
+        error.code === "invalid_provider_response",
+      rate,
+    );
+  }
+});
+
 test("streamed response bytes accept the exact limit and reject the next byte", async () => {
   const skeleton = JSON.stringify({
     date: "2026-07-31",
@@ -349,6 +369,60 @@ test("an exact replay returns the existing ID without inserting", async () => {
   assert.equal(result.replayed, true);
   assert.equal(result.snapshot.fetchedAt, storedSnapshot.fetchedAt);
   assert.equal(insertCalls, 0);
+});
+
+test("persisted PostgREST UTC timestamps are canonicalized without replacing stored identity", async () => {
+  for (
+    const [storedFetchedAt, expectedFetchedAt] of [
+      ["2026-07-31T08:00:00+00:00", "2026-07-31T08:00:00.000Z"],
+      ["2026-07-31T08:00:00.000000+00:00", "2026-07-31T08:00:00.000Z"],
+      ["2026-07-31T08:00:00.123000+00:00", "2026-07-31T08:00:00.123Z"],
+    ] as const
+  ) {
+    let insertCalls = 0;
+    const result = await persistReferenceFxSnapshot(validSnapshot(), {
+      findExact: () =>
+        Promise.resolve({
+          id: SNAPSHOT_ID,
+          snapshot: validSnapshot({ fetchedAt: storedFetchedAt }),
+        }),
+      insert: () => {
+        insertCalls += 1;
+        return Promise.resolve({ status: "conflict" as const });
+      },
+    });
+
+    assert.equal(result.id, SNAPSHOT_ID);
+    assert.equal(result.replayed, true);
+    assert.equal(result.snapshot.fetchedAt, expectedFetchedAt);
+    assert.equal(insertCalls, 0);
+  }
+});
+
+test("persisted timestamp normalization rejects ambiguous or lossy database values", async () => {
+  for (
+    const storedFetchedAt of [
+      "2026-07-31T08:00:00",
+      "2026-07-31T08:00:00.000+01:00",
+      "2026-07-31T08:00:00.123456+00:00",
+      "2026-02-30T08:00:00+00:00",
+      " 2026-07-31T08:00:00+00:00",
+    ]
+  ) {
+    await assert.rejects(
+      persistReferenceFxSnapshot(validSnapshot(), {
+        findExact: () =>
+          Promise.resolve({
+            id: SNAPSHOT_ID,
+            snapshot: validSnapshot({ fetchedAt: storedFetchedAt }),
+          }),
+        insert: () => Promise.resolve({ status: "conflict" as const }),
+      }),
+      (error) =>
+        error instanceof ReferenceFxError && error.code === "persistence_failed",
+      storedFetchedAt,
+    );
+  }
 });
 
 test("a concurrent uniqueness conflict is re-read instead of duplicated", async () => {

@@ -4,6 +4,7 @@ import test from "node:test";
 import { parseFxSnapshot } from "../shared/fx-snapshot.js";
 import {
   applySnapshotPricing,
+  assertSnapshotDraftWriteConfirmation,
   assertSnapshotDraftWriteTarget,
 } from "../shared/snapshot-pricing.js";
 
@@ -191,6 +192,37 @@ test("snapshot writes reject published targets before any database mutation", ()
     database.insert();
   });
   assert.deepEqual(calls, ["insert"]);
+});
+
+test("snapshot writes require a separate explicit draft-write confirmation", () => {
+  assert.throws(
+    () =>
+      assertSnapshotDraftWriteConfirmation({
+        snapshotMode: true,
+        writeConfirmed: false,
+      }),
+    /--write-snapshot-draft/i,
+  );
+  assert.doesNotThrow(() =>
+    assertSnapshotDraftWriteConfirmation({
+      snapshotMode: true,
+      writeConfirmed: true,
+    }),
+  );
+  assert.doesNotThrow(() =>
+    assertSnapshotDraftWriteConfirmation({
+      snapshotMode: false,
+      writeConfirmed: false,
+    }),
+  );
+  assert.throws(
+    () =>
+      assertSnapshotDraftWriteConfirmation({
+        snapshotMode: false,
+        writeConfirmed: true,
+      }),
+    /requires snapshot pricing evidence/i,
+  );
 });
 
 test("only the final total is rounded upward to the configured decimal step", () => {

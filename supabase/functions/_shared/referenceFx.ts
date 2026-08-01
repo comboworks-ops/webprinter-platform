@@ -12,6 +12,9 @@ const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const STORED_UTC_INSTANT =
+  /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(?:Z|\+00:00)$/;
+const RATE_DECIMAL = /^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/;
 
 export type ReferenceFxErrorCode =
   | "invalid_request"
@@ -443,7 +446,7 @@ function persistedResult(
   candidate: ReferenceFxSnapshot,
 ): PersistedReferenceFxSnapshot {
   if (!isPlainRecord(row) || !isUuid(row.id)) throw persistenceFailed();
-  const snapshot = normalizeSnapshot(row.snapshot);
+  const snapshot = normalizeStoredSnapshot(row.snapshot);
   if (
     snapshot.schemaVersion !== candidate.schemaVersion ||
     snapshot.provider !== candidate.provider ||
@@ -456,6 +459,32 @@ function persistedResult(
     throw persistenceFailed();
   }
   return deepFreeze({ id: row.id, replayed, snapshot });
+}
+
+/**
+ * PostgREST serializes PostgreSQL timestamptz values with a UTC offset and may
+ * retain up to six fractional digits. Accept that database representation only
+ * when conversion to the public millisecond contract is exact. Candidate and
+ * public payloads continue to require the canonical `.sssZ` representation.
+ */
+function normalizeStoredSnapshot(input: unknown): ReferenceFxSnapshot {
+  if (!isPlainRecord(input)) throw persistenceFailed();
+  const fetchedAt = canonicalizeStoredInstant(input.fetchedAt);
+  return normalizeSnapshot({ ...input, fetchedAt });
+}
+
+function canonicalizeStoredInstant(value: unknown): string {
+  if (typeof value !== "string") throw persistenceFailed();
+  const match = STORED_UTC_INSTANT.exec(value);
+  if (!match) throw persistenceFailed();
+
+  const fractional = match[2] ?? "";
+  const microseconds = fractional.padEnd(6, "0");
+  if (microseconds.slice(3) !== "000") throw persistenceFailed();
+
+  const canonical = `${match[1]}.${microseconds.slice(0, 3)}Z`;
+  if (!isCanonicalInstant(canonical)) throw persistenceFailed();
+  return canonical;
 }
 
 function canonicalInstant(value: Date): string {
@@ -492,6 +521,7 @@ function utcCalendarDay(rateDate: string, fetchedDate: string): number {
 function isBoundedRate(value: unknown): value is number {
   return typeof value === "number" &&
     Number.isFinite(value) &&
+    RATE_DECIMAL.test(String(value)) &&
     value > 0 &&
     value <= 100;
 }

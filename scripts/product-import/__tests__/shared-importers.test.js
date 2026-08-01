@@ -117,6 +117,22 @@ test("legacy normalized pricing serialization remains byte-for-byte stable", () 
   );
 });
 
+test("legacy normalized pricing retains its historical integer final-price behavior", () => {
+  const record = createNormalizedPricingRecord({
+    supplier: "legacy",
+    sourceType: "fixture",
+    importerKey: "legacy_import",
+    extractedAt: "2026-07-31T00:00:00.000Z",
+    quantity: 100,
+    supplierPrice: 50,
+    convertedPriceDkk: 375,
+    finalPriceDkk: 600.49,
+    selections: { material: "PVC" },
+  });
+
+  assert.equal(record.finalPriceDkk, 600);
+});
+
 test("snapshot normalized pricing keeps FX, buffer, and markup evidence separate", () => {
   const record = createNormalizedPricingRecord({
     supplier: "wir-machen-druck",
@@ -127,7 +143,7 @@ test("snapshot normalized pricing keeps FX, buffer, and markup evidence separate
     supplierCurrency: "EUR",
     supplierPrice: 123.45,
     convertedPriceDkk: "920.95218435",
-    finalPriceDkk: 1515,
+    finalPriceDkk: 1515.09,
     fxSnapshot: {
       id: "snapshot-1",
       schemaVersion: 1,
@@ -170,6 +186,7 @@ test("snapshot normalized pricing keeps FX, buffer, and markup evidence separate
   assert.equal(record.bufferedCostDkk, "943.97598895875");
   assert.deepEqual(record.markupInputs, { type: "percent", value: 60.5 });
   assert.equal(record.markupAmountDkk, "571.10547332004375");
+  assert.equal(record.finalPriceDkk, 1515.09);
 });
 
 test("roll-label snapshot mode is offline, explicit, and guarded before writes", () => {
@@ -183,6 +200,9 @@ test("roll-label snapshot mode is offline, explicit, and guarded before writes",
   );
   const firstGuard = importSection.indexOf("assertSnapshotDraftWriteTarget");
   const clientCreation = importSection.indexOf("createSupabaseServiceClient");
+  const snapshotRpc = importSection.indexOf(
+    'rpc("apply_wmd_roll_label_snapshot_draft_import"',
+  );
   const statusRead = importSection.indexOf('.select("id,is_published")');
   const secondGuard = importSection.indexOf(
     "assertSnapshotDraftWriteTarget",
@@ -196,13 +216,40 @@ test("roll-label snapshot mode is offline, explicit, and guarded before writes",
 
   assert.match(source, /--fx-snapshot-file/);
   assert.match(source, /--pricing-buffer-pct/);
+  assert.match(source, /--write-snapshot-draft/);
   assert.match(source, /readFxSnapshotFile/);
   assert.match(source, /applySnapshotPricing/);
   assert.match(source, /return convertEurToDkk\(eurNet, cfg\)/);
   assert.doesNotMatch(source, /api\.frankfurter|fetchFrankfurter/i);
   assert.ok(firstGuard >= 0 && firstGuard < clientCreation);
-  assert.ok(statusRead > clientCreation);
+  assert.ok(snapshotRpc > clientCreation && snapshotRpc < statusRead);
+  assert.doesNotMatch(
+    importSection.slice(clientCreation, snapshotRpc),
+    /\.from\(/,
+  );
   assert.ok(secondGuard > statusRead && secondGuard < firstProductWrite);
+});
+
+test("snapshot writes require explicit confirmation before client creation or RPC", () => {
+  const source = readFileSync(
+    new URL("../../fetch2-wmd-roll-labels.mjs", import.meta.url),
+    "utf8",
+  );
+  const importSection = source.slice(
+    source.indexOf("async function runImport"),
+    source.indexOf("async function main"),
+  );
+  const confirmation = importSection.indexOf(
+    "assertSnapshotDraftWriteConfirmation",
+  );
+  const clientCreation = importSection.indexOf("createSupabaseServiceClient");
+  const snapshotRpc = importSection.indexOf(
+    'rpc("apply_wmd_roll_label_snapshot_draft_import"',
+  );
+
+  assert.match(source, /writeSnapshotDraft:\s*argv\.includes\("--write-snapshot-draft"\)/);
+  assert.ok(confirmation >= 0 && confirmation < clientCreation);
+  assert.ok(snapshotRpc > clientCreation);
 });
 
 test("matrix publisher builds exact variant semantics from normalized rows", () => {

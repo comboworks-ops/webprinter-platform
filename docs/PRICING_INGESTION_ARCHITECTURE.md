@@ -151,6 +151,12 @@ These remain on their current importer-local publish implementation for now:
 - remaining t-shirt variants (`silketryk`, `4x4`, etc.)
 - POD2 / POD2X flows
 
+`fetch2-wmd-roll-labels.mjs` also has an opt-in immutable FX-snapshot path.
+Legacy runs retain their existing publisher. Snapshot-priced writes require a
+separate `--write-snapshot-draft` confirmation and use one service-role-only,
+row-locked PostgreSQL RPC so a published product cannot be rewritten and a
+failed replacement cannot leave partial pricing rows.
+
 Those scripts can be ported incrementally onto the same shared layer without changing their CLI contract.
 
 ## 6) Validation Rules

@@ -153,16 +153,18 @@ export function createNormalizedPricingRecord(input) {
   const target = normalizeText(input.target || "matrix-layout-v1");
   const importerKey = normalizeText(input.importerKey);
   const quantity = toPositiveInteger(input.quantity, "quantity");
-  const finalPriceDkk = toPositiveInteger(
-    Math.round(Number(input.finalPriceDkk)),
-    "finalPriceDkk"
-  );
+  const hasSnapshotEvidence = input.fxSnapshot !== undefined;
+  const finalPriceDkk = hasSnapshotEvidence
+    ? toEvidenceDecimal(input.finalPriceDkk, "finalPriceDkk", { positive: true })
+    : toPositiveInteger(
+        Math.round(Number(input.finalPriceDkk)),
+        "finalPriceDkk"
+      );
 
   if (!supplier) throw new Error("supplier is required");
   if (!sourceType) throw new Error("sourceType is required");
   if (!importerKey) throw new Error("importerKey is required");
 
-  const hasSnapshotEvidence = input.fxSnapshot !== undefined;
   const fxSnapshot = hasSnapshotEvidence
     ? normalizeFxSnapshotEvidence(input.fxSnapshot)
     : null;

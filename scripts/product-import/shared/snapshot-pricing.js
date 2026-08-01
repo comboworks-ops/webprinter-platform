@@ -27,6 +27,7 @@ const THRESHOLD_POLICY_KEYS = Object.freeze([
   "aboveValue",
 ]);
 const WRITE_TARGET_KEYS = Object.freeze(["snapshotMode", "isPublished"]);
+const WRITE_CONFIRMATION_KEYS = Object.freeze(["snapshotMode", "writeConfirmed"]);
 const SNAPSHOT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const DECIMAL_NUMBER = /^(0|[1-9]\d*)(?:\.(\d+))?$/;
 
@@ -147,6 +148,30 @@ export function assertSnapshotDraftWriteTarget(untrustedInput) {
   }
   if (input.snapshotMode && input.isPublished) {
     throw new Error("Snapshot pricing may write only to an unpublished draft");
+  }
+}
+
+/**
+ * Snapshot imports are deliberately double opt-in: selecting snapshot pricing
+ * does not itself authorize a database write. Legacy imports are unchanged.
+ */
+export function assertSnapshotDraftWriteConfirmation(untrustedInput) {
+  const input = captureExactRecord(untrustedInput, WRITE_CONFIRMATION_KEYS);
+  if (
+    typeof input.snapshotMode !== "boolean" ||
+    typeof input.writeConfirmed !== "boolean"
+  ) {
+    throw invalidPricingInput();
+  }
+  if (input.snapshotMode && !input.writeConfirmed) {
+    throw new Error(
+      "Snapshot pricing writes require --write-snapshot-draft",
+    );
+  }
+  if (!input.snapshotMode && input.writeConfirmed) {
+    throw new Error(
+      "--write-snapshot-draft requires snapshot pricing evidence",
+    );
   }
 }
 
