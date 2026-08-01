@@ -19,9 +19,11 @@ only after user authentication, exact tenant/order authorization, request
 validation, and provider response validation.
 
 `supplier_fx_rate_snapshots` is readable reference data for authenticated
-users. `tenant_business_evidence` and `carrier_tracking_events_v1` are
-read-only to authenticated users through tenant-scoped RLS. Anonymous users
-have no Data API access. Only `service_role` can create evidence rows.
+users. `tenant_business_evidence` is tenant-scoped. Carrier evidence is
+readable by an exact master, a tenant member for an exactly matching order, or
+the customer whose `orders.user_id` owns that exact order. Anonymous users have
+no Data API access. Only `service_role` can invoke the atomic carrier-event
+writer.
 
 ERPNext remains a separate shadow-pilot integration. This work does not use its
 outbox or event model and does not modify `docs/ERPNEXT_SHADOW_PILOT.md`,
@@ -66,6 +68,20 @@ followed and a response is accepted only from the exact requested URL.
   retention terms, staging evidence, and the separate production-approval
   switch. The adapter has a 5-second timeout, 32 KiB response limit, no
   automatic retry, and propagates a bounded `Retry-After` on HTTP 429.
+- The official v5 event shape is covered by a checked-in synthetic contract
+  fixture; tests never call PostNord. A timestamp with `Z` or an explicit
+  offset is honored as supplied. A timezone-less v5 `eventTime` is provider
+  local time in `Europe/Copenhagen`: normal winter/summer offsets are applied,
+  a fall DST overlap deterministically chooses the earlier summer-time
+  occurrence, and a nonexistent spring-gap time fails closed as unavailable.
+- PostNord `status` is the semantic display authority. Current `INFORMED` and
+  `EN_ROUTE` values map to information and in-transit display evidence;
+  `eventCode` is preserved separately (including numeric codes such as `21`)
+  and never substitutes for a supplied semantic status. Unknown statuses stay
+  displayable as unknown and never imply a workflow transition.
+- One provider response crosses one service-only database RPC boundary. Exact
+  immutable replays are counted without inserting, while any conflicting event
+  rejects and rolls back the entire batch.
 
 There is no cron authentication bypass in these functions. PostNord sync is an
 explicit user action against a saved order and saved tracking number. If cron
@@ -125,8 +141,9 @@ snapshot artifact readable during rollback even after removing the write flag.
   display fields only. Do not add contacts, email, phone, ownership records, or
   unrestricted provider objects.
 - PostNord evidence stores only the saved tracking number, bounded carrier
-  event text/location, timestamps, provider identifiers, and a digest. Do not
-  store proof-of-delivery files or recipient contact data in this stream.
+  event text/location, timestamps, semantic status, provider event ID/code,
+  and a digest. Do not store proof-of-delivery files or recipient contact data
+  in this stream.
 - Evidence rows are append-only through the application. Current source adds no
   automatic purge job. Agree a legal/business retention period before hosted
   activation. Any deletion requires retention approval after all writers are
@@ -186,18 +203,23 @@ raw payloads.
 1. Set `POSTNORD_TRACKING_ENABLED=false`, clear production approval, remove
    Datafordeler credentials, and stop any future reference-integration cron.
    Restrict invocation of the master FX function during rollback.
-2. Remove the optional business-evidence and carrier-event UI actions/reads.
+2. Revoke and drop `persist_postnord_tracking_events_v1(jsonb)` only after all
+   PostNord callers are disabled, then restore the prior carrier read policy if
+   needed. Keep direct service-role table inserts revoked: restoring the old
+   per-event writer would restore the partial-batch failure mode. Retain
+   `provider_event_code` while evidence is retained.
+3. Remove the optional business-evidence and carrier-event UI actions/reads.
    Leave evidence tables intact for audit and retention review.
-3. Remove `--write-snapshot-draft` and the importer snapshot option while
+4. Remove `--write-snapshot-draft` and the importer snapshot option while
    retaining normalized artifact readability and the existing fixed FX rules.
-4. Remove the three Edge Function config entries/source only after callers are
+5. Remove the three Edge Function config entries/source only after callers are
    disabled.
-5. After retention approval, use the exact rollback order documented at the top
+6. After retention approval, use the exact rollback order documented at the top
    of `20260731120000_reference_integration_evidence.sql`: drop its policies,
    explicit grants/functions/triggers, then
    `carrier_tracking_events_v1`, `tenant_business_evidence`, and
    `supplier_fx_rate_snapshots`.
-6. Re-run legacy fixed-FX tests, ordinary order UI tests, POD dry-run/submission
+7. Re-run legacy fixed-FX tests, ordinary order UI tests, POD dry-run/submission
    gates, Supabase grant/exposure checks, and the production build.
 
 Rollback never edits existing price rows, published products, orders,

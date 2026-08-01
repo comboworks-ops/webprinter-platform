@@ -75,10 +75,18 @@ export type PostNordTrackingRepository = Readonly<{
   ) => Promise<Readonly<{ inserted: number; replayed: number }>>;
 }>;
 
+export type PostNordAtomicRpcClient = Readonly<{
+  rpc: (
+    name: string,
+    args: Readonly<{ _events: readonly Readonly<Record<string, unknown>>[] }>,
+  ) => PromiseLike<Readonly<{ data: unknown; error: unknown }>>;
+}>;
+
 export type PostNordEventDisplayDto = Readonly<{
   schemaVersion: 1;
   carrier: "postnord";
   providerEventId: string | null;
+  providerEventCode: string | null;
   providerStatus: string;
   displayType: NormalizedPostNordEvent["displayType"];
   occurredAt: string;
@@ -281,6 +289,7 @@ export function isMatchingPostNordReplayRow(
       row.order_id === event.orderId &&
       row.tracking_number === event.trackingNumber &&
       nullableString(row.provider_event_id) === event.providerEventId &&
+      nullableString(row.provider_event_code) === event.providerEventCode &&
       row.fallback_dedupe_key === event.fallbackDedupeKey &&
       row.provider_status === event.providerStatus &&
       row.display_type === event.displayType &&
@@ -289,6 +298,45 @@ export function isMatchingPostNordReplayRow(
       nullableString(row.description) === event.description;
   } catch {
     return false;
+  }
+}
+
+export async function persistPostNordEventsAtomically(
+  events: readonly NormalizedPostNordEvent[],
+  client: PostNordAtomicRpcClient,
+): Promise<Readonly<{ inserted: number; replayed: number }>> {
+  try {
+    if (!Array.isArray(events) || events.length > 200 || !client) {
+      throw persistenceFailed();
+    }
+    for (const event of events) {
+      assertPostNordEventForPersistence(event, {
+        tenantId: event.tenantId,
+        orderId: event.orderId,
+        trackingNumber: event.trackingNumber,
+      });
+    }
+    const response = await client.rpc(
+      "persist_postnord_tracking_events_v1",
+      { _events: events.map(toAtomicRpcEvent) },
+    );
+    if (response.error !== null || !Array.isArray(response.data) ||
+      response.data.length !== 1 || !isPlainRecord(response.data[0])) {
+      throw persistenceFailed();
+    }
+    const inserted = response.data[0].inserted_count;
+    const replayed = response.data[0].replayed_count;
+    if (
+      !isNonNegativeSafeInteger(inserted) ||
+      !isNonNegativeSafeInteger(replayed) ||
+      inserted + replayed !== events.length
+    ) {
+      throw persistenceFailed();
+    }
+    return Object.freeze({ inserted, replayed });
+  } catch (error) {
+    if (error instanceof PostNordSyncError) throw error;
+    throw persistenceFailed();
   }
 }
 
@@ -351,6 +399,7 @@ function toDisplayDto(event: NormalizedPostNordEvent): PostNordEventDisplayDto {
     schemaVersion: event.schemaVersion,
     carrier: event.carrier,
     providerEventId: event.providerEventId,
+    providerEventCode: event.providerEventCode,
     providerStatus: event.providerStatus,
     displayType: event.displayType,
     occurredAt: event.occurredAt,
@@ -358,6 +407,28 @@ function toDisplayDto(event: NormalizedPostNordEvent): PostNordEventDisplayDto {
     location: event.location,
     description: event.description,
     effect: "display_only" as const,
+  });
+}
+
+function toAtomicRpcEvent(
+  event: NormalizedPostNordEvent,
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    tenant_id: event.tenantId,
+    order_id: event.orderId,
+    schema_version: event.schemaVersion,
+    carrier: event.carrier,
+    tracking_number: event.trackingNumber,
+    provider_event_id: event.providerEventId,
+    provider_event_code: event.providerEventCode,
+    fallback_dedupe_key: event.fallbackDedupeKey,
+    provider_status: event.providerStatus,
+    display_type: event.displayType,
+    occurred_at: event.occurredAt,
+    received_at: event.receivedAt,
+    location: event.location,
+    description: event.description,
+    source_digest: event.sourceDigest,
   });
 }
 

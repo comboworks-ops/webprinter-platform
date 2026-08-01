@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import OFFICIAL_V5_SUCCESS from "./fixtures/postnord-v5-track-by-identifier-success.json" with {
+  type: "json",
+};
+
 import * as trackingModule from "./postnordTracking.ts";
 import {
   assertPostNordEventForPersistence,
@@ -12,6 +16,7 @@ import {
   fetchPostNordTrackingPayload,
   isMatchingPostNordReplayRow,
   parsePostNordSyncRequest,
+  persistPostNordEventsAtomically,
   POSTNORD_PRODUCTION_TRACKING_URL,
   POSTNORD_SANDBOX_TRACKING_URL,
   PostNordSyncError,
@@ -22,6 +27,7 @@ const TENANT_ID = "10000000-0000-4000-8000-000000000001";
 const ORDER_ID = "20000000-0000-4000-8000-000000000002";
 const TRACKING_NUMBER = "00373500489530470000";
 const RECEIVED_AT = new Date("2026-08-01T12:00:00.000Z");
+const OFFICIAL_V5_SUCCESS_FIXTURE = JSON.stringify(OFFICIAL_V5_SUCCESS);
 
 function context(
   overrides: Record<string, unknown> = {},
@@ -95,6 +101,83 @@ test("normalizes supported PostNord v5 events as immutable display-only evidence
   assert.match(events[0].fallbackDedupeKey, /^[a-f0-9]{64}$/);
   assert.ok(Object.isFrozen(events));
   assert.ok(Object.isFrozen(events[0]));
+});
+
+test("normalizes the official PostNord v5 event shape using semantic status and preserves eventCode", async () => {
+  const trackingNumber = "96932007555SE";
+  const events = await normalizePostNordTrackingPayload(
+    OFFICIAL_V5_SUCCESS_FIXTURE,
+    {
+      requestedTenantId: TENANT_ID,
+      requestedOrderId: ORDER_ID,
+      order: {
+        id: ORDER_ID,
+        tenantId: TENANT_ID,
+        trackingNumber,
+      },
+      receivedAt: RECEIVED_AT,
+    },
+  );
+
+  assert.deepEqual(
+    events.map((event) => ({
+      providerEventId: event.providerEventId,
+      providerEventCode: event.providerEventCode,
+      providerStatus: event.providerStatus,
+      displayType: event.displayType,
+      occurredAt: event.occurredAt,
+    })),
+    [
+      {
+        providerEventId: null,
+        providerEventCode: "21",
+        providerStatus: "DELIVERED",
+        displayType: "delivered",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+      },
+      {
+        providerEventId: null,
+        providerEventCode: "31",
+        providerStatus: "EN_ROUTE",
+        displayType: "in_transit",
+        occurredAt: "2026-07-15T10:00:00.000Z",
+      },
+      {
+        providerEventId: null,
+        providerEventCode: "68",
+        providerStatus: "INFORMED",
+        displayType: "information",
+        occurredAt: "2026-01-15T11:00:00.000Z",
+      },
+    ],
+  );
+});
+
+test("uses deterministic Europe/Copenhagen DST handling for timezone-less PostNord event times", async () => {
+  const overlap = await normalizePostNordTrackingPayload(
+    payload([{
+      eventTime: "2026-10-25T02:30:00",
+      eventCode: "31",
+      status: "EN_ROUTE",
+    }]),
+    context(),
+  );
+  assert.equal(overlap[0].occurredAt, "2026-10-25T00:30:00.000Z");
+
+  await assert.rejects(
+    () =>
+      normalizePostNordTrackingPayload(
+        payload([{
+          eventTime: "2026-03-29T02:30:00",
+          eventCode: "31",
+          status: "EN_ROUTE",
+        }]),
+        context(),
+      ),
+    (error) =>
+      error instanceof PostNordTrackingError &&
+      error.code === "invalid_tracking_data",
+  );
 });
 
 test("uses deterministic fallback dedupe and collapses exact provider replay", async () => {
@@ -616,6 +699,7 @@ test("database conflicts count as replay only when immutable scope and event ide
     order_id: event.orderId,
     tracking_number: event.trackingNumber,
     provider_event_id: event.providerEventId,
+    provider_event_code: event.providerEventCode,
     fallback_dedupe_key: event.fallbackDedupeKey,
     provider_status: event.providerStatus,
     display_type: event.displayType,
@@ -638,4 +722,91 @@ test("database conflicts count as replay only when immutable scope and event ide
     }),
     false,
   );
+});
+
+test("persistence crosses the database boundary once with the exact immutable event batch", async () => {
+  const events = await normalizePostNordTrackingPayload(
+    payload([
+      {
+        eventId: "event-1",
+        eventTime: "2026-08-01T09:15:00.000Z",
+        eventCode: "31",
+        status: "EN_ROUTE",
+      },
+      {
+        eventId: "event-2",
+        eventTime: "2026-08-01T10:15:00.000Z",
+        eventCode: "21",
+        status: "DELIVERED",
+      },
+    ]),
+    context(),
+  );
+  const calls: Array<readonly [string, unknown]> = [];
+
+  const result = await persistPostNordEventsAtomically(events, {
+    rpc(name, args) {
+      calls.push([name, args]);
+      return Promise.resolve({
+        data: [{ inserted_count: 2, replayed_count: 0 }],
+        error: null,
+      });
+    },
+  });
+
+  assert.deepEqual(result, { inserted: 2, replayed: 0 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "persist_postnord_tracking_events_v1");
+  const args = calls[0][1] as { _events: Array<Record<string, unknown>> };
+  assert.equal(args._events.length, 2);
+  assert.deepEqual(Object.keys(args._events[0]).sort(), [
+    "carrier",
+    "description",
+    "display_type",
+    "fallback_dedupe_key",
+    "location",
+    "occurred_at",
+    "order_id",
+    "provider_event_code",
+    "provider_event_id",
+    "provider_status",
+    "received_at",
+    "schema_version",
+    "source_digest",
+    "tenant_id",
+    "tracking_number",
+  ]);
+  assert.deepEqual(
+    args._events.map((event) => event.provider_event_code),
+    ["21", "31"],
+  );
+  assert.equal("effect" in args._events[0], false);
+});
+
+test("atomic persistence fails closed on an RPC error or malformed count result", async () => {
+  const events = await normalizePostNordTrackingPayload(
+    payload([{
+      eventId: "event-1",
+      eventTime: "2026-08-01T09:15:00.000Z",
+      eventCode: "31",
+      status: "EN_ROUTE",
+    }]),
+    context(),
+  );
+
+  for (const response of [
+    { data: null, error: { code: "23505" } },
+    { data: [{ inserted_count: 2, replayed_count: 0 }], error: null },
+    { data: [], error: null },
+  ]) {
+    await assert.rejects(
+      () =>
+        persistPostNordEventsAtomically(events, {
+          rpc: () => Promise.resolve(response),
+        }),
+      (error) =>
+        error instanceof PostNordSyncError &&
+        error.code === "persistence_failed",
+    );
+  }
 });

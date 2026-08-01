@@ -6,6 +6,22 @@ const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ISO_INSTANT_WITH_ZONE =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+const ISO_LOCAL_DATE_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?$/;
+const POSTNORD_LOCAL_TIME_ZONE = "Europe/Copenhagen";
+const COPENHAGEN_OFFSETS_MINUTES = Object.freeze([60, 120] as const);
+const COPENHAGEN_PARTS_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: POSTNORD_LOCAL_TIME_ZONE,
+  calendar: "gregory",
+  numberingSystem: "latn",
+  hourCycle: "h23",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
 const PERSISTED_EVENT_KEYS = new Set([
   "schemaVersion",
   "tenantId",
@@ -13,6 +29,7 @@ const PERSISTED_EVENT_KEYS = new Set([
   "carrier",
   "trackingNumber",
   "providerEventId",
+  "providerEventCode",
   "fallbackDedupeKey",
   "providerStatus",
   "displayType",
@@ -37,10 +54,12 @@ const DISPLAY_TYPES = new Set<PostNordDisplayType>([
 const STATUS_TYPES: Readonly<Record<string, PostNordDisplayType>> = Object
   .freeze({
     INFORMATION_RECEIVED: "information",
+    INFORMED: "information",
     ELECTRONIC_NOTIFICATION: "information",
     PRE_ADVICE: "information",
     REGISTERED: "information",
     IN_TRANSIT: "in_transit",
+    EN_ROUTE: "in_transit",
     INTRANSIT: "in_transit",
     TRANSPORTING: "in_transit",
     SORTED: "in_transit",
@@ -95,6 +114,7 @@ export type NormalizedPostNordEvent = Readonly<{
   carrier: "postnord";
   trackingNumber: string;
   providerEventId: string | null;
+  providerEventCode: string | null;
   fallbackDedupeKey: string;
   providerStatus: string;
   displayType: PostNordDisplayType;
@@ -170,6 +190,7 @@ export function assertPostNordEventForPersistence(
       input.trackingNumber !== scope.trackingNumber ||
       input.effect !== "display_only" ||
       !isNullableBoundedText(input.providerEventId, 256) ||
+      !isNullableBoundedText(input.providerEventCode, 120) ||
       !isSha256(input.fallbackDedupeKey) ||
       !isBoundedText(input.providerStatus, 120) ||
       !DISPLAY_TYPES.has(input.displayType as PostNordDisplayType) ||
@@ -257,7 +278,8 @@ async function normalizeProviderEvent(
 ): Promise<NormalizedPostNordEvent> {
   if (!isPlainRecord(input)) throw invalidTrackingData();
   const providerEventId = optionalBoundedText(input.eventId, 256);
-  const statusValue = input.eventCode ?? input.status;
+  const providerEventCode = optionalBoundedText(input.eventCode, 120);
+  const statusValue = input.status ?? input.eventCode;
   const providerStatus = requiredBoundedText(statusValue, 120);
   const occurredAt = canonicalInstant(input.eventTime);
   const description = optionalBoundedText(input.eventDescription, 500);
@@ -267,6 +289,7 @@ async function normalizeProviderEvent(
     carrier: "postnord",
     trackingNumber: scope.trackingNumber,
     providerEventId,
+    providerEventCode,
     providerStatus,
     occurredAt,
     location,
@@ -280,6 +303,7 @@ async function normalizeProviderEvent(
     carrier: "postnord" as const,
     trackingNumber: scope.trackingNumber,
     providerEventId,
+    providerEventCode,
     fallbackDedupeKey,
     providerStatus,
     displayType,
@@ -377,6 +401,7 @@ function canonicalEventIdentity(value: NormalizedPostNordEvent): string {
     carrier: value.carrier,
     trackingNumber: value.trackingNumber,
     providerEventId: value.providerEventId,
+    providerEventCode: value.providerEventCode,
     fallbackDedupeKey: value.fallbackDedupeKey,
     providerStatus: value.providerStatus,
     displayType: value.displayType,
@@ -404,16 +429,66 @@ function canonicalDate(value: Date): string {
 }
 
 function canonicalInstant(value: unknown): string {
-  if (
-    typeof value !== "string" ||
-    value.length > 64 ||
-    !ISO_INSTANT_WITH_ZONE.test(value)
-  ) {
+  if (typeof value !== "string" || value.length > 64) {
     throw invalidTrackingData();
+  }
+  if (!ISO_INSTANT_WITH_ZONE.test(value)) {
+    return canonicalCopenhagenLocalInstant(value);
   }
   const parsed = new Date(value);
   if (!Number.isFinite(parsed.getTime())) throw invalidTrackingData();
   return parsed.toISOString();
+}
+
+function canonicalCopenhagenLocalInstant(value: string): string {
+  const match = ISO_LOCAL_DATE_TIME.exec(value);
+  if (!match) throw invalidTrackingData();
+  const components = match.slice(1, 7).map(Number);
+  const [year, month, day, hour, minute, second] = components;
+  const milliseconds = Number(`${match[7] ?? ""}000`.slice(0, 3));
+  const nominal = new Date(0);
+  nominal.setUTCFullYear(year, month - 1, day);
+  nominal.setUTCHours(hour, minute, second, milliseconds);
+  if (
+    nominal.getUTCFullYear() !== year ||
+    nominal.getUTCMonth() !== month - 1 ||
+    nominal.getUTCDate() !== day ||
+    nominal.getUTCHours() !== hour ||
+    nominal.getUTCMinutes() !== minute ||
+    nominal.getUTCSeconds() !== second
+  ) {
+    throw invalidTrackingData();
+  }
+
+  const candidates = COPENHAGEN_OFFSETS_MINUTES
+    .map((offsetMinutes) => nominal.getTime() - offsetMinutes * 60_000)
+    .filter((instant) =>
+      copenhagenWallClockParts(instant).every(
+        (part, index) => part === components[index],
+      )
+    );
+  if (candidates.length === 0) throw invalidTrackingData();
+
+  // A fall-back overlap has two valid instants. Schema v1 deterministically
+  // chooses the earlier instant (the summer-time occurrence). Spring-forward
+  // wall times have no candidate and fail closed above.
+  return new Date(Math.min(...candidates)).toISOString();
+}
+
+function copenhagenWallClockParts(instant: number): readonly number[] {
+  const values = new Map(
+    COPENHAGEN_PARTS_FORMATTER.formatToParts(new Date(instant))
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, Number(part.value)]),
+  );
+  return Object.freeze([
+    values.get("year"),
+    values.get("month"),
+    values.get("day"),
+    values.get("hour"),
+    values.get("minute"),
+    values.get("second"),
+  ].map((part) => Number(part)));
 }
 
 function isCanonicalInstant(value: unknown): value is string {

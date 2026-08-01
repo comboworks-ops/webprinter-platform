@@ -31,7 +31,8 @@ create table public.user_roles (
 
 create table public.orders (
   id uuid primary key,
-  tenant_id uuid not null references public.tenants(id)
+  tenant_id uuid not null references public.tenants(id),
+  user_id uuid
 );
 
 create function public.has_role(_user_id uuid, _role public.app_role)

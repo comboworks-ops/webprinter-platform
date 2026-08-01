@@ -1,13 +1,12 @@
 // deno-lint-ignore no-import-prefix -- Supabase Edge runtime convention in this repository.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-import { type NormalizedPostNordEvent } from "../_shared/postnordTracking.ts";
 import {
   type AuthorizedPostNordOrder,
   authorizePostNordSyncOrder,
   fetchPostNordTrackingPayload,
-  isMatchingPostNordReplayRow,
   parsePostNordSyncRequest,
+  persistPostNordEventsAtomically,
   PostNordSyncError,
   type PostNordTrackingRepository,
   syncAuthorizedPostNordOrder,
@@ -22,7 +21,6 @@ const MAX_REQUEST_BODY_BYTES = 2 * 1024;
 const MAX_AUTHORIZATION_HEADER_BYTES = 8 * 1024;
 
 type AuthClient = ReturnType<typeof createAuthClient>;
-type ServiceClient = ReturnType<typeof createServiceClient>;
 type AuthResult =
   | Readonly<{ ok: true; client: AuthClient; userId: string }>
   | Readonly<{
@@ -212,72 +210,14 @@ function createLazyRepository(): PostNordTrackingRepository {
         throw new PostNordSyncError("persistence_failed");
       }
       const client = createServiceClient(supabaseUrl, serviceRoleKey);
-      let inserted = 0;
-      let replayed = 0;
-      for (const event of events) {
-        const { error } = await client
-          .from("carrier_tracking_events_v1")
-          .insert(toDatabaseInsert(event));
-        if (!error) {
-          inserted += 1;
-          continue;
-        }
-        if (error.code !== "23505" || !await isExactReplay(client, event)) {
-          throw new PostNordSyncError("persistence_failed");
-        }
-        replayed += 1;
-      }
-      return Object.freeze({ inserted, replayed });
+      return await persistPostNordEventsAtomically(events, {
+        rpc: async (name, args) => {
+          const { data, error } = await client.rpc(name, args);
+          return { data, error };
+        },
+      });
     },
   });
-}
-
-function toDatabaseInsert(event: NormalizedPostNordEvent) {
-  return Object.freeze({
-    tenant_id: event.tenantId,
-    order_id: event.orderId,
-    schema_version: event.schemaVersion,
-    carrier: event.carrier,
-    tracking_number: event.trackingNumber,
-    provider_event_id: event.providerEventId,
-    fallback_dedupe_key: event.fallbackDedupeKey,
-    provider_status: event.providerStatus,
-    display_type: event.displayType,
-    occurred_at: event.occurredAt,
-    received_at: event.receivedAt,
-    location: event.location,
-    description: event.description,
-    source_digest: event.sourceDigest,
-  });
-}
-
-async function isExactReplay(
-  client: ServiceClient,
-  event: NormalizedPostNordEvent,
-): Promise<boolean> {
-  const select =
-    "id,schema_version,tenant_id,order_id,carrier,tracking_number,provider_event_id,fallback_dedupe_key,provider_status,display_type,occurred_at,location,description";
-  const fallbackResult = await client
-    .from("carrier_tracking_events_v1")
-    .select(select)
-    .eq("carrier", event.carrier)
-    .eq("tracking_number", event.trackingNumber)
-    .eq("fallback_dedupe_key", event.fallbackDedupeKey)
-    .maybeSingle();
-  if (fallbackResult.error || !fallbackResult.data) return false;
-  if (!isMatchingPostNordReplayRow(event, fallbackResult.data)) return false;
-
-  if (event.providerEventId === null) return true;
-  const providerResult = await client
-    .from("carrier_tracking_events_v1")
-    .select(select)
-    .eq("carrier", event.carrier)
-    .eq("tracking_number", event.trackingNumber)
-    .eq("provider_event_id", event.providerEventId)
-    .maybeSingle();
-  if (providerResult.error || !providerResult.data) return false;
-  return providerResult.data.id === fallbackResult.data.id &&
-    isMatchingPostNordReplayRow(event, providerResult.data);
 }
 
 function createAuthClient(

@@ -51,6 +51,8 @@ docker exec -i "$container_name" psql -U postgres -d postgres \
 docker exec -i "$container_name" psql -U postgres -d postgres \
   < "$repository_dir/supabase/migrations/20260801120000_business_evidence_request_hardening.sql"
 docker exec -i "$container_name" psql -U postgres -d postgres \
+  < "$repository_dir/supabase/migrations/20260801130000_postnord_tracking_contract_and_atomicity.sql"
+docker exec -i "$container_name" psql -U postgres -d postgres \
   < "$repository_dir/scripts/business-evidence/__tests__/postgres/business-evidence-hardening-test.sql"
 
 docker exec "$container_name" psql -U postgres -d postgres -c \
