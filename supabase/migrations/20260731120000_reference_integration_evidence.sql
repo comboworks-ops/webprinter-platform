@@ -17,15 +17,16 @@ create table public.supplier_fx_rate_snapshots (
     check (base_currency = 'EUR'),
   quote_currency text not null
     check (quote_currency = 'DKK'),
-  rate numeric(12, 6) not null
-    check (rate > 0 and rate <= 100),
+  rate numeric not null
+    check (rate > 0 and rate <= 100)
+    check (scale(rate) between 0 and 6),
   rate_date date not null,
   fetched_at timestamptz not null,
   source_payload_sha256 text not null
     check (source_payload_sha256 ~ '^[a-f0-9]{64}$'),
   created_at timestamptz not null default now(),
   unique (provider, base_currency, quote_currency, rate_date, source_payload_sha256),
-  check (rate_date <= fetched_at::date)
+  check (rate_date <= (fetched_at at time zone 'UTC')::date)
 );
 
 comment on table public.supplier_fx_rate_snapshots is

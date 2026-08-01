@@ -41,7 +41,10 @@ const WMD_TIER_BOUNDARIES = Object.freeze([
  * Applies an explicit immutable EUR/DKK snapshot to a supplier price. Decimal
  * inputs are converted to bounded BigInt coefficients before arithmetic. FX,
  * buffer, and markup are never merged; only the final selling price is rounded
- * upward to the configured commercial price step.
+ * upward to the configured commercial price step. Evidence decimals are
+ * numbers when their canonical decimal round-trips exactly through a
+ * JavaScript Number; otherwise they are canonical decimal strings so no
+ * derived evidence is silently rounded or rejected.
  */
 export function applySnapshotPricing(untrustedInput) {
   try {
@@ -100,29 +103,29 @@ export function applySnapshotPricing(untrustedInput) {
 
     return freezeEvidence({
       supplierCurrency: fxSnapshot.baseCurrency,
-      supplierPrice: toEvidenceNumber(supplierPrice),
+      supplierPrice: toEvidenceDecimal(supplierPrice),
       fxSnapshotId: input.fxSnapshotId,
       fxProvider: fxSnapshot.provider,
       fxBaseCurrency: fxSnapshot.baseCurrency,
       fxQuoteCurrency: fxSnapshot.quoteCurrency,
-      fxRate: toEvidenceNumber(fxRate),
+      fxRate: toEvidenceDecimal(fxRate),
       fxRateDate: fxSnapshot.rateDate,
       fxFetchedAt: fxSnapshot.fetchedAt,
       fxSourcePayloadSha256: fxSnapshot.sourcePayloadSha256,
-      convertedPriceDkk: toEvidenceNumber(convertedPriceDkk),
+      convertedPriceDkk: toEvidenceDecimal(convertedPriceDkk),
       pricingBuffer: {
         type: "percent",
-        value: toEvidenceNumber(bufferPercent),
-        amountDkk: toEvidenceNumber(bufferAmountDkk),
+        value: toEvidenceDecimal(bufferPercent),
+        amountDkk: toEvidenceDecimal(bufferAmountDkk),
       },
-      bufferedCostDkk: toEvidenceNumber(bufferedCostDkk),
+      bufferedCostDkk: toEvidenceDecimal(bufferedCostDkk),
       markup: {
         type: markupPolicy.type,
-        value: toEvidenceNumber(markupPercent),
-        amountDkk: toEvidenceNumber(markupAmountDkk),
+        value: toEvidenceDecimal(markupPercent),
+        amountDkk: toEvidenceDecimal(markupAmountDkk),
       },
-      finalPriceDkk: toEvidenceNumber(finalPriceDkk),
-      roundingStepDkk: toEvidenceNumber(roundingStepDkk),
+      finalPriceDkk: toEvidenceDecimal(finalPriceDkk),
+      roundingStepDkk: toEvidenceDecimal(roundingStepDkk),
     });
   } catch {
     throw invalidPricingInput();
@@ -277,14 +280,22 @@ function assertMaximum(value, maximum) {
   if (compareDecimal(value, maximum) > 0) throw invalidPricingInput();
 }
 
-function toEvidenceNumber(decimal) {
+/**
+ * @returns {number | string} An exact Number when round-trippable, otherwise
+ * the canonical non-exponent decimal string.
+ */
+function toEvidenceDecimal(decimal) {
   const canonical = decimalToString(decimal);
   const value = Number(canonical);
-  if (!Number.isFinite(value)) throw invalidPricingInput();
+  if (!Number.isFinite(value)) return canonical;
   const roundTrip = String(value);
-  if (!DECIMAL_NUMBER.test(roundTrip)) throw invalidPricingInput();
-  if (compareDecimal(decimalLiteral(roundTrip), decimal) !== 0) throw invalidPricingInput();
-  return value;
+  if (
+    DECIMAL_NUMBER.test(roundTrip) &&
+    compareDecimal(decimalLiteral(roundTrip), decimal) === 0
+  ) {
+    return value;
+  }
+  return canonical;
 }
 
 function decimalToString(decimal) {

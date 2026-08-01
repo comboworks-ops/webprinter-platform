@@ -45,6 +45,24 @@ test("all three additive evidence tables have bounded, versioned contracts", asy
   );
 });
 
+test("FX rate storage rejects values beyond the six-decimal evidence contract", async () => {
+  const sql = await migrationSql();
+
+  assert.match(sql, /rate numeric not null/i);
+  assert.doesNotMatch(sql, /rate numeric\s*\(\s*\d+\s*,\s*\d+\s*\)/i);
+  assert.match(sql, /scale\(rate\) between 0 and 6/i);
+});
+
+test("FX chronology compares rate dates with the UTC fetch date", async () => {
+  const sql = await migrationSql();
+
+  assert.match(
+    sql,
+    /check \(rate_date <= \(fetched_at at time zone 'UTC'\)::date\)/i,
+  );
+  assert.doesNotMatch(sql, /rate_date <= fetched_at::date/i);
+});
+
 test("FX snapshots and provider events are immutable and replay-safe", async () => {
   const sql = await migrationSql();
 

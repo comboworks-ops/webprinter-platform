@@ -159,6 +159,35 @@ test("only the final total is rounded upward to the configured decimal step", ()
   assert.equal(exactStep.finalPriceDkk, 1.05);
 });
 
+test("preserves exact derived evidence when a valid decimal cannot round-trip as a Number", () => {
+  const result = applySnapshotPricing(
+    input({
+      supplierPrice: 123.45,
+      fxSnapshot: snapshot({ rate: 7.460123 }),
+      pricingBuffer: { type: "percent", value: 2.5 },
+      markupPolicy: { type: "percent", value: 60.5 },
+      roundingStepDkk: 0.01,
+    }),
+  );
+
+  assert.equal(result.convertedPriceDkk, 920.95218435);
+  assert.deepEqual(result.pricingBuffer, {
+    type: "percent",
+    value: 2.5,
+    amountDkk: 23.02380460875,
+  });
+  assert.equal(result.bufferedCostDkk, 943.97598895875);
+  assert.deepEqual(result.markup, {
+    type: "percent",
+    value: 60.5,
+    amountDkk: "571.10547332004375",
+  });
+  assert.equal(result.finalPriceDkk, 1515.09);
+  const roundTrippedEvidence = JSON.parse(JSON.stringify(result));
+  assert.deepEqual(roundTrippedEvidence, result);
+  assert.equal(roundTrippedEvidence.markup.amountDkk, "571.10547332004375");
+});
+
 test("large bounded integer arithmetic remains exact and overflow fails closed", () => {
   const result = applySnapshotPricing(
     input({
