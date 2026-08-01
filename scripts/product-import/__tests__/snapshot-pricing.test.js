@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { parseFxSnapshot } from "../shared/fx-snapshot.js";
-import { applySnapshotPricing } from "../shared/snapshot-pricing.js";
+import {
+  applySnapshotPricing,
+  assertSnapshotDraftWriteTarget,
+} from "../shared/snapshot-pricing.js";
 
 const HASH = "a".repeat(64);
 
@@ -121,6 +124,73 @@ test("WMD tier selection and markup both use buffered DKK cost", () => {
     amountDkk: 1010,
   });
   assert.equal(result.finalPriceDkk, 3030);
+});
+
+test("WMD roll-label threshold markup stays explicit and uses buffered cost", () => {
+  const atThreshold = applySnapshotPricing(
+    input({
+      supplierPrice: 3000,
+      fxSnapshot: snapshot({ rate: 1 }),
+      pricingBuffer: { type: "percent", value: 0 },
+      markupPolicy: {
+        type: "threshold_percent",
+        thresholdDkk: 3000,
+        atOrBelowValue: 70,
+        aboveValue: 60,
+      },
+    }),
+  );
+  const aboveAfterBuffer = applySnapshotPricing(
+    input({
+      supplierPrice: 3000,
+      fxSnapshot: snapshot({ rate: 1 }),
+      pricingBuffer: { type: "percent", value: 1 },
+      markupPolicy: {
+        type: "threshold_percent",
+        thresholdDkk: 3000,
+        atOrBelowValue: 70,
+        aboveValue: 60,
+      },
+    }),
+  );
+
+  assert.deepEqual(atThreshold.markup, {
+    type: "threshold_percent",
+    value: 70,
+    amountDkk: 2100,
+  });
+  assert.equal(atThreshold.finalPriceDkk, 5100);
+  assert.equal(aboveAfterBuffer.bufferedCostDkk, 3030);
+  assert.deepEqual(aboveAfterBuffer.markup, {
+    type: "threshold_percent",
+    value: 60,
+    amountDkk: 1818,
+  });
+  assert.equal(aboveAfterBuffer.finalPriceDkk, 4848);
+});
+
+test("snapshot writes reject published targets before any database mutation", () => {
+  const calls = [];
+  const database = {
+    insert() {
+      calls.push("insert");
+    },
+    update() {
+      calls.push("update");
+    },
+  };
+
+  assert.throws(() => {
+    assertSnapshotDraftWriteTarget({ snapshotMode: true, isPublished: true });
+    database.update();
+  }, /unpublished draft/i);
+  assert.deepEqual(calls, []);
+
+  assert.doesNotThrow(() => {
+    assertSnapshotDraftWriteTarget({ snapshotMode: true, isPublished: false });
+    database.insert();
+  });
+  assert.deepEqual(calls, ["insert"]);
 });
 
 test("only the final total is rounded upward to the configured decimal step", () => {
@@ -396,6 +466,22 @@ test("malformed snapshot IDs, snapshots, policies, and rules fail closed", () =>
     input({ markupPolicy: { type: "wmd_tiered", value: 60 } }),
     input({ markupPolicy: { type: "percent" } }),
     input({ markupPolicy: { type: "percent", value: 60, rule: "other" } }),
+    input({
+      markupPolicy: {
+        type: "threshold_percent",
+        thresholdDkk: 3000,
+        atOrBelowValue: 70,
+      },
+    }),
+    input({
+      markupPolicy: {
+        type: "threshold_percent",
+        thresholdDkk: 3000,
+        atOrBelowValue: 70,
+        aboveValue: 60,
+        hidden: true,
+      },
+    }),
   ];
 
   for (const value of invalidInputs) {
@@ -418,6 +504,22 @@ test("negative, nonfinite, exponent, unsafe, out-of-range, and overprecision num
     input({ pricingBuffer: { type: "percent", value: 100.0001 } }),
     input({ markupPolicy: { type: "percent", value: -1 } }),
     input({ markupPolicy: { type: "percent", value: 1000.0001 } }),
+    input({
+      markupPolicy: {
+        type: "threshold_percent",
+        thresholdDkk: 0,
+        atOrBelowValue: 70,
+        aboveValue: 60,
+      },
+    }),
+    input({
+      markupPolicy: {
+        type: "threshold_percent",
+        thresholdDkk: 3000,
+        atOrBelowValue: -1,
+        aboveValue: 60,
+      },
+    }),
     input({ roundingStepDkk: 0 }),
     input({ roundingStepDkk: -1 }),
     input({ roundingStepDkk: 0.001 }),

@@ -14,6 +14,11 @@ import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 import { chromium } from "playwright";
 import { applyConversionRule } from "./product-import/shared/conversion.js";
+import { parseFxSnapshot } from "./product-import/shared/fx-snapshot.js";
+import {
+  applySnapshotPricing,
+  assertSnapshotDraftWriteTarget,
+} from "./product-import/shared/snapshot-pricing.js";
 
 const DEFAULT_URL =
   "https://www.wir-machen-druck.de/hochwertige-etiketten-auf-rolle-freie-groesse-rechteckig.html#content-view";
@@ -67,15 +72,19 @@ function usage() {
     "    [--limit-materials <n>] [--limit-quantities <n>] [--limit-sizes <n>] [--limit-deliveries <n>]",
     "    [--out-dir <path>]",
     "    [--eur-to-dkk <n>] [--markup-low-pct <n>] [--markup-high-pct <n>] [--threshold-dkk <n>] [--rounding-step <n>]",
+    "    [--fx-snapshot-file <json>] [--pricing-buffer-pct <non-negative-number>]",
     "  node scripts/fetch2-wmd-roll-labels.mjs import [--input <json>] [--dry-run]",
     "    [--out-dir <path>]",
     "    [--tenant-id <uuid>] [--product-name <name>] [--product-slug <slug>] [--category <name>] [--description <text>]",
     "    [--quantities <csv>] [--delivery-mode cheapest|fastest|both] [--rounding-step <n>] [--publish]",
+    "    [--fx-snapshot-file <json>] [--pricing-buffer-pct <non-negative-number>]",
     "",
     "Notes:",
     "  - Uses /wmdrest/article/get-price and related endpoints.",
     "  - Circle rows are derived from rectangle quotes (same price, radius = min(width,height)/2).",
     "  - Markup rule default: EUR*7.6 then +70%, but when base DKK > 3000 then +60%.",
+    "  - Snapshot mode reads an already captured local file; it never fetches an FX provider.",
+    "  - Snapshot-priced writes are limited to new or existing unpublished draft products.",
     "  - Base extraction price source is supplier net price (response.price).",
   ].join("\n");
 }
@@ -154,6 +163,11 @@ function parseArgs(argv) {
   );
   const thresholdDkk = Number(getArgValue(argv, "--threshold-dkk") || DEFAULT_THRESHOLD_DKK);
   const roundingStep = Number(getArgValue(argv, "--rounding-step") || DEFAULT_ROUNDING_STEP);
+  const hasFxSnapshotFlag = argv.includes("--fx-snapshot-file");
+  const fxSnapshotFile = getArgValue(argv, "--fx-snapshot-file");
+  const hasPricingBufferFlag = argv.includes("--pricing-buffer-pct");
+  const pricingBufferValue = getArgValue(argv, "--pricing-buffer-pct");
+  const pricingBufferPct = pricingBufferValue === null ? null : Number(pricingBufferValue);
   const inputPath = getArgValue(argv, "--input");
   const dryRun = argv.includes("--dry-run");
   const publish = argv.includes("--publish");
@@ -173,6 +187,21 @@ function parseArgs(argv) {
     throw new Error("--markup-high-pct must be >= 0");
   if (!Number.isFinite(thresholdDkk) || thresholdDkk <= 0) throw new Error("--threshold-dkk must be > 0");
   if (!Number.isFinite(roundingStep) || roundingStep <= 0) throw new Error("--rounding-step must be > 0");
+  if (hasFxSnapshotFlag && !fxSnapshotFile) {
+    throw new Error("--fx-snapshot-file requires a JSON file path");
+  }
+  if (hasPricingBufferFlag && pricingBufferValue === null) {
+    throw new Error("--pricing-buffer-pct requires a value");
+  }
+  if (pricingBufferPct !== null && (!Number.isFinite(pricingBufferPct) || pricingBufferPct < 0)) {
+    throw new Error("--pricing-buffer-pct must be a non-negative number");
+  }
+  if (hasPricingBufferFlag && !hasFxSnapshotFlag) {
+    throw new Error("--pricing-buffer-pct requires --fx-snapshot-file");
+  }
+  if (command === "probe" && hasFxSnapshotFlag) {
+    throw new Error("--fx-snapshot-file is supported only for extract or import");
+  }
   if (command === "extract" && !shapes.length) {
     throw new Error("--shapes must include rectangle and/or circle");
   }
@@ -198,6 +227,9 @@ function parseArgs(argv) {
     markupHighPct,
     thresholdDkk,
     roundingStep,
+    fxSnapshotFile,
+    pricingBufferPct,
+    hasPricingBufferFlag,
     inputPath,
     dryRun,
     publish,
@@ -236,6 +268,35 @@ function convertEurToDkk(eurNet, cfg) {
     baseDkk: converted.convertedPriceDkk,
     markupPct: converted.markupPct,
     finalDkk: converted.finalPriceDkk,
+  };
+}
+
+function convertSupplierEurToDkk(eurNet, cfg, snapshotPricing) {
+  if (!snapshotPricing) return convertEurToDkk(eurNet, cfg);
+
+  const pricingEvidence = applySnapshotPricing({
+    supplierPrice: eurNet,
+    fxSnapshot: snapshotPricing.fxSnapshot.snapshot,
+    fxSnapshotId: snapshotPricing.fxSnapshot.id,
+    pricingBuffer: {
+      type: "percent",
+      value: snapshotPricing.pricingBufferPct,
+    },
+    markupPolicy: {
+      type: "threshold_percent",
+      thresholdDkk: cfg.thresholdDkk,
+      atOrBelowValue: cfg.markupLowPct,
+      aboveValue: cfg.markupHighPct,
+    },
+    roundingStepDkk: cfg.roundingStep,
+  });
+
+  return {
+    eurNet,
+    baseDkk: pricingEvidence.convertedPriceDkk,
+    markupPct: pricingEvidence.markup.value,
+    finalDkk: pricingEvidence.finalPriceDkk,
+    pricingEvidence,
   };
 }
 
@@ -296,6 +357,140 @@ function resolveImportInputPath(args) {
 
 function readJsonFile(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function isPlainObject(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasExactStringKeys(value, expectedKeys) {
+  if (!isPlainObject(value)) return false;
+  const keys = Reflect.ownKeys(value);
+  return (
+    keys.every((key) => typeof key === "string") &&
+    keys.length === expectedKeys.length &&
+    expectedKeys.every((key) => keys.includes(key))
+  );
+}
+
+function normalizeFxSnapshotBundle(value) {
+  try {
+    let id;
+    let snapshotInput;
+    if (isPlainObject(value) && Object.hasOwn(value, "snapshot")) {
+      const keys = Reflect.ownKeys(value);
+      const validWrapper =
+        hasExactStringKeys(value, ["id", "snapshot"]) ||
+        hasExactStringKeys(value, ["id", "replayed", "snapshot"]);
+      if (!validWrapper || keys.some((key) => typeof key !== "string")) {
+        throw new Error("invalid wrapper");
+      }
+      if (
+        Object.hasOwn(value, "replayed") &&
+        typeof value.replayed !== "boolean"
+      ) {
+        throw new Error("invalid replay flag");
+      }
+      id = value.id;
+      snapshotInput = value.snapshot;
+    } else {
+      snapshotInput = value;
+    }
+
+    const snapshot = parseFxSnapshot(snapshotInput);
+    const deterministicId =
+      `frankfurter_ecb:${snapshot.rateDate}:${snapshot.sourcePayloadSha256}`;
+    const resolvedId = id ?? deterministicId;
+    if (
+      typeof resolvedId !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(resolvedId)
+    ) {
+      throw new Error("invalid snapshot id");
+    }
+    return { id: resolvedId, snapshot };
+  } catch {
+    throw new Error("Invalid immutable FX snapshot file");
+  }
+}
+
+function readFxSnapshotFile(filePath) {
+  const absolutePath = path.resolve(process.cwd(), filePath);
+  let stat;
+  try {
+    stat = fs.statSync(absolutePath);
+  } catch {
+    throw new Error("FX snapshot file was not found");
+  }
+  if (!stat.isFile() || stat.size <= 0 || stat.size > 64 * 1024) {
+    throw new Error("FX snapshot file must be a non-empty JSON file below 64 KiB");
+  }
+  try {
+    return normalizeFxSnapshotBundle(readJsonFile(absolutePath));
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Invalid immutable")) {
+      throw error;
+    }
+    throw new Error("Invalid immutable FX snapshot file");
+  }
+}
+
+function parseEmbeddedSnapshotPricing(value) {
+  if (value === undefined) return null;
+  if (!hasExactStringKeys(value, ["schemaVersion", "fxSnapshot", "pricingBufferPct"])) {
+    throw new Error("Invalid embedded snapshot pricing evidence");
+  }
+  if (
+    value.schemaVersion !== 1 ||
+    !Number.isFinite(value.pricingBufferPct) ||
+    value.pricingBufferPct < 0
+  ) {
+    throw new Error("Invalid embedded snapshot pricing evidence");
+  }
+  return {
+    schemaVersion: 1,
+    fxSnapshot: normalizeFxSnapshotBundle(value.fxSnapshot),
+    pricingBufferPct: value.pricingBufferPct,
+  };
+}
+
+function resolveSnapshotPricing(args, payload = null) {
+  const embedded = parseEmbeddedSnapshotPricing(payload?.config?.snapshotPricing);
+  const explicitBundle = args.fxSnapshotFile
+    ? readFxSnapshotFile(args.fxSnapshotFile)
+    : null;
+
+  if (
+    embedded &&
+    explicitBundle &&
+    (embedded.fxSnapshot.id !== explicitBundle.id ||
+      JSON.stringify(embedded.fxSnapshot.snapshot) !==
+        JSON.stringify(explicitBundle.snapshot))
+  ) {
+    throw new Error("The supplied FX snapshot does not match the extraction evidence");
+  }
+  if (!embedded && !explicitBundle) return null;
+
+  return {
+    schemaVersion: 1,
+    fxSnapshot: explicitBundle ?? embedded.fxSnapshot,
+    pricingBufferPct: args.hasPricingBufferFlag
+      ? args.pricingBufferPct
+      : (embedded?.pricingBufferPct ?? 0),
+  };
+}
+
+function serializeSnapshotPricing(snapshotPricing) {
+  if (!snapshotPricing) return null;
+  return {
+    schemaVersion: 1,
+    fxSnapshot: {
+      id: snapshotPricing.fxSnapshot.id,
+      snapshot: snapshotPricing.fxSnapshot.snapshot,
+    },
+    pricingBufferPct: snapshotPricing.pricingBufferPct,
+  };
 }
 
 function createSupabaseServiceClient() {
@@ -371,7 +566,7 @@ function buildTierSeriesFromPoints(pointToPriceMap) {
   });
 }
 
-function parseImportRows(payload) {
+function parseImportRows(payload, snapshotPricing = null, pricingConfig = null) {
   const sourceRows = Array.isArray(payload?.combinations) ? payload.combinations : [];
   const parsed = [];
 
@@ -380,8 +575,30 @@ function parseImportRows(payload) {
     const materialLabel = normalizeText(row?.materialLabel || materialId || "Material");
     const areaM2 = toFiniteNumber(row?.areaM2);
     const quantity = toFiniteNumber(row?.quantity);
-    const cheapestDkkFinal = toFiniteNumber(row?.cheapestDkkFinal);
-    const fastestDkkFinal = toFiniteNumber(row?.fastestDkkFinal);
+    let cheapestDkkFinal = toFiniteNumber(row?.cheapestDkkFinal);
+    let fastestDkkFinal = toFiniteNumber(row?.fastestDkkFinal);
+    if (snapshotPricing) {
+      const cheapestEurNet = toFiniteNumber(row?.cheapestEurNet);
+      const fastestEurNet = toFiniteNumber(row?.fastestEurNet);
+      cheapestDkkFinal = Number.isFinite(cheapestEurNet)
+        ? toFiniteNumber(
+            convertSupplierEurToDkk(
+              cheapestEurNet,
+              pricingConfig,
+              snapshotPricing,
+            ).finalDkk,
+          )
+        : null;
+      fastestDkkFinal = Number.isFinite(fastestEurNet)
+        ? toFiniteNumber(
+            convertSupplierEurToDkk(
+              fastestEurNet,
+              pricingConfig,
+              snapshotPricing,
+            ).finalDkk,
+          )
+        : null;
+    }
 
     if (!Number.isFinite(areaM2) || !Number.isFinite(quantity)) continue;
     const totalAreaM2 = areaM2 * quantity;
@@ -408,6 +625,34 @@ function parseImportRows(payload) {
   }
 
   return parsed;
+}
+
+function buildSnapshotPricingPreview(payload, snapshotPricing, pricingConfig) {
+  if (!snapshotPricing) return null;
+  for (const row of Array.isArray(payload?.combinations) ? payload.combinations : []) {
+    for (const candidate of [row?.cheapestEurNet, row?.fastestEurNet]) {
+      const supplierPrice = toFiniteNumber(candidate);
+      if (!Number.isFinite(supplierPrice)) continue;
+      const evidence = convertSupplierEurToDkk(
+        supplierPrice,
+        pricingConfig,
+        snapshotPricing,
+      ).pricingEvidence;
+      return {
+        supplier_price_eur: evidence.supplierPrice,
+        fx_rate: evidence.fxRate,
+        converted_price_dkk: evidence.convertedPriceDkk,
+        pricing_buffer_pct: evidence.pricingBuffer.value,
+        pricing_buffer_amount_dkk: evidence.pricingBuffer.amountDkk,
+        buffered_cost_dkk: evidence.bufferedCostDkk,
+        markup_type: evidence.markup.type,
+        markup_pct: evidence.markup.value,
+        markup_amount_dkk: evidence.markup.amountDkk,
+        final_price_dkk: evidence.finalPriceDkk,
+      };
+    }
+  }
+  return null;
 }
 
 function ensureImportQuantities(args, payload, parsedRows) {
@@ -748,6 +993,7 @@ async function runProbe(args) {
 }
 
 async function runExtract(args) {
+  const snapshotPricing = resolveSnapshotPricing(args);
   const { browser, page } = await bootstrapPage(args.url, args.headless);
   try {
     const cfg = await readConfigFromPage(page);
@@ -804,7 +1050,11 @@ async function runExtract(args) {
 
               const eurNet = Number(resp.price);
               const deliveryChargeEur = Number(resp.deliveryCharge || 0) || 0;
-              const converted = convertEurToDkk(eurNet, args);
+              const converted = convertSupplierEurToDkk(
+                eurNet,
+                args,
+                snapshotPricing,
+              );
               const areaCm2 = size.widthCm * size.heightCm;
               const areaM2 = areaCm2 / 10000;
               const pricePerM2Eur = areaM2 > 0 ? eurNet / areaM2 : null;
@@ -835,6 +1085,9 @@ async function runExtract(args) {
                 dkkPerM2: pricePerM2Dkk,
                 eurPerM2: pricePerM2Eur,
                 payload,
+                ...(converted.pricingEvidence
+                  ? { pricingEvidence: converted.pricingEvidence }
+                  : {}),
               };
 
               deliveryRows.push(row);
@@ -889,6 +1142,7 @@ async function runExtract(args) {
           deliveryChargeEur: r.deliveryChargeEur,
           priceEurNet: r.eurNet,
           priceDkkFinal: r.dkkFinal,
+          pricingEvidence: r.pricingEvidence ?? null,
         }))
       );
       combinations.push({
@@ -902,9 +1156,15 @@ async function runExtract(args) {
         cheapestDeliveryOption: cheapest?.deliveryOption ?? null,
         cheapestEurNet: cheapest?.priceEurNet ?? null,
         cheapestDkkFinal: cheapest?.priceDkkFinal ?? null,
+        ...(cheapest?.pricingEvidence
+          ? { cheapestPricingEvidence: cheapest.pricingEvidence }
+          : {}),
         fastestDeliveryOption: fastest?.deliveryOption ?? null,
         fastestEurNet: fastest?.priceEurNet ?? null,
         fastestDkkFinal: fastest?.priceDkkFinal ?? null,
+        ...(fastest?.pricingEvidence
+          ? { fastestPricingEvidence: fastest.pricingEvidence }
+          : {}),
       });
     }
 
@@ -934,6 +1194,9 @@ async function runExtract(args) {
         markupHighPct: args.markupHighPct,
         thresholdDkk: args.thresholdDkk,
         roundingStep: args.roundingStep,
+        ...(snapshotPricing
+          ? { snapshotPricing: serializeSnapshotPricing(snapshotPricing) }
+          : {}),
       },
       counts: {
         quotes: quotes.length,
@@ -969,6 +1232,20 @@ async function runExtract(args) {
         eur_per_m2: r.eurPerM2 ?? "",
         dkk_per_m2: r.dkkPerM2 ?? "",
         price_scale_id: r.priceScaleId ?? "",
+        fx_snapshot_id: r.pricingEvidence?.fxSnapshotId ?? "",
+        fx_provider: r.pricingEvidence?.fxProvider ?? "",
+        fx_rate: r.pricingEvidence?.fxRate ?? "",
+        fx_rate_date: r.pricingEvidence?.fxRateDate ?? "",
+        fx_digest: r.pricingEvidence?.fxSourcePayloadSha256 ?? "",
+        converted_price_dkk: r.pricingEvidence?.convertedPriceDkk ?? "",
+        pricing_buffer_pct: r.pricingEvidence?.pricingBuffer?.value ?? "",
+        pricing_buffer_amount_dkk:
+          r.pricingEvidence?.pricingBuffer?.amountDkk ?? "",
+        buffered_cost_dkk: r.pricingEvidence?.bufferedCostDkk ?? "",
+        markup_type: r.pricingEvidence?.markup?.type ?? "",
+        snapshot_markup_pct: r.pricingEvidence?.markup?.value ?? "",
+        markup_amount_dkk: r.pricingEvidence?.markup?.amountDkk ?? "",
+        snapshot_final_price_dkk: r.pricingEvidence?.finalPriceDkk ?? "",
       })),
       [
         "shape",
@@ -990,6 +1267,23 @@ async function runExtract(args) {
         "eur_per_m2",
         "dkk_per_m2",
         "price_scale_id",
+        ...(snapshotPricing
+          ? [
+              "fx_snapshot_id",
+              "fx_provider",
+              "fx_rate",
+              "fx_rate_date",
+              "fx_digest",
+              "converted_price_dkk",
+              "pricing_buffer_pct",
+              "pricing_buffer_amount_dkk",
+              "buffered_cost_dkk",
+              "markup_type",
+              "snapshot_markup_pct",
+              "markup_amount_dkk",
+              "snapshot_final_price_dkk",
+            ]
+          : []),
       ]
     );
 
@@ -1049,7 +1343,24 @@ async function runExtract(args) {
 async function runImport(args) {
   const inputPath = resolveImportInputPath(args);
   const payload = readJsonFile(inputPath);
-  const parsedRows = parseImportRows(payload);
+  const snapshotPricing = resolveSnapshotPricing(args, payload);
+  const pricingConfig = {
+    ...args,
+    markupLowPct:
+      toFiniteNumber(payload?.config?.markupLowPct) ?? args.markupLowPct,
+    markupHighPct:
+      toFiniteNumber(payload?.config?.markupHighPct) ?? args.markupHighPct,
+    thresholdDkk:
+      toFiniteNumber(payload?.config?.thresholdDkk) ?? args.thresholdDkk,
+    roundingStep:
+      toFiniteNumber(payload?.config?.roundingStep) ?? args.roundingStep,
+  };
+  const parsedRows = parseImportRows(payload, snapshotPricing, pricingConfig);
+  const snapshotPricingPreview = buildSnapshotPricingPreview(
+    payload,
+    snapshotPricing,
+    pricingConfig,
+  );
 
   if (!parsedRows.length) {
     throw new Error(
@@ -1097,6 +1408,24 @@ async function runImport(args) {
       quantities: quantities.length,
     },
     price_source: "supplier response.price (net)",
+    ...(snapshotPricing
+      ? {
+          snapshot_pricing: {
+            fx_snapshot_id: snapshotPricing.fxSnapshot.id,
+            provider: snapshotPricing.fxSnapshot.snapshot.provider,
+            rate: snapshotPricing.fxSnapshot.snapshot.rate,
+            rate_date: snapshotPricing.fxSnapshot.snapshot.rateDate,
+            source_payload_sha256:
+              snapshotPricing.fxSnapshot.snapshot.sourcePayloadSha256,
+            pricing_buffer_pct: snapshotPricing.pricingBufferPct,
+            markup_at_or_below_pct: pricingConfig.markupLowPct,
+            markup_above_pct: pricingConfig.markupHighPct,
+            threshold_dkk: pricingConfig.thresholdDkk,
+            rounding_step_dkk: pricingConfig.roundingStep,
+            preview: snapshotPricingPreview,
+          },
+        }
+      : {}),
   };
 
   if (args.dryRun) {
@@ -1105,6 +1434,10 @@ async function runImport(args) {
     return;
   }
 
+  assertSnapshotDraftWriteTarget({
+    snapshotMode: Boolean(snapshotPricing),
+    isPublished: Boolean(args.publish),
+  });
   const client = createSupabaseServiceClient();
 
   const productPayload = {
@@ -1123,7 +1456,18 @@ async function runImport(args) {
       import_script: "fetch2-wmd-roll-labels.mjs",
       delivery_mode: args.deliveryMode,
       net_price_source: "response.price",
-      eur_to_dkk: payload?.config?.fx ?? args.eurToDkk,
+      ...(snapshotPricing
+        ? {
+            fx_snapshot_id: snapshotPricing.fxSnapshot.id,
+            fx_provider: snapshotPricing.fxSnapshot.snapshot.provider,
+            fx_rate: snapshotPricing.fxSnapshot.snapshot.rate,
+            fx_rate_date: snapshotPricing.fxSnapshot.snapshot.rateDate,
+            fx_fetched_at: snapshotPricing.fxSnapshot.snapshot.fetchedAt,
+            fx_source_payload_sha256:
+              snapshotPricing.fxSnapshot.snapshot.sourcePayloadSha256,
+            pricing_buffer_pct: snapshotPricing.pricingBufferPct,
+          }
+        : { eur_to_dkk: payload?.config?.fx ?? args.eurToDkk }),
       markup_low_pct: payload?.config?.markupLowPct ?? args.markupLowPct,
       markup_high_pct: payload?.config?.markupHighPct ?? args.markupHighPct,
       threshold_dkk: payload?.config?.thresholdDkk ?? args.thresholdDkk,
@@ -1133,11 +1477,16 @@ async function runImport(args) {
 
   const { data: existingProduct, error: existingProductError } = await client
     .from("products")
-    .select("id")
+    .select("id,is_published")
     .eq("tenant_id", args.tenantId)
     .eq("slug", productSlug)
     .maybeSingle();
   assertNoError(existingProductError, "Fetch existing product");
+
+  assertSnapshotDraftWriteTarget({
+    snapshotMode: Boolean(snapshotPricing),
+    isPublished: Boolean(args.publish || existingProduct?.is_published),
+  });
 
   let productId = existingProduct?.id || null;
   if (productId) {

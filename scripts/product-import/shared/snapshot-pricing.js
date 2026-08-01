@@ -20,6 +20,13 @@ const SNAPSHOT_KEYS = Object.freeze([
 ]);
 const PERCENT_POLICY_KEYS = Object.freeze(["type", "value"]);
 const WMD_POLICY_KEYS = Object.freeze(["type"]);
+const THRESHOLD_POLICY_KEYS = Object.freeze([
+  "type",
+  "thresholdDkk",
+  "atOrBelowValue",
+  "aboveValue",
+]);
+const WRITE_TARGET_KEYS = Object.freeze(["snapshotMode", "isPublished"]);
 const SNAPSHOT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const DECIMAL_NUMBER = /^(0|[1-9]\d*)(?:\.(\d+))?$/;
 
@@ -86,13 +93,7 @@ export function applySnapshotPricing(untrustedInput) {
     assertMaximum(bufferedCostDkk, MAX_EVIDENCE_DKK);
 
     const markupPolicy = captureMarkupPolicy(input.markupPolicy);
-    const markupPercent =
-      markupPolicy.type === "percent"
-        ? parseDecimalNumber(markupPolicy.value, {
-            maximum: MAX_MARKUP_PERCENT,
-            maximumScale: 4,
-          })
-        : selectWmdTierPercent(bufferedCostDkk);
+    const markupPercent = selectMarkupPercent(markupPolicy, bufferedCostDkk);
     const markupAmountDkk = percentageOf(bufferedCostDkk, markupPercent);
     assertMaximum(markupAmountDkk, MAX_EVIDENCE_DKK);
 
@@ -132,6 +133,23 @@ export function applySnapshotPricing(untrustedInput) {
   }
 }
 
+/**
+ * Keeps the opt-in snapshot path from touching a published product. Legacy
+ * imports retain their existing behavior when snapshotMode is false.
+ */
+export function assertSnapshotDraftWriteTarget(untrustedInput) {
+  const input = captureExactRecord(untrustedInput, WRITE_TARGET_KEYS);
+  if (
+    typeof input.snapshotMode !== "boolean" ||
+    typeof input.isPublished !== "boolean"
+  ) {
+    throw invalidPricingInput();
+  }
+  if (input.snapshotMode && input.isPublished) {
+    throw new Error("Snapshot pricing may write only to an unpublished draft");
+  }
+}
+
 function captureMarkupPolicy(value) {
   assertPlainRecord(value);
   const ownKeys = Reflect.ownKeys(value);
@@ -139,11 +157,53 @@ function captureMarkupPolicy(value) {
 
   const isPercentShape = hasExactKeys(ownKeys, PERCENT_POLICY_KEYS);
   const isWmdShape = hasExactKeys(ownKeys, WMD_POLICY_KEYS);
-  if (!isPercentShape && !isWmdShape) throw invalidPricingInput();
+  const isThresholdShape = hasExactKeys(ownKeys, THRESHOLD_POLICY_KEYS);
+  if (!isPercentShape && !isWmdShape && !isThresholdShape) {
+    throw invalidPricingInput();
+  }
 
   const type = value.type;
   if (isPercentShape && type === "percent") return { type, value: value.value };
   if (isWmdShape && type === "wmd_tiered") return { type };
+  if (isThresholdShape && type === "threshold_percent") {
+    return {
+      type,
+      thresholdDkk: value.thresholdDkk,
+      atOrBelowValue: value.atOrBelowValue,
+      aboveValue: value.aboveValue,
+    };
+  }
+  throw invalidPricingInput();
+}
+
+function selectMarkupPercent(markupPolicy, bufferedCostDkk) {
+  if (markupPolicy.type === "percent") {
+    return parseDecimalNumber(markupPolicy.value, {
+      maximum: MAX_MARKUP_PERCENT,
+      maximumScale: 4,
+    });
+  }
+  if (markupPolicy.type === "wmd_tiered") {
+    return selectWmdTierPercent(bufferedCostDkk);
+  }
+  if (markupPolicy.type === "threshold_percent") {
+    const thresholdDkk = parseDecimalNumber(markupPolicy.thresholdDkk, {
+      maximum: MAX_EVIDENCE_DKK,
+      maximumScale: 6,
+      positive: true,
+    });
+    const atOrBelowValue = parseDecimalNumber(markupPolicy.atOrBelowValue, {
+      maximum: MAX_MARKUP_PERCENT,
+      maximumScale: 4,
+    });
+    const aboveValue = parseDecimalNumber(markupPolicy.aboveValue, {
+      maximum: MAX_MARKUP_PERCENT,
+      maximumScale: 4,
+    });
+    return compareDecimal(bufferedCostDkk, thresholdDkk) <= 0
+      ? atOrBelowValue
+      : aboveValue;
+  }
   throw invalidPricingInput();
 }
 
