@@ -8,6 +8,7 @@ const SHA256_HEX = /^[a-f0-9]{64}$/;
 const ISO_INSTANT_WITH_ZONE =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 const EVIDENCE_BUCKET_MS = 5 * 60 * 1_000;
+const DANISH_ADDRESS_IDENTIFIER_VERSION = "DKA1";
 
 export type BusinessEvidenceOperation =
   | "vies"
@@ -119,6 +120,20 @@ export type BusinessEvidenceRepository = Readonly<{
       requestFingerprint: string;
     }>,
   ) => Promise<StoredBusinessEvidence | null>;
+  claim: (
+    query: Readonly<{
+      tenantId: string;
+      operation: BusinessEvidenceOperation;
+      provider: string;
+      requestFingerprint: string;
+    }>,
+  ) => Promise<
+    | Readonly<{ status: "claimed" | "replay" }>
+    | Readonly<{
+      status: "in_flight" | "rate_limited";
+      retryAfterSeconds: number;
+    }>
+  >;
   insert: (
     row: BusinessEvidenceInsert,
   ) => Promise<
@@ -147,21 +162,30 @@ export type BusinessEvidenceAccessDecision =
 export type BusinessEvidenceErrorCode =
   | "invalid_request"
   | "provider_unavailable"
-  | "persistence_failed";
+  | "persistence_failed"
+  | "rate_limited"
+  | "request_in_flight";
 
 const ERROR_MESSAGES: Record<BusinessEvidenceErrorCode, string> = {
   invalid_request: "Invalid business-evidence request",
   provider_unavailable: "Business-evidence provider is unavailable",
   persistence_failed: "Business evidence could not be stored",
+  rate_limited: "Business-evidence request rate exceeded",
+  request_in_flight: "An equivalent business-evidence request is in flight",
 };
 
 export class BusinessEvidenceError extends Error {
   readonly code: BusinessEvidenceErrorCode;
+  readonly retryAfterSeconds: number | null;
 
-  constructor(code: BusinessEvidenceErrorCode) {
+  constructor(code: BusinessEvidenceErrorCode, retryAfterSeconds?: number) {
     super(ERROR_MESSAGES[code]);
     this.name = "BusinessEvidenceError";
     this.code = code;
+    this.retryAfterSeconds = Number.isSafeInteger(retryAfterSeconds) &&
+        Number(retryAfterSeconds) >= 1 && Number(retryAfterSeconds) <= 3_600
+      ? Number(retryAfterSeconds)
+      : null;
   }
 }
 
@@ -234,15 +258,16 @@ export function parseBusinessEvidenceRequest(
 
     assertExactKeys(input, ["operation", "tenantId", "query"]);
     const address = normalizeDanishAddress(input.query);
-    const normalizedIdentifier = [
-      "DK",
-      address.postcode,
-      address.streetName.toLocaleLowerCase("da-DK"),
-      address.houseNumber.toLocaleLowerCase("da-DK"),
-      address.floor.toLocaleLowerCase("da-DK"),
-      address.door.toLocaleLowerCase("da-DK"),
-      address.city.toLocaleLowerCase("da-DK"),
-    ].join("|");
+    const normalizedIdentifier = `${DANISH_ADDRESS_IDENTIFIER_VERSION}:${
+      JSON.stringify([
+        address.postcode,
+        canonicalAddressIdentifierComponent(address.streetName),
+        canonicalAddressIdentifierComponent(address.houseNumber),
+        canonicalAddressIdentifierComponent(address.floor),
+        canonicalAddressIdentifierComponent(address.door),
+        canonicalAddressIdentifierComponent(address.city),
+      ])
+    }`;
     if (normalizedIdentifier.length > 256) throw invalidRequest();
     return deepFreeze({
       operation,
@@ -295,15 +320,29 @@ export async function processBusinessEvidence(
       provider: provider.provider,
       requestFingerprint,
     });
-    const existing = await dependencies.repository.findExact(query);
-    if (existing !== null) {
-      const row = await normalizeStoredEvidence(existing, {
-        request: normalizedRequest,
-        provider,
-        requestFingerprint,
-      });
-      return toDisplayDto(row, true);
+    const claim = await dependencies.repository.claim({
+      ...query,
+      operation: normalizedRequest.operation,
+    });
+    if (claim?.status === "replay") {
+      const replay = await dependencies.repository.findExact(query);
+      if (replay === null) throw persistenceFailed();
+      return toDisplayDto(
+        await normalizeStoredEvidence(replay, {
+          request: normalizedRequest,
+          provider,
+          requestFingerprint,
+        }),
+        true,
+      );
     }
+    if (claim?.status === "in_flight") {
+      throw requestInFlight(claim.retryAfterSeconds);
+    }
+    if (claim?.status === "rate_limited") {
+      throw rateLimited(claim.retryAfterSeconds);
+    }
+    if (claim?.status !== "claimed") throw persistenceFailed();
 
     let normalizedProviderEvidence: BusinessProviderEvidence;
     try {
@@ -365,6 +404,41 @@ export async function processBusinessEvidence(
   } catch (error) {
     if (error instanceof BusinessEvidenceError) throw error;
     throw persistenceFailed();
+  }
+}
+
+export function savedStructuredCvrMatchesRequest(
+  settingsInput: unknown,
+  requestInput: ParsedBusinessEvidenceRequest,
+): boolean {
+  try {
+    const request = validateParsedRequest(requestInput);
+    if (
+      request.operation !== "vies" && request.operation !== "danish_company"
+    ) {
+      return true;
+    }
+    if (!isPlainRecord(settingsInput)) return false;
+    const company = isPlainRecord(settingsInput.company)
+      ? settingsInput.company
+      : null;
+    const identity = company && isPlainRecord(company.business_identity_v1)
+      ? company.business_identity_v1
+      : null;
+    if (identity?.schemaVersion !== BUSINESS_EVIDENCE_SCHEMA_VERSION) {
+      return false;
+    }
+    const normalizedCvr = typeof identity.normalizedCvr === "string"
+      ? identity.normalizedCvr
+      : "";
+    const viesVatId = typeof identity.viesVatId === "string"
+      ? identity.viesVatId
+      : "";
+    return /^\d{8}$/.test(normalizedCvr) &&
+      viesVatId === `DK${normalizedCvr}` &&
+      request.providerInput.normalizedIdentifier === viesVatId;
+  } catch {
+    return false;
   }
 }
 
@@ -744,6 +818,10 @@ function normalizeDanishAddress(value: unknown): DanishAddressInput {
   });
 }
 
+function canonicalAddressIdentifierComponent(value: string): string {
+  return value.normalize("NFC").toLocaleLowerCase("da-DK");
+}
+
 function normalizeDisplayFields(input: unknown): ProviderDisplayFields {
   if (!isPlainRecord(input)) throw providerUnavailable();
   const output: Record<string, string | boolean | null> = {};
@@ -954,6 +1032,14 @@ function providerUnavailable(): BusinessEvidenceError {
 
 function persistenceFailed(): BusinessEvidenceError {
   return new BusinessEvidenceError("persistence_failed");
+}
+
+function rateLimited(retryAfterSeconds: number): BusinessEvidenceError {
+  return new BusinessEvidenceError("rate_limited", retryAfterSeconds);
+}
+
+function requestInFlight(retryAfterSeconds: number): BusinessEvidenceError {
+  return new BusinessEvidenceError("request_in_flight", retryAfterSeconds);
 }
 
 function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {

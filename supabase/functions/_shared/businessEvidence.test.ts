@@ -8,12 +8,14 @@ import {
   decideBusinessEvidenceTenantAccess,
   parseBusinessEvidenceRequest,
   processBusinessEvidence,
+  savedStructuredCvrMatchesRequest,
 } from "./businessEvidence.ts";
 import {
   createViesProvider,
   VIES_CHECK_URL,
 } from "./providers/viesProvider.ts";
 import {
+  buildDatafordelerCvrQuery,
   createDanishCompanyProvider,
   DATAFORDELER_CVR_URL,
 } from "./providers/danishCompanyProvider.ts";
@@ -76,7 +78,7 @@ test("strict request parsing normalizes VIES inputs separately and bounds Danish
     assert.equal(address.providerInput.address.streetName, "Virksomhedsvej");
     assert.equal(address.providerInput.address.city, "København Ø");
     assert.equal(address.providerInput.address.country, "DK");
-    assert.match(address.providerInput.normalizedIdentifier, /^DK\|2100\|/);
+    assert.match(address.providerInput.normalizedIdentifier, /^DKA1:\[/);
   }
 
   for (
@@ -108,8 +110,123 @@ test("strict request parsing normalizes VIES inputs separately and bounds Danish
   }
 });
 
+test("versioned address identifiers cannot collide through delimiter injection", () => {
+  const first = parseBusinessEvidenceRequest({
+    operation: "danish_address",
+    tenantId: TENANT_A,
+    query: {
+      streetName: "a|1",
+      houseNumber: "2",
+      floor: "x",
+      door: "y",
+      postcode: "2100",
+      city: "z",
+      country: "DK",
+    },
+  });
+  const second = parseBusinessEvidenceRequest({
+    operation: "danish_address",
+    tenantId: TENANT_A,
+    query: {
+      streetName: "a",
+      houseNumber: "1",
+      floor: "2",
+      door: "x",
+      postcode: "2100",
+      city: "y|z",
+      country: "DK",
+    },
+  });
+  assert.equal(first.providerInput.kind, "danish_address");
+  assert.equal(second.providerInput.kind, "danish_address");
+  assert.notEqual(
+    first.providerInput.normalizedIdentifier,
+    second.providerInput.normalizedIdentifier,
+  );
+
+  const canonicalReplay = parseBusinessEvidenceRequest({
+    operation: "danish_address",
+    tenantId: TENANT_A,
+    query: {
+      streetName: " A|1 ",
+      houseNumber: "2",
+      floor: "X",
+      door: "Y",
+      postcode: "2100",
+      city: "Z",
+      country: "dk",
+    },
+  });
+  assert.equal(
+    canonicalReplay.providerInput.normalizedIdentifier,
+    first.providerInput.normalizedIdentifier,
+  );
+
+  const composed = parseBusinessEvidenceRequest({
+    operation: "danish_address",
+    tenantId: TENANT_A,
+    query: {
+      streetName: "Åvej",
+      houseNumber: "1",
+      floor: "",
+      door: "",
+      postcode: "2100",
+      city: "Köbenhavn",
+      country: "DK",
+    },
+  });
+  const decomposed = parseBusinessEvidenceRequest({
+    operation: "danish_address",
+    tenantId: TENANT_A,
+    query: {
+      streetName: "A\u030Avej",
+      houseNumber: "1",
+      floor: "",
+      door: "",
+      postcode: "2100",
+      city: "Ko\u0308benhavn",
+      country: "DK",
+    },
+  });
+  assert.equal(
+    composed.providerInput.normalizedIdentifier,
+    decomposed.providerInput.normalizedIdentifier,
+  );
+});
+
+test("saved CVR matching requires the exact versioned structured identity", () => {
+  const settings = {
+    company: {
+      cvr: "87654321",
+      business_identity_v1: {
+        schemaVersion: 1,
+        cvrInput: "12 34 56 78",
+        normalizedCvr: "12345678",
+        viesVatId: "DK12345678",
+      },
+    },
+  };
+  const vies = parseBusinessEvidenceRequest({
+    operation: "vies",
+    tenantId: TENANT_A,
+    cvr: "12345678",
+  });
+  const other = parseBusinessEvidenceRequest({
+    operation: "danish_company",
+    tenantId: TENANT_A,
+    cvr: "87654321",
+  });
+  assert.equal(savedStructuredCvrMatchesRequest(settings, vies), true);
+  assert.equal(savedStructuredCvrMatchesRequest(settings, other), false);
+  assert.equal(
+    savedStructuredCvrMatchesRequest({ company: { cvr: "12345678" } }, vies),
+    false,
+  );
+});
+
 test("provider orchestration persists minimal display-only evidence and exact replay skips the provider", async () => {
   let verifyCalls = 0;
+  let claimCalls = 0;
   let insertedTenant = "";
   let insertedFingerprint = "";
   const provider: BusinessEvidenceProvider = {
@@ -138,6 +255,12 @@ test("provider orchestration persists minimal display-only evidence and exact re
       assert.equal(query.tenantId, TENANT_A);
       if (!storedRow) return Promise.resolve(null);
       return Promise.resolve({ id: EVIDENCE_ID, ...storedRow });
+    },
+    claim: () => {
+      claimCalls += 1;
+      return Promise.resolve(
+        storedRow ? { status: "replay" } : { status: "claimed" },
+      );
     },
     insert(row) {
       insertedTenant = row.tenantId;
@@ -180,6 +303,7 @@ test("provider orchestration persists minimal display-only evidence and exact re
   assert.equal(replay.id, EVIDENCE_ID);
   assert.equal(replay.replayed, true);
   assert.equal(verifyCalls, 1);
+  assert.equal(claimCalls, 2);
 });
 
 test("repository scope always uses the request tenant and rejects a mismatched stored tenant", async () => {
@@ -210,6 +334,7 @@ test("repository scope always uses the request tenant and rejects a mismatched s
         responseDigest: "0".repeat(64),
         displayFields: {},
       }),
+    claim: () => Promise.resolve({ status: "replay" }),
     insert: () => Promise.reject(new Error("must not insert")),
   };
   await assert.rejects(
@@ -307,6 +432,7 @@ test("malformed provider output is persisted only as sanitized unavailable evide
       },
       repository: {
         findExact: () => Promise.resolve(null),
+        claim: () => Promise.resolve({ status: "claimed" }),
         insert(row) {
           inserts.push(row);
           return Promise.resolve({ status: "inserted", id: EVIDENCE_ID });
@@ -325,6 +451,121 @@ test("malformed provider output is persisted only as sanitized unavailable evide
   assert.equal(inserts.length, 1);
   assert.equal(inserts[0].resultStatus, "unavailable");
   assert.doesNotMatch(JSON.stringify(inserts[0]), /secret|upstream/i);
+});
+
+test("an atomic in-flight claim prevents simultaneous duplicate provider calls", async () => {
+  let providerCalls = 0;
+  let releaseProvider!: () => void;
+  const providerGate = new Promise<void>((resolve) => {
+    releaseProvider = resolve;
+  });
+  let claimed = false;
+  const repository: BusinessEvidenceRepository = {
+    findExact: () => Promise.resolve(null),
+    claim: () => {
+      if (claimed) {
+        return Promise.resolve({ status: "in_flight", retryAfterSeconds: 30 });
+      }
+      claimed = true;
+      return Promise.resolve({ status: "claimed" });
+    },
+    insert: () => Promise.resolve({ status: "inserted", id: EVIDENCE_ID }),
+  };
+  const provider: BusinessEvidenceProvider = {
+    provider: "EU VIES",
+    evidenceType: "vies",
+    async verify(input) {
+      providerCalls += 1;
+      await providerGate;
+      return {
+        schemaVersion: 1,
+        provider: "EU VIES",
+        evidenceType: "vies",
+        normalizedIdentifier: input.normalizedIdentifier,
+        resultStatus: "valid",
+        providerReference: null,
+        checkedAt: NOW.toISOString(),
+        displayFields: {},
+      };
+    },
+  };
+  const request = parseBusinessEvidenceRequest({
+    operation: "vies",
+    tenantId: TENANT_A,
+    cvr: "12345678",
+  });
+  const dependencies = {
+    providers: {
+      vies: provider,
+      danish_company: provider,
+      danish_address: provider,
+    },
+    repository,
+    context: {
+      fetchImpl: () => Promise.reject(new Error("not used")),
+      now: NOW,
+      correlationId: "concurrent",
+    },
+  } as const;
+
+  const first = processBusinessEvidence(request, dependencies);
+  await Promise.resolve();
+  await assert.rejects(
+    processBusinessEvidence(request, dependencies),
+    (error) =>
+      error instanceof BusinessEvidenceError &&
+      error.code === "request_in_flight",
+  );
+  assert.equal(providerCalls, 1);
+  releaseProvider();
+  await first;
+});
+
+test("a rejected quota claim stops provider and persistence work", async () => {
+  let providerCalls = 0;
+  let insertCalls = 0;
+  const provider: BusinessEvidenceProvider = {
+    provider: "EU VIES",
+    evidenceType: "vies",
+    verify: () => {
+      providerCalls += 1;
+      return Promise.reject(new Error("must not run"));
+    },
+  };
+  await assert.rejects(
+    processBusinessEvidence(
+      parseBusinessEvidenceRequest({
+        operation: "vies",
+        tenantId: TENANT_A,
+        cvr: "12345678",
+      }),
+      {
+        providers: {
+          vies: provider,
+          danish_company: provider,
+          danish_address: provider,
+        },
+        repository: {
+          findExact: () => Promise.resolve(null),
+          claim: () =>
+            Promise.resolve({ status: "rate_limited", retryAfterSeconds: 600 }),
+          insert: () => {
+            insertCalls += 1;
+            return Promise.reject(new Error("must not insert"));
+          },
+        },
+        context: {
+          fetchImpl: () => Promise.reject(new Error("not used")),
+          now: NOW,
+          correlationId: "rate-limited",
+        },
+      },
+    ),
+    (error) =>
+      error instanceof BusinessEvidenceError && error.code === "rate_limited",
+  );
+  assert.equal(providerCalls, 0);
+  assert.equal(insertCalls, 0);
 });
 
 test("VIES pins the official REST endpoint and maps valid false to display-only invalid evidence", async () => {
@@ -488,6 +729,29 @@ test("official CVR adapter uses the fixed Datafordeler endpoint and minimal comp
   assert.match(observedBody, /CVR_Virksomhed/);
   assert.match(observedBody, /CVRNummer/);
   assert.doesNotMatch(observedBody, /Person|deltager|email|telefon/i);
+  assert.equal(
+    JSON.parse(observedBody).query,
+    `query CurrentCompany {
+  CVR_Virksomhed(
+    first: 1
+    virkningstid: "2026-08-01T08:03:04.000Z"
+    where: { CVRNummer: { eq: "12345678" } }
+  ) {
+    nodes {
+      id
+      CVRNummer
+      status
+      virksomhedStartdato
+      virksomhedOphoersdato
+    }
+  }
+}`,
+  );
+  assert.equal(
+    buildDatafordelerCvrQuery("12345678", NOW),
+    JSON.parse(observedBody).query,
+  );
+  assert.doesNotMatch(observedBody, /registreringstid/);
   assert.equal(result.resultStatus, "valid");
   assert.equal(result.providerReference, "company-reference");
   assert.deepEqual(result.displayFields, {

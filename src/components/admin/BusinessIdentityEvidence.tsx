@@ -5,12 +5,9 @@ import {
   normalizeBusinessEvidenceState,
   type BusinessEvidenceStatus,
 } from "@/lib/onboarding/danishBusinessIdentity";
+import type { TenantBusinessEvidenceDisplay } from "@/lib/onboarding/businessEvidenceRead";
 
-export type TenantBusinessEvidenceDisplay = Readonly<{
-  status: BusinessEvidenceStatus;
-  provider?: string | null;
-  checkedAt?: string | null;
-}>;
+export type { TenantBusinessEvidenceDisplay } from "@/lib/onboarding/businessEvidenceRead";
 
 type Props = Readonly<{
   evidence: TenantBusinessEvidenceDisplay | null;

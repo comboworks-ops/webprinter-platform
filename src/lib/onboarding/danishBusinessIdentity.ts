@@ -24,6 +24,11 @@ export type DanishBusinessIdentityDraft = Readonly<{
   legacyAddressWasParsed: boolean;
 }>;
 
+export type TenantOperationScope = Readonly<{
+  tenantId: string | null;
+  generation: number;
+}>;
+
 type PlainRecord = Record<string, unknown>;
 
 const EVIDENCE_STATES = new Set<BusinessEvidenceStatus>([
@@ -64,8 +69,7 @@ export function normalizeStructuredDanishAddress(input: unknown): Readonly<{
   value: DanishStructuredAddress;
 }> {
   const record = isPlainRecord(input) ? input : {};
-  const countryIsDk =
-    typeof record.country === "string" &&
+  const countryIsDk = typeof record.country === "string" &&
     record.country.trim().toUpperCase() === "DK";
   const value: DanishStructuredAddress = Object.freeze({
     streetName: boundedText(record.streetName, 120),
@@ -76,8 +80,7 @@ export function normalizeStructuredDanishAddress(input: unknown): Readonly<{
     city: boundedText(record.city, 80),
     country: "DK",
   });
-  const valid =
-    value.streetName.length > 0 &&
+  const valid = value.streetName.length > 0 &&
     /^\d{1,4}[A-Za-z]?$/.test(value.houseNumber) &&
     /^\d{4}$/.test(value.postcode) &&
     value.city.length > 0 &&
@@ -156,6 +159,58 @@ export function canVerifyDanishBusinessIdentity(
   return normalizeDanishCvr(input?.cvrInput).canVerify;
 }
 
+export function readSavedStructuredViesIdentifier(
+  companyInput: unknown,
+): string | null {
+  const company = isPlainRecord(companyInput) ? companyInput : null;
+  const identity = company && isPlainRecord(company.business_identity_v1)
+    ? company.business_identity_v1
+    : null;
+  if (identity?.schemaVersion !== DANISH_BUSINESS_IDENTITY_SCHEMA_VERSION) {
+    return null;
+  }
+  const normalizedCvr = typeof identity.normalizedCvr === "string"
+    ? identity.normalizedCvr
+    : "";
+  const viesVatId = typeof identity.viesVatId === "string"
+    ? identity.viesVatId
+    : "";
+  return /^\d{8}$/.test(normalizedCvr) && viesVatId === `DK${normalizedCvr}`
+    ? viesVatId
+    : null;
+}
+
+export function isCurrentTenantOperation(
+  captured: TenantOperationScope,
+  current: TenantOperationScope,
+): boolean {
+  return captured.tenantId !== null &&
+    captured.tenantId === current.tenantId &&
+    Number.isSafeInteger(captured.generation) &&
+    captured.generation === current.generation;
+}
+
+export function buildTenantSettingsUpdate<T>(
+  settings: T,
+  companyName: string,
+): Readonly<{ settings: T; name: string }> {
+  return Object.freeze({
+    settings,
+    name: companyName.trim(),
+  });
+}
+
+export function readEditableCompanyName(
+  companyInput: unknown,
+  tenantNameInput: unknown,
+): string {
+  const company = isPlainRecord(companyInput) ? companyInput : null;
+  if (company && Object.prototype.hasOwnProperty.call(company, "name")) {
+    return typeof company.name === "string" ? company.name : "";
+  }
+  return typeof tenantNameInput === "string" ? tenantNameInput : "";
+}
+
 export function mergeDanishBusinessIdentitySettings(
   currentSettingsInput: unknown,
   input: Readonly<{
@@ -173,7 +228,8 @@ export function mergeDanishBusinessIdentitySettings(
     ? input.companyPatch
     : {};
   const cvr = normalizeDanishCvr(input?.identity?.cvrInput);
-  const address = normalizeStructuredDanishAddress(input?.identity?.address).value;
+  const address =
+    normalizeStructuredDanishAddress(input?.identity?.address).value;
 
   return {
     ...currentSettings,
@@ -192,10 +248,10 @@ export function mergeDanishBusinessIdentitySettings(
 }
 
 export function normalizeBusinessEvidenceState(input: unknown) {
-  const status: BusinessEvidenceStatus =
-    typeof input === "string" && EVIDENCE_STATES.has(input as BusinessEvidenceStatus)
-      ? (input as BusinessEvidenceStatus)
-      : "unknown";
+  const status: BusinessEvidenceStatus = typeof input === "string" &&
+      EVIDENCE_STATES.has(input as BusinessEvidenceStatus)
+    ? (input as BusinessEvidenceStatus)
+    : "unknown";
   return Object.freeze({
     status,
     label: EVIDENCE_LABELS[status],

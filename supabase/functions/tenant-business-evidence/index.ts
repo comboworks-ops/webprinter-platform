@@ -11,6 +11,7 @@ import {
   parseBusinessEvidenceRequest,
   processBusinessEvidence,
   type ProviderDisplayFields,
+  savedStructuredCvrMatchesRequest,
   type StoredBusinessEvidence,
 } from "../_shared/businessEvidence.ts";
 import { createViesProvider } from "../_shared/providers/viesProvider.ts";
@@ -40,6 +41,13 @@ type AccessResult =
     ok: false;
     status: 403 | 404 | 500;
     category: "forbidden" | "tenant_not_found" | "access_check_failed";
+  }>;
+type SavedIdentityResult =
+  | Readonly<{ ok: true }>
+  | Readonly<{
+    ok: false;
+    status: 409 | 500;
+    category: "saved_identity_mismatch" | "saved_identity_check_failed";
   }>;
 
 Deno.serve(async (req) => {
@@ -87,6 +95,22 @@ Deno.serve(async (req) => {
       return jsonResponse({ error }, access.status);
     }
 
+    const savedIdentity = await verifySavedStructuredIdentity(
+      authentication.client,
+      parsedRequest,
+    );
+    if (!savedIdentity.ok) {
+      logOutcome(requestId, operation, savedIdentity.category);
+      return jsonResponse(
+        {
+          error: savedIdentity.status === 409
+            ? "Save the matching business identity before verification"
+            : "Saved business identity could not be verified",
+        },
+        savedIdentity.status,
+      );
+    }
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
     if (!supabaseUrl || !serviceRoleKey) {
@@ -97,14 +121,18 @@ Deno.serve(async (req) => {
     const credential = readDatafordelerCredential(parsedRequest.operation);
     const providers = Object.freeze({
       vies: createViesProvider(),
-      danish_company: createDanishCompanyProvider(credential),
-      danish_address: createDanishAddressProvider(credential),
+      danish_company: createDanishCompanyProvider(
+        parsedRequest.operation === "danish_company" ? credential : null,
+      ),
+      danish_address: createDanishAddressProvider(
+        parsedRequest.operation === "danish_address" ? credential : null,
+      ),
     });
 
     try {
       const result = await processBusinessEvidence(parsedRequest, {
         providers,
-        repository: createRepository(serviceClient),
+        repository: createRepository(serviceClient, authentication.userId),
         context: {
           fetchImpl: fetch,
           now: new Date(),
@@ -122,6 +150,18 @@ Deno.serve(async (req) => {
         ? error.code
         : "persistence_failed";
       logOutcome(requestId, operation, category);
+      if (
+        error instanceof BusinessEvidenceError &&
+        (error.code === "rate_limited" || error.code === "request_in_flight")
+      ) {
+        const retryAfterSeconds = error.retryAfterSeconds ?? 30;
+        const response = jsonResponse({
+          error: "Verification is temporarily unavailable",
+          retryAfterSeconds,
+        }, 429);
+        response.headers.set("Retry-After", String(retryAfterSeconds));
+        return response;
+      }
       return jsonResponse({ error: "Evidence could not be stored" }, 500);
     }
   } catch {
@@ -154,6 +194,40 @@ async function authenticate(req: Request): Promise<AuthResult> {
     return { ok: true, client, userId: user.id };
   } catch {
     return { ok: false, status: 500, category: "auth_check_failed" };
+  }
+}
+
+async function verifySavedStructuredIdentity(
+  client: AuthClient,
+  request: ReturnType<typeof parseBusinessEvidenceRequest>,
+): Promise<SavedIdentityResult> {
+  if (request.operation === "danish_address") return { ok: true };
+  try {
+    const { data, error } = await client
+      .from("tenants")
+      .select("settings")
+      .eq("id", request.tenantId)
+      .maybeSingle();
+    if (error || !data) {
+      return {
+        ok: false,
+        status: 500,
+        category: "saved_identity_check_failed",
+      };
+    }
+    return savedStructuredCvrMatchesRequest(data.settings, request)
+      ? { ok: true }
+      : {
+        ok: false,
+        status: 409,
+        category: "saved_identity_mismatch",
+      };
+  } catch {
+    return {
+      ok: false,
+      status: 500,
+      category: "saved_identity_check_failed",
+    };
   }
 }
 
@@ -203,6 +277,7 @@ async function authorizeTenant(
 
 function createRepository(
   serviceClient: ServiceClient,
+  userId: string,
 ): BusinessEvidenceRepository {
   return Object.freeze({
     findExact: async (query) => {
@@ -217,6 +292,39 @@ function createRepository(
         .maybeSingle();
       if (error) throw new BusinessEvidenceError("persistence_failed");
       return data ? rowFromDatabase(data) : null;
+    },
+    claim: async (query) => {
+      const { data, error } = await serviceClient.rpc(
+        "claim_tenant_business_evidence_request",
+        {
+          _tenant_id: query.tenantId,
+          _user_id: userId,
+          _operation: query.operation,
+          _provider: query.provider,
+          _request_fingerprint: query.requestFingerprint,
+        },
+      );
+      if (error) throw new BusinessEvidenceError("persistence_failed");
+      const raw = Array.isArray(data) ? data[0] : data;
+      if (!isPlainRecord(raw) || typeof raw.disposition !== "string") {
+        throw new BusinessEvidenceError("persistence_failed");
+      }
+      if (raw.disposition === "claimed" || raw.disposition === "replay") {
+        return { status: raw.disposition } as const;
+      }
+      const retryAfterSeconds = Number(raw.retry_after_seconds);
+      if (
+        (raw.disposition === "in_flight" ||
+          raw.disposition === "rate_limited") &&
+        Number.isSafeInteger(retryAfterSeconds) &&
+        retryAfterSeconds >= 1 && retryAfterSeconds <= 3_600
+      ) {
+        return {
+          status: raw.disposition,
+          retryAfterSeconds,
+        } as const;
+      }
+      throw new BusinessEvidenceError("persistence_failed");
     },
     insert: async (row) => {
       const { data, error } = await serviceClient

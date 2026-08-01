@@ -18,14 +18,22 @@ import {
     type TenantBusinessEvidenceDisplay,
 } from "./BusinessIdentityEvidence";
 import {
+    buildTenantSettingsUpdate,
     canVerifyDanishBusinessIdentity,
     createDanishBusinessIdentityDraft,
     mergeDanishBusinessIdentitySettings,
+    isCurrentTenantOperation,
     normalizeBusinessEvidenceState,
     normalizeDanishCvr,
+    readEditableCompanyName,
+    readSavedStructuredViesIdentifier,
     type DanishBusinessIdentityDraft,
     type DanishStructuredAddress,
 } from "@/lib/onboarding/danishBusinessIdentity";
+import {
+    readLatestTenantBusinessEvidence,
+    type TenantBusinessEvidenceReadClient,
+} from "@/lib/onboarding/businessEvidenceRead";
 
 export function ShopSettings() {
     const { data: tenant, isLoading } = useShopSettings();
@@ -33,6 +41,12 @@ export function ShopSettings() {
     const tenantId = typeof tenant?.id === "string" ? tenant.id : null;
     const activeTenantIdRef = useRef<string | null>(tenantId);
     activeTenantIdRef.current = tenantId;
+    const previousTenantIdRef = useRef<string | null>(tenantId);
+    const saveGenerationRef = useRef(0);
+    if (previousTenantIdRef.current !== tenantId) {
+        previousTenantIdRef.current = tenantId;
+        saveGenerationRef.current += 1;
+    }
 
     // Company Info
     const [companyName, setCompanyName] = useState("");
@@ -46,6 +60,7 @@ export function ShopSettings() {
     );
     const [legacyAddressWasParsed, setLegacyAddressWasParsed] = useState(false);
     const [savedIdentityFingerprint, setSavedIdentityFingerprint] = useState("");
+    const [savedViesIdentifier, setSavedViesIdentifier] = useState<string | null>(null);
     const [businessEvidence, setBusinessEvidence] = useState<TenantBusinessEvidenceDisplay | null>(null);
     const [verifyingBusiness, setVerifyingBusiness] = useState(false);
 
@@ -73,7 +88,7 @@ export function ShopSettings() {
             const identity = createDanishBusinessIdentityDraft(company ?? {});
             const companyCvr = identity.cvrInput || company?.cvr || "";
             const companyAddress = company?.address || "";
-            setCompanyName(company?.name || "");
+            setCompanyName(readEditableCompanyName(company, s.tenant_name));
             setEmail(company?.email || "");
             setPhone(company?.phone || "");
             setAddress(companyAddress);
@@ -88,6 +103,7 @@ export function ShopSettings() {
                     structuredAddress: identity.address,
                 }),
             );
+            setSavedViesIdentifier(readSavedStructuredViesIdentifier(company));
 
             // Notifications
             if (s.notifications) {
@@ -118,19 +134,24 @@ export function ShopSettings() {
         let active = true;
         setBusinessEvidence(null);
         setVerifyingBusiness(false);
-        if (!tenantId) {
+        setSaving(false);
+        if (!tenantId || !savedViesIdentifier) {
             return () => {
                 active = false;
             };
         }
 
-        void readLatestTenantBusinessEvidence(tenantId).then((evidence) => {
+        void readLatestTenantBusinessEvidence(
+            businessEvidenceReadClient,
+            tenantId,
+            savedViesIdentifier,
+        ).then((evidence) => {
             if (active) setBusinessEvidence(evidence);
         });
         return () => {
             active = false;
         };
-    }, [tenantId]);
+    }, [tenantId, savedViesIdentifier]);
 
     const identityDraft: DanishBusinessIdentityDraft = {
         cvrInput: cvr,
@@ -142,8 +163,16 @@ export function ShopSettings() {
         legacyAddress: address,
         structuredAddress,
     });
-    const hasUnsavedIdentityChanges = currentIdentityFingerprint !== savedIdentityFingerprint;
+    const currentViesIdentifier = normalizeDanishCvr(cvr).viesVatId;
+    const hasUnsavedIdentityChanges =
+        currentIdentityFingerprint !== savedIdentityFingerprint ||
+        currentViesIdentifier !== savedViesIdentifier;
     const canVerifyBusinessIdentity = canVerifyDanishBusinessIdentity(identityDraft);
+    const displayedBusinessEvidence =
+        !hasUnsavedIdentityChanges &&
+            businessEvidence?.normalizedIdentifier === savedViesIdentifier
+            ? businessEvidence
+            : null;
 
     const updateStructuredAddress = (
         field: Exclude<keyof DanishStructuredAddress, "country">,
@@ -156,16 +185,32 @@ export function ShopSettings() {
     const handleSave = async () => {
         if (!tenantId) return;
 
+        const requestedTenantId = tenantId;
+        const requestedGeneration = saveGenerationRef.current + 1;
+        saveGenerationRef.current = requestedGeneration;
+        const operationScope = {
+            tenantId: requestedTenantId,
+            generation: requestedGeneration,
+        } as const;
+        const requestedIdentityFingerprint = currentIdentityFingerprint;
+        const requestedViesIdentifier = currentViesIdentifier;
+        const previousSavedViesIdentifier = savedViesIdentifier;
+        const isCurrentSave = () => isCurrentTenantOperation(operationScope, {
+            tenantId: activeTenantIdRef.current,
+            generation: saveGenerationRef.current,
+        });
+
         setSaving(true);
         try {
             const { data: tenantRow, error: tenantRowError } = await shopSettingsSupabase
                 .from('tenants')
                 .select('settings')
-                .eq('id', tenantId)
+                .eq('id', requestedTenantId)
                 .maybeSingle();
 
             if (tenantRowError) throw tenantRowError;
             if (!tenantRow) throw new Error("tenant settings unavailable");
+            if (!isCurrentSave()) return;
 
             const current = isPlainRecord(tenantRow?.settings) ? tenantRow.settings : {};
 
@@ -199,29 +244,34 @@ export function ShopSettings() {
                 identity: identityDraft,
             });
 
-            const trimmedCompanyName = companyName.trim();
-            const tenantUpdate: { settings: Json; name?: string } = {
-                settings: newSettings as Json,
-            };
-            if (trimmedCompanyName) tenantUpdate.name = trimmedCompanyName;
+            const tenantUpdate = buildTenantSettingsUpdate(
+                newSettings as Json,
+                companyName,
+            );
 
             const { error } = await shopSettingsSupabase
                 .from('tenants')
                 .update(tenantUpdate)
-                .eq('id', tenantId);
+                .eq('id', requestedTenantId);
 
             if (error) throw error;
+            if (!isCurrentSave()) return;
 
             toast.success('Indstillinger gemt');
-            setSavedIdentityFingerprint(currentIdentityFingerprint);
+            setSavedIdentityFingerprint(requestedIdentityFingerprint);
+            setSavedViesIdentifier(requestedViesIdentifier);
+            if (requestedViesIdentifier !== previousSavedViesIdentifier) {
+                setBusinessEvidence(null);
+            }
 
             // Invalidate query to force refresh
             queryClient.invalidateQueries({ queryKey: ["shop-settings"] });
         } catch (error) {
+            if (!isCurrentSave()) return;
             console.error("Error saving settings:", error);
             toast.error("Kunne ikke gemme indstillinger");
         } finally {
-            setSaving(false);
+            if (isCurrentSave()) setSaving(false);
         }
     };
 
@@ -236,10 +286,12 @@ export function ShopSettings() {
         }
         const normalizedCvr = normalizeDanishCvr(cvr).normalizedCvr;
         if (!normalizedCvr) return;
+        const normalizedIdentifier = `DK${normalizedCvr}`;
         const requestedTenantId = tenantId;
 
         setVerifyingBusiness(true);
         setBusinessEvidence((current) => ({
+            normalizedIdentifier,
             status: "pending",
             provider: current?.provider ?? "EU VIES",
             checkedAt: current?.checkedAt ?? null,
@@ -258,11 +310,16 @@ export function ShopSettings() {
             const response = isPlainRecord(data) ? data : {};
             const responseState = normalizeBusinessEvidenceState(response.status).status;
             setBusinessEvidence({
+                normalizedIdentifier,
                 status: responseState,
                 provider: boundedDisplayText(response.provider, 80) || "EU VIES",
                 checkedAt: readIsoInstant(response.checkedAt),
             });
-            const storedEvidence = await readLatestTenantBusinessEvidence(requestedTenantId);
+            const storedEvidence = await readLatestTenantBusinessEvidence(
+                businessEvidenceReadClient,
+                requestedTenantId,
+                normalizedIdentifier,
+            );
             if (activeTenantIdRef.current !== requestedTenantId) return;
             if (storedEvidence) setBusinessEvidence(storedEvidence);
 
@@ -276,6 +333,7 @@ export function ShopSettings() {
         } catch {
             if (activeTenantIdRef.current !== requestedTenantId) return;
             setBusinessEvidence({
+                normalizedIdentifier,
                 status: "unavailable",
                 provider: "EU VIES",
                 checkedAt: null,
@@ -443,7 +501,7 @@ export function ShopSettings() {
                         </div>
                     </div>
                     <BusinessIdentityEvidence
-                        evidence={businessEvidence}
+                        evidence={displayedBusinessEvidence}
                         canVerify={canVerifyBusinessIdentity}
                         hasUnsavedChanges={hasUnsavedIdentityChanges}
                         verifying={verifyingBusiness}
@@ -601,29 +659,6 @@ function identityFingerprint(input: {
     });
 }
 
-async function readLatestTenantBusinessEvidence(
-    tenantId: string,
-): Promise<TenantBusinessEvidenceDisplay | null> {
-    try {
-        const { data, error } = await shopSettingsSupabase
-            .from("tenant_business_evidence")
-            .select("result_status,provider,checked_at")
-            .eq("tenant_id", tenantId)
-            .eq("evidence_type", "vies")
-            .order("checked_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-        if (error || !data) return null;
-        return {
-            status: normalizeBusinessEvidenceState(data.result_status).status,
-            provider: boundedDisplayText(data.provider, 80),
-            checkedAt: readIsoInstant(data.checked_at),
-        };
-    } catch {
-        return null;
-    }
-}
-
 function boundedDisplayText(value: unknown, maximum: number): string | null {
     if (typeof value !== "string") return null;
     const text = value.replace(/\s+/g, " ").trim();
@@ -637,6 +672,7 @@ function readIsoInstant(value: unknown): string | null {
 }
 
 type ShopSettingsView = Readonly<{
+    tenant_name?: string | null;
     company?: Readonly<{
         name?: string | null;
         email?: string | null;
@@ -677,6 +713,7 @@ type ShopSettingsDatabase = Omit<Database, "public"> & {
                     checked_at: string;
                     evidence_type: "vies" | "danish_company" | "danish_address";
                     provider: string;
+                    normalized_identifier: string;
                     result_status: string;
                     tenant_id: string;
                 };
@@ -689,6 +726,7 @@ type ShopSettingsDatabase = Omit<Database, "public"> & {
 };
 
 const shopSettingsSupabase = supabase as unknown as SupabaseClient<ShopSettingsDatabase>;
+const businessEvidenceReadClient = shopSettingsSupabase as unknown as TenantBusinessEvidenceReadClient;
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
     if (value === null || typeof value !== "object" || Array.isArray(value)) return false;

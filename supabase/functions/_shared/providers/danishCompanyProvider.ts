@@ -46,23 +46,7 @@ function buildRequest(
   context: ProviderContext,
   credential: DatafordelerCredential,
 ): Readonly<{ url: string; init: RequestInit }> {
-  const instant = context.now.toISOString();
-  const query = `query CurrentCompany {
-  CVR_Virksomhed(
-    first: 2
-    registreringstid: ${JSON.stringify(instant)}
-    virkningstid: ${JSON.stringify(instant)}
-    where: { CVRNummer: { eq: ${JSON.stringify(input.cvr)} } }
-  ) {
-    nodes {
-      id
-      CVRNummer
-      status
-      virksomhedStartdato
-      virksomhedOphoersdato
-    }
-  }
-}`;
+  const query = buildDatafordelerCvrQuery(input.cvr, context.now);
   const url = new URL(DATAFORDELER_CVR_URL);
   const headers = new Headers({
     Accept: "application/graphql-response+json",
@@ -80,6 +64,26 @@ function buildRequest(
       body: JSON.stringify({ query }),
     }),
   });
+}
+
+export function buildDatafordelerCvrQuery(cvr: string, now: Date): string {
+  if (!/^\d{8}$/.test(cvr)) throw new Error("invalid CVR query input");
+  const instant = now.toISOString();
+  return `query CurrentCompany {
+  CVR_Virksomhed(
+    first: 1
+    virkningstid: ${JSON.stringify(instant)}
+    where: { CVRNummer: { eq: ${JSON.stringify(cvr)} } }
+  ) {
+    nodes {
+      id
+      CVRNummer
+      status
+      virksomhedStartdato
+      virksomhedOphoersdato
+    }
+  }
+}`;
 }
 
 function parseCompanyResponse(

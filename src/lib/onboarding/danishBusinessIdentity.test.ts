@@ -2,14 +2,45 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildTenantSettingsUpdate,
   canVerifyDanishBusinessIdentity,
   createDanishBusinessIdentityDraft,
+  isCurrentTenantOperation,
   mergeDanishBusinessIdentitySettings,
   normalizeBusinessEvidenceState,
   normalizeDanishCvr,
   normalizeStructuredDanishAddress,
   parseLegacyDanishAddress,
+  readEditableCompanyName,
+  readSavedStructuredViesIdentifier,
 } from "./danishBusinessIdentity.ts";
+
+test("tenant settings updates clear the required top-level name with an empty string", () => {
+  const settings = { company: { name: null } };
+  assert.deepEqual(buildTenantSettingsUpdate(settings, "   "), {
+    settings,
+    name: "",
+  });
+  assert.deepEqual(buildTenantSettingsUpdate(settings, "  Print House  "), {
+    settings,
+    name: "Print House",
+  });
+});
+
+test("editable company name only falls back when settings have no saved name", () => {
+  assert.equal(
+    readEditableCompanyName({}, "Tenant fallback"),
+    "Tenant fallback",
+  );
+  assert.equal(
+    readEditableCompanyName({ name: null }, "Stale tenant name"),
+    "",
+  );
+  assert.equal(
+    readEditableCompanyName({ name: "Saved name" }, "Other"),
+    "Saved name",
+  );
+});
 
 test("CVR removes common separators and produces the exact VIES identifier", () => {
   assert.deepEqual(normalizeDanishCvr("12 34-56 78"), {
@@ -86,16 +117,22 @@ test("Danish addresses use bounded structured fields and country DK", () => {
 });
 
 test("legacy free text parses only when one Danish address is unambiguous", () => {
-  assert.deepEqual(parseLegacyDanishAddress("Virksomhedsvej 12B, 2. th\n2100 København Ø"), {
-    streetName: "Virksomhedsvej",
-    houseNumber: "12B",
-    floor: "2.",
-    door: "th",
-    postcode: "2100",
-    city: "København Ø",
-    country: "DK",
-  });
-  assert.equal(parseLegacyDanishAddress("Postboks 10 eller Virksomhedsvej 12"), null);
+  assert.deepEqual(
+    parseLegacyDanishAddress("Virksomhedsvej 12B, 2. th\n2100 København Ø"),
+    {
+      streetName: "Virksomhedsvej",
+      houseNumber: "12B",
+      floor: "2.",
+      door: "th",
+      postcode: "2100",
+      city: "København Ø",
+      country: "DK",
+    },
+  );
+  assert.equal(
+    parseLegacyDanishAddress("Postboks 10 eller Virksomhedsvej 12"),
+    null,
+  );
   assert.equal(parseLegacyDanishAddress("Virksomhedsvej 12\nKøbenhavn"), null);
 
   const ambiguous = createDanishBusinessIdentityDraft({
@@ -172,14 +209,16 @@ test("settings merge is additive and preserves unrelated company and tenant sett
 });
 
 test("all evidence states remain display-only and unknown input fails to unknown", () => {
-  for (const state of [
-    "unknown",
-    "pending",
-    "valid",
-    "invalid",
-    "unavailable",
-    "stale",
-  ] as const) {
+  for (
+    const state of [
+      "unknown",
+      "pending",
+      "valid",
+      "invalid",
+      "unavailable",
+      "stale",
+    ] as const
+  ) {
     const display = normalizeBusinessEvidenceState(state);
     assert.equal(display.status, state);
     assert.equal(display.effect, "display_only");
@@ -188,5 +227,53 @@ test("all evidence states remain display-only and unknown input fails to unknown
     assert.equal(display.changesCheckout, false);
     assert.equal(display.changesTenantAccess, false);
   }
-  assert.equal(normalizeBusinessEvidenceState("provider-secret").status, "unknown");
+  assert.equal(
+    normalizeBusinessEvidenceState("provider-secret").status,
+    "unknown",
+  );
+});
+
+test("only the exact persisted structured CVR is treated as saved evidence identity", () => {
+  assert.equal(
+    readSavedStructuredViesIdentifier({
+      cvr: "87654321",
+      business_identity_v1: {
+        schemaVersion: 1,
+        cvrInput: "12 34 56 78",
+        normalizedCvr: "12345678",
+        viesVatId: "DK12345678",
+      },
+    }),
+    "DK12345678",
+  );
+  assert.equal(readSavedStructuredViesIdentifier({ cvr: "12345678" }), null);
+  assert.equal(
+    readSavedStructuredViesIdentifier({
+      business_identity_v1: {
+        schemaVersion: 1,
+        normalizedCvr: "12345678",
+        viesVatId: "DK87654321",
+      },
+    }),
+    null,
+  );
+});
+
+test("tenant operation results require the captured tenant and generation", () => {
+  const captured = {
+    tenantId: "10000000-0000-4000-8000-000000000001",
+    generation: 4,
+  } as const;
+  assert.equal(isCurrentTenantOperation(captured, captured), true);
+  assert.equal(
+    isCurrentTenantOperation(captured, { ...captured, generation: 5 }),
+    false,
+  );
+  assert.equal(
+    isCurrentTenantOperation(captured, {
+      tenantId: "20000000-0000-4000-8000-000000000002",
+      generation: 4,
+    }),
+    false,
+  );
 });
