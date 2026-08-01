@@ -162,6 +162,9 @@ verify_jwt = false
 [functions.tenant-context-read]
 verify_jwt = true
 
+[functions.tenant-business-evidence]
+verify_jwt = true
+
 [functions.test-env]
 verify_jwt = true
 
