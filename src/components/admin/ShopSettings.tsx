@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,13 +9,30 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Mail, Bell, Shield, Globe, Loader2, Save, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database, Json } from "@/integrations/supabase/types";
 import { toast } from "sonner";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { TenantPodShippingProfile } from "./TenantPodShippingProfile";
+import {
+    BusinessIdentityEvidence,
+    type TenantBusinessEvidenceDisplay,
+} from "./BusinessIdentityEvidence";
+import {
+    canVerifyDanishBusinessIdentity,
+    createDanishBusinessIdentityDraft,
+    mergeDanishBusinessIdentitySettings,
+    normalizeBusinessEvidenceState,
+    normalizeDanishCvr,
+    type DanishBusinessIdentityDraft,
+    type DanishStructuredAddress,
+} from "@/lib/onboarding/danishBusinessIdentity";
 
 export function ShopSettings() {
     const { data: tenant, isLoading } = useShopSettings();
     const queryClient = useQueryClient();
+    const tenantId = typeof tenant?.id === "string" ? tenant.id : null;
+    const activeTenantIdRef = useRef<string | null>(tenantId);
+    activeTenantIdRef.current = tenantId;
 
     // Company Info
     const [companyName, setCompanyName] = useState("");
@@ -23,6 +41,13 @@ export function ShopSettings() {
     const [address, setAddress] = useState("");
     const [cvr, setCvr] = useState("");
     const [adminName, setAdminName] = useState("");
+    const [structuredAddress, setStructuredAddress] = useState<DanishStructuredAddress>(() =>
+        createDanishBusinessIdentityDraft({}).address,
+    );
+    const [legacyAddressWasParsed, setLegacyAddressWasParsed] = useState(false);
+    const [savedIdentityFingerprint, setSavedIdentityFingerprint] = useState("");
+    const [businessEvidence, setBusinessEvidence] = useState<TenantBusinessEvidenceDisplay | null>(null);
+    const [verifyingBusiness, setVerifyingBusiness] = useState(false);
 
     // Notifications
     const [emailNotifications, setEmailNotifications] = useState(true);
@@ -41,17 +66,28 @@ export function ShopSettings() {
 
     useEffect(() => {
         if (tenant) {
-            const s = tenant as any;
+            const s = tenant as unknown as ShopSettingsView;
+            const company = s.company;
 
             // Company
-            if (s.company) {
-                setCompanyName(s.company.name || "");
-                setEmail(s.company.email || "");
-                setPhone(s.company.phone || "");
-                setAddress(s.company.address || "");
-                setCvr(s.company.cvr || "");
-                setAdminName(s.company.admin_name || "");
-            }
+            const identity = createDanishBusinessIdentityDraft(company ?? {});
+            const companyCvr = identity.cvrInput || company?.cvr || "";
+            const companyAddress = company?.address || "";
+            setCompanyName(company?.name || "");
+            setEmail(company?.email || "");
+            setPhone(company?.phone || "");
+            setAddress(companyAddress);
+            setCvr(companyCvr);
+            setAdminName(company?.admin_name || "");
+            setStructuredAddress(identity.address);
+            setLegacyAddressWasParsed(identity.legacyAddressWasParsed);
+            setSavedIdentityFingerprint(
+                identityFingerprint({
+                    cvr: companyCvr,
+                    legacyAddress: companyAddress,
+                    structuredAddress: identity.address,
+                }),
+            );
 
             // Notifications
             if (s.notifications) {
@@ -78,31 +114,63 @@ export function ShopSettings() {
         }
     }, [tenant]);
 
+    useEffect(() => {
+        let active = true;
+        setBusinessEvidence(null);
+        setVerifyingBusiness(false);
+        if (!tenantId) {
+            return () => {
+                active = false;
+            };
+        }
+
+        void readLatestTenantBusinessEvidence(tenantId).then((evidence) => {
+            if (active) setBusinessEvidence(evidence);
+        });
+        return () => {
+            active = false;
+        };
+    }, [tenantId]);
+
+    const identityDraft: DanishBusinessIdentityDraft = {
+        cvrInput: cvr,
+        address: structuredAddress,
+        legacyAddressWasParsed,
+    };
+    const currentIdentityFingerprint = identityFingerprint({
+        cvr,
+        legacyAddress: address,
+        structuredAddress,
+    });
+    const hasUnsavedIdentityChanges = currentIdentityFingerprint !== savedIdentityFingerprint;
+    const canVerifyBusinessIdentity = canVerifyDanishBusinessIdentity(identityDraft);
+
+    const updateStructuredAddress = (
+        field: Exclude<keyof DanishStructuredAddress, "country">,
+        value: string,
+    ) => {
+        setStructuredAddress((current) => ({ ...current, [field]: value, country: "DK" }));
+        setLegacyAddressWasParsed(false);
+    };
+
     const handleSave = async () => {
-        if (!tenant) return;
+        if (!tenantId) return;
 
         setSaving(true);
         try {
-            const { data: tenantRow, error: tenantRowError } = await supabase
-                .from('tenants' as any)
+            const { data: tenantRow, error: tenantRowError } = await shopSettingsSupabase
+                .from('tenants')
                 .select('settings')
-                .eq('id', tenant.id)
+                .eq('id', tenantId)
                 .maybeSingle();
 
             if (tenantRowError) throw tenantRowError;
+            if (!tenantRow) throw new Error("tenant settings unavailable");
 
-            const current = ((tenantRow as any)?.settings as any) || {};
+            const current = isPlainRecord(tenantRow?.settings) ? tenantRow.settings : {};
 
-            const newSettings = {
+            const settingsWithSections = {
                 ...current,
-                company: {
-                    name: companyName.trim() || null, // Use null if empty so fallback works
-                    email,
-                    phone,
-                    address,
-                    cvr,
-                    admin_name: adminName.trim() || null
-                },
                 notifications: {
                     new_orders: emailNotifications,
                     order_confirmations: orderConfirmations,
@@ -119,21 +187,33 @@ export function ShopSettings() {
                     helper_text: canvaHelperText.trim() || null,
                 }
             };
+            const newSettings = mergeDanishBusinessIdentitySettings(settingsWithSections, {
+                companyPatch: {
+                    name: companyName.trim() || null,
+                    email,
+                    phone,
+                    address,
+                    cvr,
+                    admin_name: adminName.trim() || null,
+                },
+                identity: identityDraft,
+            });
 
-            const { error } = await supabase
-                .from('tenants' as any)
-                .update({ settings: newSettings })
-                .eq('id', tenant.id);
+            const trimmedCompanyName = companyName.trim();
+            const tenantUpdate: { settings: Json; name?: string } = {
+                settings: newSettings as Json,
+            };
+            if (trimmedCompanyName) tenantUpdate.name = trimmedCompanyName;
+
+            const { error } = await shopSettingsSupabase
+                .from('tenants')
+                .update(tenantUpdate)
+                .eq('id', tenantId);
 
             if (error) throw error;
 
-            // Always update tenant name to match company name (or clear it if empty)
-            await supabase
-                .from('tenants' as any)
-                .update({ name: companyName.trim() || null })
-                .eq('id', tenant.id);
-
             toast.success('Indstillinger gemt');
+            setSavedIdentityFingerprint(currentIdentityFingerprint);
 
             // Invalidate query to force refresh
             queryClient.invalidateQueries({ queryKey: ["shop-settings"] });
@@ -142,6 +222,69 @@ export function ShopSettings() {
             toast.error("Kunne ikke gemme indstillinger");
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleVerifyBusiness = async () => {
+        if (
+            !tenantId ||
+            verifyingBusiness ||
+            hasUnsavedIdentityChanges ||
+            !canVerifyBusinessIdentity
+        ) {
+            return;
+        }
+        const normalizedCvr = normalizeDanishCvr(cvr).normalizedCvr;
+        if (!normalizedCvr) return;
+        const requestedTenantId = tenantId;
+
+        setVerifyingBusiness(true);
+        setBusinessEvidence((current) => ({
+            status: "pending",
+            provider: current?.provider ?? "EU VIES",
+            checkedAt: current?.checkedAt ?? null,
+        }));
+        try {
+            const { data, error } = await supabase.functions.invoke("tenant-business-evidence", {
+                body: {
+                    operation: "vies",
+                    tenantId: requestedTenantId,
+                    cvr: normalizedCvr,
+                },
+            });
+            if (error) throw new Error("business evidence unavailable");
+            if (activeTenantIdRef.current !== requestedTenantId) return;
+
+            const response = isPlainRecord(data) ? data : {};
+            const responseState = normalizeBusinessEvidenceState(response.status).status;
+            setBusinessEvidence({
+                status: responseState,
+                provider: boundedDisplayText(response.provider, 80) || "EU VIES",
+                checkedAt: readIsoInstant(response.checkedAt),
+            });
+            const storedEvidence = await readLatestTenantBusinessEvidence(requestedTenantId);
+            if (activeTenantIdRef.current !== requestedTenantId) return;
+            if (storedEvidence) setBusinessEvidence(storedEvidence);
+
+            if (responseState === "valid") {
+                toast.success("Virksomhedsoplysningerne blev bekræftet");
+            } else if (responseState === "invalid") {
+                toast.info("VIES kunne ikke bekræfte CVR-nummeret. Oplysningerne er stadig gemt.");
+            } else {
+                toast.info("Kontroltjenesten er utilgængelig. Oplysningerne er stadig gemt.");
+            }
+        } catch {
+            if (activeTenantIdRef.current !== requestedTenantId) return;
+            setBusinessEvidence({
+                status: "unavailable",
+                provider: "EU VIES",
+                checkedAt: null,
+            });
+            toast.info("Kontroltjenesten er utilgængelig. Prøv igen senere.");
+        } finally {
+            if (activeTenantIdRef.current === requestedTenantId) {
+                setVerifyingBusiness(false);
+            }
         }
     };
 
@@ -223,6 +366,89 @@ export function ShopSettings() {
                             placeholder="12345678"
                         />
                     </div>
+                    <div className="space-y-4 rounded-lg border p-4">
+                        <div>
+                            <p className="font-medium">Struktureret dansk adresse</p>
+                            <p className="text-sm text-muted-foreground">
+                                Bruges kun til frivillig adressekontrol. Den eksisterende fritekstadresse ovenfor bevares.
+                            </p>
+                            {legacyAddressWasParsed ? (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                    Felterne er udfyldt fra den entydige fritekstadresse. Kontrollér dem før gemning.
+                                </p>
+                            ) : null}
+                        </div>
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_9rem]">
+                            <div className="space-y-2">
+                                <Label htmlFor="businessStreet">Vejnavn</Label>
+                                <Input
+                                    id="businessStreet"
+                                    value={structuredAddress.streetName}
+                                    onChange={(event) => updateStructuredAddress("streetName", event.target.value)}
+                                    placeholder="Virksomhedsvej"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="businessHouseNumber">Husnummer</Label>
+                                <Input
+                                    id="businessHouseNumber"
+                                    value={structuredAddress.houseNumber}
+                                    onChange={(event) => updateStructuredAddress("houseNumber", event.target.value)}
+                                    placeholder="12B"
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
+                            <div className="space-y-2">
+                                <Label htmlFor="businessFloor">Etage</Label>
+                                <Input
+                                    id="businessFloor"
+                                    value={structuredAddress.floor}
+                                    onChange={(event) => updateStructuredAddress("floor", event.target.value)}
+                                    placeholder="2."
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="businessDoor">Dør</Label>
+                                <Input
+                                    id="businessDoor"
+                                    value={structuredAddress.door}
+                                    onChange={(event) => updateStructuredAddress("door", event.target.value)}
+                                    placeholder="th"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="businessPostcode">Postnr.</Label>
+                                <Input
+                                    id="businessPostcode"
+                                    inputMode="numeric"
+                                    value={structuredAddress.postcode}
+                                    onChange={(event) => updateStructuredAddress("postcode", event.target.value)}
+                                    placeholder="2100"
+                                />
+                            </div>
+                            <div className="space-y-2 lg:col-span-2">
+                                <Label htmlFor="businessCity">By</Label>
+                                <Input
+                                    id="businessCity"
+                                    value={structuredAddress.city}
+                                    onChange={(event) => updateStructuredAddress("city", event.target.value)}
+                                    placeholder="København Ø"
+                                />
+                            </div>
+                        </div>
+                        <div className="max-w-32 space-y-2">
+                            <Label htmlFor="businessCountry">Land</Label>
+                            <Input id="businessCountry" value="DK" disabled readOnly />
+                        </div>
+                    </div>
+                    <BusinessIdentityEvidence
+                        evidence={businessEvidence}
+                        canVerify={canVerifyBusinessIdentity}
+                        hasUnsavedChanges={hasUnsavedIdentityChanges}
+                        verifying={verifyingBusiness}
+                        onVerify={() => void handleVerifyBusiness()}
+                    />
                 </CardContent>
             </Card>
 
@@ -361,6 +587,113 @@ export function ShopSettings() {
             </div>
         </div>
     );
+}
+
+function identityFingerprint(input: {
+    cvr: string;
+    legacyAddress: string;
+    structuredAddress: DanishStructuredAddress;
+}) {
+    return JSON.stringify({
+        cvr: input.cvr.trim(),
+        legacyAddress: input.legacyAddress.trim(),
+        structuredAddress: input.structuredAddress,
+    });
+}
+
+async function readLatestTenantBusinessEvidence(
+    tenantId: string,
+): Promise<TenantBusinessEvidenceDisplay | null> {
+    try {
+        const { data, error } = await shopSettingsSupabase
+            .from("tenant_business_evidence")
+            .select("result_status,provider,checked_at")
+            .eq("tenant_id", tenantId)
+            .eq("evidence_type", "vies")
+            .order("checked_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (error || !data) return null;
+        return {
+            status: normalizeBusinessEvidenceState(data.result_status).status,
+            provider: boundedDisplayText(data.provider, 80),
+            checkedAt: readIsoInstant(data.checked_at),
+        };
+    } catch {
+        return null;
+    }
+}
+
+function boundedDisplayText(value: unknown, maximum: number): string | null {
+    if (typeof value !== "string") return null;
+    const text = value.replace(/\s+/g, " ").trim();
+    return text && text.length <= maximum ? text : null;
+}
+
+function readIsoInstant(value: unknown): string | null {
+    if (typeof value !== "string" || value.length > 40) return null;
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+type ShopSettingsView = Readonly<{
+    company?: Readonly<{
+        name?: string | null;
+        email?: string | null;
+        phone?: string | null;
+        address?: string | null;
+        cvr?: string | null;
+        admin_name?: string | null;
+        business_identity_v1?: unknown;
+    }> | null;
+    notifications?: Readonly<{
+        new_orders?: boolean | null;
+        order_confirmations?: boolean | null;
+        marketing?: boolean | null;
+    }> | null;
+    regional?: Readonly<{
+        language?: string | null;
+        currency?: string | null;
+        timezone?: string | null;
+    }> | null;
+    canva?: Readonly<{
+        enabled?: boolean | null;
+        button_label?: string | null;
+        helper_text?: string | null;
+    }> | null;
+}>;
+
+type ShopSettingsDatabase = Omit<Database, "public"> & {
+    public: Omit<Database["public"], "Tables"> & {
+        Tables: Database["public"]["Tables"] & {
+            tenants: {
+                Row: { id: string; name: string; settings: Json | null };
+                Insert: { id?: string; name: string; settings?: Json | null };
+                Update: { name?: string; settings?: Json | null };
+                Relationships: [];
+            };
+            tenant_business_evidence: {
+                Row: {
+                    checked_at: string;
+                    evidence_type: "vies" | "danish_company" | "danish_address";
+                    provider: string;
+                    result_status: string;
+                    tenant_id: string;
+                };
+                Insert: never;
+                Update: never;
+                Relationships: [];
+            };
+        };
+    };
+};
+
+const shopSettingsSupabase = supabase as unknown as SupabaseClient<ShopSettingsDatabase>;
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
 }
 
 export default ShopSettings;
