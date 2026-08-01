@@ -201,6 +201,103 @@ test("raw provider evidence accepts sixteen KiB and rejects the next byte", () =
   assert.throws(() => parseFrankfurterEurDkkSnapshot(oversized, FETCHED_AT), /Frankfurter/i);
 });
 
+test("raw byte limits cannot be spoofed by typed-array subclasses or proxies", () => {
+  let subclassIteratorCalls = 0;
+  class SpoofedUint8Array extends Uint8Array {
+    get byteLength() {
+      return 1;
+    }
+
+    *[Symbol.iterator]() {
+      subclassIteratorCalls += 1;
+      yield* rawBytes(VALID_RAW);
+    }
+  }
+
+  const spoofedView = new SpoofedUint8Array(16 * 1024 + 1);
+  assert.throws(
+    () => parseFrankfurterEurDkkSnapshot(spoofedView, FETCHED_AT),
+    /Frankfurter/i,
+  );
+  assert.equal(subclassIteratorCalls, 0);
+
+  let proxyIteratorCalls = 0;
+  const proxiedView = new Proxy(new Uint8Array(16 * 1024 + 1), {
+    get(target, property, receiver) {
+      if (property === "byteLength") return 1;
+      if (property === Symbol.iterator) {
+        return function* spoofedIterator() {
+          proxyIteratorCalls += 1;
+          yield* rawBytes(VALID_RAW);
+        };
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+
+  assert.throws(
+    () => parseFrankfurterEurDkkSnapshot(proxiedView, FETCHED_AT),
+    /Frankfurter/i,
+  );
+  assert.equal(proxyIteratorCalls, 0);
+});
+
+test("in-bounds typed-array subclasses are copied without invoking iteration", () => {
+  let iteratorCalls = 0;
+  class HostileIteratorUint8Array extends Uint8Array {
+    *[Symbol.iterator]() {
+      iteratorCalls += 1;
+      throw new Error("typed-array iterator must not run");
+    }
+  }
+
+  const source = rawBytes(VALID_RAW);
+  const hostileView = new HostileIteratorUint8Array(source.byteLength);
+  hostileView.set(source);
+
+  const snapshot = parseFrankfurterEurDkkSnapshot(hostileView, FETCHED_AT);
+  assert.equal(snapshot.sourcePayloadSha256, VALID_RAW_SHA256);
+  assert.equal(iteratorCalls, 0);
+});
+
+test("raw byte limits use the intrinsic ArrayBuffer length", () => {
+  class SpoofedArrayBuffer extends ArrayBuffer {
+    get byteLength() {
+      return 1;
+    }
+  }
+
+  const spoofedBuffer = new SpoofedArrayBuffer(16 * 1024 + 1);
+  const spoofedBytes = new Uint8Array(spoofedBuffer);
+  spoofedBytes.fill(0x20);
+  spoofedBytes.set(rawBytes(VALID_RAW));
+
+  assert.throws(
+    () => parseFrankfurterEurDkkSnapshot(spoofedBuffer, FETCHED_AT),
+    /Frankfurter/i,
+  );
+});
+
+test("hostile raw byte proxies fail with a normalized provider error", () => {
+  const leakedError = new Error("hostile byteLength trap leaked");
+  const hostileBytes = new Proxy(rawBytes(VALID_RAW), {
+    get(target, property, receiver) {
+      if (property === "byteLength") throw leakedError;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+
+  assert.throws(
+    () => parseFrankfurterEurDkkSnapshot(hostileBytes, FETCHED_AT),
+    (error) => {
+      assert.notEqual(error, leakedError);
+      assert.equal(error?.constructor, TypeError);
+      assert.equal(error?.message, "Invalid Frankfurter EUR/DKK response");
+      return true;
+    },
+  );
+});
+
 test("snapshot validation rejects unknown providers and non-EUR/DKK contracts", () => {
   const invalidSnapshots = [
     validSnapshot({ schemaVersion: 2 }),
@@ -247,6 +344,53 @@ test("snapshot validation requires exact real ISO rate and fetch dates", () => {
   assert.equal(parseFxSnapshot(validSnapshot({ rateDate: "2024-02-29" })).rateDate, "2024-02-29");
 });
 
+test("snapshot chronology is bounded by the UTC calendar date of fetchedAt", () => {
+  const sameDayAtBoundary = parseFxSnapshot(
+    validSnapshot({
+      rateDate: "2026-07-31",
+      fetchedAt: "2026-07-31T00:00:00.000Z",
+    }),
+  );
+  const previousDayAtBoundary = parseFxSnapshot(
+    validSnapshot({
+      rateDate: "2026-07-30",
+      fetchedAt: "2026-07-31T00:00:00.000Z",
+    }),
+  );
+
+  assert.equal(sameDayAtBoundary.rateDate, "2026-07-31");
+  assert.equal(previousDayAtBoundary.rateDate, "2026-07-30");
+  assert.throws(
+    () =>
+      parseFxSnapshot(
+        validSnapshot({
+          rateDate: "2026-08-01",
+          fetchedAt: "2026-07-31T23:59:59.999Z",
+        }),
+      ),
+    /FX snapshot/i,
+  );
+});
+
+test("raw Frankfurter chronology accepts the UTC boundary and rejects future rates", () => {
+  const sameDayRaw = rawBytes(
+    JSON.stringify({ date: "2026-07-31", base: "EUR", quote: "DKK", rate: 7.4601 }),
+  );
+  const futureRaw = rawBytes(
+    JSON.stringify({ date: "2026-08-01", base: "EUR", quote: "DKK", rate: 7.4601 }),
+  );
+
+  assert.equal(
+    parseFrankfurterEurDkkSnapshot(sameDayRaw, "2026-07-31T00:00:00.000Z").rateDate,
+    "2026-07-31",
+  );
+  assert.throws(
+    () =>
+      parseFrankfurterEurDkkSnapshot(futureRaw, "2026-07-31T23:59:59.999Z"),
+    /Frankfurter/i,
+  );
+});
+
 test("snapshot validation requires an exact lowercase SHA-256 digest", () => {
   const invalidHashes = [
     "a".repeat(63),
@@ -290,4 +434,59 @@ test("parsing returns a new deeply frozen normalized contract and drops input ex
   assert.throws(() => {
     parsed.sourcePayloadSha256 = "b".repeat(64);
   }, TypeError);
+});
+
+test("snapshot fields are captured exactly once before validation and normalization", () => {
+  const expected = validSnapshot();
+  const reads = {};
+  const accessorBacked = {};
+
+  for (const [field, value] of Object.entries(expected)) {
+    Object.defineProperty(accessorBacked, field, {
+      enumerable: true,
+      get() {
+        reads[field] = (reads[field] ?? 0) + 1;
+        if (reads[field] === 1) return value;
+        if (field === "rate") return Number.NaN;
+        return `changed-${field}`;
+      },
+    });
+  }
+
+  assert.deepEqual(parseFxSnapshot(accessorBacked), expected);
+  assert.deepEqual(
+    reads,
+    Object.fromEntries(Object.keys(expected).map((field) => [field, 1])),
+  );
+});
+
+test("hostile snapshot access failures are normalized without leaking trap errors", () => {
+  const leakedError = new Error("hostile snapshot getter leaked");
+  const hostileSnapshot = new Proxy(validSnapshot(), {
+    get(target, property, receiver) {
+      if (property === "rate") throw leakedError;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+
+  assert.throws(
+    () => parseFxSnapshot(hostileSnapshot),
+    (error) => {
+      assert.notEqual(error, leakedError);
+      assert.equal(error?.constructor, TypeError);
+      assert.equal(error?.message, "Invalid FX snapshot contract");
+      return true;
+    },
+  );
+
+  const revoked = Proxy.revocable(validSnapshot(), {});
+  revoked.revoke();
+  assert.throws(
+    () => parseFxSnapshot(revoked.proxy),
+    (error) => {
+      assert.equal(error?.constructor, TypeError);
+      assert.equal(error?.message, "Invalid FX snapshot contract");
+      return true;
+    },
+  );
 });

@@ -9,6 +9,24 @@ const MAX_RAW_BODY_BYTES = 16 * 1024;
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(Uint8Array.prototype);
+const GET_TYPED_ARRAY_BYTE_LENGTH = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "byteLength",
+).get;
+const GET_TYPED_ARRAY_BYTE_OFFSET = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "byteOffset",
+).get;
+const GET_TYPED_ARRAY_BUFFER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "buffer",
+).get;
+const GET_ARRAY_BUFFER_BYTE_LENGTH = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype,
+  "byteLength",
+).get;
+const SET_UINT8_ARRAY = Uint8Array.prototype.set;
 
 export function parseFrankfurterEurDkkSnapshot(rawBody, fetchedAt) {
   const rawBytes = toRawBytes(rawBody);
@@ -30,53 +48,77 @@ export function parseFrankfurterEurDkkSnapshot(rawBody, fetchedAt) {
     !Object.hasOwn(payload, "quote") ||
     !Object.hasOwn(payload, "rate") ||
     Object.hasOwn(payload, "amount") ||
-    Object.hasOwn(payload, "rates") ||
-    payload.base !== BASE_CURRENCY ||
-    payload.quote !== QUOTE_CURRENCY ||
-    !isRealIsoDate(payload.date) ||
-    !isBoundedEurDkkRate(payload.rate)
+    Object.hasOwn(payload, "rates")
   ) {
     throw invalidFrankfurterResponse();
   }
 
-  return parseFxSnapshot({
-    schemaVersion: SNAPSHOT_SCHEMA_VERSION,
-    provider: SNAPSHOT_PROVIDER,
-    baseCurrency: BASE_CURRENCY,
-    quoteCurrency: QUOTE_CURRENCY,
-    rate: payload.rate,
-    rateDate: payload.date,
-    fetchedAt,
-    sourcePayloadSha256,
-  });
+  const date = payload.date;
+  const base = payload.base;
+  const quote = payload.quote;
+  const rate = payload.rate;
+  if (
+    base !== BASE_CURRENCY ||
+    quote !== QUOTE_CURRENCY ||
+    !isRealIsoDate(date) ||
+    !isBoundedEurDkkRate(rate)
+  ) {
+    throw invalidFrankfurterResponse();
+  }
+
+  try {
+    return parseFxSnapshot({
+      schemaVersion: SNAPSHOT_SCHEMA_VERSION,
+      provider: SNAPSHOT_PROVIDER,
+      baseCurrency: BASE_CURRENCY,
+      quoteCurrency: QUOTE_CURRENCY,
+      rate,
+      rateDate: date,
+      fetchedAt,
+      sourcePayloadSha256,
+    });
+  } catch {
+    throw invalidFrankfurterResponse();
+  }
 }
 
 export function parseFxSnapshot(input) {
   try {
+    if (!isRecord(input)) throw invalidFxSnapshot();
+
+    const schemaVersion = input.schemaVersion;
+    const provider = input.provider;
+    const baseCurrency = input.baseCurrency;
+    const quoteCurrency = input.quoteCurrency;
+    const rate = input.rate;
+    const rateDate = input.rateDate;
+    const fetchedAt = input.fetchedAt;
+    const sourcePayloadSha256 = input.sourcePayloadSha256;
+
     if (
-      !isRecord(input) ||
-      input.schemaVersion !== SNAPSHOT_SCHEMA_VERSION ||
-      input.provider !== SNAPSHOT_PROVIDER ||
-      input.baseCurrency !== BASE_CURRENCY ||
-      input.quoteCurrency !== QUOTE_CURRENCY ||
-      !isBoundedEurDkkRate(input.rate) ||
-      !isRealIsoDate(input.rateDate) ||
-      !isCanonicalIsoInstant(input.fetchedAt) ||
-      typeof input.sourcePayloadSha256 !== "string" ||
-      !SHA256_HEX.test(input.sourcePayloadSha256)
+      schemaVersion !== SNAPSHOT_SCHEMA_VERSION ||
+      provider !== SNAPSHOT_PROVIDER ||
+      baseCurrency !== BASE_CURRENCY ||
+      quoteCurrency !== QUOTE_CURRENCY ||
+      !isBoundedEurDkkRate(rate) ||
+      !isRealIsoDate(rateDate) ||
+      !isCanonicalIsoInstant(fetchedAt) ||
+      rateDate > fetchedAt.slice(0, 10) ||
+      typeof sourcePayloadSha256 !== "string" ||
+      !SHA256_HEX.test(sourcePayloadSha256)
     ) {
       throw invalidFxSnapshot();
     }
 
     return deepFreeze({
-      schemaVersion: SNAPSHOT_SCHEMA_VERSION,
-      provider: SNAPSHOT_PROVIDER,
-      baseCurrency: BASE_CURRENCY,
-      quoteCurrency: QUOTE_CURRENCY,
-      rate: input.rate,
-      rateDate: input.rateDate,
-      fetchedAt: input.fetchedAt,
-      sourcePayloadSha256: input.sourcePayloadSha256,
+      schemaVersion,
+      provider,
+      baseCurrency,
+      quoteCurrency,
+      rate,
+      rateDate,
+      fetchedAt,
+      sourcePayloadSha256,
     });
   } catch {
     throw invalidFxSnapshot();
@@ -88,15 +130,32 @@ export function canonicalizeFxSnapshot(snapshot) {
 }
 
 function toRawBytes(rawBody) {
-  if (rawBody instanceof Uint8Array) {
-    if (rawBody.byteLength > MAX_RAW_BODY_BYTES) throw invalidFrankfurterResponse();
-    return Uint8Array.from(rawBody);
-  }
-  if (rawBody instanceof ArrayBuffer) {
-    if (rawBody.byteLength > MAX_RAW_BODY_BYTES) throw invalidFrankfurterResponse();
-    return new Uint8Array(rawBody).slice();
+  try {
+    if (rawBody instanceof Uint8Array) {
+      const byteLength = Reflect.apply(GET_TYPED_ARRAY_BYTE_LENGTH, rawBody, []);
+      if (byteLength > MAX_RAW_BODY_BYTES) throw invalidFrankfurterResponse();
+
+      const byteOffset = Reflect.apply(GET_TYPED_ARRAY_BYTE_OFFSET, rawBody, []);
+      const buffer = Reflect.apply(GET_TYPED_ARRAY_BUFFER, rawBody, []);
+      Reflect.apply(GET_ARRAY_BUFFER_BYTE_LENGTH, buffer, []);
+      return copyIntrinsicBytes(buffer, byteOffset, byteLength);
+    }
+    if (rawBody instanceof ArrayBuffer) {
+      const byteLength = Reflect.apply(GET_ARRAY_BUFFER_BYTE_LENGTH, rawBody, []);
+      if (byteLength > MAX_RAW_BODY_BYTES) throw invalidFrankfurterResponse();
+      return copyIntrinsicBytes(rawBody, 0, byteLength);
+    }
+  } catch {
+    throw invalidFrankfurterResponse();
   }
   throw invalidFrankfurterResponse();
+}
+
+function copyIntrinsicBytes(buffer, byteOffset, byteLength) {
+  const source = new Uint8Array(buffer, byteOffset, byteLength);
+  const copy = new Uint8Array(byteLength);
+  Reflect.apply(SET_UINT8_ARRAY, copy, [source]);
+  return copy;
 }
 
 function hasDuplicateTopLevelKeys(rawText) {
