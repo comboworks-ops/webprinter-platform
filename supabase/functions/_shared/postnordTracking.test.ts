@@ -7,6 +7,16 @@ import {
   normalizePostNordTrackingPayload,
   PostNordTrackingError,
 } from "./postnordTracking.ts";
+import {
+  authorizePostNordSyncOrder,
+  fetchPostNordTrackingPayload,
+  isMatchingPostNordReplayRow,
+  parsePostNordSyncRequest,
+  POSTNORD_PRODUCTION_TRACKING_URL,
+  POSTNORD_SANDBOX_TRACKING_URL,
+  PostNordSyncError,
+  syncAuthorizedPostNordOrder,
+} from "./postnordTrackingSync.ts";
 
 const TENANT_ID = "10000000-0000-4000-8000-000000000001";
 const ORDER_ID = "20000000-0000-4000-8000-000000000002";
@@ -254,5 +264,378 @@ test("the pure tracking module exposes no order-write or notification operation"
   assert.deepEqual(
     Object.keys(trackingModule).filter((name) => forbidden.test(name)),
     [],
+  );
+});
+
+test("sync requests accept one exact order ID and never accept tracking numbers or provider URLs", () => {
+  const request = parsePostNordSyncRequest({ orderId: ORDER_ID });
+  assert.deepEqual(request, { orderId: ORDER_ID });
+  assert.ok(Object.isFrozen(request));
+
+  for (
+    const bad of [
+      {},
+      { orderId: "not-a-uuid" },
+      { orderId: ORDER_ID, trackingNumber: TRACKING_NUMBER },
+      { orderId: ORDER_ID, providerUrl: "https://example.invalid" },
+      { orderIds: [ORDER_ID] },
+    ]
+  ) {
+    assert.throws(
+      () => parsePostNordSyncRequest(bad),
+      (error) =>
+        error instanceof PostNordSyncError && error.code === "invalid_request",
+    );
+  }
+});
+
+test("order authorization binds the verified user, tenant, order, and server-side tracking number", async () => {
+  const calls: string[] = [];
+  const authorized = await authorizePostNordSyncOrder(
+    parsePostNordSyncRequest({ orderId: ORDER_ID }),
+    "30000000-0000-4000-8000-000000000003",
+    {
+      loadOrder(orderId) {
+        calls.push(`order:${orderId}`);
+        return Promise.resolve({
+          id: ORDER_ID,
+          tenantId: TENANT_ID,
+          trackingNumber: TRACKING_NUMBER,
+        });
+      },
+      canAccessTenant(tenantId) {
+        calls.push(`tenant:${tenantId}`);
+        return Promise.resolve(true);
+      },
+      hasExactMasterRole() {
+        calls.push("master");
+        return Promise.resolve(false);
+      },
+    },
+  );
+
+  assert.deepEqual(authorized, {
+    id: ORDER_ID,
+    tenantId: TENANT_ID,
+    trackingNumber: TRACKING_NUMBER,
+  });
+  assert.deepEqual(calls, [`order:${ORDER_ID}`, `tenant:${TENANT_ID}`]);
+  assert.ok(Object.isFrozen(authorized));
+});
+
+test("cross-tenant order access fails before provider or persistence work while exact master access is explicit", async () => {
+  let masterChecks = 0;
+  const dependencies = {
+    loadOrder: () =>
+      Promise.resolve({
+        id: ORDER_ID,
+        tenantId: TENANT_ID,
+        trackingNumber: TRACKING_NUMBER,
+      }),
+    canAccessTenant: () => Promise.resolve(false),
+    hasExactMasterRole: () => {
+      masterChecks += 1;
+      return Promise.resolve(false);
+    },
+  };
+  await assert.rejects(
+    () =>
+      authorizePostNordSyncOrder(
+        { orderId: ORDER_ID },
+        "30000000-0000-4000-8000-000000000003",
+        dependencies,
+      ),
+    (error) => error instanceof PostNordSyncError && error.code === "forbidden",
+  );
+  assert.equal(masterChecks, 1);
+
+  const master = await authorizePostNordSyncOrder(
+    { orderId: ORDER_ID },
+    "40000000-0000-4000-8000-000000000004",
+    { ...dependencies, hasExactMasterRole: () => Promise.resolve(true) },
+  );
+  assert.equal(master.id, ORDER_ID);
+  assert.equal(master.trackingNumber, TRACKING_NUMBER);
+});
+
+test("disabled, incomplete, and unapproved provider configuration fails before fetch", async () => {
+  let fetchCalls = 0;
+  const fetchImpl = () => {
+    fetchCalls += 1;
+    return Promise.reject(new Error("must not run"));
+  };
+  const invalidConfigurations = [
+    {
+      enabled: false,
+      environment: "sandbox",
+      apiKey: "a".repeat(32),
+      productionApproved: false,
+    },
+    {
+      enabled: true,
+      environment: "sandbox",
+      apiKey: "",
+      productionApproved: false,
+    },
+    {
+      enabled: true,
+      environment: "production",
+      apiKey: "a".repeat(32),
+      productionApproved: false,
+    },
+    {
+      enabled: true,
+      environment: "https://attacker.invalid",
+      apiKey: "a".repeat(32),
+      productionApproved: true,
+    },
+  ] as const;
+
+  for (const providerConfig of invalidConfigurations) {
+    await assert.rejects(
+      () =>
+        fetchPostNordTrackingPayload(TRACKING_NUMBER, {
+          fetchImpl,
+          providerConfig,
+        }),
+      (error) =>
+        error instanceof PostNordSyncError &&
+        error.code === "provider_unavailable",
+    );
+  }
+  assert.equal(fetchCalls, 0);
+});
+
+test("provider fetch uses only the fixed v5 sandbox or production endpoint", async () => {
+  const raw = payload([{
+    eventTime: "2026-08-01T09:15:00.000Z",
+    eventCode: "IN_TRANSIT",
+  }]);
+  for (
+    const [environment, baseUrl] of [
+      ["sandbox", POSTNORD_SANDBOX_TRACKING_URL],
+      ["production", POSTNORD_PRODUCTION_TRACKING_URL],
+    ] as const
+  ) {
+    const apiKey = `${environment}-` + "a".repeat(32);
+    let observedUrl = "";
+    const result = await fetchPostNordTrackingPayload(TRACKING_NUMBER, {
+      providerConfig: {
+        enabled: true,
+        environment,
+        apiKey,
+        productionApproved: environment === "production",
+      },
+      fetchImpl(input, init) {
+        observedUrl = String(input);
+        const url = new URL(observedUrl);
+        assert.equal(url.origin + url.pathname, baseUrl);
+        assert.equal(url.searchParams.get("apikey"), apiKey);
+        assert.equal(url.searchParams.get("id"), TRACKING_NUMBER);
+        assert.equal(url.searchParams.get("locale"), "en");
+        assert.equal(init?.method, "GET");
+        assert.equal(init?.redirect, "manual");
+        assert.equal(
+          new Headers(init?.headers).get("accept"),
+          "application/json",
+        );
+        const response = new Response(raw, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+        Object.defineProperty(response, "url", { value: observedUrl });
+        return Promise.resolve(response);
+      },
+    });
+    assert.equal(result, raw);
+  }
+});
+
+test("provider fetch never follows redirects, bounds bodies, and surfaces 429 without retrying", async () => {
+  const providerConfig = {
+    enabled: true,
+    environment: "sandbox",
+    apiKey: "a".repeat(32),
+    productionApproved: false,
+  } as const;
+  let rateLimitCalls = 0;
+  await assert.rejects(
+    () =>
+      fetchPostNordTrackingPayload(TRACKING_NUMBER, {
+        providerConfig,
+        fetchImpl(input) {
+          rateLimitCalls += 1;
+          const response = new Response("{}", {
+            status: 429,
+            headers: {
+              "content-type": "application/json",
+              "retry-after": "120",
+            },
+          });
+          Object.defineProperty(response, "url", { value: String(input) });
+          return Promise.resolve(response);
+        },
+      }),
+    (error) =>
+      error instanceof PostNordSyncError &&
+      error.code === "rate_limited" &&
+      error.retryAfterSeconds === 120,
+  );
+  assert.equal(rateLimitCalls, 1);
+
+  for (
+    const makeResponse of [
+      (url: string) => {
+        const response = new Response("{}", {
+          status: 302,
+          headers: { location: "https://attacker.invalid" },
+        });
+        Object.defineProperty(response, "url", { value: url });
+        return response;
+      },
+      (_url: string) => {
+        const response = new Response("{}", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+        Object.defineProperty(response, "url", {
+          value: "https://attacker.invalid/redirected",
+        });
+        return response;
+      },
+      (url: string) => {
+        const response = new Response("{}", {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "content-length": String(32 * 1024 + 1),
+          },
+        });
+        Object.defineProperty(response, "url", { value: url });
+        return response;
+      },
+    ]
+  ) {
+    await assert.rejects(
+      () =>
+        fetchPostNordTrackingPayload(TRACKING_NUMBER, {
+          providerConfig,
+          fetchImpl(input) {
+            return Promise.resolve(makeResponse(String(input)));
+          },
+        }),
+      (error) =>
+        error instanceof PostNordSyncError &&
+        error.code === "provider_unavailable",
+    );
+  }
+});
+
+test("authorized sync inserts carrier evidence only and returns a minimal display DTO", async () => {
+  const authorizedOrder = {
+    id: ORDER_ID,
+    tenantId: TENANT_ID,
+    trackingNumber: TRACKING_NUMBER,
+  } as const;
+  let insertedEvents: readonly unknown[] = [];
+  let fetchTrackingNumber = "";
+  const result = await syncAuthorizedPostNordOrder(authorizedOrder, {
+    now: RECEIVED_AT,
+    fetchPayload(trackingNumber) {
+      fetchTrackingNumber = trackingNumber;
+      return Promise.resolve(payload([{
+        eventId: "event-1",
+        eventTime: "2026-08-01T09:15:00.000Z",
+        eventCode: "DELIVERED",
+        eventDescription: "Leveret",
+      }]));
+    },
+    repository: {
+      insertEvents(events) {
+        insertedEvents = events;
+        return Promise.resolve({ inserted: 1, replayed: 0 });
+      },
+    },
+  });
+
+  assert.equal(fetchTrackingNumber, TRACKING_NUMBER);
+  assert.equal(insertedEvents.length, 1);
+  assert.equal(
+    (insertedEvents[0] as { effect: string }).effect,
+    "display_only",
+  );
+  assert.equal(result.effect, "display_only");
+  assert.equal(result.inserted, 1);
+  assert.equal(result.replayed, 0);
+  assert.equal(result.events[0].displayType, "delivered");
+  assert.equal("trackingNumber" in result.events[0], false);
+  assert.equal("sourceDigest" in result.events[0], false);
+  assert.equal("fallbackDedupeKey" in result.events[0], false);
+  assert.equal("orderStatus" in result, false);
+});
+
+test("malformed provider evidence remains unavailable and never reaches persistence", async () => {
+  let insertCalls = 0;
+  await assert.rejects(
+    () =>
+      syncAuthorizedPostNordOrder({
+        id: ORDER_ID,
+        tenantId: TENANT_ID,
+        trackingNumber: TRACKING_NUMBER,
+      }, {
+        now: RECEIVED_AT,
+        fetchPayload: () => Promise.resolve('{"unexpected":true}'),
+        repository: {
+          insertEvents() {
+            insertCalls += 1;
+            return Promise.resolve({ inserted: 0, replayed: 0 });
+          },
+        },
+      }),
+    (error) =>
+      error instanceof PostNordSyncError &&
+      error.code === "provider_unavailable",
+  );
+  assert.equal(insertCalls, 0);
+});
+
+test("database conflicts count as replay only when immutable scope and event identity match", async () => {
+  const [event] = await normalizePostNordTrackingPayload(
+    payload([{
+      eventId: "event-1",
+      eventTime: "2026-08-01T09:15:00.000Z",
+      eventCode: "IN_TRANSIT",
+      eventDescription: "Undervejs",
+    }]),
+    context(),
+  );
+  const row = {
+    schema_version: event.schemaVersion,
+    carrier: event.carrier,
+    tenant_id: event.tenantId,
+    order_id: event.orderId,
+    tracking_number: event.trackingNumber,
+    provider_event_id: event.providerEventId,
+    fallback_dedupe_key: event.fallbackDedupeKey,
+    provider_status: event.providerStatus,
+    display_type: event.displayType,
+    occurred_at: event.occurredAt,
+    location: event.location,
+    description: event.description,
+  };
+  assert.equal(isMatchingPostNordReplayRow(event, row), true);
+  assert.equal(
+    isMatchingPostNordReplayRow(event, {
+      ...row,
+      order_id: "50000000-0000-4000-8000-000000000005",
+    }),
+    false,
+  );
+  assert.equal(
+    isMatchingPostNordReplayRow(event, {
+      ...row,
+      fallback_dedupe_key: "f".repeat(64),
+    }),
+    false,
   );
 });

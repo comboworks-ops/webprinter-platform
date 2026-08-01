@@ -90,6 +90,9 @@ verify_jwt = true
 [functions.pod3-flyeralarm-request]
 verify_jwt = true
 
+[functions.postnord-tracking-sync]
+verify_jwt = true
+
 [functions.pricing-read]
 verify_jwt = false
 
