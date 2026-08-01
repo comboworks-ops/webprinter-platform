@@ -268,3 +268,14 @@ surfaces.
 This control center does not change POD v1 tables, functions, routes, or UI
 behavior. It does not change the pricing engine, product-price calculations,
 or storefront pricing; existing pricing remains authoritative.
+
+## Reference evidence does not change POD contracts
+
+The optional Frankfurter/ECB FX snapshot, VIES/Datafordeler business evidence,
+and PostNord tracking-event features are separate reference integrations. They
+do not alter Print.com payment evidence, fresh validation, atomic submission
+claim, uncertain-response lock, duplicate supplier-reference protection, or
+supplier submission/status rules. PostNord is display-only, and snapshot FX is
+limited to an explicitly selected unpublished supplier-import draft; neither
+path may mutate an existing POD job, order, payment, published product, or live
+price.

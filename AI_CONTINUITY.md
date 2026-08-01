@@ -1331,3 +1331,26 @@ stored supplier order reference and status synchronization. Automated QA must
 continue to use `Kontrollér ordre` with `dryRun: true` and must not place a live
 supplier order, distribute a real product, or import a real product without
 separate explicit approval of the exact product and tenant shops.
+
+### Reference-integration source state (2026-08-01)
+
+- Additive source and local migrations now cover immutable Frankfurter/ECB
+  EUR/DKK snapshots, optional VIES/Datafordeler CVR/DAR evidence, and
+  display-only PostNord Track & Trace v5 events.
+- No migration or Edge Function in this wave was applied or deployed, no live
+  provider was called, and no hosted data was written. Provider activation is
+  therefore still pending an explicit release decision and the staging gates
+  in `docs/REFERENCE_INTEGRATIONS.md`.
+- PostNord remains disabled by default through
+  `POSTNORD_TRACKING_ENABLED=false`; production additionally requires
+  `POSTNORD_TRACKING_PRODUCTION_APPROVED=true`. Datafordeler operations remain
+  unavailable without server-only credentials. FX imports retain legacy fixed
+  conversion unless an operator supplies both an immutable snapshot and the
+  explicit unpublished-draft write flag.
+- VIES results are evidence only and cannot block onboarding or alter VAT.
+  PostNord events are carrier evidence only and cannot mutate order status,
+  email, payment, POD, or supplier state. All new writes are service-role-only;
+  tenant evidence reads stay within tenant/order RLS.
+- ERPNext is separate and untouched. The next safe step is an independent
+  security review followed by an isolated migration/staging rehearsal; do not
+  deploy, enable, or call a live provider as part of ordinary local QA.

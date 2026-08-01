@@ -729,3 +729,18 @@ never copy or recalculate pricing.
 ---
 
 *Last updated: January 6, 2026*
+
+## Additive reference integrations (source-only, 2026-08-01)
+
+Webprinter has three optional evidence paths: master-only Frankfurter/ECB
+EUR/DKK snapshots, tenant-scoped VIES/Datafordeler business evidence, and
+display-only PostNord Track & Trace v5 events. Authenticated Edge Functions use
+fixed provider endpoints and service-role-only writes; authenticated reads are
+public-reference or tenant/order-scoped through RLS.
+
+These paths do not replace authoritative pricing, tax decisions, tenant data,
+orders, payment, POD, supplier fulfilment, or ERPNext. FX can affect only an
+explicit unpublished draft through a double-opt-in import. VIES and Danish
+identity checks are non-blocking. PostNord events never update Webprinter order
+status. Provider activation, safe log fields, tenant read boundaries, and the
+rollback runbook are documented in `docs/REFERENCE_INTEGRATIONS.md`.
