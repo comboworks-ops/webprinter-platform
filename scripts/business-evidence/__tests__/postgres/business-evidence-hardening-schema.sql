@@ -31,7 +31,7 @@ create table public.user_roles (
 
 create table public.orders (
   id uuid primary key,
-  tenant_id uuid not null references public.tenants(id),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
   user_id uuid,
   tracking_number text
 );
@@ -76,6 +76,9 @@ $$;
 
 grant usage on schema public to authenticated, service_role;
 grant select on public.tenants, public.user_roles, public.orders to authenticated;
+-- Model an authoritative parent-deletion path without granting direct evidence
+-- deletion. PostgreSQL's declared FK actions must still work for this role.
+grant select, delete on public.tenants, public.orders to service_role;
 
 create function public.test_assert(condition boolean, message text)
 returns void

@@ -744,3 +744,9 @@ explicit unpublished draft through a double-opt-in import. VIES and Danish
 identity checks are non-blocking. PostNord events never update Webprinter order
 status. Provider activation, safe log fields, tenant read boundaries, and the
 rollback runbook are documented in `docs/REFERENCE_INTEGRATIONS.md`.
+
+Reference evidence is update-immutable and direct application deletion is
+revoked, while declared tenant/order foreign-key cascades remain available for
+authoritative parent deletion. Datafordeler CVR filters use a validated numeric
+GraphQL `Long`; DAR accepts exact legacy UUID-shaped `id_lokalId` strings without
+imposing RFC version or variant bits.

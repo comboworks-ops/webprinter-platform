@@ -71,29 +71,82 @@ insert into public.carrier_tracking_events_v1 (
     'delivered', '2026-08-01T08:00:00Z', '2026-08-01T08:00:01Z', repeat('4', 64)
   );
 
-do $append_only_evidence$
+do $evidence_delete_privileges$
 declare
-  business_delete_rejected boolean := false;
-  carrier_delete_rejected boolean := false;
+  role_name text;
+begin
+  foreach role_name in array array['anon', 'authenticated', 'service_role'] loop
+    perform public.test_assert(
+      not has_table_privilege(
+        role_name,
+        'public.tenant_business_evidence',
+        'DELETE'
+      ),
+      role_name || ' must not directly delete tenant business evidence'
+    );
+    perform public.test_assert(
+      not has_table_privilege(
+        role_name,
+        'public.carrier_tracking_events_v1',
+        'DELETE'
+      ),
+      role_name || ' must not directly delete carrier evidence'
+    );
+  end loop;
+end;
+$evidence_delete_privileges$;
+
+set role service_role;
+do $service_role_delete_denied$
+declare
+  business_delete_denied boolean := false;
+  carrier_delete_denied boolean := false;
 begin
   begin
     delete from public.tenant_business_evidence
     where tenant_id = '10000000-0000-4000-8000-000000000001';
-  exception when sqlstate '55000' then
-    business_delete_rejected := true;
+  exception when insufficient_privilege then
+    business_delete_denied := true;
   end;
   begin
     delete from public.carrier_tracking_events_v1
     where tenant_id = '10000000-0000-4000-8000-000000000001';
-  exception when sqlstate '55000' then
-    carrier_delete_rejected := true;
+  exception when insufficient_privilege then
+    carrier_delete_denied := true;
   end;
   perform public.test_assert(
-    business_delete_rejected and carrier_delete_rejected,
-    'business and carrier evidence must reject DELETE as append-only evidence'
+    business_delete_denied and carrier_delete_denied,
+    'service role direct DELETE must be privilege-denied for both evidence tables'
   );
 end;
-$append_only_evidence$;
+$service_role_delete_denied$;
+reset role;
+
+do $evidence_updates_remain_immutable$
+declare
+  business_update_rejected boolean := false;
+  carrier_update_rejected boolean := false;
+begin
+  begin
+    update public.tenant_business_evidence
+    set result_status = 'stale'
+    where tenant_id = '10000000-0000-4000-8000-000000000001';
+  exception when sqlstate '55000' then
+    business_update_rejected := true;
+  end;
+  begin
+    update public.carrier_tracking_events_v1
+    set provider_status = 'STALE'
+    where tenant_id = '10000000-0000-4000-8000-000000000001';
+  exception when sqlstate '55000' then
+    carrier_update_rejected := true;
+  end;
+  perform public.test_assert(
+    business_update_rejected and carrier_update_rejected,
+    'business and carrier evidence UPDATE must remain immutable'
+  );
+end;
+$evidence_updates_remain_immutable$;
 
 alter table public.carrier_tracking_events_v1
   disable trigger carrier_tracking_events_v1_order_tenant_guard;
@@ -110,6 +163,96 @@ insert into public.carrier_tracking_events_v1 (
 );
 alter table public.carrier_tracking_events_v1
   enable trigger carrier_tracking_events_v1_order_tenant_guard;
+
+begin;
+set local role service_role;
+delete from public.orders
+where id = '60000000-0000-4000-8000-000000000001';
+select public.test_assert(
+  not exists (
+    select 1 from public.carrier_tracking_events_v1
+    where order_id = '60000000-0000-4000-8000-000000000001'
+  ),
+  'authoritative order deletion must cascade its carrier evidence'
+);
+select public.test_assert(
+  exists (
+    select 1 from public.tenant_business_evidence
+    where tenant_id = '10000000-0000-4000-8000-000000000001'
+  ),
+  'order deletion must not remove tenant business evidence'
+);
+select public.test_assert(
+  exists (
+    select 1 from public.carrier_tracking_events_v1
+    where tenant_id = '20000000-0000-4000-8000-000000000002'
+      and order_id = '60000000-0000-4000-8000-000000000002'
+  ),
+  'order deletion must leave unrelated tenant carrier evidence untouched'
+);
+rollback;
+select public.test_assert(
+  exists (
+    select 1 from public.orders
+    where id = '60000000-0000-4000-8000-000000000001'
+  ) and exists (
+    select 1 from public.carrier_tracking_events_v1
+    where order_id = '60000000-0000-4000-8000-000000000001'
+  ),
+  'rolling back an order deletion must restore both order and carrier evidence'
+);
+
+begin;
+set local role service_role;
+delete from public.tenants
+where id = '10000000-0000-4000-8000-000000000001';
+select public.test_assert(
+  not exists (
+    select 1 from public.tenant_business_evidence
+    where tenant_id = '10000000-0000-4000-8000-000000000001'
+  ) and not exists (
+    select 1 from public.orders
+    where tenant_id = '10000000-0000-4000-8000-000000000001'
+  ) and not exists (
+    select 1 from public.carrier_tracking_events_v1
+    where tenant_id = '10000000-0000-4000-8000-000000000001'
+  ),
+  'authoritative tenant deletion must cascade business evidence, orders, and carrier evidence'
+);
+select public.test_assert(
+  exists (
+    select 1 from public.tenants
+    where id = '20000000-0000-4000-8000-000000000002'
+  ) and exists (
+    select 1 from public.orders
+    where id = '60000000-0000-4000-8000-000000000002'
+  ) and exists (
+    select 1 from public.tenant_business_evidence
+    where tenant_id = '20000000-0000-4000-8000-000000000002'
+  ) and exists (
+    select 1 from public.carrier_tracking_events_v1
+    where tenant_id = '20000000-0000-4000-8000-000000000002'
+      and order_id = '60000000-0000-4000-8000-000000000002'
+  ),
+  'tenant deletion must leave every unrelated tenant row untouched'
+);
+rollback;
+select public.test_assert(
+  exists (
+    select 1 from public.tenants
+    where id = '10000000-0000-4000-8000-000000000001'
+  ) and exists (
+    select 1 from public.tenant_business_evidence
+    where tenant_id = '10000000-0000-4000-8000-000000000001'
+  ) and exists (
+    select 1 from public.orders
+    where id = '60000000-0000-4000-8000-000000000001'
+  ) and exists (
+    select 1 from public.carrier_tracking_events_v1
+    where order_id = '60000000-0000-4000-8000-000000000001'
+  ),
+  'rolling back a tenant deletion must restore its full evidence graph'
+);
 
 set role authenticated;
 select set_config('request.jwt.claim.sub', '50000000-0000-4000-8000-000000000001', false);

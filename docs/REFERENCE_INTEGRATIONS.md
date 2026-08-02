@@ -44,14 +44,21 @@ followed and a response is accepted only from the exact requested URL.
 - Danish company data: the implemented adapter is pinned to
   `https://graphql.datafordeler.dk/CVR/v2`. Keep it operationally unavailable
   until Datafordeler credentials are provisioned and the pinned query contract
-  is confirmed in staging. The legacy CVR distribution service remains
-  disabled: never send credentials to the documented plaintext
+  is confirmed in staging. The `CVRNummer.eq` filter is emitted only as a
+  validated, unquoted eight-digit GraphQL `Long` literal. A leading-zero value
+  cannot be represented as that scalar without changing identity, so the CVR
+  adapter returns sanitized `unavailable` evidence without calling the provider.
+  The legacy CVR distribution service remains disabled: never send credentials
+  to the documented plaintext
   `http://distribution.virk.dk` examples and never scrape CVR.dk.
 - Danish addresses: the implemented adapter is pinned to
   `https://graphql.datafordeler.dk/DAR/v3`. Activate only with an approved
-  Datafordeler credential and a staging contract test. Do not add new DAWA
-  dependencies; DAWA closes on 2026-10-01 at 10:00 CEST. Adressevælger and
-  Adressevask remain unavailable until KDS supplies an implementable contract.
+  Datafordeler credential and a staging contract test. DAR `id_lokalId` is a
+  bounded string contract: exact lowercase UUID-shaped hexadecimal identifiers,
+  including legacy non-RFC version/variant values, are accepted without trimming
+  or case folding. Do not add new DAWA dependencies; DAWA closes on 2026-10-01
+  at 10:00 CEST. Adressevælger and Adressevask remain unavailable until KDS
+  supplies an implementable contract.
 - Business providers have a 5-second default timeout and a 32 KiB maximum
   response. A missing credential returns unavailable evidence instead of
   blocking tenant setup or edits.
@@ -150,11 +157,15 @@ snapshot artifact readable during rollback even after removing the write flag.
   event text/location, timestamps, semantic status, provider event ID/code,
   and a digest. Do not store proof-of-delivery files or recipient contact data
   in this stream.
-- Evidence rows are append-only through the application. Current source adds no
-  automatic purge job. Agree a legal/business retention period before hosted
-  activation. Any deletion requires retention approval after all writers are
-  disabled; tenant/order foreign-key cascades continue to apply when their
-  authoritative parent is deliberately deleted.
+- Evidence rows are append-only through the application. Direct `DELETE` is
+  revoked from `public`, `anon`, `authenticated`, and `service_role`, while an
+  update-only trigger rejects `UPDATE`. Current source adds no automatic purge
+  job. Agree a legal/business retention period before hosted activation. Any
+  standalone deletion requires retention approval after all writers are
+  disabled; the declared tenant/order foreign-key cascades continue to apply
+  when their authoritative parent is deliberately deleted. Migration
+  `20260801140000_reference_evidence_cascade_correction.sql` establishes this
+  final privilege/trigger boundary without `pg_trigger_depth()` heuristics.
 - Business-provider admission claims contain tenant/user IDs, operation,
   provider, a request fingerprint, and timestamps—not the raw identifier or
   provider payload—and are pruned to a rolling 24-hour window by the admission
@@ -198,9 +209,13 @@ The mandatory database release gate is:
 npm run check:reference-integrations:release
 ```
 
-It runs both isolated PostgreSQL 17 suites: the business-evidence/PostNord
-admission, RLS, quota, and concurrency checks, and the WMD exact-target,
-idempotency, draft-only, atomic replacement, and publish/import race checks.
+It runs both isolated PostgreSQL 17 suites. The business-evidence/PostNord suite
+applies five migrations in order (base evidence, business admission hardening,
+PostNord atomic persistence, PostNord admission, and the forward cascade
+correction) and covers RLS, direct-mutation denial, authoritative order/tenant
+cascades, rollback, quota, and concurrency. The WMD suite applies the sixth
+integration migration and covers exact-target, idempotency, draft-only, atomic
+replacement, and publish/import races.
 The command fails closed before reporting success if Docker or its daemon is
 unavailable, if PostgreSQL is not major version 17, or if either suite fails.
 
@@ -230,7 +245,9 @@ blocked rather than skipped or green.
 - [ ] Configure server secrets without `VITE_*` exposure and scan built assets.
 - [ ] Leave `POSTNORD_TRACKING_ENABLED=false` and production approval false.
 - [ ] Run VIES and Datafordeler staging contract tests with synthetic/minimal
-      records; verify unavailable results do not block saving or onboarding.
+      records; include an unquoted numeric CVR `Long` and a legacy DAR
+      `id_lokalId`, and verify unavailable results do not block saving or
+      onboarding.
 - [ ] Run PostNord sandbox against one authorized saved order; verify an
       unrelated tenant and unsaved tracking number are rejected.
 - [ ] Confirm PostNord events render as carrier evidence while `orders`, email,
@@ -259,8 +276,13 @@ blocked rather than skipped or green.
    retaining normalized artifact readability and the existing fixed FX rules.
 5. Remove the three Edge Function config entries/source only after callers are
    disabled.
-6. After retention approval, use the exact rollback order documented at the top
-   of `20260731120000_reference_integration_evidence.sql`: drop its policies,
+6. Do not roll back
+   `20260801140000_reference_evidence_cascade_correction.sql` by itself while
+   authoritative tenant/order deletion remains enabled: that would restore the
+   trigger that blocks declared cascades. After retention approval and after
+   disabling writers and parent deletion, follow the correction migration's
+   rollback notes, then the exact order at the top of
+   `20260731120000_reference_integration_evidence.sql`: drop its policies,
    explicit grants/functions/triggers, then
    `carrier_tracking_events_v1`, `tenant_business_evidence`, and
    `supplier_fx_rate_snapshots`.

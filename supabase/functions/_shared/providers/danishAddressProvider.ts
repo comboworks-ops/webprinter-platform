@@ -134,7 +134,7 @@ function parseAddressResponse(
   if (status !== "2" && status !== "3") {
     throw new Error("invalid provider response");
   }
-  const reference = requiredUuid(node.id_lokalId);
+  const reference = requiredDatafordelerLocalId(node.id_lokalId);
   return evidence(
     input,
     context,
@@ -226,11 +226,18 @@ function isAddressInput(input: unknown): input is DanishAddressProviderInput {
     address.country === "DK";
 }
 
-function requiredUuid(value: unknown): string {
+function requiredDatafordelerLocalId(value: unknown): string {
+  // DAR models id_lokalId as String and includes pre-RFC UUID-shaped values.
+  // Accept the official lowercase hexadecimal shape without version/variant
+  // constraints, but never trim or case-fold an ambiguous provider identity.
   if (
     typeof value !== "string" ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-      .test(value)
+    value.length !== 36 ||
+    value !== value.trim() ||
+    hasControlCharacter(value) ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      .test(value) ||
+    value === "00000000-0000-0000-0000-000000000000"
   ) throw new Error("invalid provider response");
   return value;
 }

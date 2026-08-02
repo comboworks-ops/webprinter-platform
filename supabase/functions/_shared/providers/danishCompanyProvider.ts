@@ -74,13 +74,13 @@ function buildRequest(
 }
 
 export function buildDatafordelerCvrQuery(cvr: string, now: Date): string {
-  if (!/^\d{8}$/.test(cvr)) throw new Error("invalid CVR query input");
+  const cvrLongLiteral = datafordelerCvrLongLiteral(cvr);
   const instant = now.toISOString();
   return `query CurrentCompany {
   CVR_Virksomhed(
     first: 1
     virkningstid: ${JSON.stringify(instant)}
-    where: { CVRNummer: { eq: ${JSON.stringify(cvr)} } }
+    where: { CVRNummer: { eq: ${cvrLongLiteral} } }
   ) {
     nodes {
       id
@@ -91,6 +91,16 @@ export function buildDatafordelerCvrQuery(cvr: string, now: Date): string {
     }
   }
 }`;
+}
+
+function datafordelerCvrLongLiteral(value: unknown): string {
+  // CVRNummer.eq is a GraphQL Long, not a String. Restrict interpolation to
+  // one canonical eight-digit decimal literal. A leading zero cannot be
+  // represented without changing identity, so that boundary fails closed.
+  if (typeof value !== "string" || !/^[1-9]\d{7}$/.test(value)) {
+    throw new Error("invalid CVR query input");
+  }
+  return value;
 }
 
 function parseCompanyResponse(

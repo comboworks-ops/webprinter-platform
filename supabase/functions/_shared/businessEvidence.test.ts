@@ -760,7 +760,7 @@ test("official CVR adapter uses the fixed Datafordeler endpoint and minimal comp
           CVR_Virksomhed: {
             nodes: [{
               id: "company-reference",
-              CVRNummer: "12345678",
+              CVRNummer: 12345678,
               status: "aktiv",
               virksomhedStartdato: "2020-01-02",
               virksomhedOphoersdato: null,
@@ -782,7 +782,7 @@ test("official CVR adapter uses the fixed Datafordeler endpoint and minimal comp
   CVR_Virksomhed(
     first: 1
     virkningstid: "2026-08-01T08:03:04.000Z"
-    where: { CVRNummer: { eq: "12345678" } }
+    where: { CVRNummer: { eq: 12345678 } }
   ) {
     nodes {
       id
@@ -824,6 +824,27 @@ test("official CVR adapter uses the fixed Datafordeler endpoint and minimal comp
       )),
   });
   assert.equal(duplicateNestedKey.resultStatus, "unavailable");
+
+  let leadingZeroFetchCalls = 0;
+  const leadingZero = await createDanishCompanyProvider({
+    kind: "bearer",
+    value: "reviewed-access-token-value",
+  }).verify({
+    kind: "danish_company",
+    cvr: "01234567",
+    normalizedIdentifier: "DK01234567",
+  }, {
+    now: NOW,
+    correlationId: "cvr-leading-zero",
+    fetchImpl: () => {
+      leadingZeroFetchCalls += 1;
+      return Promise.resolve(response({ data: {} }));
+    },
+  });
+  assert.equal(leadingZero.resultStatus, "unavailable");
+  assert.equal(leadingZeroFetchCalls, 0);
+  assert.throws(() => buildDatafordelerCvrQuery("01234567", NOW));
+  assert.throws(() => buildDatafordelerCvrQuery("1234567}", NOW));
 });
 
 test("official DAR adapter uses exact structured input and rejects ambiguous matches", async () => {
@@ -856,7 +877,7 @@ test("official DAR adapter uses exact structured input and rejects ambiguous mat
         data: {
           DAR_Adresse: {
             nodes: [{
-              id_lokalId: "40000000-0000-4000-8000-000000000004",
+              id_lokalId: "0a3f50b4-648f-32b8-e044-0003ba298018",
               adressebetegnelse: "Virksomhedsvej 12, 2. th, 2100 København Ø",
               etagebetegnelse: "2.",
               doerbetegnelse: "th",
@@ -879,7 +900,7 @@ test("official DAR adapter uses exact structured input and rejects ambiguous mat
   assert.equal(result.resultStatus, "valid");
   assert.equal(
     result.providerReference,
-    "40000000-0000-4000-8000-000000000004",
+    "0a3f50b4-648f-32b8-e044-0003ba298018",
   );
   assert.equal(result.displayFields.streetName, "Virksomhedsvej");
   assert.equal(
@@ -904,6 +925,36 @@ test("official DAR adapter uses exact structured input and rejects ambiguous mat
   });
   assert.equal(ambiguous.resultStatus, "unavailable");
   assert.equal(ambiguous.providerReference, null);
+
+  for (const invalidProviderReference of [
+    " 0a3f50b4-648f-32b8-e044-0003ba298018",
+    "0a3f50b4-648f-32b8-e044-0003ba298018\n",
+    "0A3F50B4-648F-32B8-E044-0003BA298018",
+    "00000000-0000-0000-0000-000000000000",
+    "0a3f50b4/648f/32b8/e044/0003ba298018",
+    "a".repeat(257),
+  ]) {
+    const invalidReference = await provider.verify(input, {
+      now: NOW,
+      correlationId: "dar-invalid-reference",
+      fetchImpl: () =>
+        Promise.resolve(response({
+          data: {
+            DAR_Adresse: {
+              nodes: [{
+                id_lokalId: invalidProviderReference,
+                adressebetegnelse: "Virksomhedsvej 12, 2. th, 2100 København Ø",
+                etagebetegnelse: "2.",
+                doerbetegnelse: "th",
+                status: "3",
+              }],
+            },
+          },
+        })),
+    });
+    assert.equal(invalidReference.resultStatus, "unavailable");
+    assert.equal(invalidReference.providerReference, null);
+  }
 });
 
 test("shared contract contains no authoritative tenant, checkout, price, invoice, POD, or order writer", () => {

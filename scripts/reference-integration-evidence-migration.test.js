@@ -19,6 +19,10 @@ const POSTNORD_ADMISSION_MIGRATION_URL = new URL(
   "../supabase/migrations/20260801133000_postnord_tracking_admission.sql",
   import.meta.url,
 );
+const EVIDENCE_CASCADE_CORRECTION_MIGRATION_URL = new URL(
+  "../supabase/migrations/20260801140000_reference_evidence_cascade_correction.sql",
+  import.meta.url,
+);
 const DEFINER_MIGRATION_URLS = [
   MIGRATION_URL,
   new URL(
@@ -38,6 +42,11 @@ async function migrationSql() {
 
 async function postNordAdmissionMigrationSql() {
   return (await readFile(POSTNORD_ADMISSION_MIGRATION_URL, "utf8"))
+    .replace(/\r\n/g, "\n");
+}
+
+async function evidenceCascadeCorrectionMigrationSql() {
+  return (await readFile(EVIDENCE_CASCADE_CORRECTION_MIGRATION_URL, "utf8"))
     .replace(/\r\n/g, "\n");
 }
 
@@ -141,6 +150,52 @@ test("FX snapshots and provider events are immutable and replay-safe", async () 
   assert.doesNotMatch(
     sql,
     /create\s+(?:or\s+replace\s+)?function[^;]*(?:update|delete)_.*snapshot/i,
+  );
+});
+
+test("forward correction preserves update immutability while allowing declared parent cascades", async () => {
+  const sql = await evidenceCascadeCorrectionMigrationSql();
+
+  for (const table of [
+    "tenant_business_evidence",
+    "carrier_tracking_events_v1",
+  ]) {
+    assert.match(
+      sql,
+      new RegExp(
+        `revoke delete on table public\\.${table}\\s+from public, anon, authenticated, service_role`,
+        "i",
+      ),
+    );
+    assert.match(
+      sql,
+      new RegExp(
+        `create trigger ${table}_immutable\\s+before update on public\\.${table}`,
+        "i",
+      ),
+    );
+    assert.doesNotMatch(
+      sql,
+      new RegExp(
+        `create trigger ${table}_immutable[\\s\\S]*before update or delete on public\\.${table}`,
+        "i",
+      ),
+    );
+  }
+
+  assert.match(
+    sql,
+    /drop trigger tenant_business_evidence_immutable\s+on public\.tenant_business_evidence/i,
+  );
+  assert.match(
+    sql,
+    /drop trigger carrier_tracking_events_v1_immutable\s+on public\.carrier_tracking_events_v1/i,
+  );
+  assert.doesNotMatch(sql, /pg_trigger_depth\s*\(/i);
+  assert.match(sql, /Rollback order:[\s\S]*disable all evidence writers/i);
+  assert.match(
+    sql,
+    /declared tenant\/order foreign-key cascades remain the only application deletion path/i,
   );
 });
 
@@ -298,6 +353,13 @@ test("reference integrations release gate requires both PostgreSQL 17 suites", a
 
   assert.match(gate, /run-business-evidence-hardening-pg17\.sh/);
   assert.match(gate, /run-wmd-snapshot-draft-pg17\.sh/);
+  assert.match(
+    await readFile(
+      join(REPOSITORY_DIR, "scripts/run-business-evidence-hardening-pg17.sh"),
+      "utf8",
+    ),
+    /20260801140000_reference_evidence_cascade_correction\.sql/,
+  );
   assert.match(
     packageJson,
     /"check:reference-integrations:release":\s*"bash scripts\/check-reference-integrations-release\.sh"/,
