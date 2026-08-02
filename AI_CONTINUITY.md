@@ -1332,7 +1332,7 @@ continue to use `Kontrollér ordre` with `dryRun: true` and must not place a liv
 supplier order, distribute a real product, or import a real product without
 separate explicit approval of the exact product and tenant shops.
 
-### Reference-integration source state (2026-08-01)
+### Reference-integration source state (2026-08-02)
 
 - Additive source and local migrations now cover immutable Frankfurter/ECB
   EUR/DKK snapshots, optional VIES/Datafordeler CVR/DAR evidence, and
@@ -1350,7 +1350,9 @@ separate explicit approval of the exact product and tenant shops.
 - VIES results are evidence only and cannot block onboarding or alter VAT.
   PostNord events are carrier evidence only and cannot mutate order status,
   email, payment, POD, or supplier state. All new writes are service-role-only;
-  tenant evidence reads stay within tenant/order RLS.
+  tenant evidence reads stay within tenant/order RLS. Exact order customers
+  read carrier evidence through a narrowly scoped definer ownership check, so
+  the tenant-only parent `orders` policy cannot hide or broaden that authority.
 - ERPNext is separate and untouched. The next safe step is an independent
   security review followed by an isolated migration/staging rehearsal; do not
   deploy, enable, or call a live provider as part of ordinary local QA.

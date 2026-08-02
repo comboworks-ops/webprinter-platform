@@ -143,6 +143,7 @@ export function applySnapshotPricing(untrustedInput) {
         value: toEvidenceDecimal(markupPercent),
         amountDkk: toEvidenceDecimal(markupAmountDkk),
       },
+      unroundedFinalPriceDkk: toEvidenceDecimal(unroundedFinalPriceDkk),
       finalPriceDkk: toEvidenceDecimal(finalPriceDkk),
       roundingStepDkk: toEvidenceDecimal(roundingStepDkk),
     });
@@ -298,6 +299,55 @@ export function parsePositiveSupplierPrice(value) {
     throw new TypeError("Invalid supplier price");
   }
   return Number(text);
+}
+
+/**
+ * Derives a storefront unit price without pre-rounding the commercial total.
+ * If binary division lands just above the exact total, move the unit price
+ * down by individual IEEE-754 values until the reconstructed anchor is no
+ * greater than the source amount. The storefront remains the only place that
+ * applies the configured ceil_v1 monetary rounding step.
+ */
+export function deriveSnapshotUnitPrice(untrustedTotal, untrustedAreaM2) {
+  const numericTotal = typeof untrustedTotal === "number";
+  const totalText = numericTotal
+    ? String(untrustedTotal)
+    : typeof untrustedTotal === "string"
+    ? untrustedTotal
+    : "";
+  const total = Number(totalText);
+  const areaM2 = Number(untrustedAreaM2);
+  if (
+    (!numericTotal && !DECIMAL_NUMBER.test(totalText)) ||
+    !Number.isFinite(total) ||
+    total <= 0 ||
+    total > 1_000_000_000 ||
+    !Number.isFinite(areaM2) ||
+    areaM2 <= 0
+  ) {
+    throw new TypeError("Invalid snapshot unit price input");
+  }
+
+  let unitPrice = total / areaM2;
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0 || unitPrice > 1_000_000_000) {
+    throw new TypeError("Invalid snapshot unit price input");
+  }
+  for (let adjustment = 0; adjustment < 4 && unitPrice * areaM2 > total; adjustment += 1) {
+    unitPrice = nextDownPositive(unitPrice);
+  }
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0 || unitPrice * areaM2 > total) {
+    throw new TypeError("Invalid snapshot unit price input");
+  }
+  return unitPrice;
+}
+
+function nextDownPositive(value) {
+  const buffer = new ArrayBuffer(8);
+  const numbers = new Float64Array(buffer);
+  const bits = new BigUint64Array(buffer);
+  numbers[0] = value;
+  bits[0] -= 1n;
+  return numbers[0];
 }
 
 function captureMarkupPolicy(value) {

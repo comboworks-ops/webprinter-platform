@@ -74,6 +74,19 @@ as $$
   )
 $$;
 
+-- Reproduce the deployed baseline: customers do not read public.orders
+-- directly. Carrier-event RLS must verify exact customer ownership through a
+-- narrowly scoped definer helper rather than a policy subquery subject to this
+-- tenant-only parent policy.
+alter table public.orders enable row level security;
+create policy "Admins can view tenant orders" on public.orders
+  for select to authenticated
+  using (public.can_access_tenant(tenant_id));
+create policy "Admins can manage tenant orders" on public.orders
+  for all to authenticated
+  using (public.can_access_tenant(tenant_id))
+  with check (public.can_access_tenant(tenant_id));
+
 grant usage on schema public to authenticated, service_role;
 grant select on public.tenants, public.user_roles, public.orders to authenticated;
 -- Model an authoritative parent-deletion path without granting direct evidence

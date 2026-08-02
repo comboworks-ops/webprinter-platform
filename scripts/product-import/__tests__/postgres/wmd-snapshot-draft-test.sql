@@ -247,6 +247,58 @@ BEGIN
 END;
 $reject_zero_tiers$;
 
+DO $reject_noncanonical_tiers$
+DECLARE
+  price_path text[];
+  invalid_price jsonb;
+BEGIN
+  FOR price_path IN
+    SELECT candidate.path
+    FROM (
+      VALUES
+        (ARRAY['material_price_tiers', '0', 'price_per_m2']::text[]),
+        (ARRAY['material_m2_prices', '0', 'price_per_m2']::text[]),
+        (ARRAY['variant_price_tiers', '0', 'price_per_m2']::text[]),
+        (ARRAY['variant_m2_prices', '0', 'price_per_m2']::text[])
+    ) AS candidate(path)
+  LOOP
+    FOR invalid_price IN
+      SELECT candidate.value
+      FROM (
+        VALUES
+          (to_jsonb('NaN'::text)),
+          (to_jsonb('Infinity'::text)),
+          (to_jsonb('NaN'::numeric)),
+          (to_jsonb('Infinity'::numeric)),
+          (to_jsonb('-Infinity'::numeric)),
+          (to_jsonb('12.34'::text)),
+          (to_jsonb(1000000000.1::numeric)),
+          (to_jsonb(0.1234567890123456789012345::numeric))
+      ) AS candidate(value)
+    LOOP
+      BEGIN
+        PERFORM public.apply_wmd_roll_label_snapshot_draft_import(
+          '00000000-0000-4000-8000-000000000001',
+          jsonb_set(
+            public.test_wmd_payload(
+              'Noncanonical price must fail',
+              'Noncanonical price must fail'
+            ),
+            price_path,
+            invalid_price
+          )
+        );
+        RAISE EXCEPTION 'noncanonical snapshot tier unexpectedly succeeded at % with %',
+          price_path,
+          invalid_price;
+      EXCEPTION WHEN SQLSTATE '22023' THEN
+        NULL;
+      END;
+    END LOOP;
+  END LOOP;
+END;
+$reject_noncanonical_tiers$;
+
 SET ROLE service_role;
 SELECT public.apply_wmd_roll_label_snapshot_draft_import(
   '00000000-0000-4000-8000-000000000001',

@@ -139,9 +139,13 @@ Snapshot write safety:
   Publication winning the race makes the waiting import fail without changing
   the product. Any insert or constraint failure rolls all deletes and updates
   back.
-- Supplier and stored tier prices must be strictly positive canonical decimal
-  values. Zero, negative, non-finite, exponent, and over-precision values are
-  rejected before a write.
+- Supplier prices must be strictly positive canonical decimals with at most six
+  fractional digits. Derived tier prices are JSON numbers bounded to 1 billion
+  DKK/m2 with at most 24 fractional digits; strings, zero, negative,
+  non-finite, and over-precision values are rejected by the database RPC.
+- Snapshot tier rates are derived from the exact unrounded selling subtotal.
+  The storefront applies `ceil_v1` once; the importer never rounds the total
+  up and then divides it into a rate that would be rounded up a second time.
 - A snapshot-managed draft remains visible in StorformatManager, but its
   pricing editor is read-only. Database policies fence direct authenticated
   editor writes so they cannot race the authoritative service-role import.

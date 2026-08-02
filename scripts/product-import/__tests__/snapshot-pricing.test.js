@@ -8,6 +8,7 @@ import {
   assertSnapshotDraftWriteConfirmation,
   assertSnapshotDraftWriteTarget,
   buildSnapshotDraftTarget,
+  deriveSnapshotUnitPrice,
   deriveSnapshotChildUuid,
   parsePositiveSupplierPrice,
   resolveSnapshotRoundingPolicy,
@@ -245,12 +246,44 @@ test("keeps supplier FX, buffer, markup, and final-only rounding as separate evi
     pricingBuffer: { type: "percent", value: 2, amountDkk: 14.92 },
     bufferedCostDkk: 760.92,
     markup: { type: "percent", value: 60, amountDkk: 456.552 },
+    unroundedFinalPriceDkk: 1217.472,
     finalPriceDkk: 1218,
     roundingStepDkk: 1,
   });
   assert.equal(Object.isFrozen(result), true);
   assert.equal(Object.isFrozen(result.pricingBuffer), true);
   assert.equal(Object.isFrozen(result.markup), true);
+});
+
+test("snapshot unit prices defer ceil rounding without inflating an exact anchor", () => {
+  const unitPrice = deriveSnapshotUnitPrice(100, 0.7);
+  const reconstructed = unitPrice * 0.7;
+  const scaled = reconstructed;
+  const rounded = Math.ceil(
+    scaled - Number.EPSILON * Math.max(1, Math.abs(scaled)),
+  );
+
+  assert.ok(reconstructed <= 100);
+  assert.ok(reconstructed > 99);
+  assert.equal(rounded, 100);
+  assert.throws(
+    () => deriveSnapshotUnitPrice("Infinity", 0.7),
+    /Invalid snapshot unit price input/,
+  );
+
+  const importer = fs.readFileSync(
+    new URL("../../fetch2-wmd-roll-labels.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(importer, /unroundedFinalDkk:\s*pricingEvidence\.unroundedFinalPriceDkk/);
+  assert.match(importer, /deriveSnapshotUnitPrice\(cheapestUnroundedDkkFinal/);
+  assert.doesNotMatch(
+    importer.slice(
+      importer.indexOf("function buildTierSeriesFromPoints"),
+      importer.indexOf("function parseImportRows"),
+    ),
+    /toFixed\(6\)/,
+  );
 });
 
 test("zero buffer and zero markup remain explicit frozen evidence", () => {

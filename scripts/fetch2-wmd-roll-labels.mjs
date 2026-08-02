@@ -20,6 +20,7 @@ import {
   assertSnapshotDraftWriteConfirmation,
   assertSnapshotDraftWriteTarget,
   buildSnapshotDraftTarget,
+  deriveSnapshotUnitPrice,
   deriveSnapshotChildUuid,
   parsePositiveSupplierPrice,
   resolveSnapshotRoundingPolicy,
@@ -323,6 +324,7 @@ function convertSupplierEurToDkk(eurNet, cfg, snapshotPricing) {
     eurNet,
     baseDkk: pricingEvidence.convertedPriceDkk,
     markupPct: pricingEvidence.markup.value,
+    unroundedFinalDkk: pricingEvidence.unroundedFinalPriceDkk,
     finalDkk: pricingEvidence.finalPriceDkk,
     pricingEvidence,
   };
@@ -587,7 +589,7 @@ function buildTierSeriesFromPoints(pointToPriceMap) {
     return {
       from_m2: Number(fromM2),
       to_m2: next ? Number(next[0]) : null,
-      price_per_m2: Number(Number(pricePerM2).toFixed(6)),
+      price_per_m2: Number(pricePerM2),
       is_anchor: true,
       sort_order: idx,
     };
@@ -605,37 +607,47 @@ function parseImportRows(payload, snapshotPricing = null, pricingConfig = null) 
     const quantity = toFiniteNumber(row?.quantity);
     let cheapestDkkFinal = toFiniteNumber(row?.cheapestDkkFinal);
     let fastestDkkFinal = toFiniteNumber(row?.fastestDkkFinal);
+    let cheapestUnroundedDkkFinal = cheapestDkkFinal;
+    let fastestUnroundedDkkFinal = fastestDkkFinal;
     if (snapshotPricing) {
       const cheapestEurNet = toFiniteNumber(row?.cheapestEurNet);
       const fastestEurNet = toFiniteNumber(row?.fastestEurNet);
-      cheapestDkkFinal = Number.isFinite(cheapestEurNet)
-        ? toFiniteNumber(
-            convertSupplierEurToDkk(
-              cheapestEurNet,
-              pricingConfig,
-              snapshotPricing,
-            ).finalDkk,
-          )
+      const cheapestConversion = Number.isFinite(cheapestEurNet)
+        ? convertSupplierEurToDkk(cheapestEurNet, pricingConfig, snapshotPricing)
         : null;
-      fastestDkkFinal = Number.isFinite(fastestEurNet)
-        ? toFiniteNumber(
-            convertSupplierEurToDkk(
-              fastestEurNet,
-              pricingConfig,
-              snapshotPricing,
-            ).finalDkk,
-          )
+      const fastestConversion = Number.isFinite(fastestEurNet)
+        ? convertSupplierEurToDkk(fastestEurNet, pricingConfig, snapshotPricing)
         : null;
+      cheapestDkkFinal = toFiniteNumber(cheapestConversion?.finalDkk);
+      fastestDkkFinal = toFiniteNumber(fastestConversion?.finalDkk);
+      cheapestUnroundedDkkFinal = toFiniteNumber(cheapestConversion?.unroundedFinalDkk);
+      fastestUnroundedDkkFinal = toFiniteNumber(fastestConversion?.unroundedFinalDkk);
     }
 
     if (!Number.isFinite(areaM2) || !Number.isFinite(quantity)) continue;
     const totalAreaM2 = areaM2 * quantity;
     if (!Number.isFinite(totalAreaM2) || totalAreaM2 <= 0) continue;
 
-    const cheapestPerM2Dkk =
-      Number.isFinite(cheapestDkkFinal) && totalAreaM2 > 0 ? cheapestDkkFinal / totalAreaM2 : null;
-    const fastestPerM2Dkk =
-      Number.isFinite(fastestDkkFinal) && totalAreaM2 > 0 ? fastestDkkFinal / totalAreaM2 : null;
+    const cheapestPerM2Dkk = Number.isFinite(cheapestUnroundedDkkFinal)
+      ? snapshotPricing
+        ? deriveSnapshotUnitPrice(cheapestUnroundedDkkFinal, totalAreaM2)
+        : cheapestUnroundedDkkFinal / totalAreaM2
+      : null;
+    const fastestPerM2Dkk = Number.isFinite(fastestUnroundedDkkFinal)
+      ? snapshotPricing
+        ? deriveSnapshotUnitPrice(fastestUnroundedDkkFinal, totalAreaM2)
+        : fastestUnroundedDkkFinal / totalAreaM2
+      : null;
+    const fastestSurchargePerM2Dkk =
+      snapshotPricing &&
+      Number.isFinite(fastestUnroundedDkkFinal) &&
+      Number.isFinite(cheapestUnroundedDkkFinal) &&
+      fastestUnroundedDkkFinal > cheapestUnroundedDkkFinal
+        ? deriveSnapshotUnitPrice(
+            fastestUnroundedDkkFinal - cheapestUnroundedDkkFinal,
+            totalAreaM2,
+          )
+        : null;
 
     parsed.push({
       materialId,
@@ -649,6 +661,7 @@ function parseImportRows(payload, snapshotPricing = null, pricingConfig = null) 
       fastestDkkFinal,
       cheapestPerM2Dkk,
       fastestPerM2Dkk,
+      fastestSurchargePerM2Dkk,
     });
   }
 
@@ -761,7 +774,9 @@ function buildImportDeliveryVariants(parsedRows, deliveryMode) {
   const deltaBuckets = buildPointBuckets();
   for (const row of parsedRows) {
     if (!Number.isFinite(row.fastestPerM2Dkk) || !Number.isFinite(row.cheapestPerM2Dkk)) continue;
-    const delta = row.fastestPerM2Dkk - row.cheapestPerM2Dkk;
+    const delta = Number.isFinite(row.fastestSurchargePerM2Dkk)
+      ? row.fastestSurchargePerM2Dkk
+      : row.fastestPerM2Dkk - row.cheapestPerM2Dkk;
     if (!Number.isFinite(delta) || delta <= 0) continue;
     addPointBucketValue(deltaBuckets, row.totalAreaM2, delta);
   }

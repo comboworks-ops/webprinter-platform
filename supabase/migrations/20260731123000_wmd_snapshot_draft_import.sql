@@ -2,6 +2,19 @@
 -- PostgreSQL rolls the complete function call back if any validation, delete,
 -- insert, or constraint fails. The product row lock serializes publication
 -- against the import so this function can never rewrite a live product.
+--
+-- Ordered rollback (only through a separately reviewed forward migration):
+-- 1. Revoke service_role execution of
+--    apply_wmd_roll_label_snapshot_draft_import(uuid, jsonb) to stop writes.
+-- 2. Drop the wmd_guard_* INSERT/UPDATE/DELETE policies from the eleven
+--    storformat tables listed in the policy loop at the end of this file.
+-- 3. Revoke and drop get_wmd_snapshot_draft_revision(uuid, uuid), then revoke
+--    and drop apply_wmd_roll_label_snapshot_draft_import(uuid, jsonb).
+-- 4. Retain wmd_snapshot_draft_import_state for audit until retention approval;
+--    only then drop it (its explicit index drops with the table).
+-- 5. Drop storformat_configs.rounding_mode only after every reader is migrated
+--    and retained snapshot drafts no longer depend on ceil_v1 provenance.
+-- Do not drop the shared extensions schema or pgcrypto extension here.
 
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
@@ -379,6 +392,9 @@ BEGIN
           'is_anchor', 'markup_pct', 'sort_order'
         ]::text[])
       )
+      OR jsonb_typeof(element.item -> 'price_per_m2') IS DISTINCT FROM 'number'
+      OR COALESCE(element.item ->> 'price_per_m2', '') !~
+        '^(0|[1-9][0-9]{0,9})([.][0-9]{0,23}[1-9])?$'
   ) OR EXISTS (
     SELECT 1
     FROM jsonb_to_recordset(_payload -> 'material_price_tiers') AS tier(
@@ -390,6 +406,8 @@ BEGIN
       OR tier.from_m2 < 0
       OR (tier.to_m2 IS NOT NULL AND tier.to_m2 <= tier.from_m2)
       OR tier.price_per_m2 <= 0
+      OR tier.price_per_m2 > 1000000000
+      OR scale(tier.price_per_m2) > 24
       OR tier.is_anchor IS NULL
       OR tier.markup_pct <> 0
       OR tier.sort_order NOT BETWEEN 0 AND 10000
@@ -417,6 +435,9 @@ BEGIN
           'id', 'material_id', 'from_m2', 'to_m2', 'price_per_m2', 'is_anchor'
         ]::text[])
       )
+      OR jsonb_typeof(element.item -> 'price_per_m2') IS DISTINCT FROM 'number'
+      OR COALESCE(element.item ->> 'price_per_m2', '') !~
+        '^(0|[1-9][0-9]{0,9})([.][0-9]{0,23}[1-9])?$'
   ) OR EXISTS (
     SELECT 1
     FROM jsonb_to_recordset(_payload -> 'material_m2_prices') AS tier(
@@ -427,6 +448,8 @@ BEGIN
       OR tier.from_m2 < 0
       OR (tier.to_m2 IS NOT NULL AND tier.to_m2 <= tier.from_m2)
       OR tier.price_per_m2 <= 0
+      OR tier.price_per_m2 > 1000000000
+      OR scale(tier.price_per_m2) > 24
       OR tier.is_anchor IS NULL
       OR NOT EXISTS (
         SELECT 1
@@ -498,6 +521,9 @@ BEGIN
           'is_anchor', 'markup_pct', 'sort_order'
         ]::text[])
       )
+      OR jsonb_typeof(element.item -> 'price_per_m2') IS DISTINCT FROM 'number'
+      OR COALESCE(element.item ->> 'price_per_m2', '') !~
+        '^(0|[1-9][0-9]{0,9})([.][0-9]{0,23}[1-9])?$'
   ) OR EXISTS (
     SELECT 1
     FROM jsonb_to_recordset(_payload -> 'variant_price_tiers') AS tier(
@@ -509,6 +535,8 @@ BEGIN
       OR tier.from_m2 < 0
       OR (tier.to_m2 IS NOT NULL AND tier.to_m2 <= tier.from_m2)
       OR tier.price_per_m2 <= 0
+      OR tier.price_per_m2 > 1000000000
+      OR scale(tier.price_per_m2) > 24
       OR tier.is_anchor IS NULL
       OR tier.markup_pct <> 0
       OR tier.sort_order NOT BETWEEN 0 AND 10000
@@ -536,6 +564,9 @@ BEGIN
           'id', 'variant_id', 'from_m2', 'to_m2', 'price_per_m2', 'is_anchor'
         ]::text[])
       )
+      OR jsonb_typeof(element.item -> 'price_per_m2') IS DISTINCT FROM 'number'
+      OR COALESCE(element.item ->> 'price_per_m2', '') !~
+        '^(0|[1-9][0-9]{0,9})([.][0-9]{0,23}[1-9])?$'
   ) OR EXISTS (
     SELECT 1
     FROM jsonb_to_recordset(_payload -> 'variant_m2_prices') AS tier(
@@ -546,6 +577,8 @@ BEGIN
       OR tier.from_m2 < 0
       OR (tier.to_m2 IS NOT NULL AND tier.to_m2 <= tier.from_m2)
       OR tier.price_per_m2 <= 0
+      OR tier.price_per_m2 > 1000000000
+      OR scale(tier.price_per_m2) > 24
       OR tier.is_anchor IS NULL
       OR NOT EXISTS (
         SELECT 1

@@ -210,12 +210,13 @@ npm run check:reference-integrations:release
 ```
 
 It runs both isolated PostgreSQL 17 suites. The business-evidence/PostNord suite
-applies five migrations in order (base evidence, business admission hardening,
-PostNord atomic persistence, PostNord admission, and the forward cascade
-correction) and covers RLS, direct-mutation denial, authoritative order/tenant
-cascades, rollback, quota, and concurrency. The WMD suite applies the sixth
-integration migration and covers exact-target, idempotency, draft-only, atomic
-replacement, and publish/import races.
+applies six migrations in order (base evidence, business admission hardening,
+PostNord atomic persistence, PostNord admission, the forward cascade
+correction, and exact customer-read authority) and covers realistic parent RLS,
+direct-mutation denial, authoritative order/tenant cascades, rollback, quota,
+and concurrency. The WMD suite separately applies the snapshot-draft migration
+and covers exact-target, canonical price validation, idempotency, draft-only,
+atomic replacement, and publish/import races.
 The command fails closed before reporting success if Docker or its daemon is
 unavailable, if PostgreSQL is not major version 17, or if either suite fails.
 
@@ -265,18 +266,28 @@ blocked rather than skipped or green.
 1. Set `POSTNORD_TRACKING_ENABLED=false`, clear production approval, remove
    Datafordeler credentials, and stop any future reference-integration cron.
    Restrict invocation of the master FX function during rollback.
-2. Revoke and drop `persist_postnord_tracking_events_v1(jsonb)` only after all
-   PostNord callers are disabled, then restore the prior carrier read policy if
-   needed. Keep direct service-role table inserts revoked: restoring the old
-   per-event writer would restore the partial-batch failure mode. Retain
+2. After all PostNord callers are disabled, revoke and drop the lifecycle RPCs
+   in dependency order: `finish_postnord_tracking_sync(uuid,text,integer)`,
+   `complete_postnord_tracking_sync(uuid,jsonb)`,
+   `renew_postnord_tracking_sync(uuid)`, then
+   `claim_postnord_tracking_sync(uuid,uuid,uuid,text)`. Revoke and drop
+   `persist_postnord_tracking_events_v1(jsonb)` only after the completion RPC is
+   gone. Drop `postnord_tracking_sync_claims` and
+   `postnord_tracking_provider_state` only after the four lifecycle RPCs are
+   gone. Keep direct service-role table inserts revoked: restoring the old
+   per-event writer would restore the partial-batch failure mode.
+3. To remove customer carrier reads, replace
+   `carrier_tracking_events_v1_tenant_order_read` with the exact master/tenant
+   branches first, then revoke/drop
+   `can_read_carrier_tracking_order(uuid,uuid)`. Retain
    `provider_event_code` while evidence is retained.
-3. Remove the optional business-evidence and carrier-event UI actions/reads.
+4. Remove the optional business-evidence and carrier-event UI actions/reads.
    Leave evidence tables intact for audit and retention review.
-4. Remove `--write-snapshot-draft` and the importer snapshot option while
+5. Remove `--write-snapshot-draft` and the importer snapshot option while
    retaining normalized artifact readability and the existing fixed FX rules.
-5. Remove the three Edge Function config entries/source only after callers are
+6. Remove the three Edge Function config entries/source only after callers are
    disabled.
-6. Do not roll back
+7. Do not roll back
    `20260801140000_reference_evidence_cascade_correction.sql` by itself while
    authoritative tenant/order deletion remains enabled: that would restore the
    trigger that blocks declared cascades. After retention approval and after
@@ -286,7 +297,7 @@ blocked rather than skipped or green.
    explicit grants/functions/triggers, then
    `carrier_tracking_events_v1`, `tenant_business_evidence`, and
    `supplier_fx_rate_snapshots`.
-7. Re-run legacy fixed-FX tests, ordinary order UI tests, POD dry-run/submission
+8. Re-run legacy fixed-FX tests, ordinary order UI tests, POD dry-run/submission
    gates, Supabase grant/exposure checks, and the production build.
 
 Rollback never edits existing price rows, published products, orders,

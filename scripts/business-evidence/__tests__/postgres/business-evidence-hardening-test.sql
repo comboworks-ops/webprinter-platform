@@ -257,15 +257,66 @@ select public.test_assert(
 set role authenticated;
 select set_config('request.jwt.claim.sub', '50000000-0000-4000-8000-000000000001', false);
 select public.test_assert(
+  current_user = 'authenticated'
+  and current_setting('row_security') = 'on'
+  and not (select rolbypassrls from pg_catalog.pg_roles where rolname = current_user)
+  and (select relowner from pg_catalog.pg_class
+       where oid = 'public.carrier_tracking_events_v1'::regclass)
+      <> (select oid from pg_catalog.pg_roles where rolname = current_user),
+  'carrier RLS test must run as a non-owner, non-bypass authenticated role'
+);
+select public.test_assert(
+  (select relrowsecurity from pg_catalog.pg_class
+   where oid = 'public.carrier_tracking_events_v1'::regclass),
+  'carrier evidence RLS must remain enabled in the realistic fixture'
+);
+select public.test_assert(
+  public.can_access_tenant('10000000-0000-4000-8000-000000000001')
+  and not public.can_access_tenant('20000000-0000-4000-8000-000000000002'),
+  'tenant-owner fixture must resolve exactly one tenant through the production helper'
+);
+select public.test_assert(
+  not public.has_role('50000000-0000-4000-8000-000000000001', 'master_admin')
+  and public.can_read_carrier_tracking_order(
+    '60000000-0000-4000-8000-000000000001',
+    '10000000-0000-4000-8000-000000000001'
+  )
+  and not public.can_read_carrier_tracking_order(
+    '60000000-0000-4000-8000-000000000002',
+    '20000000-0000-4000-8000-000000000002'
+  )
+  and not public.can_read_carrier_tracking_order(
+    '60000000-0000-4000-8000-000000000002',
+    '10000000-0000-4000-8000-000000000001'
+  ),
+  'tenant owner must pass only an exact same-tenant order branch'
+);
+select public.test_assert(
   (select count(*) = 1 from public.tenant_business_evidence),
   'tenant owner must read only its business evidence'
 );
 select public.test_assert(
   (select count(*) = 1 from public.carrier_tracking_events_v1),
-  'tenant owner must read only carrier rows with an exact tenant/order match'
+  'tenant owner must read exactly one carrier row; actual=' ||
+    (select count(*)::text from public.carrier_tracking_events_v1)
 );
 
 select set_config('request.jwt.claim.sub', '50000000-0000-4000-8000-000000000006', false);
+select public.test_assert(
+  (select count(*) = 0 from public.orders),
+  'customer fixture must reproduce the tenant-only baseline orders RLS'
+);
+select public.test_assert(
+  public.can_read_carrier_tracking_order(
+    '60000000-0000-4000-8000-000000000001',
+    '10000000-0000-4000-8000-000000000001'
+  )
+  and not public.can_read_carrier_tracking_order(
+    '60000000-0000-4000-8000-000000000002',
+    '20000000-0000-4000-8000-000000000002'
+  ),
+  'customer helper must authorize only the exact owned order and tenant'
+);
 select public.test_assert(
   (select count(*) = 1 from public.carrier_tracking_events_v1),
   'customer must read carrier evidence for exactly their own order'
@@ -309,6 +360,25 @@ select public.test_assert(
   'the admin role must not inherit exact master carrier-evidence access'
 );
 reset role;
+
+select public.test_assert(
+  has_function_privilege(
+    'authenticated',
+    'public.can_read_carrier_tracking_order(uuid,uuid)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.can_read_carrier_tracking_order(uuid,uuid)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.can_read_carrier_tracking_order(uuid,uuid)',
+    'EXECUTE'
+  ),
+  'only authenticated RLS evaluation may call the exact order-reader helper'
+);
 
 select public.test_assert(
   not has_function_privilege(

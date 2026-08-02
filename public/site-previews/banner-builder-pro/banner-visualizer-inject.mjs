@@ -477,6 +477,8 @@
     const config = configRaw
       ? {
           roundingStep: Number(configRaw.roundingStep) || 1,
+          roundingMode:
+            configRaw.roundingMode === "ceil_v1" ? "ceil_v1" : "nearest_v1",
           globalMarkupPct: Number(configRaw.globalMarkupPct) || 0,
           quantities: quantities.length ? quantities : [1],
         }
@@ -1875,7 +1877,12 @@
     const globalMarkupPct = Number(config.globalMarkupPct) || 0;
     const roundingStep = Math.max(1, Number(config.roundingStep) || 1);
     const totalBeforeRounding = subtotal * (1 + globalMarkupPct / 100);
-    let totalPrice = Math.round(totalBeforeRounding / roundingStep) * roundingStep;
+    const scaledTotal = totalBeforeRounding / roundingStep;
+    const roundingTolerance =
+      Number.EPSILON * Math.max(1, Math.abs(scaledTotal));
+    let totalPrice = config.roundingMode === "ceil_v1"
+      ? Math.ceil(scaledTotal - roundingTolerance) * roundingStep
+      : Math.round(scaledTotal) * roundingStep;
 
     const minPrice = material.minPrice || (productItem ? Number(productItem.minPrice) || 0 : 0);
     if (minPrice > 0 && totalPrice < minPrice) {

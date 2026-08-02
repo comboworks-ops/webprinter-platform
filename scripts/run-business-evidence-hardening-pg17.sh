@@ -57,6 +57,8 @@ docker exec -i "$container_name" psql -U postgres -d postgres \
 docker exec -i "$container_name" psql -U postgres -d postgres \
   < "$repository_dir/supabase/migrations/20260801140000_reference_evidence_cascade_correction.sql"
 docker exec -i "$container_name" psql -U postgres -d postgres \
+  < "$repository_dir/supabase/migrations/20260802090000_carrier_tracking_customer_read_authority.sql"
+docker exec -i "$container_name" psql -U postgres -d postgres \
   < "$repository_dir/scripts/business-evidence/__tests__/postgres/business-evidence-hardening-test.sql"
 
 docker exec "$container_name" psql -U postgres -d postgres -c \
