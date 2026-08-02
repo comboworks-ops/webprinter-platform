@@ -20,6 +20,7 @@ import { getGenericMatrixDataFromDB } from "@/utils/pricingDatabase";
 import { getProductDisplayPrice } from "@/utils/productPriceDisplay";
 import {
     calculateStorformatPrice,
+    normalizeStorformatPricingConfig,
     type StorformatConfig,
     type StorformatMaterial,
 } from "@/utils/storformatPricing";
@@ -576,11 +577,7 @@ export function FeaturedProductConfigurator({
                     tiers: ((materialTiers || []) as any[]).filter((tier) => tier.material_id === material.id),
                 })) as StorformatMaterial[];
 
-                const nextConfig: StorformatConfig = {
-                    rounding_step: cfg?.rounding_step || 1,
-                    global_markup_pct: cfg?.global_markup_pct || 0,
-                    quantities: cfg?.quantities?.length ? cfg.quantities : [1],
-                };
+                const nextConfig: StorformatConfig = normalizeStorformatPricingConfig(cfg, [1]);
 
                 setFeaturedStorformatConfig(nextConfig);
                 setFeaturedStorformatMaterials(materialsWithTiers);
@@ -677,11 +674,7 @@ export function FeaturedProductConfigurator({
                     tiers: ((materialTiers || []) as any[]).filter((tier) => tier.material_id === material.id),
                 })) as StorformatMaterial[];
 
-                const nextConfig: StorformatConfig = {
-                    rounding_step: cfg?.rounding_step || 1,
-                    global_markup_pct: cfg?.global_markup_pct || 0,
-                    quantities: cfg?.quantities?.length ? cfg.quantities : [1],
-                };
+                const nextConfig: StorformatConfig = normalizeStorformatPricingConfig(cfg, [1]);
 
                 setSideStorformatConfig(nextConfig);
                 setSideStorformatMaterials(materialsWithTiers);

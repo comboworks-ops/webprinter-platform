@@ -1,6 +1,9 @@
 import { supabase } from "@/integrations/supabase/client";
 import { getPriceForSelection } from "./productPricing";
-import { calculateStorformatPrice } from "./storformatPricing";
+import {
+  calculateStorformatPrice,
+  normalizeStorformatPricingConfig,
+} from "./storformatPricing";
 
 interface Product {
   id: string;
@@ -240,11 +243,7 @@ export async function getProductDisplayPrice(product: Product): Promise<string> 
       }));
 
       if (materialsWithTiers.length > 0) {
-        const config = {
-          rounding_step: cfg?.rounding_step || 1,
-          global_markup_pct: cfg?.global_markup_pct || 0,
-          quantities: cfg?.quantities?.length ? cfg.quantities : [1]
-        };
+        const config = normalizeStorformatPricingConfig(cfg, [1]);
         const quantity = config.quantities[0] || 1;
         const material = materialsWithTiers[0];
         const productSelection = productsWithPricing[0] || null;

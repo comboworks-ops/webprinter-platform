@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 
 import { parseFxSnapshot } from "../shared/fx-snapshot.js";
@@ -7,6 +8,8 @@ import {
   assertSnapshotDraftWriteConfirmation,
   assertSnapshotDraftWriteTarget,
   buildSnapshotDraftTarget,
+  deriveSnapshotChildUuid,
+  parsePositiveSupplierPrice,
   resolveSnapshotRoundingPolicy,
 } from "../shared/snapshot-pricing.js";
 
@@ -137,6 +140,91 @@ test("snapshot draft targets require exact create or revision-checked replace id
   ]) {
     assert.throws(() => buildSnapshotDraftTarget(value), /Invalid snapshot draft target/);
   }
+});
+
+test("snapshot child IDs are stable per import and isolated across imports or content", () => {
+  const firstImport = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const secondImport = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const identity = "material:paper-white:0";
+
+  const first = deriveSnapshotChildUuid(firstImport, identity);
+  assert.equal(deriveSnapshotChildUuid(firstImport, identity), first);
+  assert.notEqual(deriveSnapshotChildUuid(secondImport, identity), first);
+  assert.notEqual(
+    deriveSnapshotChildUuid(firstImport, "material:paper-blue:0"),
+    first,
+  );
+  assert.match(
+    first,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+});
+
+test("WMD payload construction uses deterministic child IDs from the import identity", () => {
+  const source = fs.readFileSync(
+    new URL("../../fetch2-wmd-roll-labels.mjs", import.meta.url),
+    "utf8",
+  );
+  const builder = source.slice(
+    source.indexOf("function buildSnapshotDraftImportPayload"),
+    source.indexOf("async function runImport"),
+  );
+
+  assert.match(builder, /deriveSnapshotChildUuid\s*\(/);
+  assert.doesNotMatch(builder, /crypto\.randomUUID\s*\(/);
+  assert.match(source, /buildSnapshotDraftImportPayload\s*\(\{[\s\S]*?importId:\s*args\.importId/);
+});
+
+test("supplier prices must be canonical, finite, and strictly positive", () => {
+  assert.equal(parsePositiveSupplierPrice(12.34), 12.34);
+  assert.equal(parsePositiveSupplierPrice("12.34"), 12.34);
+
+  for (const value of [null, "", " ", 0, "0", -1, "-1", Infinity, "1e2"]) {
+    assert.throws(
+      () => parsePositiveSupplierPrice(value),
+      /Invalid supplier price/,
+    );
+  }
+  assert.throws(
+    () => applySnapshotPricing(input({ supplierPrice: 0 })),
+    /Invalid snapshot pricing input/,
+  );
+});
+
+test("WMD provider response validation uses the strict positive-price boundary", () => {
+  const source = fs.readFileSync(
+    new URL("../../fetch2-wmd-roll-labels.mjs", import.meta.url),
+    "utf8",
+  );
+  const responseBoundary = source.slice(
+    source.indexOf("const resp = json?.data?.response"),
+    source.indexOf("const deliveryChargeEur"),
+  );
+
+  assert.match(responseBoundary, /parsePositiveSupplierPrice\s*\(resp\.price\)/);
+  assert.doesNotMatch(responseBoundary, /Number\s*\(resp\.price\)/);
+});
+
+test("snapshot write usage and docs require an explicit import identity", () => {
+  const script = fs.readFileSync(
+    new URL("../../fetch2-wmd-roll-labels.mjs", import.meta.url),
+    "utf8",
+  );
+  const docs = fs.readFileSync(
+    new URL("../../../docs/FETCH2_WMD_ROLL_LABELS_SPEC.md", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(script, /writeSnapshotDraft\s*&&\s*!importId/);
+  assert.match(
+    docs,
+    /--write-snapshot-draft[^\n`]*--import-id\s+"<uuid>"/,
+  );
+  assert.match(
+    docs,
+    /adds[^\n]*rounding_mode[^\n]*wmd_snapshot_draft_import_state/i,
+  );
+  assert.doesNotMatch(docs, /no tables or columns/i);
 });
 
 test("keeps supplier FX, buffer, markup, and final-only rounding as separate evidence", () => {

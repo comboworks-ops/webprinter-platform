@@ -20,7 +20,8 @@ import {
   type StorformatMaterial,
   type StorformatProduct,
   type StorformatTier,
-  calculateStorformatPrice
+  calculateStorformatPrice,
+  normalizeStorformatPricingConfig
 } from "@/utils/storformatPricing";
 import { cn } from "@/lib/utils";
 import {
@@ -265,6 +266,7 @@ export function StorformatManager({
   const [uploadTarget, setUploadTarget] = useState<UploadTarget | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [snapshotRevision, setSnapshotRevision] = useState<number | null>(null);
 
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showLoadDialog, setShowLoadDialog] = useState(false);
@@ -351,12 +353,31 @@ export function StorformatManager({
 
   const fetchStorformat = async () => {
     setLoading(true);
+    setSnapshotRevision(null);
     try {
-      const { data: cfg } = await supabase
-        .from("storformat_configs" as any)
-        .select("*")
-        .eq("product_id", productId)
-        .maybeSingle();
+      const [
+        { data: cfg, error: configError },
+        { data: revision, error: revisionError }
+      ] = await Promise.all([
+        supabase
+          .from("storformat_configs" as any)
+          .select("*")
+          .eq("product_id", productId)
+          .maybeSingle(),
+        supabase.rpc("get_wmd_snapshot_draft_revision" as never, {
+          _tenant_id: tenantId,
+          _product_id: productId
+        } as never)
+      ]);
+      if (configError) throw configError;
+      if (revisionError) throw revisionError;
+      if (revision !== null) {
+        const parsedRevision = Number(revision);
+        if (!Number.isSafeInteger(parsedRevision) || parsedRevision < 1) {
+          throw new Error("Invalid WMD snapshot revision");
+        }
+        setSnapshotRevision(parsedRevision);
+      }
       const [
         { data: materialRows },
         { data: materialTiers },
@@ -574,9 +595,7 @@ export function StorformatManager({
 
       const storedQuantities = cfg?.quantities?.length ? cfg.quantities : defaultQuantities;
       setConfig({
-        rounding_step: cfg?.rounding_step || 1,
-        global_markup_pct: cfg?.global_markup_pct || 0,
-        quantities: storedQuantities,
+        ...normalizeStorformatPricingConfig(cfg, storedQuantities),
         layout_rows: nextLayoutRows,
         vertical_axis: nextVerticalAxis
       });
@@ -1485,6 +1504,12 @@ export function StorformatManager({
   };
 
   const handleSave = async () => {
+    if (snapshotRevision !== null) {
+      toast.error(
+        `WMD-snapshot revision ${snapshotRevision} styres af den atomiske import og kan ikke overskrives manuelt.`
+      );
+      return;
+    }
     const normalizedQuantities = normalizeQuantities(config.quantities || []);
     if (!normalizedQuantities.length) {
       toast.error("Indtast mindst én mængde");
@@ -1509,6 +1534,7 @@ export function StorformatManager({
         tenant_id: tenantId,
         product_id: productId,
         rounding_step: updatedConfig.rounding_step,
+        rounding_mode: updatedConfig.rounding_mode || "nearest_v1",
         global_markup_pct: updatedConfig.global_markup_pct,
         quantities: updatedConfig.quantities,
         layout_rows: updatedConfig.layout_rows || [],
@@ -1882,9 +1908,7 @@ export function StorformatManager({
     const spec = t.spec || {};
     if (spec.config) {
       setConfig({
-        rounding_step: spec.config.rounding_step || 1,
-        global_markup_pct: spec.config.global_markup_pct || 0,
-        quantities: spec.config.quantities?.length ? spec.config.quantities : defaultQuantities,
+        ...normalizeStorformatPricingConfig(spec.config, defaultQuantities),
         layout_rows: spec.config.layout_rows || spec.layout_rows,
         vertical_axis: spec.config.vertical_axis || spec.vertical_axis
       });
@@ -4961,7 +4985,11 @@ export function StorformatManager({
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Prisbank & Gem</CardTitle>
-                <CardDescription className="text-xs">Gem i bank og gem ændringerne på produktet. Udgivelse håndteres separat.</CardDescription>
+                <CardDescription className="text-xs">
+                  {snapshotRevision !== null
+                    ? `WMD-snapshot revision ${snapshotRevision} er skrivebeskyttet og opdateres kun via snapshot-importen.`
+                    : "Gem i bank og gem ændringerne på produktet. Udgivelse håndteres separat."}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -4984,7 +5012,10 @@ export function StorformatManager({
                       {templates.length} gemte i bank
                     </span>
                   </div>
-                  <Button onClick={handleSave} disabled={saving}>
+                  <Button
+                    onClick={handleSave}
+                    disabled={saving || snapshotRevision !== null}
+                  >
                     {saving ? "Gemmer..." : "Gem produkt"}
                   </Button>
                 </div>

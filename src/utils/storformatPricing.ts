@@ -60,6 +60,28 @@ export type StorformatConfig = {
   vertical_axis?: any;
 };
 
+export function normalizeStorformatPricingConfig(
+  row: Partial<StorformatConfig> | null | undefined,
+  fallbackQuantities: number[] = [1],
+): StorformatConfig {
+  return {
+    rounding_step: typeof row?.rounding_step === "number" &&
+        Number.isFinite(row.rounding_step) && row.rounding_step > 0
+      ? row.rounding_step
+      : 1,
+    rounding_mode: row?.rounding_mode === "ceil_v1"
+      ? "ceil_v1"
+      : "nearest_v1",
+    global_markup_pct: typeof row?.global_markup_pct === "number" &&
+        Number.isFinite(row.global_markup_pct)
+      ? row.global_markup_pct
+      : 0,
+    quantities: Array.isArray(row?.quantities) && row.quantities.length > 0
+      ? row.quantities
+      : fallbackQuantities,
+  };
+}
+
 type SplitInfo = {
   isSplit: boolean;
   piecesWide: number;

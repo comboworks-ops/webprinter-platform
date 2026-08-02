@@ -757,6 +757,91 @@ $postnord_lifecycle$;
 truncate public.postnord_tracking_sync_claims;
 truncate public.postnord_tracking_provider_state;
 
+do $postnord_long_retry_after$
+declare
+  owned_claim uuid;
+  blocked_disposition text;
+  blocked_retry integer;
+begin
+  select claim_token into owned_claim
+  from public.claim_postnord_tracking_sync(
+    '10000000-0000-4000-8000-000000000001',
+    '60000000-0000-4000-8000-000000000001',
+    '50000000-0000-4000-8000-000000000001',
+    '00373500489530470000'
+  );
+  perform public.test_assert(
+    public.finish_postnord_tracking_sync(
+      owned_claim,
+      'provider_rate_limited',
+      7200
+    ) = 7200,
+    'valid long Retry-After values must be stored exactly'
+  );
+  select disposition, retry_after_seconds
+  into blocked_disposition, blocked_retry
+  from public.claim_postnord_tracking_sync(
+    '10000000-0000-4000-8000-000000000001',
+    '60000000-0000-4000-8000-000000000001',
+    '50000000-0000-4000-8000-000000000001',
+    '00373500489530470000'
+  );
+  perform public.test_assert(
+    blocked_disposition = 'provider_blocked'
+      and blocked_retry between 7199 and 7200,
+    'long Retry-After must never wake before the provider deadline'
+  );
+end;
+$postnord_long_retry_after$;
+
+truncate public.postnord_tracking_sync_claims;
+truncate public.postnord_tracking_provider_state;
+
+do $postnord_unbounded_retry_after_sentinel$
+declare
+  owned_claim uuid;
+  blocked_disposition text;
+  blocked_retry integer;
+begin
+  select claim_token into owned_claim
+  from public.claim_postnord_tracking_sync(
+    '10000000-0000-4000-8000-000000000001',
+    '60000000-0000-4000-8000-000000000001',
+    '50000000-0000-4000-8000-000000000001',
+    '00373500489530470000'
+  );
+  perform public.finish_postnord_tracking_sync(
+    owned_claim,
+    'provider_rate_limited',
+    2147483647
+  );
+  perform public.test_assert(
+    (
+      select blocked_until = 'infinity'::timestamptz
+      from public.postnord_tracking_provider_state
+      where provider = 'postnord'
+    ),
+    'bounded maximum Retry-After must use an indefinite fail-closed sentinel'
+  );
+  select disposition, retry_after_seconds
+  into blocked_disposition, blocked_retry
+  from public.claim_postnord_tracking_sync(
+    '10000000-0000-4000-8000-000000000001',
+    '60000000-0000-4000-8000-000000000001',
+    '50000000-0000-4000-8000-000000000001',
+    '00373500489530470000'
+  );
+  perform public.test_assert(
+    blocked_disposition = 'provider_blocked'
+      and blocked_retry = 2147483647,
+    'indefinite provider backoff must remain blocked without integer overflow'
+  );
+end;
+$postnord_unbounded_retry_after_sentinel$;
+
+truncate public.postnord_tracking_sync_claims;
+truncate public.postnord_tracking_provider_state;
+
 do $postnord_empty_success_cache$
 declare
   owned_claim uuid;

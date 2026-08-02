@@ -21,7 +21,7 @@ create table public.postnord_tracking_sync_claims (
   finished_at timestamptz,
   cache_expires_at timestamptz,
   provider_retry_after_seconds integer
-    check (provider_retry_after_seconds between 1 and 3600),
+    check (provider_retry_after_seconds between 1 and 2147483647),
   unique (tenant_id, order_id, tracking_identity, fence_token),
   check (claim_expires_at > claimed_at),
   check (
@@ -169,10 +169,14 @@ begin
     return;
   end if;
 
-  select greatest(
-    1,
-    ceil(extract(epoch from (provider_state.blocked_until - claim_time)))::integer
-  )
+  select case
+    when provider_state.blocked_until = 'infinity'::timestamptz
+      then 2147483647
+    else greatest(
+      1,
+      ceil(extract(epoch from (provider_state.blocked_until - claim_time)))::integer
+    )
+  end
   into current_retry_after
   from public.postnord_tracking_provider_state as provider_state
   where provider_state.provider = 'postnord'
@@ -426,7 +430,10 @@ begin
     or _outcome not in ('failed', 'provider_rate_limited')
     or (
       _outcome = 'provider_rate_limited'
-      and (_retry_after_seconds is null or _retry_after_seconds not between 1 and 3600)
+      and (
+        _retry_after_seconds is null
+        or _retry_after_seconds not between 1 and 2147483647
+      )
     )
     or (_outcome = 'failed' and _retry_after_seconds is not null) then
     raise exception using errcode = '22023', message = 'invalid PostNord claim outcome';
@@ -471,7 +478,11 @@ begin
       updated_at
     ) values (
       'postnord',
-      finish_time + make_interval(secs => _retry_after_seconds),
+      case
+        when _retry_after_seconds = 2147483647
+          then 'infinity'::timestamptz
+        else finish_time + make_interval(secs => _retry_after_seconds)
+      end,
       finish_time
     )
     on conflict (provider) do update

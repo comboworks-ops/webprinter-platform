@@ -17,8 +17,10 @@ import {
   fetchPostNordTrackingPayload,
   finishPostNordTrackingSync,
   isMatchingPostNordReplayRow,
+  parsePostNordRetryAfter,
   parsePostNordSyncRequest,
   persistPostNordEventsAtomically,
+  POSTNORD_MAX_RETRY_AFTER_SECONDS,
   POSTNORD_PRODUCTION_TRACKING_URL,
   POSTNORD_SANDBOX_TRACKING_URL,
   PostNordSyncError,
@@ -415,11 +417,12 @@ test("order authorization canonicalizes saved tracking display separators before
     { orderId: ORDER_ID },
     "30000000-0000-4000-8000-000000000003",
     {
-      loadOrder: () => Promise.resolve({
-        id: ORDER_ID,
-        tenantId: TENANT_ID,
-        trackingNumber: " 0037 3500-4895 3047 0000 ",
-      }),
+      loadOrder: () =>
+        Promise.resolve({
+          id: ORDER_ID,
+          tenantId: TENANT_ID,
+          trackingNumber: " 0037 3500-4895 3047 0000 ",
+        }),
       canAccessTenant: () => Promise.resolve(true),
       hasExactMasterRole: () => Promise.resolve(false),
     },
@@ -428,20 +431,23 @@ test("order authorization canonicalizes saved tracking display separators before
   assert.equal(authorized.trackingNumber, TRACKING_NUMBER);
 
   await assert.rejects(
-    () => authorizePostNordSyncOrder(
-      { orderId: ORDER_ID },
-      "30000000-0000-4000-8000-000000000003",
-      {
-        loadOrder: () => Promise.resolve({
-          id: ORDER_ID,
-          tenantId: TENANT_ID,
-          trackingNumber: "0037/3500",
-        }),
-        canAccessTenant: () => Promise.resolve(true),
-        hasExactMasterRole: () => Promise.resolve(false),
-      },
-    ),
-    (error) => error instanceof PostNordSyncError && error.code === "order_not_found",
+    () =>
+      authorizePostNordSyncOrder(
+        { orderId: ORDER_ID },
+        "30000000-0000-4000-8000-000000000003",
+        {
+          loadOrder: () =>
+            Promise.resolve({
+              id: ORDER_ID,
+              tenantId: TENANT_ID,
+              trackingNumber: "0037/3500",
+            }),
+          canAccessTenant: () => Promise.resolve(true),
+          hasExactMasterRole: () => Promise.resolve(false),
+        },
+      ),
+    (error) =>
+      error instanceof PostNordSyncError && error.code === "order_not_found",
   );
 });
 
@@ -653,6 +659,25 @@ test("provider fetch never follows redirects, bounds bodies, and surfaces 429 wi
   }
 });
 
+test("Retry-After supports long deltas and HTTP dates without waking early", () => {
+  const now = new Date("2026-08-01T12:00:00.500Z");
+
+  assert.equal(parsePostNordRetryAfter("7200", now), 7200);
+  assert.equal(
+    parsePostNordRetryAfter("Sat, 01 Aug 2026 14:00:00 GMT", now),
+    7200,
+  );
+  assert.equal(
+    parsePostNordRetryAfter("999999999999999999999999", now),
+    POSTNORD_MAX_RETRY_AFTER_SECONDS,
+  );
+  assert.equal(
+    parsePostNordRetryAfter("Sat, 01 Aug 2026 11:00:00 GMT", now),
+    1,
+  );
+  assert.equal(parsePostNordRetryAfter("not-a-date", now), null);
+});
+
 test("local PostNord admission uses one exact service RPC and validates its disposition", async () => {
   const calls: Array<readonly [string, unknown]> = [];
   const admission = await claimPostNordTrackingSync(
@@ -682,7 +707,7 @@ test("local PostNord admission uses one exact service RPC and validates its disp
     _tenant_id: TENANT_ID,
     _order_id: ORDER_ID,
     _user_id: "30000000-0000-4000-8000-000000000003",
-        _tracking_identity: TRACKING_NUMBER,
+    _tracking_identity: TRACKING_NUMBER,
   }]]);
 });
 
@@ -694,7 +719,7 @@ test("PostNord renewal and failure completion use exact fenced service RPCs", as
       if (name === "renew_postnord_tracking_sync") {
         return Promise.resolve({ data: true, error: null });
       }
-      return Promise.resolve({ data: 120, error: null });
+      return Promise.resolve({ data: 7_200, error: null });
     },
   };
 
@@ -702,7 +727,7 @@ test("PostNord renewal and failure completion use exact fenced service RPCs", as
   await finishPostNordTrackingSync(
     CLAIM_TOKEN,
     "provider_rate_limited",
-    120,
+    7_200,
     client,
   );
   assert.deepEqual(calls, [
@@ -710,7 +735,7 @@ test("PostNord renewal and failure completion use exact fenced service RPCs", as
     ["finish_postnord_tracking_sync", {
       _claim_token: CLAIM_TOKEN,
       _outcome: "provider_rate_limited",
-      _retry_after_seconds: 120,
+      _retry_after_seconds: 7_200,
     }],
   ]);
 });
@@ -718,41 +743,43 @@ test("PostNord renewal and failure completion use exact fenced service RPCs", as
 test("an in-flight local claim stops before every provider and persistence call", async () => {
   const calls: string[] = [];
   await assert.rejects(
-    () => syncAuthorizedPostNordOrder(
-      { id: ORDER_ID, tenantId: TENANT_ID, trackingNumber: TRACKING_NUMBER },
-      {
-        now: RECEIVED_AT,
-        admit: () => {
-          calls.push("admit");
-          return Promise.resolve({
-            disposition: "in_flight",
-            retryAfterSeconds: 17,
-            claimToken: null,
-          });
-        },
-        renew: () => {
-          calls.push("renew");
-          return Promise.resolve();
-        },
-        finish: () => {
-          calls.push("finish");
-          return Promise.resolve();
-        },
-        fetchPayload: () => {
-          calls.push("provider");
-          return Promise.resolve("{}");
-        },
-        repository: {
-          insertEvents: () => {
-            calls.push("persist");
-            return Promise.resolve({ inserted: 0, replayed: 0 });
+    () =>
+      syncAuthorizedPostNordOrder(
+        { id: ORDER_ID, tenantId: TENANT_ID, trackingNumber: TRACKING_NUMBER },
+        {
+          now: RECEIVED_AT,
+          admit: () => {
+            calls.push("admit");
+            return Promise.resolve({
+              disposition: "in_flight",
+              retryAfterSeconds: POSTNORD_MAX_RETRY_AFTER_SECONDS,
+              claimToken: null,
+            });
+          },
+          renew: () => {
+            calls.push("renew");
+            return Promise.resolve();
+          },
+          finish: () => {
+            calls.push("finish");
+            return Promise.resolve();
+          },
+          fetchPayload: () => {
+            calls.push("provider");
+            return Promise.resolve("{}");
+          },
+          repository: {
+            insertEvents: () => {
+              calls.push("persist");
+              return Promise.resolve({ inserted: 0, replayed: 0 });
+            },
           },
         },
-      },
-    ),
-    (error) => error instanceof PostNordSyncError &&
+      ),
+    (error) =>
+      error instanceof PostNordSyncError &&
       error.code === "rate_limited" &&
-      error.retryAfterSeconds === 17,
+      error.retryAfterSeconds === POSTNORD_MAX_RETRY_AFTER_SECONDS,
   );
   assert.deepEqual(calls, ["admit"]);
 });
@@ -814,11 +841,12 @@ test("authorized sync inserts carrier evidence only and returns a minimal displa
   const lifecycle: string[] = [];
   const result = await syncAuthorizedPostNordOrder(authorizedOrder, {
     now: RECEIVED_AT,
-    admit: () => Promise.resolve({
-      disposition: "claimed",
-      retryAfterSeconds: 0,
-      claimToken: CLAIM_TOKEN,
-    }),
+    admit: () =>
+      Promise.resolve({
+        disposition: "claimed",
+        retryAfterSeconds: 0,
+        claimToken: CLAIM_TOKEN,
+      }),
     renew: (claimToken) => {
       lifecycle.push(`renew:${claimToken}`);
       return Promise.resolve();
@@ -873,11 +901,12 @@ test("an empty provider success completes and becomes cacheable without insertin
     { id: ORDER_ID, tenantId: TENANT_ID, trackingNumber: TRACKING_NUMBER },
     {
       now: RECEIVED_AT,
-      admit: () => Promise.resolve({
-        disposition: "claimed",
-        retryAfterSeconds: 0,
-        claimToken: CLAIM_TOKEN,
-      }),
+      admit: () =>
+        Promise.resolve({
+          disposition: "claimed",
+          retryAfterSeconds: 0,
+          claimToken: CLAIM_TOKEN,
+        }),
       renew: () => {
         calls.push("renew");
         return Promise.resolve();
@@ -911,11 +940,12 @@ test("malformed provider evidence remains unavailable and never reaches persiste
         trackingNumber: TRACKING_NUMBER,
       }, {
         now: RECEIVED_AT,
-        admit: () => Promise.resolve({
-          disposition: "claimed",
-          retryAfterSeconds: 0,
-          claimToken: CLAIM_TOKEN,
-        }),
+        admit: () =>
+          Promise.resolve({
+            disposition: "claimed",
+            retryAfterSeconds: 0,
+            claimToken: CLAIM_TOKEN,
+          }),
         renew: () => Promise.resolve(),
         finish: (_claimToken, outcome, retryAfterSeconds) => {
           assert.equal(outcome, "failed");
@@ -945,11 +975,12 @@ test("provider 429 is released globally with the exact retry-after before surfac
         { id: ORDER_ID, tenantId: TENANT_ID, trackingNumber: TRACKING_NUMBER },
         {
           now: RECEIVED_AT,
-          admit: () => Promise.resolve({
-            disposition: "claimed",
-            retryAfterSeconds: 0,
-            claimToken: CLAIM_TOKEN,
-          }),
+          admit: () =>
+            Promise.resolve({
+              disposition: "claimed",
+              retryAfterSeconds: 0,
+              claimToken: CLAIM_TOKEN,
+            }),
           renew: () => Promise.resolve(),
           finish: (claimToken, outcome, retryAfterSeconds) => {
             finishes.push({ claimToken, outcome, retryAfterSeconds });
@@ -1096,11 +1127,13 @@ test("atomic persistence fails closed on an RPC error or malformed count result"
     context(),
   );
 
-  for (const response of [
-    { data: null, error: { code: "23505" } },
-    { data: [{ inserted_count: 2, replayed_count: 0 }], error: null },
-    { data: [], error: null },
-  ]) {
+  for (
+    const response of [
+      { data: null, error: { code: "23505" } },
+      { data: [{ inserted_count: 2, replayed_count: 0 }], error: null },
+      { data: [], error: null },
+    ]
+  ) {
     await assert.rejects(
       () =>
         persistPostNordEventsAtomically(CLAIM_TOKEN, events, {

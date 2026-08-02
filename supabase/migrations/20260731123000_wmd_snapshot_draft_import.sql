@@ -389,7 +389,7 @@ BEGIN
     WHERE tier.id IS NULL OR tier.material_id IS NULL
       OR tier.from_m2 < 0
       OR (tier.to_m2 IS NOT NULL AND tier.to_m2 <= tier.from_m2)
-      OR tier.price_per_m2 < 0
+      OR tier.price_per_m2 <= 0
       OR tier.is_anchor IS NULL
       OR tier.markup_pct <> 0
       OR tier.sort_order NOT BETWEEN 0 AND 10000
@@ -426,7 +426,7 @@ BEGIN
     WHERE tier.id IS NULL OR tier.material_id IS NULL
       OR tier.from_m2 < 0
       OR (tier.to_m2 IS NOT NULL AND tier.to_m2 <= tier.from_m2)
-      OR tier.price_per_m2 < 0
+      OR tier.price_per_m2 <= 0
       OR tier.is_anchor IS NULL
       OR NOT EXISTS (
         SELECT 1
@@ -508,7 +508,7 @@ BEGIN
     WHERE tier.id IS NULL OR tier.variant_id IS NULL
       OR tier.from_m2 < 0
       OR (tier.to_m2 IS NOT NULL AND tier.to_m2 <= tier.from_m2)
-      OR tier.price_per_m2 < 0
+      OR tier.price_per_m2 <= 0
       OR tier.is_anchor IS NULL
       OR tier.markup_pct <> 0
       OR tier.sort_order NOT BETWEEN 0 AND 10000
@@ -545,7 +545,7 @@ BEGIN
     WHERE tier.id IS NULL OR tier.variant_id IS NULL
       OR tier.from_m2 < 0
       OR (tier.to_m2 IS NOT NULL AND tier.to_m2 <= tier.from_m2)
-      OR tier.price_per_m2 < 0
+      OR tier.price_per_m2 <= 0
       OR tier.is_anchor IS NULL
       OR NOT EXISTS (
         SELECT 1
@@ -891,3 +891,71 @@ GRANT EXECUTE ON FUNCTION public.apply_wmd_roll_label_snapshot_draft_import(uuid
 
 COMMENT ON FUNCTION public.apply_wmd_roll_label_snapshot_draft_import(uuid, jsonb)
 IS 'Service-role-only atomic replacement of an unpublished WMD roll-label snapshot draft.';
+
+CREATE FUNCTION public.get_wmd_snapshot_draft_revision(
+  _tenant_id uuid,
+  _product_id uuid
+)
+RETURNS bigint
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $revision$
+  SELECT max(import_state.revision)
+  FROM public.wmd_snapshot_draft_import_state AS import_state
+  WHERE import_state.tenant_id = _tenant_id
+    AND import_state.product_id = _product_id
+    AND public.can_access_tenant(_tenant_id);
+$revision$;
+
+-- data-api: authenticated tenant editors may read only the current revision;
+-- the private import ledger remains inaccessible.
+REVOKE ALL ON FUNCTION public.get_wmd_snapshot_draft_revision(uuid, uuid)
+  FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.get_wmd_snapshot_draft_revision(uuid, uuid)
+  TO authenticated;
+
+COMMENT ON FUNCTION public.get_wmd_snapshot_draft_revision(uuid, uuid)
+IS 'Returns the authorized tenant product WMD snapshot revision, or null when unmanaged or inaccessible.';
+
+-- WMD snapshot drafts have one writer: the service-only atomic import RPC.
+-- Existing authenticated editor policies remain in force for every unmanaged
+-- storformat product, while these restrictive policies fence all direct
+-- editor mutations for managed products without hiding their readable rows.
+DO $wmd_editor_fence$
+DECLARE
+  table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'storformat_configs',
+    'storformat_materials',
+    'storformat_material_price_tiers',
+    'storformat_m2_prices',
+    'storformat_products',
+    'storformat_product_price_tiers',
+    'storformat_product_m2_prices',
+    'storformat_finishes',
+    'storformat_finish_price_tiers',
+    'storformat_finish_prices',
+    'storformat_product_fixed_prices'
+  ]
+  LOOP
+    EXECUTE pg_catalog.format(
+      'CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (public.get_wmd_snapshot_draft_revision(tenant_id, product_id) IS NULL)',
+      'wmd_guard_' || table_name || '_ins',
+      table_name
+    );
+    EXECUTE pg_catalog.format(
+      'CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR UPDATE TO authenticated USING (public.get_wmd_snapshot_draft_revision(tenant_id, product_id) IS NULL) WITH CHECK (public.get_wmd_snapshot_draft_revision(tenant_id, product_id) IS NULL)',
+      'wmd_guard_' || table_name || '_upd',
+      table_name
+    );
+    EXECUTE pg_catalog.format(
+      'CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR DELETE TO authenticated USING (public.get_wmd_snapshot_draft_revision(tenant_id, product_id) IS NULL)',
+      'wmd_guard_' || table_name || '_del',
+      table_name
+    );
+  END LOOP;
+END;
+$wmd_editor_fence$;

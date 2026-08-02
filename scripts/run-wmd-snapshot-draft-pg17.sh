@@ -8,10 +8,11 @@ import_output="$(mktemp)"
 publish_output="$(mktemp)"
 locker_output="$(mktemp)"
 rejected_output="$(mktemp)"
+editor_output="$(mktemp)"
 
 cleanup() {
   docker stop "$container_name" >/dev/null 2>&1 || true
-  rm -f "$import_output" "$publish_output" "$locker_output" "$rejected_output"
+  rm -f "$import_output" "$publish_output" "$locker_output" "$rejected_output" "$editor_output"
 }
 trap cleanup EXIT
 
@@ -122,6 +123,14 @@ if [[ "$waiting_count" -ne 1 ]]; then
   exit 1
 fi
 
+if docker exec -e PGAPPNAME=wmd_manual_editor_race "$container_name" \
+  psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+  -c "SET ROLE authenticated; INSERT INTO public.storformat_configs (tenant_id, product_id, rounding_step, global_markup_pct, quantities) SELECT tenant_id, id, 77, 0, ARRAY[1] FROM public.products WHERE slug = 'wmd-roll-labels-test' ON CONFLICT (product_id) DO UPDATE SET rounding_step = excluded.rounding_step;" \
+  >"$editor_output" 2>&1; then
+  echo "Manual editor unexpectedly wrote through the WMD import fence" >&2
+  exit 1
+fi
+
 docker exec -e PGAPPNAME=wmd_publish_after_import "$container_name" \
   psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
   -c "UPDATE public.products SET is_published = true WHERE slug = 'wmd-roll-labels-test';" \
@@ -159,6 +168,10 @@ SELECT public.test_assert(
 SELECT public.test_assert(
   (SELECT name = 'Import-first material' FROM public.storformat_materials),
   'import-first child replacement must commit before publication'
+);
+SELECT public.test_assert(
+  (SELECT rounding_step = 1 FROM public.storformat_configs),
+  'concurrent manual editor must not overwrite managed snapshot config'
 );
 DROP TRIGGER test_pause_snapshot_import ON public.storformat_materials;
 DROP FUNCTION public.test_pause_snapshot_import();

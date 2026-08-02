@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { calculateStorformatPrice } from "./storformatPricing.ts";
+import {
+  calculateStorformatPrice,
+  normalizeStorformatPricingConfig,
+} from "./storformatPricing.ts";
 
 const input = {
   widthMm: 501,
@@ -46,4 +49,21 @@ test("snapshot ceil_v1 rounding changes the monetary total without changing lega
 
   assert.equal(result.materialCost, 636.27);
   assert.equal(result.totalPrice, 640);
+});
+
+test("database config normalization preserves snapshot ceil rounding", () => {
+  assert.deepEqual(
+    normalizeStorformatPricingConfig({
+      rounding_step: 5,
+      rounding_mode: "ceil_v1",
+      global_markup_pct: 0,
+      quantities: [100, 500],
+    }),
+    {
+      rounding_step: 5,
+      rounding_mode: "ceil_v1",
+      global_markup_pct: 0,
+      quantities: [100, 500],
+    },
+  );
 });

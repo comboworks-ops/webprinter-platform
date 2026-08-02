@@ -216,6 +216,37 @@ END;
 $anon_denied$;
 RESET ROLE;
 
+DO $reject_zero_tiers$
+DECLARE
+  price_path text[];
+BEGIN
+  FOR price_path IN
+    SELECT candidate.path
+    FROM (
+      VALUES
+        (ARRAY['material_price_tiers', '0', 'price_per_m2']::text[]),
+        (ARRAY['material_m2_prices', '0', 'price_per_m2']::text[]),
+        (ARRAY['variant_price_tiers', '0', 'price_per_m2']::text[]),
+        (ARRAY['variant_m2_prices', '0', 'price_per_m2']::text[])
+    ) AS candidate(path)
+  LOOP
+    BEGIN
+      PERFORM public.apply_wmd_roll_label_snapshot_draft_import(
+        '00000000-0000-4000-8000-000000000001',
+        jsonb_set(
+          public.test_wmd_payload('Zero price must fail', 'Zero price must fail'),
+          price_path,
+          '0'::jsonb
+        )
+      );
+      RAISE EXCEPTION 'zero snapshot tier unexpectedly succeeded at %', price_path;
+    EXCEPTION WHEN SQLSTATE '22023' THEN
+      NULL;
+    END;
+  END LOOP;
+END;
+$reject_zero_tiers$;
+
 SET ROLE service_role;
 SELECT public.apply_wmd_roll_label_snapshot_draft_import(
   '00000000-0000-4000-8000-000000000001',
@@ -251,6 +282,81 @@ SELECT public.test_assert(
   (SELECT rounding_mode = 'ceil_v1' FROM public.storformat_configs),
   'snapshot rounding mode must be persisted with its step'
 );
+
+INSERT INTO public.products (
+  id, tenant_id, name, slug, icon_text, description, category,
+  pricing_type, is_published, preset_key, technical_specs
+) VALUES (
+  '33333333-3333-4333-8333-333333333333',
+  '00000000-0000-4000-8000-000000000001',
+  'Manual storformat product',
+  'manual-storformat-test',
+  'Manual',
+  'Non-WMD editor control',
+  'storformat',
+  'STORFORMAT',
+  false,
+  'custom',
+  '{}'::jsonb
+);
+
+SET ROLE authenticated;
+SELECT public.test_assert(
+  public.get_wmd_snapshot_draft_revision(
+    '00000000-0000-4000-8000-000000000001',
+    (SELECT id FROM public.products WHERE slug = 'wmd-roll-labels-test')
+  ) = 1,
+  'authorized editor reads the authoritative WMD revision'
+);
+DO $managed_editor_denied$
+BEGIN
+  INSERT INTO public.storformat_configs (
+    tenant_id, product_id, rounding_step, global_markup_pct, quantities
+  )
+  SELECT tenant_id, id, 99, 0, ARRAY[1]
+  FROM public.products
+  WHERE slug = 'wmd-roll-labels-test'
+  ON CONFLICT (product_id) DO UPDATE
+  SET rounding_step = excluded.rounding_step;
+  RAISE EXCEPTION 'managed WMD editor upsert unexpectedly succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  NULL;
+END;
+$managed_editor_denied$;
+
+INSERT INTO public.storformat_configs (
+  tenant_id, product_id, rounding_step, global_markup_pct, quantities
+) VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '33333333-3333-4333-8333-333333333333',
+  5,
+  0,
+  ARRAY[1]
+);
+RESET ROLE;
+
+SELECT public.test_assert(
+  (
+    SELECT rounding_step = 1
+    FROM public.storformat_configs
+    WHERE product_id = (
+      SELECT id FROM public.products WHERE slug = 'wmd-roll-labels-test'
+    )
+  ),
+  'managed editor rejection must leave snapshot config unchanged'
+);
+SELECT public.test_assert(
+  (
+    SELECT rounding_step = 5
+    FROM public.storformat_configs
+    WHERE product_id = '33333333-3333-4333-8333-333333333333'
+  ),
+  'non-WMD products must remain editable through existing tenant RLS'
+);
+DELETE FROM public.storformat_configs
+WHERE product_id = '33333333-3333-4333-8333-333333333333';
+DELETE FROM public.products
+WHERE id = '33333333-3333-4333-8333-333333333333';
 
 UPDATE public.products
 SET technical_specs = technical_specs || jsonb_build_object(

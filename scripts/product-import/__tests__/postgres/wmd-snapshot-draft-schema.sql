@@ -32,6 +32,14 @@ CREATE TABLE public.tenants (
   name text NOT NULL
 );
 
+CREATE FUNCTION public.can_access_tenant(_tenant_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT _tenant_id IS NOT NULL;
+$$;
+
 CREATE TABLE public.products (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL REFERENCES public.tenants(id),
@@ -46,6 +54,11 @@ CREATE TABLE public.products (
   technical_specs jsonb NOT NULL DEFAULT '{}'::jsonb,
   UNIQUE (tenant_id, slug)
 );
+
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+CREATE POLICY test_product_read ON public.products
+FOR SELECT TO authenticated USING (true);
+GRANT SELECT ON public.products TO authenticated;
 
 CREATE TABLE public.storformat_configs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -165,3 +178,37 @@ CREATE TABLE public.storformat_product_fixed_prices (
   tenant_id uuid NOT NULL REFERENCES public.tenants(id),
   product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE
 );
+
+DO $rls_fixture$
+DECLARE
+  table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'storformat_configs',
+    'storformat_materials',
+    'storformat_material_price_tiers',
+    'storformat_m2_prices',
+    'storformat_products',
+    'storformat_product_price_tiers',
+    'storformat_product_m2_prices',
+    'storformat_finishes',
+    'storformat_finish_price_tiers',
+    'storformat_finish_prices',
+    'storformat_product_fixed_prices'
+  ]
+  LOOP
+    EXECUTE pg_catalog.format(
+      'ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',
+      table_name
+    );
+    EXECUTE pg_catalog.format(
+      'CREATE POLICY test_tenant_access ON public.%I FOR ALL TO authenticated USING (true) WITH CHECK (true)',
+      table_name
+    );
+    EXECUTE pg_catalog.format(
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO authenticated',
+      table_name
+    );
+  END LOOP;
+END;
+$rls_fixture$;

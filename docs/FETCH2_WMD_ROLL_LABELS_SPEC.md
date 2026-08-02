@@ -111,7 +111,7 @@ Summary includes `cheapest` and `fastest` delivery picks per `(material,size,qua
 Command:
 - `node scripts/fetch2-wmd-roll-labels.mjs import --dry-run --input "<json>"`
 - `node scripts/fetch2-wmd-roll-labels.mjs import --input "<json>" --tenant-id "<uuid>" --product-name "<name>" --product-slug "<slug>" --publish`
-- `node scripts/fetch2-wmd-roll-labels.mjs import --input "<json>" --tenant-id "<uuid>" --fx-snapshot-file "<snapshot.json>" --pricing-buffer-pct 2.5 --write-snapshot-draft`
+- `node scripts/fetch2-wmd-roll-labels.mjs import --input "<json>" --tenant-id "<uuid>" --fx-snapshot-file "<snapshot.json>" --pricing-buffer-pct 2.5 --write-snapshot-draft --import-id "<uuid>"`
 
 Behavior:
 - Upserts exactly one `products` row by `(tenant_id, slug)`.
@@ -125,8 +125,10 @@ Snapshot write safety:
 
 - `--fx-snapshot-file` selects snapshot pricing, but does not authorize a
   database write. A non-dry-run import additionally requires the separate
-  `--write-snapshot-draft` confirmation. The confirmation flag is rejected
-  when no snapshot evidence is present.
+  `--write-snapshot-draft` confirmation and an explicit `--import-id` UUID.
+  The confirmation flag is rejected when either identity or snapshot evidence
+  is absent. Retrying the same import ID derives the same child row IDs;
+  different import IDs cannot collide.
 - Snapshot mode rejects `--publish` and rejects an existing product or
   storformat config that is already published.
 - The service-role-only
@@ -137,6 +139,12 @@ Snapshot write safety:
   Publication winning the race makes the waiting import fail without changing
   the product. Any insert or constraint failure rolls all deletes and updates
   back.
+- Supplier and stored tier prices must be strictly positive canonical decimal
+  values. Zero, negative, non-finite, exponent, and over-precision values are
+  rejected before a write.
+- A snapshot-managed draft remains visible in StorformatManager, but its
+  pricing editor is read-only. Database policies fence direct authenticated
+  editor writes so they cannot race the authoritative service-role import.
 
 Delivery mapping:
 - `--delivery-mode cheapest`: material tiers use cheapest delivery prices.
@@ -145,9 +153,11 @@ Delivery mapping:
 
 ## Rollback
 
-This spec, script path, and RPC are additive only.
-- The migration adds one narrowly granted RPC and no tables or columns.
+This spec, script path, and database changes are additive only.
+- The migration set adds `rounding_mode` to `storformat_configs`, the private `wmd_snapshot_draft_import_state` table, narrowly granted import/revision RPCs, and restrictive policies that make snapshot-managed drafts read-only to the authenticated editor.
 - No modifications to existing Fetch/Pixart import logic.
-- To disable snapshot writes after deployment, revoke `EXECUTE` on
+- Operational rollback disables new snapshot writes by revoking `EXECUTE` on
   `apply_wmd_roll_label_snapshot_draft_import(uuid, jsonb)` from
-  `service_role`. Do not delete an already-applied migration file.
+  `service_role`. Existing imported draft data and additive schema objects stay
+  in place. Reversing those objects requires a new reviewed forward migration;
+  never delete or rewrite an already-applied migration file.

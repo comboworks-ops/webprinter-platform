@@ -12,6 +12,7 @@ export const POSTNORD_SANDBOX_TRACKING_URL =
 export const POSTNORD_PRODUCTION_TRACKING_URL =
   "https://api2.postnord.com/rest/shipment/v5/trackandtrace/findByIdentifier.json";
 export const POSTNORD_TRACKING_TIMEOUT_MS = 5_000;
+export const POSTNORD_MAX_RETRY_AFTER_SECONDS = 2_147_483_647;
 
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -19,13 +20,15 @@ const STORED_UTC_INSTANT =
   /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(?:Z|\+00:00)$/;
 const REQUEST_KEYS = new Set(["orderId"]);
 const MAX_API_KEY_LENGTH = 2_048;
-const ADMISSION_DISPOSITIONS = new Set([
-  "claimed",
-  "cached",
-  "in_flight",
-  "provider_blocked",
-  "rate_limited",
-] as const);
+const ADMISSION_DISPOSITIONS = new Set(
+  [
+    "claimed",
+    "cached",
+    "in_flight",
+    "provider_blocked",
+    "rate_limited",
+  ] as const,
+);
 const DEFAULT_PROVIDER_RETRY_AFTER_SECONDS = 60;
 
 type FetchLike = (
@@ -210,7 +213,7 @@ export async function fetchPostNordTrackingPayload(
       }
       if (response.status === 429) {
         throw new PostNordSyncError("rate_limited", {
-          retryAfterSeconds: parseRetryAfter(
+          retryAfterSeconds: parsePostNordRetryAfter(
             response.headers.get("retry-after"),
           ),
         });
@@ -418,7 +421,7 @@ export async function finishPostNordTrackingSync(
       (outcome === "provider_rate_limited" &&
         (!Number.isSafeInteger(retryAfterSeconds) ||
           Number(retryAfterSeconds) < 1 ||
-          Number(retryAfterSeconds) > 3_600))
+          Number(retryAfterSeconds) > POSTNORD_MAX_RETRY_AFTER_SECONDS))
     ) {
       throw persistenceFailed();
     }
@@ -491,8 +494,10 @@ export async function persistPostNordEventsAtomically(
         _events: events.map(toAtomicRpcEvent),
       },
     );
-    if (response.error !== null || !Array.isArray(response.data) ||
-      response.data.length !== 1 || !isPlainRecord(response.data[0])) {
+    if (
+      response.error !== null || !Array.isArray(response.data) ||
+      response.data.length !== 1 || !isPlainRecord(response.data[0])
+    ) {
       throw persistenceFailed();
     }
     const inserted = response.data[0].inserted_count;
@@ -641,12 +646,32 @@ async function readBoundedBody(
   return output;
 }
 
-function parseRetryAfter(value: string | null): number | null {
-  if (value === null || !/^\d{1,4}$/.test(value)) return null;
-  const seconds = Number(value);
-  return Number.isSafeInteger(seconds) && seconds >= 1 && seconds <= 3_600
-    ? seconds
-    : null;
+export function parsePostNordRetryAfter(
+  value: string | null,
+  now: Date = new Date(),
+): number | null {
+  if (
+    value === null ||
+    value.length === 0 ||
+    value !== value.trim() ||
+    !Number.isFinite(now.getTime())
+  ) return null;
+
+  if (/^\d+$/.test(value)) {
+    if (value.length > 10) return POSTNORD_MAX_RETRY_AFTER_SECONDS;
+    const seconds = Number(value);
+    if (!Number.isSafeInteger(seconds)) return POSTNORD_MAX_RETRY_AFTER_SECONDS;
+    return Math.max(
+      1,
+      Math.min(seconds, POSTNORD_MAX_RETRY_AFTER_SECONDS),
+    );
+  }
+
+  if (value.length > 128 || hasControlCharacter(value)) return null;
+  const deadline = Date.parse(value);
+  if (!Number.isFinite(deadline)) return null;
+  const seconds = Math.max(1, Math.ceil((deadline - now.getTime()) / 1_000));
+  return Math.min(seconds, POSTNORD_MAX_RETRY_AFTER_SECONDS);
 }
 
 function canonicalStoredInstant(value: unknown): string {
@@ -684,7 +709,7 @@ function normalizeAdmission(value: unknown): PostNordAdmission {
     ) ||
     !Number.isSafeInteger(retryAfterSeconds) ||
     Number(retryAfterSeconds) < 0 ||
-    Number(retryAfterSeconds) > 3_600 ||
+    Number(retryAfterSeconds) > POSTNORD_MAX_RETRY_AFTER_SECONDS ||
     (["claimed", "cached"].includes(disposition) && retryAfterSeconds !== 0) ||
     (!["claimed", "cached"].includes(disposition) &&
       Number(retryAfterSeconds) < 1) ||
@@ -698,19 +723,6 @@ function normalizeAdmission(value: unknown): PostNordAdmission {
     retryAfterSeconds: Number(retryAfterSeconds),
     claimToken: normalizedClaimToken,
   });
-}
-
-function requiredBoundedText(value: unknown, maximum: number): string {
-  if (!isBoundedText(value, maximum)) throw invalidRequest();
-  return value;
-}
-
-function isBoundedText(value: unknown, maximum: number): value is string {
-  return typeof value === "string" &&
-    value.length > 0 &&
-    value.length <= maximum &&
-    value === value.trim() &&
-    !hasControlCharacter(value);
 }
 
 function hasControlCharacter(value: string): boolean {

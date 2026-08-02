@@ -20,6 +20,8 @@ import {
   assertSnapshotDraftWriteConfirmation,
   assertSnapshotDraftWriteTarget,
   buildSnapshotDraftTarget,
+  deriveSnapshotChildUuid,
+  parsePositiveSupplierPrice,
   resolveSnapshotRoundingPolicy,
 } from "./product-import/shared/snapshot-pricing.js";
 
@@ -88,7 +90,7 @@ function usage() {
     "  - Circle rows are derived from rectangle quotes (same price, radius = min(width,height)/2).",
     "  - Markup rule default: EUR*7.6 then +70%, but when base DKK > 3000 then +60%.",
     "  - Snapshot mode reads an already captured local file; it never fetches an FX provider.",
-    "  - Snapshot-priced writes require --write-snapshot-draft and one atomic draft-only RPC.",
+    "  - Snapshot-priced writes require --write-snapshot-draft, --import-id <uuid>, and one atomic draft-only RPC.",
     "  - Base extraction price source is supplier net price (response.price).",
   ].join("\n");
 }
@@ -188,6 +190,7 @@ function parseArgs(argv) {
     ? null
     : Number(expectedTargetRevisionValue);
   const importId = getArgValue(argv, "--import-id");
+  const writeSnapshotDraft = argv.includes("--write-snapshot-draft");
 
   if (!["probe", "extract", "import"].includes(command)) {
     throw new Error("Command must be 'probe', 'extract', or 'import'");
@@ -224,6 +227,9 @@ function parseArgs(argv) {
   }
   if (command === "import" && !["cheapest", "fastest", "both"].includes(deliveryMode)) {
     throw new Error("--delivery-mode must be one of: cheapest, fastest, both");
+  }
+  if (writeSnapshotDraft && !importId) {
+    throw new Error("--write-snapshot-draft requires --import-id <uuid>");
   }
 
   return {
@@ -1066,11 +1072,11 @@ async function runExtract(args) {
             try {
               const json = await callGetPrice(page, payload);
               const resp = json?.data?.response;
-              if (!resp || resp.currency !== "EUR" || Number.isNaN(Number(resp.price))) {
+              if (!resp || resp.currency !== "EUR") {
                 throw new Error("Malformed get-price response");
               }
 
-              const eurNet = Number(resp.price);
+              const eurNet = parsePositiveSupplierPrice(resp.price);
               const deliveryChargeEur = Number(resp.deliveryCharge || 0) || 0;
               const converted = convertSupplierEurToDkk(
                 eurNet,
@@ -1363,6 +1369,7 @@ async function runExtract(args) {
 }
 
 function buildSnapshotDraftImportPayload({
+  importId,
   product,
   materialModels,
   variantModels,
@@ -1373,8 +1380,21 @@ function buildSnapshotDraftImportPayload({
   roundingStep,
   roundingMode,
 }) {
+  const stableChildId = (kind, index, content) => {
+    const contentDigest = crypto
+      .createHash("sha256")
+      .update(JSON.stringify(content), "utf8")
+      .digest("hex");
+    return deriveSnapshotChildUuid(
+      importId,
+      `${kind}:${index}:${contentDigest}`,
+    );
+  };
   const materials = materialModels.map((material, idx) => ({
-    id: crypto.randomUUID(),
+    id: stableChildId("material", idx, {
+      name: material.name,
+      groupLabel: material.groupLabel || "Material",
+    }),
     name: material.name,
     group_label: material.groupLabel || "Material",
     bleed_mm: 3,
@@ -1391,12 +1411,12 @@ function buildSnapshotDraftImportPayload({
   );
   const materialPriceTiers = [];
   const materialM2Prices = [];
-  for (const material of materialModels) {
+  materialModels.forEach((material, materialIndex) => {
     const materialId = materialIdByName.get(normalizeKey(material.name));
-    if (!materialId) continue;
+    if (!materialId) return;
     material.tiers.forEach((tier, idx) => {
       materialPriceTiers.push({
-        id: crypto.randomUUID(),
+        id: stableChildId("material-price-tier", materialIndex, { idx, tier }),
         material_id: materialId,
         from_m2: tier.from_m2,
         to_m2: tier.to_m2,
@@ -1406,7 +1426,7 @@ function buildSnapshotDraftImportPayload({
         sort_order: idx,
       });
       materialM2Prices.push({
-        id: crypto.randomUUID(),
+        id: stableChildId("material-m2-price", materialIndex, { idx, tier }),
         material_id: materialId,
         from_m2: tier.from_m2,
         to_m2: tier.to_m2,
@@ -1414,10 +1434,14 @@ function buildSnapshotDraftImportPayload({
         is_anchor: true,
       });
     });
-  }
+  });
 
   const variants = variantModels.map((variant, idx) => ({
-    id: crypto.randomUUID(),
+    id: stableChildId("variant", idx, {
+      key: variant.key,
+      name: variant.name,
+      pricingMode: variant.pricing_mode,
+    }),
     name: variant.name,
     group_label: "Delivery",
     pricing_mode: variant.pricing_mode,
@@ -1436,13 +1460,13 @@ function buildSnapshotDraftImportPayload({
   );
   const variantPriceTiers = [];
   const variantM2Prices = [];
-  for (const variant of variantModels) {
-    if (variant.pricing_mode !== "per_m2") continue;
+  variantModels.forEach((variant, variantIndex) => {
+    if (variant.pricing_mode !== "per_m2") return;
     const variantId = variantIdByKey.get(variant.key);
-    if (!variantId) continue;
+    if (!variantId) return;
     variant.tiers.forEach((tier, idx) => {
       variantPriceTiers.push({
-        id: crypto.randomUUID(),
+        id: stableChildId("variant-price-tier", variantIndex, { idx, tier }),
         variant_id: variantId,
         from_m2: tier.from_m2,
         to_m2: tier.to_m2,
@@ -1452,7 +1476,7 @@ function buildSnapshotDraftImportPayload({
         sort_order: idx,
       });
       variantM2Prices.push({
-        id: crypto.randomUUID(),
+        id: stableChildId("variant-m2-price", variantIndex, { idx, tier }),
         variant_id: variantId,
         from_m2: tier.from_m2,
         to_m2: tier.to_m2,
@@ -1460,7 +1484,7 @@ function buildSnapshotDraftImportPayload({
         is_anchor: true,
       });
     });
-  }
+  });
 
   const layoutRows = [];
   const shapeVariantIds = shapeModels
@@ -1675,6 +1699,7 @@ async function runImport(args) {
   });
   if (snapshotPricing) {
     const rpcPayload = buildSnapshotDraftImportPayload({
+      importId: args.importId,
       product: draftProductPayload,
       materialModels,
       variantModels,

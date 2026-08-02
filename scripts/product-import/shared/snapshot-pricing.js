@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { parseFxSnapshot } from "./fx-snapshot.js";
 
 const TOP_LEVEL_KEYS = Object.freeze([
@@ -81,6 +83,7 @@ export function applySnapshotPricing(untrustedInput) {
     const supplierPrice = parseDecimalNumber(input.supplierPrice, {
       maximum: MAX_SUPPLIER_PRICE,
       maximumScale: 6,
+      positive: true,
     });
     const fxRate = parseDecimalNumber(fxSnapshot.rate, {
       maximum: MAX_FX_RATE,
@@ -250,6 +253,51 @@ export function buildSnapshotDraftTarget(untrustedInput) {
   } catch {
     throw new TypeError("Invalid snapshot draft target");
   }
+}
+
+export function deriveSnapshotChildUuid(importId, contentIdentity) {
+  if (
+    typeof importId !== "string" ||
+    !UUID.test(importId) ||
+    typeof contentIdentity !== "string" ||
+    contentIdentity.length < 1 ||
+    contentIdentity.length > 512 ||
+    /[\u0000-\u001f\u007f]/.test(contentIdentity)
+  ) {
+    throw new TypeError("Invalid snapshot child identity");
+  }
+
+  const namespace = Buffer.from(importId.replaceAll("-", ""), "hex");
+  const bytes = createHash("sha1")
+    .update(namespace)
+    .update(Buffer.from(contentIdentity, "utf8"))
+    .digest()
+    .subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${
+    hex.slice(16, 20)
+  }-${hex.slice(20)}`;
+}
+
+export function parsePositiveSupplierPrice(value) {
+  const text = typeof value === "number"
+    ? String(value)
+    : typeof value === "string"
+    ? value
+    : "";
+  const match = DECIMAL_NUMBER.exec(text);
+  if (
+    !match ||
+    (match[2]?.length ?? 0) > 6 ||
+    !Number.isFinite(Number(text)) ||
+    Number(text) <= 0 ||
+    Number(text) > 1_000_000
+  ) {
+    throw new TypeError("Invalid supplier price");
+  }
+  return Number(text);
 }
 
 function captureMarkupPolicy(value) {
