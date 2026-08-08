@@ -1,4 +1,21 @@
+import { parseFxSnapshot } from "./fx-snapshot.js";
+
 export const NORMALIZED_PRICING_SCHEMA_VERSION = 1;
+
+const SNAPSHOT_EVIDENCE_KEYS = Object.freeze([
+  "id",
+  "schemaVersion",
+  "provider",
+  "baseCurrency",
+  "quoteCurrency",
+  "rate",
+  "rateDate",
+  "fetchedAt",
+  "sourcePayloadSha256",
+]);
+const PRICING_BUFFER_KEYS = Object.freeze(["type", "value", "amountDkk"]);
+const SNAPSHOT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const CANONICAL_EVIDENCE_DECIMAL = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
 
 function normalizeText(value) {
   return String(value || "")
@@ -60,6 +77,66 @@ function clonePlainObject(value) {
   return isPlainObject(value) ? { ...value } : {};
 }
 
+function hasExactKeys(value, expectedKeys) {
+  if (!isPlainObject(value)) return false;
+  const keys = Reflect.ownKeys(value);
+  return (
+    keys.every((key) => typeof key === "string") &&
+    keys.length === expectedKeys.length &&
+    expectedKeys.every((key) => keys.includes(key))
+  );
+}
+
+function toEvidenceDecimal(value, fieldName, { positive = false } = {}) {
+  const validNumber =
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    !Object.is(value, -0) &&
+    Number.isSafeInteger(value) === Number.isInteger(value);
+  const validString =
+    typeof value === "string" &&
+    CANONICAL_EVIDENCE_DECIMAL.test(value) &&
+    Number.isFinite(Number(value));
+  if (!validNumber && !validString) {
+    throw new Error(`${fieldName} must be an exact non-negative decimal`);
+  }
+  if (Number(value) < 0 || (positive && Number(value) <= 0)) {
+    throw new Error(`${fieldName} must be ${positive ? "positive" : "non-negative"}`);
+  }
+  return value;
+}
+
+function normalizeFxSnapshotEvidence(value) {
+  if (!hasExactKeys(value, SNAPSHOT_EVIDENCE_KEYS)) {
+    throw new Error("fxSnapshot must be an exact evidence object");
+  }
+  if (typeof value.id !== "string" || !SNAPSHOT_ID.test(value.id)) {
+    throw new Error("fxSnapshot.id is invalid");
+  }
+  const snapshot = parseFxSnapshot({
+    schemaVersion: value.schemaVersion,
+    provider: value.provider,
+    baseCurrency: value.baseCurrency,
+    quoteCurrency: value.quoteCurrency,
+    rate: value.rate,
+    rateDate: value.rateDate,
+    fetchedAt: value.fetchedAt,
+    sourcePayloadSha256: value.sourcePayloadSha256,
+  });
+  return { id: value.id, ...snapshot };
+}
+
+function normalizePricingBuffer(value) {
+  if (!hasExactKeys(value, PRICING_BUFFER_KEYS) || value.type !== "percent") {
+    throw new Error("pricingBuffer must be explicit percent evidence");
+  }
+  return {
+    type: "percent",
+    value: toEvidenceDecimal(value.value, "pricingBuffer.value"),
+    amountDkk: toEvidenceDecimal(value.amountDkk, "pricingBuffer.amountDkk"),
+  };
+}
+
 /**
  * Canonical in-memory pricing payload used between extractor-specific scripts
  * and shared publishers. It is intentionally richer than the current DB rows
@@ -76,14 +153,39 @@ export function createNormalizedPricingRecord(input) {
   const target = normalizeText(input.target || "matrix-layout-v1");
   const importerKey = normalizeText(input.importerKey);
   const quantity = toPositiveInteger(input.quantity, "quantity");
-  const finalPriceDkk = toPositiveInteger(
-    Math.round(Number(input.finalPriceDkk)),
-    "finalPriceDkk"
-  );
+  const hasSnapshotEvidence = input.fxSnapshot !== undefined;
+  const finalPriceDkk = hasSnapshotEvidence
+    ? toEvidenceDecimal(input.finalPriceDkk, "finalPriceDkk", { positive: true })
+    : toPositiveInteger(
+        Math.round(Number(input.finalPriceDkk)),
+        "finalPriceDkk"
+      );
 
   if (!supplier) throw new Error("supplier is required");
   if (!sourceType) throw new Error("sourceType is required");
   if (!importerKey) throw new Error("importerKey is required");
+
+  const fxSnapshot = hasSnapshotEvidence
+    ? normalizeFxSnapshotEvidence(input.fxSnapshot)
+    : null;
+  const pricingBuffer = hasSnapshotEvidence
+    ? normalizePricingBuffer(input.pricingBuffer)
+    : null;
+  const bufferedCostDkk = hasSnapshotEvidence
+    ? toEvidenceDecimal(input.bufferedCostDkk, "bufferedCostDkk")
+    : null;
+  const markupAmountDkk = hasSnapshotEvidence
+    ? toEvidenceDecimal(input.markupAmountDkk, "markupAmountDkk")
+    : null;
+
+  if (
+    !hasSnapshotEvidence &&
+    (input.pricingBuffer !== undefined ||
+      input.bufferedCostDkk !== undefined ||
+      input.markupAmountDkk !== undefined)
+  ) {
+    throw new Error("Snapshot pricing evidence requires fxSnapshot");
+  }
 
   return {
     schemaVersion: NORMALIZED_PRICING_SCHEMA_VERSION,
@@ -98,11 +200,23 @@ export function createNormalizedPricingRecord(input) {
     extractedAt: normalizeText(input.extractedAt) || new Date().toISOString(),
     quantity,
     supplierCurrency: normalizeText(input.supplierCurrency || "EUR") || "EUR",
-    supplierPrice: toFiniteNumberOrNull(input.supplierPrice),
-    convertedPriceDkk: toFiniteNumberOrNull(input.convertedPriceDkk),
+    supplierPrice: hasSnapshotEvidence
+      ? toEvidenceDecimal(input.supplierPrice, "supplierPrice")
+      : toFiniteNumberOrNull(input.supplierPrice),
+    convertedPriceDkk: hasSnapshotEvidence
+      ? toEvidenceDecimal(input.convertedPriceDkk, "convertedPriceDkk")
+      : toFiniteNumberOrNull(input.convertedPriceDkk),
     finalPriceDkk,
     conversionRuleKey: normalizeText(input.conversionRuleKey) || null,
     markupInputs: clonePlainObject(input.markupInputs),
+    ...(hasSnapshotEvidence
+      ? {
+          fxSnapshot,
+          pricingBuffer,
+          bufferedCostDkk,
+          markupAmountDkk,
+        }
+      : {}),
     dimensions: normalizeDimensions(input.dimensions),
     selections: normalizeSelections(input.selections),
     labels: clonePlainObject(input.labels),
