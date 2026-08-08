@@ -199,7 +199,7 @@ test("roll-label snapshot mode is offline, explicit, and guarded before writes",
     source.indexOf("async function main"),
   );
   const firstGuard = importSection.indexOf("assertSnapshotDraftWriteTarget");
-  const clientCreation = importSection.indexOf("createSupabaseServiceClient");
+  const clientCreation = importSection.indexOf("createSnapshotDraftServiceClient");
   const snapshotRpc = importSection.indexOf(
     'rpc("apply_wmd_roll_label_snapshot_draft_import"',
   );
@@ -242,7 +242,7 @@ test("snapshot writes require explicit confirmation before client creation or RP
   const confirmation = importSection.indexOf(
     "assertSnapshotDraftWriteConfirmation",
   );
-  const clientCreation = importSection.indexOf("createSupabaseServiceClient");
+  const clientCreation = importSection.indexOf("createSnapshotDraftServiceClient");
   const snapshotRpc = importSection.indexOf(
     'rpc("apply_wmd_roll_label_snapshot_draft_import"',
   );
