@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { CONVERSION_RULES, applyConversionRule } from "../shared/conversion.js";
-import { createNormalizedMatrixRecord } from "../shared/normalized-pricing.js";
+import {
+  createNormalizedMatrixRecord,
+  createNormalizedPricingRecord,
+} from "../shared/normalized-pricing.js";
 import {
   buildGenericPriceRowsFromNormalized,
   buildMatrixLayoutV1,
@@ -92,6 +96,160 @@ test("conversion rules preserve tiered and threshold outputs", () => {
   assert.equal(threshold.convertedPriceDkk, 3800);
   assert.equal(threshold.markupPct, 60);
   assert.equal(threshold.finalPriceDkk, 6080);
+});
+
+test("legacy normalized pricing serialization remains byte-for-byte stable", () => {
+  const record = createNormalizedPricingRecord({
+    supplier: "legacy",
+    sourceType: "fixture",
+    importerKey: "legacy_import",
+    extractedAt: "2026-07-31T00:00:00.000Z",
+    quantity: 100,
+    supplierPrice: 50,
+    convertedPriceDkk: 375,
+    finalPriceDkk: 600,
+    selections: { material: "PVC" },
+  });
+
+  assert.equal(
+    JSON.stringify(record),
+    '{"schemaVersion":1,"target":"matrix-layout-v1","supplier":"legacy","sourceType":"fixture","sourceUrl":null,"supplierProductType":null,"productFamily":null,"importerKey":"legacy_import","sourceKey":null,"extractedAt":"2026-07-31T00:00:00.000Z","quantity":100,"supplierCurrency":"EUR","supplierPrice":50,"convertedPriceDkk":375,"finalPriceDkk":600,"conversionRuleKey":null,"markupInputs":{},"dimensions":{"widthMm":null,"heightMm":null,"areaM2":null},"selections":{"material":"PVC"},"labels":{},"sourceIdentifiers":{},"extraData":{},"rawPayload":null}',
+  );
+});
+
+test("legacy normalized pricing retains its historical integer final-price behavior", () => {
+  const record = createNormalizedPricingRecord({
+    supplier: "legacy",
+    sourceType: "fixture",
+    importerKey: "legacy_import",
+    extractedAt: "2026-07-31T00:00:00.000Z",
+    quantity: 100,
+    supplierPrice: 50,
+    convertedPriceDkk: 375,
+    finalPriceDkk: 600.49,
+    selections: { material: "PVC" },
+  });
+
+  assert.equal(record.finalPriceDkk, 600);
+});
+
+test("snapshot normalized pricing keeps FX, buffer, and markup evidence separate", () => {
+  const record = createNormalizedPricingRecord({
+    supplier: "wir-machen-druck",
+    sourceType: "snapshot_fixture",
+    importerKey: "wmd_roll_labels_snapshot",
+    extractedAt: "2026-07-31T08:15:00.000Z",
+    quantity: 100,
+    supplierCurrency: "EUR",
+    supplierPrice: 123.45,
+    convertedPriceDkk: "920.95218435",
+    finalPriceDkk: 1515.09,
+    fxSnapshot: {
+      id: "snapshot-1",
+      schemaVersion: 1,
+      provider: "frankfurter_ecb",
+      baseCurrency: "EUR",
+      quoteCurrency: "DKK",
+      rate: 7.460123,
+      rateDate: "2026-07-30",
+      fetchedAt: "2026-07-31T08:15:00.000Z",
+      sourcePayloadSha256: "a".repeat(64),
+    },
+    pricingBuffer: {
+      type: "percent",
+      value: 2.5,
+      amountDkk: "23.02380460875",
+    },
+    bufferedCostDkk: "943.97598895875",
+    markupInputs: { type: "percent", value: 60.5 },
+    markupAmountDkk: "571.10547332004375",
+    selections: { material: "PVC" },
+  });
+
+  assert.equal(record.convertedPriceDkk, "920.95218435");
+  assert.deepEqual(record.fxSnapshot, {
+    id: "snapshot-1",
+    schemaVersion: 1,
+    provider: "frankfurter_ecb",
+    baseCurrency: "EUR",
+    quoteCurrency: "DKK",
+    rate: 7.460123,
+    rateDate: "2026-07-30",
+    fetchedAt: "2026-07-31T08:15:00.000Z",
+    sourcePayloadSha256: "a".repeat(64),
+  });
+  assert.deepEqual(record.pricingBuffer, {
+    type: "percent",
+    value: 2.5,
+    amountDkk: "23.02380460875",
+  });
+  assert.equal(record.bufferedCostDkk, "943.97598895875");
+  assert.deepEqual(record.markupInputs, { type: "percent", value: 60.5 });
+  assert.equal(record.markupAmountDkk, "571.10547332004375");
+  assert.equal(record.finalPriceDkk, 1515.09);
+});
+
+test("roll-label snapshot mode is offline, explicit, and guarded before writes", () => {
+  const source = readFileSync(
+    new URL("../../fetch2-wmd-roll-labels.mjs", import.meta.url),
+    "utf8",
+  );
+  const importSection = source.slice(
+    source.indexOf("async function runImport"),
+    source.indexOf("async function main"),
+  );
+  const firstGuard = importSection.indexOf("assertSnapshotDraftWriteTarget");
+  const clientCreation = importSection.indexOf("createSupabaseServiceClient");
+  const snapshotRpc = importSection.indexOf(
+    'rpc("apply_wmd_roll_label_snapshot_draft_import"',
+  );
+  const statusRead = importSection.indexOf('.select("id,is_published")');
+  const secondGuard = importSection.indexOf(
+    "assertSnapshotDraftWriteTarget",
+    firstGuard + 1,
+  );
+  const firstProductWrite = Math.min(
+    ...[".update(productPayload)", ".insert(productPayload)"]
+      .map((token) => importSection.indexOf(token))
+      .filter((index) => index >= 0),
+  );
+
+  assert.match(source, /--fx-snapshot-file/);
+  assert.match(source, /--pricing-buffer-pct/);
+  assert.match(source, /--write-snapshot-draft/);
+  assert.match(source, /readFxSnapshotFile/);
+  assert.match(source, /applySnapshotPricing/);
+  assert.match(source, /return convertEurToDkk\(eurNet, cfg\)/);
+  assert.doesNotMatch(source, /api\.frankfurter|fetchFrankfurter/i);
+  assert.ok(firstGuard >= 0 && firstGuard < clientCreation);
+  assert.ok(snapshotRpc > clientCreation && snapshotRpc < statusRead);
+  assert.doesNotMatch(
+    importSection.slice(clientCreation, snapshotRpc),
+    /\.from\(/,
+  );
+  assert.ok(secondGuard > statusRead && secondGuard < firstProductWrite);
+});
+
+test("snapshot writes require explicit confirmation before client creation or RPC", () => {
+  const source = readFileSync(
+    new URL("../../fetch2-wmd-roll-labels.mjs", import.meta.url),
+    "utf8",
+  );
+  const importSection = source.slice(
+    source.indexOf("async function runImport"),
+    source.indexOf("async function main"),
+  );
+  const confirmation = importSection.indexOf(
+    "assertSnapshotDraftWriteConfirmation",
+  );
+  const clientCreation = importSection.indexOf("createSupabaseServiceClient");
+  const snapshotRpc = importSection.indexOf(
+    'rpc("apply_wmd_roll_label_snapshot_draft_import"',
+  );
+
+  assert.match(source, /writeSnapshotDraft:\s*argv\.includes\("--write-snapshot-draft"\)/);
+  assert.ok(confirmation >= 0 && confirmation < clientCreation);
+  assert.ok(snapshotRpc > clientCreation);
 });
 
 test("matrix publisher builds exact variant semantics from normalized rows", () => {
