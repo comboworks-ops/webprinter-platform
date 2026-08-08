@@ -87,10 +87,16 @@ verify_jwt = true
 [functions.pod3-flyeralarm-request]
 verify_jwt = true
 
+[functions.postnord-tracking-sync]
+verify_jwt = true
+
 [functions.pricing-read]
 verify_jwt = true
 
 [functions.product-detail-read]
+verify_jwt = true
+
+[functions.reference-fx-snapshot]
 verify_jwt = true
 
 [functions.search-console]
@@ -149,6 +155,9 @@ verify_jwt = true
 
 [functions.stripe-subscription-webhook]
 verify_jwt = false
+
+[functions.tenant-business-evidence]
+verify_jwt = true
 
 [functions.tenant-context-read]
 verify_jwt = true
