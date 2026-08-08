@@ -14,6 +14,7 @@
     "supabase:cli": "node scripts/supabase-cli.mjs",
     "check:supabase-grants": "node scripts/check-supabase-migration-grants.js",
     "check:supabase-functions": "node scripts/check-supabase-function-exposure.js",
+    "check:reference-integrations:release": "bash scripts/check-reference-integrations-release.sh",
     "supplier-bank:doctor": "node scripts/supplier-bank-cli.mjs doctor",
     "supplier-bank:validate-sources": "node scripts/supplier-bank-cli.mjs validate-supplier-sources",
     "supplier-bank:url-candidates": "node scripts/supplier-bank-cli.mjs supplier-bank-url-candidate-report",

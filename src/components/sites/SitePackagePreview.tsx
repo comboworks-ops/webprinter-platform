@@ -18,6 +18,7 @@ import {
   cloneStandardDeliveryMethods,
   resolveDeliveryMethodCost,
 } from '@/lib/delivery/defaults';
+import { normalizeStorformatPricingConfig } from '@/utils/storformatPricing';
 
 interface SitePackagePreviewProps {
   siteId: string;
@@ -81,6 +82,7 @@ type RuntimeSiteDeliveryMethod = {
 
 type RuntimeSiteStorformatConfig = {
   roundingStep: number;
+  roundingMode: 'nearest_v1' | 'ceil_v1';
   globalMarkupPct: number;
   quantities: number[];
 };
@@ -663,10 +665,21 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
 
           sourceProductIds.forEach((productId) => {
             const configRow = configByProductId.get(productId) || null;
-            const config: RuntimeSiteStorformatConfig | null = configRow
+            const normalizedConfig = configRow
+              ? normalizeStorformatPricingConfig({
+                  rounding_step: asNumber(configRow.rounding_step) ?? 1,
+                  rounding_mode:
+                    configRow.rounding_mode === 'ceil_v1'
+                      ? 'ceil_v1'
+                      : 'nearest_v1',
+                  global_markup_pct: asNumber(configRow.global_markup_pct) ?? 0,
+                })
+              : null;
+            const config: RuntimeSiteStorformatConfig | null = configRow && normalizedConfig
               ? {
-                roundingStep: asNumber(configRow.rounding_step) ?? 1,
-                globalMarkupPct: asNumber(configRow.global_markup_pct) ?? 0,
+                roundingStep: normalizedConfig.rounding_step,
+                roundingMode: normalizedConfig.rounding_mode,
+                globalMarkupPct: normalizedConfig.global_markup_pct,
                 quantities: Array.isArray(configRow.quantities)
                   ? configRow.quantities
                     .map((value) => asNumber(value))

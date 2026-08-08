@@ -53,11 +53,34 @@ export type StorformatProduct = {
 
 export type StorformatConfig = {
   rounding_step: number;
+  rounding_mode?: "nearest_v1" | "ceil_v1";
   global_markup_pct: number;
   quantities: number[];
   layout_rows?: any[];
   vertical_axis?: any;
 };
+
+export function normalizeStorformatPricingConfig(
+  row: Partial<StorformatConfig> | null | undefined,
+  fallbackQuantities: number[] = [1],
+): StorformatConfig {
+  return {
+    rounding_step: typeof row?.rounding_step === "number" &&
+        Number.isFinite(row.rounding_step) && row.rounding_step > 0
+      ? row.rounding_step
+      : 1,
+    rounding_mode: row?.rounding_mode === "ceil_v1"
+      ? "ceil_v1"
+      : "nearest_v1",
+    global_markup_pct: typeof row?.global_markup_pct === "number" &&
+        Number.isFinite(row.global_markup_pct)
+      ? row.global_markup_pct
+      : 0,
+    quantities: Array.isArray(row?.quantities) && row.quantities.length > 0
+      ? row.quantities
+      : fallbackQuantities,
+  };
+}
 
 type SplitInfo = {
   isSplit: boolean;
@@ -251,7 +274,10 @@ export const calculateStorformatPrice = ({
   const subtotal = materialCost + finishCost + productCost;
   const markup = config.global_markup_pct || 0;
   const rounding = config.rounding_step || 1;
-  const totalPrice = Math.round((subtotal * (1 + markup / 100)) / rounding) * rounding;
+  const scaledTotal = (subtotal * (1 + markup / 100)) / rounding;
+  const totalPrice = config.rounding_mode === "ceil_v1"
+    ? Math.ceil(scaledTotal - Number.EPSILON * Math.max(1, Math.abs(scaledTotal))) * rounding
+    : Math.round(scaledTotal) * rounding;
 
   return {
     areaM2,

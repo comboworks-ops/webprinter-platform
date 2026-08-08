@@ -14,6 +14,17 @@ import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 import { chromium } from "playwright";
 import { applyConversionRule } from "./product-import/shared/conversion.js";
+import { parseFxSnapshot } from "./product-import/shared/fx-snapshot.js";
+import {
+  applySnapshotPricing,
+  assertSnapshotDraftWriteConfirmation,
+  assertSnapshotDraftWriteTarget,
+  buildSnapshotDraftTarget,
+  deriveSnapshotUnitPrice,
+  deriveSnapshotChildUuid,
+  parsePositiveSupplierPrice,
+  resolveSnapshotRoundingPolicy,
+} from "./product-import/shared/snapshot-pricing.js";
 
 const DEFAULT_URL =
   "https://www.wir-machen-druck.de/hochwertige-etiketten-auf-rolle-freie-groesse-rechteckig.html#content-view";
@@ -67,15 +78,20 @@ function usage() {
     "    [--limit-materials <n>] [--limit-quantities <n>] [--limit-sizes <n>] [--limit-deliveries <n>]",
     "    [--out-dir <path>]",
     "    [--eur-to-dkk <n>] [--markup-low-pct <n>] [--markup-high-pct <n>] [--threshold-dkk <n>] [--rounding-step <n>]",
+    "    [--fx-snapshot-file <json>] [--pricing-buffer-pct <non-negative-number>]",
     "  node scripts/fetch2-wmd-roll-labels.mjs import [--input <json>] [--dry-run]",
     "    [--out-dir <path>]",
     "    [--tenant-id <uuid>] [--product-name <name>] [--product-slug <slug>] [--category <name>] [--description <text>]",
-    "    [--quantities <csv>] [--delivery-mode cheapest|fastest|both] [--rounding-step <n>] [--publish]",
+    "    [--quantities <csv>] [--delivery-mode cheapest|fastest|both] [--rounding-step <integer>] [--publish]",
+    "    [--fx-snapshot-file <json>] [--pricing-buffer-pct <non-negative-number>] [--write-snapshot-draft]",
+    "    [--target-product-id <uuid> --expected-target-revision <positive-integer>] [--import-id <uuid>]",
     "",
     "Notes:",
     "  - Uses /wmdrest/article/get-price and related endpoints.",
     "  - Circle rows are derived from rectangle quotes (same price, radius = min(width,height)/2).",
     "  - Markup rule default: EUR*7.6 then +70%, but when base DKK > 3000 then +60%.",
+    "  - Snapshot mode reads an already captured local file; it never fetches an FX provider.",
+    "  - Snapshot-priced writes require --write-snapshot-draft, --import-id <uuid>, and one atomic draft-only RPC.",
     "  - Base extraction price source is supplier net price (response.price).",
   ].join("\n");
 }
@@ -153,7 +169,13 @@ function parseArgs(argv) {
     getArgValue(argv, "--markup-high-pct") || DEFAULT_MARKUP_OVER_THRESHOLD
   );
   const thresholdDkk = Number(getArgValue(argv, "--threshold-dkk") || DEFAULT_THRESHOLD_DKK);
+  const hasRoundingStepFlag = argv.includes("--rounding-step");
   const roundingStep = Number(getArgValue(argv, "--rounding-step") || DEFAULT_ROUNDING_STEP);
+  const hasFxSnapshotFlag = argv.includes("--fx-snapshot-file");
+  const fxSnapshotFile = getArgValue(argv, "--fx-snapshot-file");
+  const hasPricingBufferFlag = argv.includes("--pricing-buffer-pct");
+  const pricingBufferValue = getArgValue(argv, "--pricing-buffer-pct");
+  const pricingBufferPct = pricingBufferValue === null ? null : Number(pricingBufferValue);
   const inputPath = getArgValue(argv, "--input");
   const dryRun = argv.includes("--dry-run");
   const publish = argv.includes("--publish");
@@ -163,6 +185,13 @@ function parseArgs(argv) {
   const category = normalizeText(getArgValue(argv, "--category") || DEFAULT_PRODUCT_CATEGORY);
   const description = normalizeText(getArgValue(argv, "--description") || DEFAULT_PRODUCT_DESCRIPTION);
   const deliveryMode = normalizeKey(getArgValue(argv, "--delivery-mode") || DEFAULT_DELIVERY_MODE);
+  const targetProductId = getArgValue(argv, "--target-product-id");
+  const expectedTargetRevisionValue = getArgValue(argv, "--expected-target-revision");
+  const expectedTargetRevision = expectedTargetRevisionValue === null
+    ? null
+    : Number(expectedTargetRevisionValue);
+  const importId = getArgValue(argv, "--import-id");
+  const writeSnapshotDraft = argv.includes("--write-snapshot-draft");
 
   if (!["probe", "extract", "import"].includes(command)) {
     throw new Error("Command must be 'probe', 'extract', or 'import'");
@@ -173,11 +202,35 @@ function parseArgs(argv) {
     throw new Error("--markup-high-pct must be >= 0");
   if (!Number.isFinite(thresholdDkk) || thresholdDkk <= 0) throw new Error("--threshold-dkk must be > 0");
   if (!Number.isFinite(roundingStep) || roundingStep <= 0) throw new Error("--rounding-step must be > 0");
+  if (
+    expectedTargetRevisionValue !== null &&
+    (!Number.isSafeInteger(expectedTargetRevision) || expectedTargetRevision < 0)
+  ) {
+    throw new Error("--expected-target-revision must be a non-negative integer");
+  }
+  if (hasFxSnapshotFlag && !fxSnapshotFile) {
+    throw new Error("--fx-snapshot-file requires a JSON file path");
+  }
+  if (hasPricingBufferFlag && pricingBufferValue === null) {
+    throw new Error("--pricing-buffer-pct requires a value");
+  }
+  if (pricingBufferPct !== null && (!Number.isFinite(pricingBufferPct) || pricingBufferPct < 0)) {
+    throw new Error("--pricing-buffer-pct must be a non-negative number");
+  }
+  if (hasPricingBufferFlag && !hasFxSnapshotFlag) {
+    throw new Error("--pricing-buffer-pct requires --fx-snapshot-file");
+  }
+  if (command === "probe" && hasFxSnapshotFlag) {
+    throw new Error("--fx-snapshot-file is supported only for extract or import");
+  }
   if (command === "extract" && !shapes.length) {
     throw new Error("--shapes must include rectangle and/or circle");
   }
   if (command === "import" && !["cheapest", "fastest", "both"].includes(deliveryMode)) {
     throw new Error("--delivery-mode must be one of: cheapest, fastest, both");
+  }
+  if (writeSnapshotDraft && !importId) {
+    throw new Error("--write-snapshot-draft requires --import-id <uuid>");
   }
 
   return {
@@ -198,15 +251,23 @@ function parseArgs(argv) {
     markupHighPct,
     thresholdDkk,
     roundingStep,
+    hasRoundingStepFlag,
+    fxSnapshotFile,
+    pricingBufferPct,
+    hasPricingBufferFlag,
     inputPath,
     dryRun,
     publish,
+    writeSnapshotDraft: argv.includes("--write-snapshot-draft"),
     tenantId,
     productName,
     productSlug,
     category,
     description,
     deliveryMode,
+    targetProductId,
+    expectedTargetRevision,
+    importId,
   };
 }
 
@@ -236,6 +297,36 @@ function convertEurToDkk(eurNet, cfg) {
     baseDkk: converted.convertedPriceDkk,
     markupPct: converted.markupPct,
     finalDkk: converted.finalPriceDkk,
+  };
+}
+
+function convertSupplierEurToDkk(eurNet, cfg, snapshotPricing) {
+  if (!snapshotPricing) return convertEurToDkk(eurNet, cfg);
+
+  const pricingEvidence = applySnapshotPricing({
+    supplierPrice: eurNet,
+    fxSnapshot: snapshotPricing.fxSnapshot.snapshot,
+    fxSnapshotId: snapshotPricing.fxSnapshot.id,
+    pricingBuffer: {
+      type: "percent",
+      value: snapshotPricing.pricingBufferPct,
+    },
+    markupPolicy: {
+      type: "threshold_percent",
+      thresholdDkk: cfg.thresholdDkk,
+      atOrBelowValue: cfg.markupLowPct,
+      aboveValue: cfg.markupHighPct,
+    },
+    roundingStepDkk: cfg.roundingStep,
+  });
+
+  return {
+    eurNet,
+    baseDkk: pricingEvidence.convertedPriceDkk,
+    markupPct: pricingEvidence.markup.value,
+    unroundedFinalDkk: pricingEvidence.unroundedFinalPriceDkk,
+    finalDkk: pricingEvidence.finalPriceDkk,
+    pricingEvidence,
   };
 }
 
@@ -298,6 +389,140 @@ function readJsonFile(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+function isPlainObject(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasExactStringKeys(value, expectedKeys) {
+  if (!isPlainObject(value)) return false;
+  const keys = Reflect.ownKeys(value);
+  return (
+    keys.every((key) => typeof key === "string") &&
+    keys.length === expectedKeys.length &&
+    expectedKeys.every((key) => keys.includes(key))
+  );
+}
+
+function normalizeFxSnapshotBundle(value) {
+  try {
+    let id;
+    let snapshotInput;
+    if (isPlainObject(value) && Object.hasOwn(value, "snapshot")) {
+      const keys = Reflect.ownKeys(value);
+      const validWrapper =
+        hasExactStringKeys(value, ["id", "snapshot"]) ||
+        hasExactStringKeys(value, ["id", "replayed", "snapshot"]);
+      if (!validWrapper || keys.some((key) => typeof key !== "string")) {
+        throw new Error("invalid wrapper");
+      }
+      if (
+        Object.hasOwn(value, "replayed") &&
+        typeof value.replayed !== "boolean"
+      ) {
+        throw new Error("invalid replay flag");
+      }
+      id = value.id;
+      snapshotInput = value.snapshot;
+    } else {
+      snapshotInput = value;
+    }
+
+    const snapshot = parseFxSnapshot(snapshotInput);
+    const deterministicId =
+      `frankfurter_ecb:${snapshot.rateDate}:${snapshot.sourcePayloadSha256}`;
+    const resolvedId = id ?? deterministicId;
+    if (
+      typeof resolvedId !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(resolvedId)
+    ) {
+      throw new Error("invalid snapshot id");
+    }
+    return { id: resolvedId, snapshot };
+  } catch {
+    throw new Error("Invalid immutable FX snapshot file");
+  }
+}
+
+function readFxSnapshotFile(filePath) {
+  const absolutePath = path.resolve(process.cwd(), filePath);
+  let stat;
+  try {
+    stat = fs.statSync(absolutePath);
+  } catch {
+    throw new Error("FX snapshot file was not found");
+  }
+  if (!stat.isFile() || stat.size <= 0 || stat.size > 64 * 1024) {
+    throw new Error("FX snapshot file must be a non-empty JSON file below 64 KiB");
+  }
+  try {
+    return normalizeFxSnapshotBundle(readJsonFile(absolutePath));
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Invalid immutable")) {
+      throw error;
+    }
+    throw new Error("Invalid immutable FX snapshot file");
+  }
+}
+
+function parseEmbeddedSnapshotPricing(value) {
+  if (value === undefined) return null;
+  if (!hasExactStringKeys(value, ["schemaVersion", "fxSnapshot", "pricingBufferPct"])) {
+    throw new Error("Invalid embedded snapshot pricing evidence");
+  }
+  if (
+    value.schemaVersion !== 1 ||
+    !Number.isFinite(value.pricingBufferPct) ||
+    value.pricingBufferPct < 0
+  ) {
+    throw new Error("Invalid embedded snapshot pricing evidence");
+  }
+  return {
+    schemaVersion: 1,
+    fxSnapshot: normalizeFxSnapshotBundle(value.fxSnapshot),
+    pricingBufferPct: value.pricingBufferPct,
+  };
+}
+
+function resolveSnapshotPricing(args, payload = null) {
+  const embedded = parseEmbeddedSnapshotPricing(payload?.config?.snapshotPricing);
+  const explicitBundle = args.fxSnapshotFile
+    ? readFxSnapshotFile(args.fxSnapshotFile)
+    : null;
+
+  if (
+    embedded &&
+    explicitBundle &&
+    (embedded.fxSnapshot.id !== explicitBundle.id ||
+      JSON.stringify(embedded.fxSnapshot.snapshot) !==
+        JSON.stringify(explicitBundle.snapshot))
+  ) {
+    throw new Error("The supplied FX snapshot does not match the extraction evidence");
+  }
+  if (!embedded && !explicitBundle) return null;
+
+  return {
+    schemaVersion: 1,
+    fxSnapshot: explicitBundle ?? embedded.fxSnapshot,
+    pricingBufferPct: args.hasPricingBufferFlag
+      ? args.pricingBufferPct
+      : (embedded?.pricingBufferPct ?? 0),
+  };
+}
+
+function serializeSnapshotPricing(snapshotPricing) {
+  if (!snapshotPricing) return null;
+  return {
+    schemaVersion: 1,
+    fxSnapshot: {
+      id: snapshotPricing.fxSnapshot.id,
+      snapshot: snapshotPricing.fxSnapshot.snapshot,
+    },
+    pricingBufferPct: snapshotPricing.pricingBufferPct,
+  };
+}
+
 function createSupabaseServiceClient() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key =
@@ -309,6 +534,21 @@ function createSupabaseServiceClient() {
   if (!url || !key) {
     throw new Error(
       "Missing Supabase env. Expected SUPABASE_URL/VITE_SUPABASE_URL and a Supabase key."
+    );
+  }
+
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+function createSnapshotDraftServiceClient() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error(
+      "Missing server-only Supabase env for snapshot draft write. Expected SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
     );
   }
 
@@ -364,14 +604,14 @@ function buildTierSeriesFromPoints(pointToPriceMap) {
     return {
       from_m2: Number(fromM2),
       to_m2: next ? Number(next[0]) : null,
-      price_per_m2: Number(Number(pricePerM2).toFixed(6)),
+      price_per_m2: Number(pricePerM2),
       is_anchor: true,
       sort_order: idx,
     };
   });
 }
 
-function parseImportRows(payload) {
+function parseImportRows(payload, snapshotPricing = null, pricingConfig = null) {
   const sourceRows = Array.isArray(payload?.combinations) ? payload.combinations : [];
   const parsed = [];
 
@@ -380,17 +620,49 @@ function parseImportRows(payload) {
     const materialLabel = normalizeText(row?.materialLabel || materialId || "Material");
     const areaM2 = toFiniteNumber(row?.areaM2);
     const quantity = toFiniteNumber(row?.quantity);
-    const cheapestDkkFinal = toFiniteNumber(row?.cheapestDkkFinal);
-    const fastestDkkFinal = toFiniteNumber(row?.fastestDkkFinal);
+    let cheapestDkkFinal = toFiniteNumber(row?.cheapestDkkFinal);
+    let fastestDkkFinal = toFiniteNumber(row?.fastestDkkFinal);
+    let cheapestUnroundedDkkFinal = cheapestDkkFinal;
+    let fastestUnroundedDkkFinal = fastestDkkFinal;
+    if (snapshotPricing) {
+      const cheapestEurNet = toFiniteNumber(row?.cheapestEurNet);
+      const fastestEurNet = toFiniteNumber(row?.fastestEurNet);
+      const cheapestConversion = Number.isFinite(cheapestEurNet)
+        ? convertSupplierEurToDkk(cheapestEurNet, pricingConfig, snapshotPricing)
+        : null;
+      const fastestConversion = Number.isFinite(fastestEurNet)
+        ? convertSupplierEurToDkk(fastestEurNet, pricingConfig, snapshotPricing)
+        : null;
+      cheapestDkkFinal = toFiniteNumber(cheapestConversion?.finalDkk);
+      fastestDkkFinal = toFiniteNumber(fastestConversion?.finalDkk);
+      cheapestUnroundedDkkFinal = toFiniteNumber(cheapestConversion?.unroundedFinalDkk);
+      fastestUnroundedDkkFinal = toFiniteNumber(fastestConversion?.unroundedFinalDkk);
+    }
 
     if (!Number.isFinite(areaM2) || !Number.isFinite(quantity)) continue;
     const totalAreaM2 = areaM2 * quantity;
     if (!Number.isFinite(totalAreaM2) || totalAreaM2 <= 0) continue;
 
-    const cheapestPerM2Dkk =
-      Number.isFinite(cheapestDkkFinal) && totalAreaM2 > 0 ? cheapestDkkFinal / totalAreaM2 : null;
-    const fastestPerM2Dkk =
-      Number.isFinite(fastestDkkFinal) && totalAreaM2 > 0 ? fastestDkkFinal / totalAreaM2 : null;
+    const cheapestPerM2Dkk = Number.isFinite(cheapestUnroundedDkkFinal)
+      ? snapshotPricing
+        ? deriveSnapshotUnitPrice(cheapestUnroundedDkkFinal, totalAreaM2)
+        : cheapestUnroundedDkkFinal / totalAreaM2
+      : null;
+    const fastestPerM2Dkk = Number.isFinite(fastestUnroundedDkkFinal)
+      ? snapshotPricing
+        ? deriveSnapshotUnitPrice(fastestUnroundedDkkFinal, totalAreaM2)
+        : fastestUnroundedDkkFinal / totalAreaM2
+      : null;
+    const fastestSurchargePerM2Dkk =
+      snapshotPricing &&
+      Number.isFinite(fastestUnroundedDkkFinal) &&
+      Number.isFinite(cheapestUnroundedDkkFinal) &&
+      fastestUnroundedDkkFinal > cheapestUnroundedDkkFinal
+        ? deriveSnapshotUnitPrice(
+            fastestUnroundedDkkFinal - cheapestUnroundedDkkFinal,
+            totalAreaM2,
+          )
+        : null;
 
     parsed.push({
       materialId,
@@ -404,10 +676,39 @@ function parseImportRows(payload) {
       fastestDkkFinal,
       cheapestPerM2Dkk,
       fastestPerM2Dkk,
+      fastestSurchargePerM2Dkk,
     });
   }
 
   return parsed;
+}
+
+function buildSnapshotPricingPreview(payload, snapshotPricing, pricingConfig) {
+  if (!snapshotPricing) return null;
+  for (const row of Array.isArray(payload?.combinations) ? payload.combinations : []) {
+    for (const candidate of [row?.cheapestEurNet, row?.fastestEurNet]) {
+      const supplierPrice = toFiniteNumber(candidate);
+      if (!Number.isFinite(supplierPrice)) continue;
+      const evidence = convertSupplierEurToDkk(
+        supplierPrice,
+        pricingConfig,
+        snapshotPricing,
+      ).pricingEvidence;
+      return {
+        supplier_price_eur: evidence.supplierPrice,
+        fx_rate: evidence.fxRate,
+        converted_price_dkk: evidence.convertedPriceDkk,
+        pricing_buffer_pct: evidence.pricingBuffer.value,
+        pricing_buffer_amount_dkk: evidence.pricingBuffer.amountDkk,
+        buffered_cost_dkk: evidence.bufferedCostDkk,
+        markup_type: evidence.markup.type,
+        markup_pct: evidence.markup.value,
+        markup_amount_dkk: evidence.markup.amountDkk,
+        final_price_dkk: evidence.finalPriceDkk,
+      };
+    }
+  }
+  return null;
 }
 
 function ensureImportQuantities(args, payload, parsedRows) {
@@ -488,7 +789,9 @@ function buildImportDeliveryVariants(parsedRows, deliveryMode) {
   const deltaBuckets = buildPointBuckets();
   for (const row of parsedRows) {
     if (!Number.isFinite(row.fastestPerM2Dkk) || !Number.isFinite(row.cheapestPerM2Dkk)) continue;
-    const delta = row.fastestPerM2Dkk - row.cheapestPerM2Dkk;
+    const delta = Number.isFinite(row.fastestSurchargePerM2Dkk)
+      ? row.fastestSurchargePerM2Dkk
+      : row.fastestPerM2Dkk - row.cheapestPerM2Dkk;
     if (!Number.isFinite(delta) || delta <= 0) continue;
     addPointBucketValue(deltaBuckets, row.totalAreaM2, delta);
   }
@@ -748,6 +1051,7 @@ async function runProbe(args) {
 }
 
 async function runExtract(args) {
+  const snapshotPricing = resolveSnapshotPricing(args);
   const { browser, page } = await bootstrapPage(args.url, args.headless);
   try {
     const cfg = await readConfigFromPage(page);
@@ -798,13 +1102,17 @@ async function runExtract(args) {
             try {
               const json = await callGetPrice(page, payload);
               const resp = json?.data?.response;
-              if (!resp || resp.currency !== "EUR" || Number.isNaN(Number(resp.price))) {
+              if (!resp || resp.currency !== "EUR") {
                 throw new Error("Malformed get-price response");
               }
 
-              const eurNet = Number(resp.price);
+              const eurNet = parsePositiveSupplierPrice(resp.price);
               const deliveryChargeEur = Number(resp.deliveryCharge || 0) || 0;
-              const converted = convertEurToDkk(eurNet, args);
+              const converted = convertSupplierEurToDkk(
+                eurNet,
+                args,
+                snapshotPricing,
+              );
               const areaCm2 = size.widthCm * size.heightCm;
               const areaM2 = areaCm2 / 10000;
               const pricePerM2Eur = areaM2 > 0 ? eurNet / areaM2 : null;
@@ -835,6 +1143,9 @@ async function runExtract(args) {
                 dkkPerM2: pricePerM2Dkk,
                 eurPerM2: pricePerM2Eur,
                 payload,
+                ...(converted.pricingEvidence
+                  ? { pricingEvidence: converted.pricingEvidence }
+                  : {}),
               };
 
               deliveryRows.push(row);
@@ -889,6 +1200,7 @@ async function runExtract(args) {
           deliveryChargeEur: r.deliveryChargeEur,
           priceEurNet: r.eurNet,
           priceDkkFinal: r.dkkFinal,
+          pricingEvidence: r.pricingEvidence ?? null,
         }))
       );
       combinations.push({
@@ -902,9 +1214,15 @@ async function runExtract(args) {
         cheapestDeliveryOption: cheapest?.deliveryOption ?? null,
         cheapestEurNet: cheapest?.priceEurNet ?? null,
         cheapestDkkFinal: cheapest?.priceDkkFinal ?? null,
+        ...(cheapest?.pricingEvidence
+          ? { cheapestPricingEvidence: cheapest.pricingEvidence }
+          : {}),
         fastestDeliveryOption: fastest?.deliveryOption ?? null,
         fastestEurNet: fastest?.priceEurNet ?? null,
         fastestDkkFinal: fastest?.priceDkkFinal ?? null,
+        ...(fastest?.pricingEvidence
+          ? { fastestPricingEvidence: fastest.pricingEvidence }
+          : {}),
       });
     }
 
@@ -934,6 +1252,9 @@ async function runExtract(args) {
         markupHighPct: args.markupHighPct,
         thresholdDkk: args.thresholdDkk,
         roundingStep: args.roundingStep,
+        ...(snapshotPricing
+          ? { snapshotPricing: serializeSnapshotPricing(snapshotPricing) }
+          : {}),
       },
       counts: {
         quotes: quotes.length,
@@ -969,6 +1290,20 @@ async function runExtract(args) {
         eur_per_m2: r.eurPerM2 ?? "",
         dkk_per_m2: r.dkkPerM2 ?? "",
         price_scale_id: r.priceScaleId ?? "",
+        fx_snapshot_id: r.pricingEvidence?.fxSnapshotId ?? "",
+        fx_provider: r.pricingEvidence?.fxProvider ?? "",
+        fx_rate: r.pricingEvidence?.fxRate ?? "",
+        fx_rate_date: r.pricingEvidence?.fxRateDate ?? "",
+        fx_digest: r.pricingEvidence?.fxSourcePayloadSha256 ?? "",
+        converted_price_dkk: r.pricingEvidence?.convertedPriceDkk ?? "",
+        pricing_buffer_pct: r.pricingEvidence?.pricingBuffer?.value ?? "",
+        pricing_buffer_amount_dkk:
+          r.pricingEvidence?.pricingBuffer?.amountDkk ?? "",
+        buffered_cost_dkk: r.pricingEvidence?.bufferedCostDkk ?? "",
+        markup_type: r.pricingEvidence?.markup?.type ?? "",
+        snapshot_markup_pct: r.pricingEvidence?.markup?.value ?? "",
+        markup_amount_dkk: r.pricingEvidence?.markup?.amountDkk ?? "",
+        snapshot_final_price_dkk: r.pricingEvidence?.finalPriceDkk ?? "",
       })),
       [
         "shape",
@@ -990,6 +1325,23 @@ async function runExtract(args) {
         "eur_per_m2",
         "dkk_per_m2",
         "price_scale_id",
+        ...(snapshotPricing
+          ? [
+              "fx_snapshot_id",
+              "fx_provider",
+              "fx_rate",
+              "fx_rate_date",
+              "fx_digest",
+              "converted_price_dkk",
+              "pricing_buffer_pct",
+              "pricing_buffer_amount_dkk",
+              "buffered_cost_dkk",
+              "markup_type",
+              "snapshot_markup_pct",
+              "markup_amount_dkk",
+              "snapshot_final_price_dkk",
+            ]
+          : []),
       ]
     );
 
@@ -1046,10 +1398,216 @@ async function runExtract(args) {
   }
 }
 
+function buildSnapshotDraftImportPayload({
+  importId,
+  product,
+  materialModels,
+  variantModels,
+  shapeModels,
+  deliveryModels,
+  maxMm,
+  quantities,
+  roundingStep,
+  roundingMode,
+}) {
+  const stableChildId = (kind, index, content) => {
+    const contentDigest = crypto
+      .createHash("sha256")
+      .update(JSON.stringify(content), "utf8")
+      .digest("hex");
+    return deriveSnapshotChildUuid(
+      importId,
+      `${kind}:${index}:${contentDigest}`,
+    );
+  };
+  const materials = materialModels.map((material, idx) => ({
+    id: stableChildId("material", idx, {
+      name: material.name,
+      groupLabel: material.groupLabel || "Material",
+    }),
+    name: material.name,
+    group_label: material.groupLabel || "Material",
+    bleed_mm: 3,
+    safe_area_mm: 3,
+    max_width_mm: maxMm,
+    max_height_mm: maxMm,
+    allow_split: false,
+    interpolation_enabled: true,
+    markup_pct: 0,
+    sort_order: idx,
+  }));
+  const materialIdByName = new Map(
+    materials.map((row) => [normalizeKey(row.name), row.id]),
+  );
+  const materialPriceTiers = [];
+  const materialM2Prices = [];
+  materialModels.forEach((material, materialIndex) => {
+    const materialId = materialIdByName.get(normalizeKey(material.name));
+    if (!materialId) return;
+    material.tiers.forEach((tier, idx) => {
+      materialPriceTiers.push({
+        id: stableChildId("material-price-tier", materialIndex, { idx, tier }),
+        material_id: materialId,
+        from_m2: tier.from_m2,
+        to_m2: tier.to_m2,
+        price_per_m2: tier.price_per_m2,
+        is_anchor: true,
+        markup_pct: 0,
+        sort_order: idx,
+      });
+      materialM2Prices.push({
+        id: stableChildId("material-m2-price", materialIndex, { idx, tier }),
+        material_id: materialId,
+        from_m2: tier.from_m2,
+        to_m2: tier.to_m2,
+        price_per_m2: tier.price_per_m2,
+        is_anchor: true,
+      });
+    });
+  });
+
+  const variants = variantModels.map((variant, idx) => ({
+    id: stableChildId("variant", idx, {
+      key: variant.key,
+      name: variant.name,
+      pricingMode: variant.pricing_mode,
+    }),
+    name: variant.name,
+    group_label: "Delivery",
+    pricing_mode: variant.pricing_mode,
+    initial_price: 0,
+    interpolation_enabled: true,
+    markup_pct: 0,
+    sort_order: idx,
+    pricing_type: variant.pricing_mode === "per_m2" ? "m2" : "fixed",
+    percentage_markup: 0,
+    min_price: 0,
+  }));
+  const variantIdByKey = new Map(
+    variantModels
+      .map((variant, idx) => [variant.key, variants[idx]?.id])
+      .filter((entry) => entry[1]),
+  );
+  const variantPriceTiers = [];
+  const variantM2Prices = [];
+  variantModels.forEach((variant, variantIndex) => {
+    if (variant.pricing_mode !== "per_m2") return;
+    const variantId = variantIdByKey.get(variant.key);
+    if (!variantId) return;
+    variant.tiers.forEach((tier, idx) => {
+      variantPriceTiers.push({
+        id: stableChildId("variant-price-tier", variantIndex, { idx, tier }),
+        variant_id: variantId,
+        from_m2: tier.from_m2,
+        to_m2: tier.to_m2,
+        price_per_m2: tier.price_per_m2,
+        is_anchor: true,
+        markup_pct: 0,
+        sort_order: idx,
+      });
+      variantM2Prices.push({
+        id: stableChildId("variant-m2-price", variantIndex, { idx, tier }),
+        variant_id: variantId,
+        from_m2: tier.from_m2,
+        to_m2: tier.to_m2,
+        price_per_m2: tier.price_per_m2,
+        is_anchor: true,
+      });
+    });
+  });
+
+  const layoutRows = [];
+  const shapeVariantIds = shapeModels
+    .map((variant) => variantIdByKey.get(variant.key))
+    .filter(Boolean);
+  const deliveryVariantIds = deliveryModels
+    .map((variant) => variantIdByKey.get(variant.key))
+    .filter(Boolean);
+  if (shapeVariantIds.length) {
+    layoutRows.push({
+      id: "row-shape",
+      title: "Shape",
+      sections: [
+        {
+          id: "section-shape-products",
+          sectionType: "products",
+          ui_mode: "buttons",
+          selection_mode: "required",
+          valueIds: shapeVariantIds,
+          valueSettings: {},
+        },
+      ],
+    });
+  }
+  if (deliveryVariantIds.length) {
+    layoutRows.push({
+      id: "row-delivery",
+      title: "Delivery",
+      sections: [
+        {
+          id: "section-delivery-products",
+          sectionType: "products",
+          ui_mode: "buttons",
+          selection_mode: "required",
+          valueIds: deliveryVariantIds,
+          valueSettings: {},
+        },
+      ],
+    });
+  }
+
+  return {
+    product,
+    materials,
+    material_price_tiers: materialPriceTiers,
+    material_m2_prices: materialM2Prices,
+    variants,
+    variant_price_tiers: variantPriceTiers,
+    variant_m2_prices: variantM2Prices,
+    config: {
+      rounding_step: roundingStep,
+      rounding_mode: roundingMode,
+      quantities,
+      layout_rows: layoutRows,
+      vertical_axis: {
+        id: "vertical-axis",
+        sectionType: "materials",
+        valueIds: materials.map((row) => row.id),
+        valueSettings: {},
+      },
+    },
+  };
+}
+
 async function runImport(args) {
   const inputPath = resolveImportInputPath(args);
   const payload = readJsonFile(inputPath);
-  const parsedRows = parseImportRows(payload);
+  const snapshotPricing = resolveSnapshotPricing(args, payload);
+  const embeddedRoundingStep =
+    toFiniteNumber(payload?.config?.roundingStep) ?? args.roundingStep;
+  const snapshotRoundingPolicy = snapshotPricing
+    ? resolveSnapshotRoundingPolicy({
+        embeddedRoundingStepDkk: embeddedRoundingStep,
+        explicitRoundingStepDkk: args.roundingStep,
+        hasExplicitRoundingStep: args.hasRoundingStepFlag,
+      })
+    : null;
+  const pricingConfig = {
+    ...args,
+    markupLowPct:
+      toFiniteNumber(payload?.config?.markupLowPct) ?? args.markupLowPct,
+    markupHighPct:
+      toFiniteNumber(payload?.config?.markupHighPct) ?? args.markupHighPct,
+    thresholdDkk:
+      toFiniteNumber(payload?.config?.thresholdDkk) ?? args.thresholdDkk,
+    roundingStep: snapshotRoundingPolicy?.stepDkk ?? embeddedRoundingStep,
+  };
+  const parsedRows = parseImportRows(payload, snapshotPricing, pricingConfig);
+  const snapshotPricingPreview = buildSnapshotPricingPreview(
+    payload,
+    snapshotPricing,
+    pricingConfig,
+  );
 
   if (!parsedRows.length) {
     throw new Error(
@@ -1073,7 +1631,9 @@ async function runImport(args) {
   const productName = normalizeText(args.productName) || DEFAULT_PRODUCT_NAME;
   const productSlug = slugify(args.productSlug || productName || DEFAULT_PRODUCT_SLUG) || DEFAULT_PRODUCT_SLUG;
   const productDescription = normalizeText(args.description) || DEFAULT_PRODUCT_DESCRIPTION;
-  const roundingStep = Math.max(1, Math.round(args.roundingStep));
+  const roundingStep = snapshotRoundingPolicy?.stepDkk ??
+    Math.max(1, Math.round(args.roundingStep));
+  const roundingMode = snapshotRoundingPolicy?.mode ?? "nearest_v1";
   const maxCmHint = toFiniteNumber(payload?.source?.maxCmHint);
   const maxMm = Number.isFinite(maxCmHint) && maxCmHint > 0 ? Math.round(maxCmHint * 10) : null;
 
@@ -1097,6 +1657,60 @@ async function runImport(args) {
       quantities: quantities.length,
     },
     price_source: "supplier response.price (net)",
+    ...(snapshotPricing
+      ? {
+          snapshot_pricing: {
+            fx_snapshot_id: snapshotPricing.fxSnapshot.id,
+            provider: snapshotPricing.fxSnapshot.snapshot.provider,
+            rate: snapshotPricing.fxSnapshot.snapshot.rate,
+            rate_date: snapshotPricing.fxSnapshot.snapshot.rateDate,
+            source_payload_sha256:
+              snapshotPricing.fxSnapshot.snapshot.sourcePayloadSha256,
+            pricing_buffer_pct: snapshotPricing.pricingBufferPct,
+            markup_at_or_below_pct: pricingConfig.markupLowPct,
+            markup_above_pct: pricingConfig.markupHighPct,
+            threshold_dkk: pricingConfig.thresholdDkk,
+            rounding_step_dkk: pricingConfig.roundingStep,
+            rounding_mode: roundingMode,
+            preview: snapshotPricingPreview,
+          },
+        }
+      : {}),
+  };
+
+  const draftProductPayload = {
+    name: productName,
+    slug: productSlug,
+    icon_text: productName,
+    description: productDescription,
+    category: normalizeText(args.category) || DEFAULT_PRODUCT_CATEGORY,
+    pricing_type: "STORFORMAT",
+    preset_key: "custom",
+    technical_specs: {
+      source: "wmd",
+      import_type: "fetch2-roll-labels",
+      import_script: "fetch2-wmd-roll-labels.mjs",
+      delivery_mode: args.deliveryMode,
+      net_price_source: "response.price",
+      ...(snapshotPricing
+        ? {
+            fx_snapshot_id: snapshotPricing.fxSnapshot.id,
+            fx_provider: snapshotPricing.fxSnapshot.snapshot.provider,
+            fx_rate: snapshotPricing.fxSnapshot.snapshot.rate,
+            fx_rate_date: snapshotPricing.fxSnapshot.snapshot.rateDate,
+            fx_fetched_at: snapshotPricing.fxSnapshot.snapshot.fetchedAt,
+            fx_source_payload_sha256:
+              snapshotPricing.fxSnapshot.snapshot.sourcePayloadSha256,
+            pricing_buffer_pct: snapshotPricing.pricingBufferPct,
+            rounding_step_dkk: roundingStep,
+            rounding_mode: roundingMode,
+          }
+        : { eur_to_dkk: payload?.config?.fx ?? args.eurToDkk }),
+      markup_low_pct: payload?.config?.markupLowPct ?? args.markupLowPct,
+      markup_high_pct: payload?.config?.markupHighPct ?? args.markupHighPct,
+      threshold_dkk: payload?.config?.thresholdDkk ?? args.thresholdDkk,
+      max_size_cm: maxCmHint,
+    },
   };
 
   if (args.dryRun) {
@@ -1105,39 +1719,75 @@ async function runImport(args) {
     return;
   }
 
+  assertSnapshotDraftWriteConfirmation({
+    snapshotMode: Boolean(snapshotPricing),
+    writeConfirmed: Boolean(args.writeSnapshotDraft),
+  });
+  assertSnapshotDraftWriteTarget({
+    snapshotMode: Boolean(snapshotPricing),
+    isPublished: Boolean(args.publish),
+  });
+  if (snapshotPricing) {
+    const rpcPayload = buildSnapshotDraftImportPayload({
+      importId: args.importId,
+      product: draftProductPayload,
+      materialModels,
+      variantModels,
+      shapeModels,
+      deliveryModels,
+      maxMm,
+      quantities,
+      roundingStep,
+      roundingMode,
+    });
+    const payloadDigest = crypto
+      .createHash("sha256")
+      .update(JSON.stringify(rpcPayload), "utf8")
+      .digest("hex");
+    const target = buildSnapshotDraftTarget({
+      mode: args.targetProductId ? "replace" : "create",
+      productId: args.targetProductId,
+      expectedRevision: args.expectedTargetRevision ?? 0,
+      importId: args.importId,
+      payloadDigest,
+    });
+    const client = createSnapshotDraftServiceClient();
+    const { data: snapshotProductId, error: snapshotImportError } = await client
+      .rpc("apply_wmd_roll_label_snapshot_draft_import", {
+        _tenant_id: args.tenantId,
+        _payload: { target, ...rpcPayload },
+      });
+    assertNoError(snapshotImportError, "Atomic snapshot draft import");
+    if (typeof snapshotProductId !== "string" || !snapshotProductId) {
+      throw new Error("Atomic snapshot draft import did not return a product id");
+    }
+
+    console.log("Import complete:");
+    console.log(JSON.stringify(summary, null, 2));
+    console.log(`Product id: ${snapshotProductId}`);
+    return;
+  }
+
   const client = createSupabaseServiceClient();
 
   const productPayload = {
     tenant_id: args.tenantId,
-    name: productName,
-    slug: productSlug,
-    icon_text: productName,
-    description: productDescription,
-    category: normalizeText(args.category) || DEFAULT_PRODUCT_CATEGORY,
-    pricing_type: "STORFORMAT",
+    ...draftProductPayload,
     is_published: !!args.publish,
-    preset_key: "custom",
-    technical_specs: {
-      source: "wmd",
-      import_type: "fetch2-roll-labels",
-      import_script: "fetch2-wmd-roll-labels.mjs",
-      delivery_mode: args.deliveryMode,
-      net_price_source: "response.price",
-      eur_to_dkk: payload?.config?.fx ?? args.eurToDkk,
-      markup_low_pct: payload?.config?.markupLowPct ?? args.markupLowPct,
-      markup_high_pct: payload?.config?.markupHighPct ?? args.markupHighPct,
-      threshold_dkk: payload?.config?.thresholdDkk ?? args.thresholdDkk,
-      max_size_cm: maxCmHint,
-    },
   };
 
   const { data: existingProduct, error: existingProductError } = await client
     .from("products")
-    .select("id")
+    .select("id,is_published")
     .eq("tenant_id", args.tenantId)
     .eq("slug", productSlug)
     .maybeSingle();
   assertNoError(existingProductError, "Fetch existing product");
+
+  assertSnapshotDraftWriteTarget({
+    snapshotMode: Boolean(snapshotPricing),
+    isPublished: Boolean(args.publish || existingProduct?.is_published),
+  });
 
   let productId = existingProduct?.id || null;
   if (productId) {

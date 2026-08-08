@@ -11,7 +11,8 @@ import {
   type StorformatMaterial,
   type StorformatProduct,
   type StorformatFixedPrice,
-  calculateStorformatPrice
+  calculateStorformatPrice,
+  normalizeStorformatPricingConfig
 } from "@/utils/storformatPricing";
 import { cn } from "@/lib/utils";
 import {
@@ -424,9 +425,7 @@ export function StorformatConfigurator({
 
         const nextConfig = cfg
           ? {
-              rounding_step: cfg.rounding_step || 1,
-              global_markup_pct: cfg.global_markup_pct || 0,
-              quantities: cfg.quantities?.length ? cfg.quantities : [1],
+              ...normalizeStorformatPricingConfig(cfg, [1]),
               layout_rows: nextLayoutRows,
               vertical_axis: nextVerticalAxis
             }

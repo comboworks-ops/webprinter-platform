@@ -1,0 +1,43 @@
+{
+  "TrackingInformationResponse": {
+    "shipments": [
+      {
+        "shipmentId": "96932007555SE",
+        "items": [
+          {
+            "itemId": "96932007555SE",
+            "events": [
+              {
+                "eventTime": "2026-01-15T12:00:00",
+                "eventCode": "68",
+                "status": "INFORMED",
+                "eventDescription": "Shipment information received",
+                "location": {
+                  "displayName": "PostNord"
+                }
+              },
+              {
+                "eventTime": "2026-07-15T12:00:00",
+                "eventCode": "31",
+                "status": "EN_ROUTE",
+                "eventDescription": "The shipment is in transit",
+                "location": {
+                  "displayName": "Taulov Pakkecenter"
+                }
+              },
+              {
+                "eventTime": "2026-07-16T12:00:00",
+                "eventCode": "21",
+                "status": "DELIVERED",
+                "eventDescription": "The shipment has been delivered",
+                "location": {
+                  "displayName": "København"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
