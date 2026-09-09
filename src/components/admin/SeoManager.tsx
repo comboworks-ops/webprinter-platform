@@ -11,6 +11,8 @@ import { Search, Save, Globe, Loader2, FileText, Package } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { resolveAdminTenant } from "@/lib/adminTenant";
 import { getSeoManagerRoutes } from "@/config/routes";
+import { Link, useLocation } from "react-router-dom";
+import { withAdminWorkspaceContext } from "@/lib/admin/workspaceNavigation";
 
 interface PageSeo {
     id: string;
@@ -29,34 +31,20 @@ const PageListTable = ({ items, editingId, onEdit }: {
         return <div className="p-4 text-center text-muted-foreground text-sm">Ingen sider fundet i denne kategori.</div>;
     }
     return (
-        <Table>
-            <TableHeader>
-                <TableRow>
-                    <TableHead>URL</TableHead>
-                    <TableHead>Titel</TableHead>
-                    <TableHead className="w-[100px]">Handling</TableHead>
-                </TableRow>
-            </TableHeader>
-            <TableBody>
-                {items.map((page) => (
-                    <TableRow key={page.id} className={editingId === page.id ? "bg-muted/50" : ""}>
-                        <TableCell className="font-mono text-sm">{page.slug}</TableCell>
-                        <TableCell className="max-w-[300px] truncate">{page.title}</TableCell>
-                        <TableCell>
-                            <Button variant="outline" size="sm" onClick={() => onEdit(page)}>
-                                Rediger
-                            </Button>
-                        </TableCell>
-                    </TableRow>
-                ))}
-            </TableBody>
-        </Table>
+        <nav aria-label="Sider" className="workspace-seo-pages">
+            {items.map(page => (
+                <button type="button" key={page.id} onClick={() => onEdit(page)} aria-current={editingId === page.id ? 'true' : undefined}>
+                    <strong>{page.title}</strong><span>{page.slug}</span>
+                </button>
+            ))}
+        </nav>
     );
 };
 
 // ... existing code ...
 
 export function SeoManager() {
+    const { search } = useLocation();
     const [pages, setPages] = useState<PageSeo[]>([]);
     const [loading, setLoading] = useState(true);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -226,16 +214,16 @@ export function SeoManager() {
         <div className="space-y-6">
             {/* Breadcrumb Navigation */}
             <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-                <a href="/admin" className="hover:text-foreground transition-colors flex items-center gap-1">
+                <Link to={withAdminWorkspaceContext('/admin', search)} className="hover:text-foreground transition-colors flex items-center gap-1">
                     ← Tilbage til Admin
-                </a>
+                </Link>
                 <span>/</span>
                 <span className="text-foreground font-medium">SEO Manager</span>
             </nav>
 
-            <div className="flex justify-between items-center">
+            <div className="flex flex-wrap justify-between items-center gap-4">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">SEO Manager</h2>
+                    <h1 className="text-3xl font-bold tracking-tight">SEO Manager</h1>
                     <p className="text-muted-foreground">Administrer meta titler og beskrivelser for dine sider.</p>
                 </div>
                 <Button onClick={handleCreateNew}>
@@ -244,8 +232,8 @@ export function SeoManager() {
                 </Button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2">
+            <div className="workspace-seo-grid">
+                <div className="workspace-seo-navigation">
                     <Card>
                         <CardHeader>
                             <CardTitle>Sider & Produkter</CardTitle>
@@ -308,12 +296,12 @@ export function SeoManager() {
                 {/* Editor Column ... */}
                 <div>
                     {editingId ? (
-                        <Card className="sticky top-6 border-primary/20 shadow-lg">
+                        <Card className="workspace-seo-editor">
                             <CardHeader className="bg-muted/30">
                                 <CardTitle>Rediger SEO</CardTitle>
                                 <CardDescription className="font-mono">{editForm.slug}</CardDescription>
                             </CardHeader>
-                            <CardContent className="space-y-4 pt-6">
+                            <CardContent className="workspace-seo-fields">
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Meta Titel</label>
                                     <Input
@@ -409,7 +397,7 @@ export function SeoManager() {
                                 </div>
 
                                 {/* Google Preview */}
-                                <div className="mt-6 p-4 bg-white border rounded-lg">
+                                <div className="workspace-seo-preview p-4 bg-white border rounded-lg">
                                     <h4 className="text-xs font-semibold text-gray-500 mb-2 uppercase">Google Preview</h4>
                                     <div className="font-sans">
                                         <div className="flex items-center gap-1 text-sm text-[#202124] mb-1">

@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { STANDARD_FORMATS, getDimensionsFromVariant } from "@/utils/formatStandards";
 import { ProductColorProfileSelector } from "./ProductColorProfileSelector";
+import { mergeProductColorSettings, readProductColorRecipe, sameProductColorSettings, type ProductColorRecipe } from "@/lib/color/profileGuidance";
+import { resolveColorProfile } from "@/lib/color/profileResolver";
 import { ProductSeoTab } from "./ProductSeoTab";
 import { ProductPreviewCard } from "./ProductPreviewCard";
 import { PRODUCT_PRESETS, getPresetLabel } from "./ProductPresetSelector";
@@ -59,6 +61,7 @@ import {
   writeSiteExclusiveProduct,
 } from "@/lib/sites/productSiteFrontends";
 import { type ProductCategoryRecord, type ProductOverviewRecord } from "@/utils/productCategories";
+import "@/styles/adminProductsWorkspace.css";
 
 
 interface BasePrice {
@@ -321,6 +324,11 @@ function getPricingTypeLabel(type: string | undefined): string {
 export function ProductPriceManager() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const withAdminContext = (path: string) => {
+    const domain = new URLSearchParams(location.search).get("force_domain");
+    return domain ? `${path}?force_domain=${encodeURIComponent(domain)}` : path;
+  };
   const [product, setProduct] = useState<any>(null);
   const [prices, setPrices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -370,8 +378,12 @@ export function ProductPriceManager() {
   const [hasProductEdits, setHasProductEdits] = useState(false);
   const [hasSpecEdits, setHasSpecEdits] = useState(false);
   const [editedOutputColorProfileId, setEditedOutputColorProfileId] = useState<string | null>(null);
+  const [editedColorRecipe, setEditedColorRecipe] = useState<ProductColorRecipe | null>(null);
+  const [hasColorEdits, setHasColorEdits] = useState(false);
+  const [savingColor, setSavingColor] = useState(false);
+  const colorOnlyRefreshRef = useRef<string | null>(null);
+  const colorDraftBaseRef = useRef<any>(null);
   const [hasMachineEdits, setHasMachineEdits] = useState(false);
-  // Removed local color profile state as it is now handled in ProductAboutSection
 
   // MPA (Machine Pricing Add-On) State
   const [pricingType, setPricingType] = useState<'STANDARD' | 'MACHINE_PRICED'>('STANDARD');
@@ -410,6 +422,19 @@ export function ProductPriceManager() {
   const [pricesLoadedAsSummary, setPricesLoadedAsSummary] = useState(false);
   const [priceFingerprintHint, setPriceFingerprintHint] = useState("");
   const [activeTab, setActiveTab] = useState("about");
+  useEffect(() => {
+    const requestedTab = location.hash.slice(1);
+    if (["about", "produkt", "order-delivery", "options", "custom-fields", "seo", "tooltips"].includes(requestedTab)) {
+      setActiveTab(requestedTab);
+    } else if (requestedTab === "storformat") {
+      setActiveTab("produkt");
+      // A deep link only reveals an existing pricing mode. Switching modes
+      // remains an explicit action through handleSelectConfigSection.
+      if (product?.pricing_type === "STORFORMAT") {
+        setActiveConfigSection("storformat");
+      }
+    }
+  }, [location.hash, product?.id, product?.pricing_type]);
   const [orderDeliveryConfig, setOrderDeliveryConfig] = useState<OrderDeliveryConfig>(DEFAULT_ORDER_DELIVERY_CONFIG);
   const [hasOrderDeliveryEdits, setHasOrderDeliveryEdits] = useState(false);
   const [isMasterAdmin, setIsMasterAdmin] = useState(false);
@@ -709,6 +734,15 @@ export function ProductPriceManager() {
 
   useEffect(() => {
     if (product) {
+      // Refresh only the saved color fields; other sections may have unsaved edits.
+      if (colorOnlyRefreshRef.current === product.id) {
+        colorOnlyRefreshRef.current = null;
+        setEditedOutputColorProfileId(product.output_color_profile_id || null);
+        setEditedColorRecipe(readProductColorRecipe(product.technical_specs));
+        colorDraftBaseRef.current = product;
+        setHasColorEdits(false);
+        return;
+      }
       fetchPrices();
       setEditedName(product.name);
       setEditedIconText(product.icon_text || product.name || "");
@@ -764,13 +798,37 @@ export function ProductPriceManager() {
       setHasSpecEdits(false);
       setHasMachineEdits(false);
       setHasSiteFrontendEdits(false);
-      setEditedOutputColorProfileId(product.output_color_profile_id || null);
+      // Other section saves may refresh the product while color changes remain a draft.
+      if (colorDraftBaseRef.current?.id !== product.id || !hasColorEdits) {
+        setEditedOutputColorProfileId(product.output_color_profile_id || null);
+        setEditedColorRecipe(readProductColorRecipe(product.technical_specs));
+        colorDraftBaseRef.current = product;
+        setHasColorEdits(false);
+      }
       setOrderDeliveryConfig(applyOrderDeliveryDefaults((bc as any).order_delivery));
       setHasOrderDeliveryEdits(false);
       fetchMpaConfig(product.id);
 
     }
   }, [product]);
+
+  useEffect(() => {
+    if (!hasColorEdits) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    const beforeLink = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const link = event.target instanceof Element ? event.target.closest('a[href]') as HTMLAnchorElement | null : null;
+      if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+      const destination = new URL(link.href, window.location.href);
+      if (destination.pathname === location.pathname && destination.search === location.search) return;
+      if (!window.confirm('Farveindstillingerne er ikke gemt. Vil du forlade produktet og kassere ændringerne?')) {
+        event.preventDefault(); event.stopPropagation();
+      }
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    document.addEventListener('click', beforeLink, true);
+    return () => { window.removeEventListener('beforeunload', beforeUnload); document.removeEventListener('click', beforeLink, true); };
+  }, [hasColorEdits, location.pathname, location.search]);
 
   useEffect(() => {
     if (!product || activeConfigSection) return;
@@ -1255,12 +1313,57 @@ export function ProductPriceManager() {
     }
   };
 
+  const handleSaveColorSettings = async () => {
+    if (!product || !hasColorEdits || saving || savingColor) return;
+    setSavingColor(true);
+    setSaving(true);
+    try {
+      const { tenantId } = await resolveAdminTenant();
+      if (!tenantId || tenantId !== product.tenant_id) throw new Error('Produktet tilhører ikke den aktive butik.');
+      const { data: currentData, error: readError } = await supabase.from('products')
+        .select('id, tenant_id, technical_specs, output_color_profile_id, updated_at')
+        .eq('id', product.id).eq('tenant_id', tenantId).single();
+      if (readError || !currentData) throw new Error('Produktets aktuelle farveindstillinger kunne ikke hentes.');
+      // output_color_profile_id exists in the migration but is absent from generated types.
+      type ColorProductRow = { id: string; technical_specs: unknown; output_color_profile_id: string | null; updated_at: string | null };
+      const current = currentData as unknown as ColorProductRow;
+      if (!sameProductColorSettings(current, colorDraftBaseRef.current || product)) throw new Error('Farveindstillingerne er ændret siden siden blev åbnet. Genindlæs produktet før du gemmer.');
+      const selectedId = editedColorRecipe?.outputProfileId || editedOutputColorProfileId;
+      if (selectedId) await resolveColorProfile({ id: selectedId, tenantId });
+      const patch = mergeProductColorSettings(current.technical_specs, editedColorRecipe, editedOutputColorProfileId);
+      let update = supabase.from('products').update(patch as any).eq('id', product.id).eq('tenant_id', tenantId);
+      update = current.updated_at ? update.eq('updated_at', current.updated_at) : update.is('updated_at', null);
+      const { data: savedData, error: saveError } = await update
+        .select('id, technical_specs, output_color_profile_id, updated_at').maybeSingle();
+      if (saveError) throw saveError;
+      if (!savedData) throw new Error('Produktet blev ændret under gemning. Genindlæs og prøv igen.');
+      const saved = savedData as unknown as ColorProductRow;
+      setProduct((previous: any) => {
+        if (!previous || previous.id !== saved.id) return previous;
+        colorOnlyRefreshRef.current = saved.id;
+        return { ...previous, ...saved };
+      });
+      setHasColorEdits(false);
+      toast.success('Produktets farveprofil og trykmetode er gemt');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Farveindstillingerne kunne ikke gemmes.');
+    } finally {
+      setSavingColor(false);
+      setSaving(false);
+    }
+  };
+
   const handleSaveTechnicalSpecs = async () => {
-    if (!product || !hasSpecEdits) return;
+    if (!product || !hasSpecEdits || saving || savingColor) return;
 
     setSaving(true);
     try {
-      const existingSpecs = (product.technical_specs as any) || {};
+      const { tenantId } = await resolveAdminTenant();
+      if (!tenantId || tenantId !== product.tenant_id) throw new Error('Produktet tilhører ikke den aktive butik.');
+      const { data: current, error: readError } = await supabase.from('products')
+        .select('technical_specs, updated_at').eq('id', product.id).eq('tenant_id', tenantId).single();
+      if (readError || !current) throw new Error('Produktets aktuelle indstillinger kunne ikke hentes.');
+      const existingSpecs = (current.technical_specs as any) || {};
       const isPodProduct = Boolean(existingSpecs.is_pod || existingSpecs.is_pod_v2);
       const nextSpecs: any = {
         ...existingSpecs,
@@ -1283,22 +1386,21 @@ export function ProductPriceManager() {
         nextSpecs.pod_preflight_auto_fix = editedPodPreflightAutoFix;
       }
 
-      const { error } = await supabase
-        .from('products')
-        .update({
-          output_color_profile_id: editedOutputColorProfileId,
-          technical_specs: nextSpecs
-        })
-        .eq('id', product.id);
+      // This section preserves the saved color recipe. Only its own save button persists a color draft.
+      let update = supabase.from('products').update({ technical_specs: nextSpecs })
+        .eq('id', product.id).eq('tenant_id', tenantId);
+      update = current.updated_at ? update.eq('updated_at', current.updated_at) : update.is('updated_at', null);
+      const { data: saved, error } = await update.select('id').maybeSingle();
 
       if (error) throw error;
+      if (!saved) throw new Error('Produktet blev ændret under gemning. Genindlæs og prøv igen.');
 
       toast.success('Tekniske specifikationer opdateret');
       setHasSpecEdits(false);
       await fetchProduct();
     } catch (error) {
       console.error('Error updating technical specs:', error);
-      toast.error('Kunne ikke opdatere tekniske specifikationer');
+      toast.error(error instanceof Error ? error.message : 'Kunne ikke opdatere tekniske specifikationer');
     } finally {
       setSaving(false);
     }
@@ -1627,12 +1729,14 @@ export function ProductPriceManager() {
   const PricePreviewIcon = pricePreviewHealth.Icon;
 
   return (
-    <div className="space-y-6">
+    <div className="admin-product-editor space-y-6">
       {/* Sticky back button */}
-      <div className="sticky top-0 z-30 bg-background py-3 border-b">
+      <div className="admin-product-breadcrumb">
         <Button
           variant="outline"
-          onClick={() => navigate('/admin')}
+          onClick={() => {
+            if (!hasColorEdits || window.confirm('Farveindstillingerne er ikke gemt. Vil du forlade produktet og kassere ændringerne?')) navigate(withAdminContext('/admin/products'));
+          }}
           className="mb-0"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
@@ -1640,14 +1744,22 @@ export function ProductPriceManager() {
         </Button>
       </div>
 
-      <div>
-        <h1 className="text-3xl font-bold">Produktkonfiguration</h1>
-        <p className="text-muted-foreground text-sm">Konfigurer produktets indhold, attributter og priser</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">{editedName || product.name}</h1>
+          <p className="mt-2 text-muted-foreground text-sm">{product.is_published ? 'Publiceret i webshoppen' : 'Kladde'} · Konfigurer indhold, valgmuligheder og priser</p>
+        </div>
+        <Button variant="outline" asChild>
+          <a href={withAdminContext(`/produkt/${product.slug}`)} target="_blank" rel="noopener noreferrer">Se på webshop</a>
+        </Button>
       </div>
 
 
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs value={activeTab} onValueChange={(value) => {
+        setActiveTab(value);
+        navigate({ pathname: location.pathname, search: location.search, hash: value }, { replace: true, preventScrollReset: true });
+      }} className="w-full">
         <TabsList className="flex w-full justify-start overflow-x-auto h-auto p-1 gap-1 bg-muted/50 rounded-lg">
           <TabsTrigger value="about" className="flex-shrink-0">Produktinfo</TabsTrigger>
           <TabsTrigger value="produkt" className="flex-shrink-0">Produkt & Priser</TabsTrigger>
@@ -1728,7 +1840,7 @@ export function ProductPriceManager() {
         </TabsContent>
 
         {/* Produkt Tab - Attribute Builder */}
-        <TabsContent value="produkt" className="space-y-6">
+        <TabsContent value="produkt" className="admin-product-pricing space-y-6" data-design-choice={activeConfigSection === 'storformat' ? 'storformat_preview' : 'matrix_context'}>
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-2xl font-bold">{product.name}</h2>
@@ -1773,7 +1885,7 @@ export function ProductPriceManager() {
               </Button>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="admin-product-pricing-method">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Prisopsætning</CardTitle>
               <CardDescription>
@@ -2134,13 +2246,13 @@ export function ProductPriceManager() {
         </TabsContent>
 
 
-        <TabsContent value="order-delivery" className="space-y-6">
+        <TabsContent value="order-delivery" className="admin-product-delivery space-y-6" data-design-choice="delivery_methods">
           <div>
             <h2 className="text-2xl font-bold">Bestilling og levering</h2>
             <p className="text-muted-foreground">Konfigurer bestillingsflow og leveringsmetoder for dette produkt.</p>
           </div>
 
-          <Card>
+          <Card className="admin-delivery-ordering">
             <CardHeader>
               <CardTitle>Bestillingsmuligheder</CardTitle>
               <CardDescription>Vælg hvordan dette produkt bestilles hos leverandor.</CardDescription>
@@ -2359,7 +2471,7 @@ export function ProductPriceManager() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="admin-delivery-methods">
             <CardHeader>
               <CardTitle>Levering</CardTitle>
               <CardDescription>Administrer leveringsmetoder og tracking-indstillinger.</CardDescription>
@@ -2706,9 +2818,11 @@ export function ProductPriceManager() {
                         : `${cutoffTimeLabel}. Angiv produktion og forsendelse for at vise leveringstid.`;
 
                       return (
-                        <div key={method.id} className="border rounded-lg p-4 space-y-4">
+                        <details key={method.id} open={method.id === orderDeliveryConfig.delivery.methods[0]?.id} className="border rounded-lg p-4 space-y-4">
+                          <summary className="cursor-pointer font-medium text-sm">{method.name || "Leveringsmetode"}<span className="ml-3 font-normal text-muted-foreground">{totalDays > 0 ? `${totalDays} dage` : "Leveringstid ikke angivet"}</span></summary>
                           <div className="flex items-center justify-between gap-3">
                             <Input
+                              aria-label="Leveringsmetodens navn"
                               value={method.name}
                               onChange={(e) => updateOrderDeliveryConfig(prev => ({
                                 ...prev,
@@ -2720,6 +2834,7 @@ export function ProductPriceManager() {
                               className="max-w-xs"
                             />
                             <Button
+                              aria-label={`Slet leveringsmetoden ${method.name || 'uden navn'}`}
                               variant="ghost"
                               size="icon"
                               onClick={() => updateOrderDeliveryConfig(prev => ({
@@ -2887,7 +3002,7 @@ export function ProductPriceManager() {
                             </div>
                           </div>
                           <div className="text-xs text-muted-foreground">{previewText}</div>
-                        </div>
+                        </details>
                       );
                     })}
                   </div>
@@ -2983,9 +3098,24 @@ export function ProductPriceManager() {
               </div>
             </CardContent>
           </Card>
+          <aside className="admin-delivery-summary rounded-md border p-6">
+            <h3 className="text-lg font-semibold">Opsummering</h3>
+            <div className="mt-5 border-t pt-4">
+              <p className="mb-4 text-sm font-medium">Leveringsmetoder · {orderDeliveryConfig.delivery.methods.length}</p>
+              <dl className="space-y-3 text-sm">
+                {orderDeliveryConfig.delivery.methods.map(method => <div key={method.id} className="flex justify-between gap-4"><dt>{method.name}</dt><dd className="text-muted-foreground">{(method.production_days ?? 0) + (method.shipping_days ?? 0)} dage</dd></div>)}
+              </dl>
+            </div>
+            <div className="mt-5 space-y-3 border-t pt-4 text-sm">
+              <p className="font-medium">Bestillingsvalg</p>
+              <p>{orderDeliveryConfig.ordering.type === 'standard' ? 'Standard bestilling' : orderDeliveryConfig.ordering.type === 'semi' ? 'Assisteret bestilling' : 'Email-bestilling'}</p>
+              <p className="text-muted-foreground">{orderDeliveryConfig.delivery.mode === 'manual' ? 'Manuel levering og tracking' : 'Fragtfirma-konfiguration · integration ikke aktiv'}</p>
+            </div>
+            <Button className="mt-6 w-full" onClick={handleSaveOrderDelivery} disabled={!hasOrderDeliveryEdits || saving}>{saving ? 'Gemmer…' : 'Gem bestilling og levering'}</Button>
+          </aside>
         </TabsContent>
 
-        <TabsContent value="options" className="space-y-6">
+        <TabsContent value="options" className="space-y-6" data-design-choice="options_workspace">
           <Card>
             <CardHeader>
               <CardTitle>Valgmuligheder</CardTitle>
@@ -2999,15 +3129,17 @@ export function ProductPriceManager() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="custom-fields" className="space-y-6">
+        <TabsContent value="custom-fields" className="space-y-6" data-design-choice="fields_preview">
           <CustomFieldsManager
             productId={product.id}
             tenantId={product.tenant_id}
+            productName={editedName || product.name}
+            productImage={product.image_url}
             onFieldsUpdate={fetchPrices}
           />
         </TabsContent>
 
-        <TabsContent value="tooltips" className="space-y-6">
+        <TabsContent value="tooltips" className="space-y-6" data-design-choice="tooltips_split">
           <VisualTooltipDesigner
             productId={product.id}
             productName={editedName || product.name}
@@ -3039,8 +3171,9 @@ export function ProductPriceManager() {
           </div>
         </TabsContent>
 
-        <TabsContent value="about">
-          <div className="space-y-6">
+        <TabsContent value="about" data-design-choice="product_info_editorial">
+          <div className="admin-product-editorial">
+          <div className="admin-product-editorial-controls space-y-6">
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-md font-medium">Produktnavn (system)</CardTitle>
@@ -3072,7 +3205,7 @@ export function ProductPriceManager() {
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+            <div className="admin-product-editorial-sections grid grid-cols-1 gap-6 items-start">
               {/* Sektion 1 (Was Section 2): Forside Information */}
               <div className="space-y-3">
                 <Card>
@@ -3094,7 +3227,7 @@ export function ProductPriceManager() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                    <div className="admin-product-front-editor grid grid-cols-1 gap-6 items-start">
                       {/* Left Column: Inputs */}
                       <div className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3399,24 +3532,8 @@ export function ProductPriceManager() {
                       </div>
 
                       {/* Right Column: Preview */}
-                      <div className="bg-gray-50/50 p-6 rounded-xl border border-dashed flex flex-col items-center justify-center min-h-[300px]">
-                        <ProductPreviewCard
-                          name={editedIconText || editedName}
-                          priceFrom={editedPriceFrom}
-                          description={editedDescription}
-                          imageUrl={product.image_url}
-                          priceColor={editedPriceColor}
-                          priceBgColor={editedPriceBgColor}
-                          priceBgEnabled={editedPriceBgEnabled}
-                          priceFont={editedPriceFont}
-                          hoverImageUrl={editedHoverImageUrl}
-                          imageScalePct={editedImageScalePct}
-                          specialBadge={editedSpecialBadge}
-                          promoPrice={editedPromoPrice}
-                          originalPrice={editedOriginalPrice}
-                          showSavingsBadge={editedShowSavingsBadge}
-                          actionLabel={editedCategoryLanding.enabled ? "Se produkter" : "Priser"}
-                        />
+                      <div className="admin-product-front-save">
+
                         <div className="pt-4 w-full">
                           <Button
                             onClick={() => handleSaveProductDetails()}
@@ -3446,7 +3563,7 @@ export function ProductPriceManager() {
                   <CardContent>
                     <ProductAboutSection
                       productId={product.id}
-                      productSlug={product.slug}
+                      tenantId={product.tenant_id}
                       aboutTitle={product.about_title}
                       aboutDescription={product.about_description}
                       aboutImageUrl={product.about_image_url}
@@ -3826,6 +3943,31 @@ export function ProductPriceManager() {
               <div className="space-y-3">
                 <Card>
                   <CardHeader className="pb-3">
+                    <CardTitle className="text-md font-medium">Farveprofil og trykmetode</CardTitle>
+                    <CardDescription>Produktets anbefalede soft proof-profil og vejledning til produktionen.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <ProductColorProfileSelector
+                      productId={product.id}
+                      currentProfileId={editedOutputColorProfileId}
+                      recipe={editedColorRecipe}
+                      onProfileChange={(id) => { setEditedOutputColorProfileId(id); setHasColorEdits(true); }}
+                      onRecipeChange={(recipe) => { setEditedColorRecipe(recipe); setHasColorEdits(true); }}
+                      disabled={saving || savingColor}
+                    />
+                    <div className="flex justify-end">
+                      <Button onClick={handleSaveColorSettings} size="sm" disabled={!hasColorEdits || saving || savingColor}>
+                        {savingColor ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Save className="mr-2 h-3 w-3" />}
+                        Gem farveindstillinger
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="space-y-3">
+                <Card>
+                  <CardHeader className="pb-3">
                     <CardTitle className="text-md font-medium flex items-center gap-2">
                       <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">5</span>
                       Konturskæring (CutContour)
@@ -3927,6 +4069,35 @@ export function ProductPriceManager() {
                 </div>
               )}
             </div>
+          </div>
+          <aside className="admin-product-editorial-preview">
+            <h2 className="text-base font-semibold">Produktvisning på webshoppen</h2>
+            <div className="mt-6">
+                        <ProductPreviewCard
+                          name={editedIconText || editedName}
+                          priceFrom={editedPriceFrom}
+                          description={editedDescription}
+                          imageUrl={product.image_url}
+                          priceColor={editedPriceColor}
+                          priceBgColor={editedPriceBgColor}
+                          priceBgEnabled={editedPriceBgEnabled}
+                          priceFont={editedPriceFont}
+                          hoverImageUrl={editedHoverImageUrl}
+                          imageScalePct={editedImageScalePct}
+                          specialBadge={editedSpecialBadge}
+                          promoPrice={editedPromoPrice}
+                          originalPrice={editedOriginalPrice}
+                          showSavingsBadge={editedShowSavingsBadge}
+                          actionLabel={editedCategoryLanding.enabled ? "Se produkter" : "Priser"}
+                        />
+            </div>
+            <dl className="mt-6 space-y-3 border-t pt-5 text-sm">
+              <div className="flex justify-between gap-4"><dt>Kategori</dt><dd>{product.category || 'Ikke valgt'}</dd></div>
+              <div className="flex justify-between gap-4"><dt>Synlighed</dt><dd>{product.is_published ? 'Publiceret' : 'Kladde'}</dd></div>
+              <div className="flex justify-between gap-4"><dt>Ændringer</dt><dd>{hasProductEdits || hasSpecEdits || hasColorEdits ? 'Ikke gemt' : 'Ingen lokale ændringer'}</dd></div>
+            </dl>
+            <p className="mt-5 text-xs leading-relaxed text-muted-foreground">Forhåndsvisning af de aktuelle oplysninger. Gem ændringer i den relevante sektion.</p>
+          </aside>
           </div>
         </TabsContent>
 
@@ -4184,7 +4355,7 @@ export function ProductPriceManager() {
             </CardContent>
           </Card>
         </TabsContent>
-        <TabsContent value="seo" className="space-y-6">
+        <TabsContent value="seo" className="space-y-6" data-design-choice="productseo_first">
           <ProductSeoTab
             productSlug={product.slug}
             productName={product.name}

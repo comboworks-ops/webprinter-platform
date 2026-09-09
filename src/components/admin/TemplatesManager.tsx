@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -487,79 +488,33 @@ export function TemplatesManager({ scopeType, tenantId }: TemplatesManagerProps)
                     <p className="text-sm">Klik "Ny Skabelon" for at uploade din første PDF</p>
                 </Card>
             ) : (
-                <Card>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Titel</TableHead>
-                                <TableHead>Format</TableHead>
-                                <TableHead>Kategori</TableHead>
-                                <TableHead>Filnavn</TableHead>
-                                <TableHead className="text-center">Publiceret</TableHead>
-                                <TableHead className="text-right">Handlinger</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {filteredTemplates.map((template) => (
-                                <TableRow key={template.id}>
-                                    <TableCell className="font-medium">
-                                        <div className="flex items-center gap-2">
-                                            <FileIcon className="w-4 h-4 text-red-500" />
-                                            {template.title}
-                                        </div>
-                                    </TableCell>
-                                    <TableCell>
-                                        <Badge variant="secondary">{template.format_key}</Badge>
-                                    </TableCell>
-                                    <TableCell className="text-muted-foreground">
-                                        {template.category || "-"}
-                                    </TableCell>
-                                    <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">
-                                        {template.file_name}
-                                    </TableCell>
-                                    <TableCell className="text-center">
-                                        <Switch
-                                            checked={template.is_published}
-                                            onCheckedChange={() => handleTogglePublished(template)}
-                                        />
-                                    </TableCell>
-                                    <TableCell className="text-right">
-                                        <div className="flex items-center justify-end gap-2">
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                asChild
-                                            >
-                                                <a
-                                                    href={template.file_url}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    download
-                                                >
-                                                    <Download className="w-4 h-4" />
-                                                </a>
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                onClick={() => handleEditTemplate(template)}
-                                            >
-                                                <Edit className="w-4 h-4" />
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                onClick={() => handleDeleteTemplate(template)}
-                                            >
-                                                <Trash2 className="w-4 h-4 text-destructive" />
-                                            </Button>
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </Card>
+                <WorkspaceCollection label="PDF-skabeloner" items={filteredTemplates.map(template => ({ id: template.id, title: template.title, subtitle: `${template.format_key} · ${template.category || 'PDF'}`, icon: <FileText aria-hidden="true" /> }))}>
+                    {filteredTemplates.map(template => (
+                        <article key={template.id} className="space-y-6">
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                                <div><h2 className="text-2xl font-semibold">{template.title}</h2><p className="text-sm text-muted-foreground mt-2">{template.description || template.file_name}</p></div>
+                                <Button onClick={() => handleEditTemplate(template)}><Edit className="w-4 h-4 mr-2" />Rediger skabelon</Button>
+                            </div>
+                            <div className="workspace-template-preview">
+                                <FileText className="h-20 w-20 text-primary/50" aria-hidden="true" />
+                                <strong>{template.format_key}</strong>
+                                <a href={template.file_url} target="_blank" rel="noopener noreferrer" className="text-primary underline">Åbn PDF-forhåndsvisning</a>
+                            </div>
+                            <dl className="workspace-template-metadata">
+                                <div><dt>Format</dt><dd>{template.format_key}</dd></div>
+                                <div><dt>Kategori</dt><dd>{template.category || '—'}</dd></div>
+                                <div><dt>Filnavn</dt><dd>{template.file_name}</dd></div>
+                            </dl>
+                            <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-5">
+                                <label className="flex items-center gap-3 text-sm"><Switch checked={template.is_published} onCheckedChange={() => handleTogglePublished(template)} />Publiceret</label>
+                                <div className="flex flex-wrap gap-2">
+                                    <Button variant="outline" asChild><a href={template.file_url} target="_blank" rel="noopener noreferrer" download><Download className="w-4 h-4 mr-2" />Download PDF</a></Button>
+                                    <Button variant="outline" onClick={() => handleDeleteTemplate(template)}><Trash2 className="w-4 h-4 mr-2 text-destructive" />Slet skabelon</Button>
+                                </div>
+                            </div>
+                        </article>
+                    ))}
+                </WorkspaceCollection>
             )}
         </div>
     );

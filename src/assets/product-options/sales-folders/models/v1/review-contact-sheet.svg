@@ -1,0 +1,276 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1216" height="1544" viewBox="0 0 1216 1544" role="img" aria-labelledby="contact-sheet-title contact-sheet-description">
+  <title id="contact-sheet-title">Salgsmapper – modelikoner v1</title>
+  <desc id="contact-sheet-description">Kun til review. Ikke en storefront-asset.</desc>
+  <rect width="1216" height="1544" fill="#FFFFFF"/>
+  <text x="24" y="42" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0F172A">Salgsmapper – modelikoner v1</text>
+  <text x="24" y="68" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#64748B">Kun til review – ikke en storefront-asset</text>
+  <g data-model-key="a4--2-part-standard">
+    <rect x="24" y="96" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(100 112) scale(0.5)">
+      <path d="M 22 41.55 H 234 V 189.45 H 22 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 128.08 46.55 V 184.45" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 132.58 189.45 L 231.16 189.45 L 226.16 214.45 L 137.58 214.45 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="164" y="260" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="164" y="260">A4 · 2-delt standardmappe</tspan>
+    </text>
+  </g>
+  <g data-model-key="a4--2-part-2-flaps">
+    <rect x="320" y="96" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(396 112) scale(0.5)">
+      <path d="M 22 41.55 H 234 V 189.45 H 22 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 128.08 46.55 V 184.45" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 25 189.45 L 123.58 189.45 L 118.58 214.45 L 30 214.45 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 132.58 189.45 L 231.16 189.45 L 226.16 214.45 L 137.58 214.45 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="460" y="260" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="460" y="260">A4 · 2-delt med 2 flapper</tspan>
+    </text>
+  </g>
+  <g data-model-key="a4--2-part-3-flaps">
+    <rect x="616" y="96" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(692 112) scale(0.5)">
+      <path d="M 22 50.27 H 209 V 180.73 H 22 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 115.75 55.27 V 175.73" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 25 180.73 L 111.25 180.73 L 106.25 205.73 L 30 205.73 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 120.25 180.73 L 206.49 180.73 L 201.49 205.73 L 125.25 205.73 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 209 95.93 L 234 103.93 L 234 159.68 L 209 167.68 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="756" y="260" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="756" y="260">A4 · 2-delt med 3 flapper</tspan>
+    </text>
+  </g>
+  <g data-model-key="a4--3-part-1-flap">
+    <rect x="912" y="96" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(988 112) scale(0.5)">
+      <path d="M 22 66.42 H 234 V 164.58 H 22 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 92.91 71.42 V 159.58" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 165.32 71.42 V 159.58" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 169.82 164.58 L 233.22 164.58 L 229.28 189.58 L 173.76 189.58 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="1052" y="260" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="1052" y="260">A4 · 3-delt med 1 flap</tspan>
+    </text>
+  </g>
+  <g data-model-key="a4--2-part-standard-window">
+    <rect x="24" y="336" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(100 352) scale(0.5)">
+      <path d="M 22 41.55 H 234 V 189.45 H 22 Z M 49.19 87.4 H 99.39 V 114.02 H 49.19 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 128.08 46.55 V 184.45" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 132.58 189.45 L 231.16 189.45 L 226.16 214.45 L 137.58 214.45 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <rect x="49.19" y="87.4" width="50.2" height="26.62" rx="6" fill="none" stroke="#0EA5E9" stroke-width="4"/>
+    </g>
+    <text x="164" y="500" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="164" y="500">A4 · 2-delt standardmappe med</tspan>
+      <tspan x="164" y="519">vinduesudstansning</tspan>
+    </text>
+  </g>
+  <g data-model-key="a4--2-part-2-flaps-window">
+    <rect x="320" y="336" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(396 352) scale(0.5)">
+      <path d="M 22 41.55 H 234 V 189.45 H 22 Z M 49.19 87.4 H 99.39 V 114.02 H 49.19 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 128.08 46.55 V 184.45" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 25 189.45 L 123.58 189.45 L 118.58 214.45 L 30 214.45 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 132.58 189.45 L 231.16 189.45 L 226.16 214.45 L 137.58 214.45 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <rect x="49.19" y="87.4" width="50.2" height="26.62" rx="6" fill="none" stroke="#0EA5E9" stroke-width="4"/>
+    </g>
+    <text x="460" y="500" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="460" y="500">A4 · 2-delt med 2 flapper og</tspan>
+      <tspan x="460" y="519">vinduesudstansning</tspan>
+    </text>
+  </g>
+  <g data-model-key="a4--2-part-3-flaps-window">
+    <rect x="616" y="336" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(692 352) scale(0.5)">
+      <path d="M 22 50.27 H 209 V 180.73 H 22 Z M 45.98 90.71 H 90.26 V 114.2 H 45.98 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 115.75 55.27 V 175.73" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 25 180.73 L 111.25 180.73 L 106.25 205.73 L 30 205.73 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 120.25 180.73 L 206.49 180.73 L 201.49 205.73 L 125.25 205.73 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 209 95.93 L 234 103.93 L 234 159.68 L 209 167.68 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <rect x="45.98" y="90.71" width="44.28" height="23.48" rx="6" fill="none" stroke="#0EA5E9" stroke-width="4"/>
+    </g>
+    <text x="756" y="500" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="756" y="500">A4 · 2-delt med 3 flapper og</tspan>
+      <tspan x="756" y="519">vinduesudstansning</tspan>
+    </text>
+  </g>
+  <g data-model-key="a5--2-part-standard">
+    <rect x="912" y="336" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(988 352) scale(0.5)">
+      <path d="M 27.55 45.3 H 228.45 V 185.7 H 27.55 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 128 50.3 V 180.7" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 132.5 185.7 L 225.45 185.7 L 220.45 210.7 L 137.5 210.7 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="1052" y="500" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="1052" y="500">A5 · 2-delt standardmappe</tspan>
+    </text>
+  </g>
+  <g data-model-key="a5--2-part-2-flaps">
+    <rect x="24" y="576" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(100 592) scale(0.5)">
+      <path d="M 27.55 45.3 H 228.45 V 185.7 H 27.55 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 128 50.3 V 180.7" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 30.55 185.7 L 123.5 185.7 L 118.5 210.7 L 35.55 210.7 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 132.5 185.7 L 225.45 185.7 L 220.45 210.7 L 137.5 210.7 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="164" y="740" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="164" y="740">A5 · 2-delt med 2 flapper</tspan>
+    </text>
+  </g>
+  <g data-model-key="a5--2-part-3-flaps">
+    <rect x="320" y="576" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(396 592) scale(0.5)">
+      <path d="M 22 50.16 H 209 V 180.84 H 22 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 115.6 55.16 V 175.84" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 25 180.84 L 111.1 180.84 L 106.1 205.84 L 30 205.84 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 120.1 180.84 L 206.21 180.84 L 201.21 205.84 L 125.1 205.84 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 209 95.9 L 234 103.9 L 234 159.78 L 209 167.78 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="460" y="740" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="460" y="740">A5 · 2-delt med 3 flapper</tspan>
+    </text>
+  </g>
+  <g data-model-key="a5--3-part-1-flap">
+    <rect x="616" y="576" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(692 592) scale(0.5)">
+      <path d="M 22 66.36 H 234 V 164.64 H 22 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 92.77 71.36 V 159.64" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 165.03 71.36 V 159.64" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 169.53 164.64 L 232.8 164.64 L 228.87 189.64 L 173.46 189.64 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="756" y="740" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="756" y="740">A5 · 3-delt med 1 flap</tspan>
+    </text>
+  </g>
+  <g data-model-key="a6--2-part-2-flaps">
+    <rect x="912" y="576" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(988 592) scale(0.5)">
+      <path d="M 37.96 53.1 H 218.04 V 177.9 H 37.96 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 128 58.1 V 172.9" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 40.96 177.9 L 123.5 177.9 L 118.5 202.9 L 45.96 202.9 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 132.5 177.9 L 215.04 177.9 L 210.04 202.9 L 137.5 202.9 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="1052" y="740" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="1052" y="740">A6 · 2-delt med 2 flapper</tspan>
+    </text>
+  </g>
+  <g data-model-key="a6--2-part-3-flaps">
+    <rect x="24" y="816" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(100 832) scale(0.5)">
+      <path d="M 25.46 53.1 H 205.54 V 177.9 H 25.46 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 115.5 58.1 V 172.9" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 28.46 177.9 L 111 177.9 L 106 202.9 L 33.46 202.9 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 120 177.9 L 202.54 177.9 L 197.54 202.9 L 125 202.9 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 205.54 96.78 L 230.54 104.78 L 230.54 157.42 L 205.54 165.42 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="164" y="980" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="164" y="980">A6 · 2-delt med 3 flapper</tspan>
+    </text>
+  </g>
+  <g data-model-key="a6--2-part-closure">
+    <rect x="320" y="816" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(396 832) scale(0.5)">
+      <path d="M 25.46 53.1 H 205.54 V 177.9 H 25.46 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 115.5 58.1 V 172.9" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 120 177.9 L 202.54 177.9 L 197.54 202.9 L 125 202.9 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 205.54 110.51 H 230.54 L 223.54 122.99 H 205.54 Z" fill="#0EA5E9" fill-opacity="0.28" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 46.71 115.5 H 75.04" fill="none" stroke="#64748B" stroke-width="5" stroke-linecap="round"/>
+    </g>
+    <text x="460" y="980" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="460" y="980">A6 · 2-delt med lukning</tspan>
+    </text>
+  </g>
+  <g data-model-key="a6--3-part-1-flap">
+    <rect x="616" y="816" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(692 832) scale(0.5)">
+      <path d="M 22 66.8 H 234 V 164.2 H 22 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 92.61 71.8 V 159.2" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 164.71 71.8 V 159.2" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 169.21 164.2 L 232.32 164.2 L 228.41 189.2 L 173.12 189.2 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="756" y="980" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="756" y="980">A6 · 3-delt med 1 flap</tspan>
+    </text>
+  </g>
+  <g data-model-key="din-lang--2-part-2-flaps">
+    <rect x="912" y="816" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(988 832) scale(0.5)">
+      <path d="M 52.4 41.4 H 203.6 V 189.6 H 52.4 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 128 46.4 V 184.6" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 55.4 189.6 L 123.5 189.6 L 119.09 214.6 L 59.81 214.6 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 132.5 189.6 L 200.6 189.6 L 196.19 214.6 L 136.91 214.6 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="1052" y="980" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="1052" y="980">DIN lang · 2-delt med 2 flapper</tspan>
+    </text>
+  </g>
+  <g data-model-key="din-lang--2-part-3-flaps">
+    <rect x="24" y="1056" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(100 1072) scale(0.5)">
+      <path d="M 39.9 41.4 H 191.1 V 189.6 H 39.9 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 115.5 46.4 V 184.6" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 42.9 189.6 L 111 189.6 L 106.59 214.6 L 47.31 214.6 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 120 189.6 L 188.1 189.6 L 183.69 214.6 L 124.41 214.6 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 191.1 93.27 L 216.1 101.27 L 216.1 166.78 L 191.1 174.78 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="164" y="1220" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="164" y="1220">DIN lang · 2-delt med 3 flapper</tspan>
+    </text>
+  </g>
+  <g data-model-key="din-lang--2-part-closure">
+    <rect x="320" y="1056" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(396 1072) scale(0.5)">
+      <path d="M 39.9 41.4 H 191.1 V 189.6 H 39.9 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 115.5 46.4 V 184.6" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 120 189.6 L 188.1 189.6 L 183.69 214.6 L 124.41 214.6 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 191.1 109.57 H 216.1 L 209.1 124.39 H 191.1 Z" fill="#0EA5E9" fill-opacity="0.28" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 57.68 115.5 H 81.4" fill="none" stroke="#64748B" stroke-width="5" stroke-linecap="round"/>
+    </g>
+    <text x="460" y="1220" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="460" y="1220">DIN lang · 2-delt med lukning</tspan>
+    </text>
+  </g>
+  <g data-model-key="square-21x21--2-part-2-flaps">
+    <rect x="616" y="1056" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(692 1072) scale(0.5)">
+      <path d="M 22 63.04 H 234 V 167.96 H 22 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 128.43 68.04 V 162.96" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 25 167.96 L 123.93 167.96 L 118.93 192.96 L 30 192.96 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 132.93 167.96 L 231.85 167.96 L 226.85 192.96 L 137.93 192.96 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="756" y="1220" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="756" y="1220">21 × 21 cm · 2-delt med 2</tspan>
+      <tspan x="756" y="1239">flapper</tspan>
+    </text>
+  </g>
+  <g data-model-key="square-21x21--2-part-3-flaps">
+    <rect x="912" y="1056" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(988 1072) scale(0.5)">
+      <path d="M 22 69.22 H 209 V 161.78 H 22 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 116.05 74.22 V 156.78" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 25 161.78 L 111.55 161.78 L 106.55 186.78 L 30 186.78 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 120.55 161.78 L 207.11 161.78 L 202.11 186.78 L 125.55 186.78 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 209 101.62 L 234 109.62 L 234 144.52 L 209 152.52 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="1052" y="1220" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="1052" y="1220">21 × 21 cm · 2-delt med 3</tspan>
+      <tspan x="1052" y="1239">flapper</tspan>
+    </text>
+  </g>
+  <g data-model-key="cd-135x135--2-part-closure">
+    <rect x="24" y="1296" width="280" height="224" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+    <g transform="translate(100 1312) scale(0.5)">
+      <path d="M 22 69.32 H 209 V 161.68 H 22 Z" fill="#0EA5E9" fill-opacity="0.1" fill-rule="evenodd" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 115.86 74.32 V 156.68" fill="none" stroke="#64748B" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 7"/>
+        <path d="M 120.36 161.68 L 206.72 161.68 L 201.72 186.68 L 125.36 186.68 Z" fill="#0EA5E9" fill-opacity="0.22" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 209 111.81 H 234 L 227 121.04 H 209 Z" fill="#0EA5E9" fill-opacity="0.28" stroke="#0EA5E9" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 44.17 115.5 H 73.72" fill="none" stroke="#64748B" stroke-width="5" stroke-linecap="round"/>
+        <circle cx="68.18" cy="113.65" r="24.94" fill="none" stroke="#64748B" stroke-width="4"/>
+        <circle cx="68.18" cy="113.65" r="5" fill="none" stroke="#64748B" stroke-width="3"/>
+    </g>
+    <text x="164" y="1460" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#0F172A">
+      <tspan x="164" y="1460">CD-mappe 13,5 × 13,5 cm ·</tspan>
+      <tspan x="164" y="1479">2-delt med lukning</tspan>
+    </text>
+  </g>
+</svg>

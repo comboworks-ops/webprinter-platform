@@ -21,12 +21,26 @@ export function ProductSeoTab({ productSlug, productName, tenantId }: ProductSeo
     const [metaDescription, setMetaDescription] = useState("");
     const [ogImageUrl, setOgImageUrl] = useState("");
     const [seoId, setSeoId] = useState<string | null>(null);
+    const [shopDomain, setShopDomain] = useState("");
+    const [shopName, setShopName] = useState("Webshop");
 
     const fullSlug = `/produkt/${productSlug}`;
 
     useEffect(() => {
         fetchSeoData();
-    }, [productSlug]);
+    }, [productSlug, tenantId]);
+
+    useEffect(() => {
+        let active = true;
+        setShopDomain("");
+        setShopName("Webshop");
+        (supabase.from('tenants' as any) as any).select('name, domain').eq('id', tenantId).maybeSingle().then(({ data }: { data: { name?: string | null; domain?: string | null } | null }) => {
+            if (!active) return;
+            setShopDomain(data?.domain || "");
+            setShopName(data?.name || "Webshop");
+        });
+        return () => { active = false; };
+    }, [tenantId]);
 
     const fetchSeoData = async () => {
         try {
@@ -51,6 +65,7 @@ export function ProductSeoTab({ productSlug, productName, tenantId }: ProductSeo
                 setSeoId(null);
                 setTitle(productName);
                 setMetaDescription("");
+                setOgImageUrl("");
             }
         } catch (error) {
             console.error("Error fetching SEO data:", error);
@@ -102,39 +117,41 @@ export function ProductSeoTab({ productSlug, productName, tenantId }: ProductSeo
     }
 
     return (
-        <Card>
+        <Card className="admin-product-seo">
             <CardHeader>
-                <CardTitle>Google & Meta Information</CardTitle>
+                <CardTitle>SEO & Meta</CardTitle>
                 <CardDescription>
                     Disse informationer er usynlige på selve siden, men bruges af Google og sociale medier.
                 </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="admin-product-seo-columns">
 
                 {/* Google Preview */}
-                <div className="p-4 bg-white border rounded-lg max-w-2xl">
-                    <h4 className="text-xs font-semibold text-gray-500 mb-2 uppercase">Google Preview</h4>
+                <div className="admin-product-seo-preview p-6 bg-card border rounded-lg">
+                    <h4 className="text-base font-semibold text-foreground mb-6">Forhåndsvisning i søgeresultater</h4>
                     <div className="font-sans">
-                        <div className="flex items-center gap-1 text-sm text-[#202124] mb-1">
-                            <div className="bg-gray-200 rounded-full w-7 h-7 flex items-center justify-center text-xs">Fav</div>
+                        <div className="flex items-center gap-1 text-sm text-foreground mb-1">
+                            <Globe className="h-7 w-7 text-muted-foreground mr-2" aria-hidden="true" />
                             <div className="flex flex-col">
-                                <span className="text-[#202124]">Webprinter.dk</span>
-                                <span className="text-[#5f6368] text-xs">https://webprinter.dk{fullSlug}</span>
+                                <span className="text-foreground">{shopName}</span>
+                                <span className="text-muted-foreground text-xs break-all">{shopDomain ? `https://${shopDomain}` : ''}{fullSlug}</span>
                             </div>
                         </div>
-                        <div className="text-[#1a0dab] text-xl font-normal hover:underline cursor-pointer truncate">
+                        <div className="text-blue-800 dark:text-blue-400 text-xl font-normal break-words">
                             {title || productName}
                         </div>
-                        <div className="text-[#4d5156] text-sm mt-1 line-clamp-2">
+                        <div className="text-muted-foreground text-sm mt-1 line-clamp-2">
                             {metaDescription || 'Din beskrivelse vil blive vist her i søgeresultaterne...'}
                         </div>
                     </div>
+                    {ogImageUrl && <img src={ogImageUrl} alt="Billede til deling" className="mt-6 max-h-56 w-full rounded object-contain" />}
+                    <p className="mt-6 border-t pt-4 text-xs text-muted-foreground">Eksempel på visning. Søgemaskinen kan vælge en anden titel eller beskrivelse.</p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="admin-product-seo-fields space-y-6">
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <Label>Meta Titel (Browser Titel)</Label>
+                            <Label>SEO-titel</Label>
                             <Input
                                 value={title}
                                 onChange={(e) => setTitle(e.target.value)}
@@ -144,7 +161,7 @@ export function ProductSeoTab({ productSlug, productName, tenantId }: ProductSeo
                         </div>
 
                         <div className="space-y-2">
-                            <Label>Meta Beskrivelse (Google Snippet)</Label>
+                            <Label>Metabeskrivelse</Label>
                             <Textarea
                                 value={metaDescription}
                                 onChange={(e) => setMetaDescription(e.target.value)}
@@ -196,7 +213,7 @@ export function ProductSeoTab({ productSlug, productName, tenantId }: ProductSeo
                     </div>
                 </div>
 
-                <div className="flex justify-end pt-4 border-t">
+                <div className="admin-product-seo-actions flex justify-start pt-4 border-t">
                     <Button onClick={handleSave} disabled={saving}>
                         {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                         Gem SEO Information

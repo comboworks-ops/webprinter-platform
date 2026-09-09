@@ -12,12 +12,16 @@ export interface CheckoutCustomerProfile {
   deliveryRecipientName?: string | null;
   deliveryCompany?: string | null;
   deliveryAddress?: string | null;
+  deliveryAddress2?: string | null;
+  deliveryCountry?: string | null;
   deliveryZip?: string | null;
   deliveryCity?: string | null;
   useSeparateBillingAddress?: boolean | null;
   billingName?: string | null;
   billingCompany?: string | null;
   billingAddress?: string | null;
+  billingAddress2?: string | null;
+  billingCountry?: string | null;
   billingZip?: string | null;
   billingCity?: string | null;
   senderMode?: CheckoutCustomerProfileSenderMode | null;
@@ -37,12 +41,16 @@ interface CheckoutCustomerProfileRow {
   delivery_recipient_name: string | null;
   delivery_company: string | null;
   delivery_address: string | null;
+  delivery_address_2: string | null;
+  delivery_country: string | null;
   delivery_zip: string | null;
   delivery_city: string | null;
   use_separate_billing_address: boolean | null;
   billing_name: string | null;
   billing_company: string | null;
   billing_address: string | null;
+  billing_address_2: string | null;
+  billing_country: string | null;
   billing_zip: string | null;
   billing_city: string | null;
   sender_mode: CheckoutCustomerProfileSenderMode | null;
@@ -102,12 +110,16 @@ function mapRowToProfile(row: CheckoutCustomerProfileRow): CheckoutCustomerProfi
     deliveryRecipientName: row.delivery_recipient_name,
     deliveryCompany: row.delivery_company,
     deliveryAddress: row.delivery_address,
+    deliveryAddress2: row.delivery_address_2,
+    deliveryCountry: row.delivery_country,
     deliveryZip: row.delivery_zip,
     deliveryCity: row.delivery_city,
     useSeparateBillingAddress: row.use_separate_billing_address,
     billingName: row.billing_name,
     billingCompany: row.billing_company,
     billingAddress: row.billing_address,
+    billingAddress2: row.billing_address_2,
+    billingCountry: row.billing_country,
     billingZip: row.billing_zip,
     billingCity: row.billing_city,
     senderMode: row.sender_mode,
@@ -132,12 +144,16 @@ function mapProfileToRow(
     delivery_recipient_name: input.deliveryRecipientName || null,
     delivery_company: input.deliveryCompany || null,
     delivery_address: input.deliveryAddress || null,
+    delivery_address_2: input.deliveryAddress2 || null,
+    delivery_country: input.deliveryCountry || null,
     delivery_zip: input.deliveryZip || null,
     delivery_city: input.deliveryCity || null,
     use_separate_billing_address: input.useSeparateBillingAddress ?? false,
     billing_name: input.billingName || null,
     billing_company: input.billingCompany || null,
     billing_address: input.billingAddress || null,
+    billing_address_2: input.billingAddress2 || null,
+    billing_country: input.billingCountry || null,
     billing_zip: input.billingZip || null,
     billing_city: input.billingCity || null,
     sender_mode: input.senderMode || "standard",

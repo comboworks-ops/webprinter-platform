@@ -1,4 +1,8 @@
-import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, type CSSProperties, type ReactNode } from "react";
+import { getPrintDesignPreset, resolvePrintDesignBranding } from '@/lib/branding/printDesignPresets';
+import { useLocation } from 'react-router-dom';
+import { usePreviewBranding } from '@/contexts/PreviewBrandingContext';
+import { isPrintCatalogRoute } from '@/lib/storefront/printCatalogNavigation';
 import { Helmet } from "react-helmet-async";
 
 import { Truck, Award, Phone, Shield, Clock, Star, Heart, Check } from "lucide-react";
@@ -405,7 +409,18 @@ export function StorefrontHomeContent({
   isPreviewMode = false,
 }: StorefrontHomeContentProps) {
   const { components: Theme } = useTheme();
-  const resolvedBranding = mergeBrandingWithDefaults(branding || {});
+  const location = useLocation();
+  const preview = usePreviewBranding();
+  const resolvedBranding = resolvePrintDesignBranding(mergeBrandingWithDefaults(branding || {}));
+  const catalogPath = preview.isPreviewMode && preview.previewPath ? preview.previewPath : location.pathname + location.search;
+  const isPrintTheme = Boolean(getPrintDesignPreset(resolvedBranding.themeId));
+  const isCatalog = isPrintTheme && isPrintCatalogRoute(catalogPath);
+  const storefrontUrl = new URL(catalogPath, 'http://storefront.local');
+  const navigationKey = JSON.stringify([storefrontUrl.pathname, ...['overview', 'category', 'subcategory'].map(key => storefrontUrl.searchParams.get(key))]);
+  useLayoutEffect(() => {
+    // Route navigation starts at the page heading; typing in search keeps its position.
+    if (isPrintTheme) window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [navigationKey, isPrintTheme]);
   const resolvedTenantName = String(
     resolvedBranding.shop_name || tenantName || "Din Shop",
   ).trim() || "Din Shop";
@@ -504,7 +519,7 @@ export function StorefrontHomeContent({
         ))}
       </Helmet>
 
-      {shopLayout.sectionOrder.map((sectionId) => (
+      {(isCatalog ? ['products' as const] : shopLayout.sectionOrder).map((sectionId) => (
         <div key={sectionId} data-shop-section={sectionId}>
           {sectionNodes[sectionId]}
         </div>

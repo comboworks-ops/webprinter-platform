@@ -10,8 +10,10 @@ import { ExportMode, ExportOptions, DocumentSpec, PdfSourceMeta, ExportResult } 
 import { OUTPUT_PROFILES, SRGB_PROFILE_URL } from '@/lib/color/iccProofing';
 import { withHiddenGuides } from './hideExportGuides';
 import { computeExportCropRect } from './computeExportCropRect';
-import { exportVectorPdfBackground } from './exportVectorPdfBackground';
 import { withCanonicalExportViewport } from './withCanonicalExportViewport';
+import { setPdfPageBoxes } from './setPdfPageBoxes';
+import { createProductionPdf, type ProductionPdfContext } from './createProductionPdf';
+import type { ProductionOutputProfile } from './productionColor';
 
 // CRITICAL: Must match Designer's DISPLAY_DPI (50.8 DPI = ~2 pixels per mm)
 const DISPLAY_DPI = 50.8;
@@ -26,11 +28,12 @@ interface PdfBackgroundMeta {
     originalFileName?: string;
 }
 
-interface ExportContext {
+export interface ExportContext {
     documentSpec: DocumentSpec;
     fabricCanvas: fabric.Canvas | null;
     colorProofing: {
-        settings: { outputProfileId: string };
+        settings: { outputProfileId: string; renderingIntent?: 0 | 1 | 2 | 3; blackPointCompensation?: boolean };
+        resolveOutputProfile?: () => Promise<ProductionOutputProfile>;
         exportCMYK: (
             inputProfileUrl: string,
             outputProfileUrl: string,
@@ -39,6 +42,8 @@ interface ExportContext {
         ) => Promise<{ cmykData: Uint8Array; proofedRgbDataUrl: string; width: number; height: number }>;
     };
     productProfileBytes?: ArrayBuffer | null;
+    outputProfile?: ProductionOutputProfile;
+    colorMode?: ProductionPdfContext['colorMode'];
     pdfSourceMeta?: PdfSourceMeta | null;
     hasChanges?: boolean;
     pdfBackgroundMeta?: PdfBackgroundMeta | null;
@@ -65,30 +70,27 @@ export async function runDesignerExport(
     try {
         switch (mode) {
             case 'print_pdf':
-                // Both print and proof use the same capture pipeline for reliability
-                // The colorProofing.exportCMYK provides high-quality canvas capture
-                return await exportProofPdf(documentSpec, colorProofing, productProfileBytes, includeBleed, 'print', fabricCanvas, displayMetrics);
+            case 'vector_pdf': {
+                const colorMode = options.colorMode || context.colorMode || 'convert_cmyk';
+                const outputProfile = colorMode === 'preserve_rgb' ? undefined : context.outputProfile || await colorProofing.resolveOutputProfile?.();
+                const result = await createProductionPdf({ documentSpec, fabricCanvas, includeBleed, displayMetrics,
+                    outputProfile, colorMode, renderingIntent: colorProofing.settings.renderingIntent, blackPointCompensation: colorProofing.settings.blackPointCompensation });
+                downloadPdfBytes(result.bytes, result.filename);
+                return { success: true, filename: result.filename, warnings: result.warnings.map(warning => warning.message) };
+            }
 
             case 'proof_pdf':
-                return await exportProofPdf(documentSpec, colorProofing, productProfileBytes, includeBleed, 'proof', fabricCanvas, displayMetrics);
+                {
+                    const proof = await buildProofPdfBytes(context, includeBleed);
+                    downloadPdfBytes(proof.bytes, proof.filename);
+                    return { success: true, filename: proof.filename };
+                }
 
             case 'original_pdf':
                 if (!pdfSourceMeta || hasChanges) {
                     throw new Error('Original PDF not available - design has been modified');
                 }
                 return await exportOriginalPdf(pdfSourceMeta, documentSpec.name);
-
-            case 'vector_pdf':
-                if (!pdfBackgroundMeta || !fabricCanvas) {
-                    throw new Error('Vector PDF export requires an imported PDF background');
-                }
-                return await exportVectorPdfBackground({
-                    documentSpec,
-                    fabricCanvas,
-                    pdfBackgroundMeta,
-                    includeBleed,
-                    displayMetrics,
-                });
 
             default:
                 throw new Error(`Unknown export mode: ${mode}`);
@@ -103,96 +105,30 @@ export async function runDesignerExport(
     }
 }
 
-
-/**
- * Print PDF: Standard high-quality export from Fabric canvas
- * Uses direct canvas capture WITHOUT color proofing transformation
- */
-async function exportPrintPdf(
-    docSpec: DocumentSpec,
-    fabricCanvas: fabric.Canvas | null,
-    includeBleed: boolean,
-    displayMetrics = { mmToPx: MM_TO_PX, pasteboardPaddingPx: PASTEBOARD_PADDING_PX },
-): Promise<ExportResult> {
-    if (!fabricCanvas) {
-        throw new Error('Canvas not available');
-    }
-
-    const bleedMm = includeBleed ? (docSpec.bleed_mm || 0) : 0;
-    const bleedPx = bleedMm * displayMetrics.mmToPx;
-
-    // Calculate crop area
-    const cropLeft = includeBleed ? displayMetrics.pasteboardPaddingPx : displayMetrics.pasteboardPaddingPx + bleedPx;
-    const cropTop = includeBleed ? displayMetrics.pasteboardPaddingPx : displayMetrics.pasteboardPaddingPx + bleedPx;
-    const cropWidth = includeBleed
-        ? (docSpec.width_mm * displayMetrics.mmToPx) + (bleedPx * 2)
-        : docSpec.width_mm * displayMetrics.mmToPx;
-    const cropHeight = includeBleed
-        ? (docSpec.height_mm * displayMetrics.mmToPx) + (bleedPx * 2)
-        : docSpec.height_mm * displayMetrics.mmToPx;
-
-
-
-    // High-res export (300 DPI)
-    const multiplier = 300 / 96;
-
-    const dataUrl = await withCanonicalExportViewport(fabricCanvas, async () => fabricCanvas.toDataURL({
-        format: 'png',
-        multiplier,
-        left: cropLeft,
-        top: cropTop,
-        width: cropWidth,
-        height: cropHeight,
-    }));
-
-
-
-    // PDF dimensions
-    const pdfWidth = docSpec.width_mm + (includeBleed ? bleedMm * 2 : 0);
-    const pdfHeight = docSpec.height_mm + (includeBleed ? bleedMm * 2 : 0);
-
-    const doc = new jsPDF({
-        orientation: pdfWidth > pdfHeight ? 'landscape' : 'portrait',
-        unit: 'mm',
-        format: [pdfWidth, pdfHeight]
-    });
-
-    doc.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'SLOW');
-
-    const friendlyName = getExportFilename(docSpec.name);
-
-
-
-    doc.setProperties({
-        title: friendlyName,
-        subject: 'Print PDF',
-        creator: 'Webprinter Designer',
-        keywords: 'Print, Production'
-    });
-
-    const fileName = `${friendlyName}.pdf`;
-
-    doc.save(fileName);
-
-    return { success: true, filename: fileName };
+export function downloadPdfBytes(bytes: Uint8Array, filename: string): void {
+    const blob = new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
 
 /**
  * Proof PDF: CMYK-simulated RGB export (existing behavior)
  * Uses colorProofing.exportCMYK() which returns proofedRgbDataUrl
- * Also used for Print PDF mode (same capture pipeline, different metadata)
+ * Deliberately separate from production PDF export.
  */
-async function exportProofPdf(
-    docSpec: DocumentSpec,
-    colorProofing: ExportContext['colorProofing'],
-    productProfileBytes: ArrayBuffer | null | undefined,
-    includeBleed: boolean,
-    variant: 'print' | 'proof' = 'proof',
-    fabricCanvas?: fabric.Canvas | null,
-    displayMetrics = { mmToPx: MM_TO_PX, pasteboardPaddingPx: PASTEBOARD_PADDING_PX },
-): Promise<ExportResult> {
-    const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId)
-        || OUTPUT_PROFILES[0];
+export async function buildProofPdfBytes(context: ExportContext, includeBleed = true): Promise<{ bytes: Uint8Array; filename: string }> {
+    const { documentSpec: docSpec, colorProofing, productProfileBytes, fabricCanvas } = context;
+    const displayMetrics = context.displayMetrics || { mmToPx: MM_TO_PX, pasteboardPaddingPx: PASTEBOARD_PADDING_PX };
+    const resolvedProfile = await colorProofing.resolveOutputProfile?.();
+    const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId);
+    if (!resolvedProfile && !profile) throw new Error('Den valgte proof-profil kunne ikke indlæses.');
 
     // Use the helper for correct crop calculation
     const bleedMm = docSpec.bleed_mm || 0;
@@ -228,8 +164,8 @@ async function exportProofPdf(
         // Use existing exportCMYK - this is the PROTECTED pipeline
         const { proofedRgbDataUrl } = await colorProofing.exportCMYK(
             SRGB_PROFILE_URL,
-            profile.url,
-            productProfileBytes,
+            profile?.url || '',
+            resolvedProfile?.bytes || productProfileBytes,
             cropOptions
         );
         return proofedRgbDataUrl;
@@ -250,31 +186,20 @@ async function exportProofPdf(
     });
 
     doc.addImage(proofedRgbDataUrl, 'PNG', 0, 0, cropResult.pdfWidthMm, cropResult.pdfHeightMm, undefined, 'SLOW');
+    setPdfPageBoxes(doc, docSpec.width_mm, docSpec.height_mm, includeBleed ? bleedMm : 0);
 
     const friendlyName = getExportFilename(docSpec.name);
-    const isPrint = variant === 'print';
 
     doc.setProperties({
         title: friendlyName,
-        subject: isPrint ? 'Print PDF' : 'Proof PDF (CMYK Simulation)',
+        subject: 'Proof PDF (CMYK Simulation)',
         creator: 'Webprinter Designer',
-        keywords: isPrint ? 'Print, Production' : `CMYK, ${profile.name}, Proof`
+        keywords: `CMYK, ${resolvedProfile?.name || profile?.name}, Proof`
     });
 
     const fileName = `${friendlyName}.pdf`;
 
-    // Use blob download for better browser compatibility (especially Chrome)
-    const pdfBlob = doc.output('blob');
-    const url = URL.createObjectURL(pdfBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    return { success: true, filename: fileName };
+    return { bytes: new Uint8Array(doc.output('arraybuffer')), filename: fileName };
 }
 
 

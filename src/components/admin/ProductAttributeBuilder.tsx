@@ -39,6 +39,17 @@ import {
     type ThumbnailSizeMode
 } from "@/lib/pricing/thumbnailSizes";
 import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
+import { getBuiltInOptionImage } from "@/lib/pricing/builtInOptionImages";
+import {
+    buildDependencyFilteredPriceOnlyRows,
+    getDependencyFilteredCombinationKeys,
+    getDependencyFilteredGeneratorKeys,
+    getMatrixAdminPriceContext,
+    isDependencyFilteredMatrix,
+    preserveMatrixAdminPricingStructure,
+    type MatrixAdminPersistedPriceRow,
+} from "@/lib/pricing/matrixAdminPriceSafeguards";
+import { publishGenericPricesSafely } from "@/lib/pricing/safeGenericPricePublish";
 import { getThumbnailSizeFromUiMode, type SelectorStyling } from "@/lib/pricing/selectorStyling";
 import { TemplateConnectDialog } from "@/components/admin/TemplateConnectDialog";
 
@@ -482,6 +493,8 @@ interface LayoutSection {
     thumbnail_custom_px?: number;
     title?: string;
     description?: string;
+    hideUnavailableValues?: boolean;
+    hide_unavailable_values?: boolean;
 }
 
 function SortableGroupItem({
@@ -804,6 +817,8 @@ export function ProductAttributeBuilder({
         thumbnail_custom_px?: number;
         title?: string;
         description?: string;
+        hideUnavailableValues?: boolean;
+        hide_unavailable_values?: boolean;
     }
 
     interface LayoutRow {
@@ -1426,11 +1441,13 @@ export function ProductAttributeBuilder({
     const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
     const hasLoadedStructureRef = useRef(false);
     const hasLoadedPublishedPricesRef = useRef(false);
+    const persistedPricingStructureRef = useRef<any>(null);
     const storageTrimWarnedRef = useRef(false);
     const storageQuotaWarnedRef = useRef(false);
     const [publishedPreviewReady, setPublishedPreviewReady] = useState(false);
     const [publishedPriceLoadSkippedCount, setPublishedPriceLoadSkippedCount] = useState<number | null>(null);
     const [loadingPublishedPrices, setLoadingPublishedPrices] = useState(false);
+    const [publishedPriceRows, setPublishedPriceRows] = useState<MatrixAdminPersistedPriceRow[]>([]);
     const pendingLocalGeneratorCacheRef = useRef<{
         generatorPrices: Record<string, any>;
         publishedPricesFingerprint: string | null;
@@ -2019,14 +2036,16 @@ export function ProductAttributeBuilder({
     }, [sizeMode, formatDisplayMode, maxWidthMm, maxHeightMm, pricingVariantGroupId, verticalAxisConfig, layoutRows, productId, selectedOplag, generatorPrices, publishedPricesFingerprint, productMarkups, masterMarkup, genRounding]);
 
     const buildPricingStructure = useCallback(() => {
-        const verticalGroup = productAttrs.groups.find(g => {
+        const verticalGroup = productAttrs.groups.find(g => g.id === verticalAxisConfig.groupId)
+            || productAttrs.groups.find(g => {
             if (verticalAxisConfig.sectionType === 'formats') return g.kind === 'format';
             if (verticalAxisConfig.sectionType === 'materials') return g.kind === 'material';
             if (verticalAxisConfig.sectionType === 'finishes') return g.kind === 'finish';
+            if (verticalAxisConfig.sectionType === 'products') return g.kind === 'custom';
             return false;
         });
 
-        return {
+        const nextStructure = {
             mode: 'matrix_layout_v1' as const,
             version: 1,
             vertical_axis: {
@@ -2066,12 +2085,18 @@ export function ProductAttributeBuilder({
                         thumbnail_size: normalizeThumbnailSize(sec.thumbnail_size),
                         thumbnail_custom_px: normalizeThumbnailCustomPx(sec.thumbnail_custom_px),
                         title: sec.title || '',
-                        description: sec.description || ''
+                        description: sec.description || '',
+                        hideUnavailableValues: sec.hideUnavailableValues,
+                        hide_unavailable_values: sec.hide_unavailable_values,
                     };
                 })
             })),
             quantities: selectedOplag.sort((a, b) => a - b)
         };
+        return preserveMatrixAdminPricingStructure(
+            persistedPricingStructureRef.current,
+            nextStructure,
+        );
     }, [layoutRows, productAttrs.groups, selectedOplag, verticalAxisConfig]);
 
     const buildFallbackStructureFromTemplate = useCallback((spec: any) => {
@@ -2359,6 +2384,7 @@ export function ProductAttributeBuilder({
 
     const applyPricingStructure = useCallback((structure: any) => {
         if (!structure || structure.mode !== 'matrix_layout_v1') return;
+        persistedPricingStructureRef.current = structure;
         const vertical = structure.vertical_axis || {};
         const layoutRowsFromStructure = (structure.layout_rows || []).map((row: any, rowIndex: number) => {
             const columns = row.columns || row.sections || [];
@@ -2379,7 +2405,9 @@ export function ProductAttributeBuilder({
                     thumbnail_size: normalizeThumbnailSize(col.thumbnail_size),
                     thumbnail_custom_px: normalizeThumbnailCustomPx(col.thumbnail_custom_px),
                     title: col.title || '',
-                    description: col.description || ''
+                    description: col.description || '',
+                    hideUnavailableValues: col.hideUnavailableValues === true,
+                    hide_unavailable_values: col.hide_unavailable_values === true,
                 }))
             };
         });
@@ -2562,6 +2590,7 @@ export function ProductAttributeBuilder({
         try {
             data = await fetchAllGenericProductPrices();
         } catch {
+            setPublishedPriceRows([]);
             if (options?.manual) {
                 toast.error('Kunne ikke indlæse eksisterende priser til redigering');
             }
@@ -2571,6 +2600,7 @@ export function ProductAttributeBuilder({
             return;
         }
 
+        setPublishedPriceRows(data as MatrixAdminPersistedPriceRow[]);
         if (!data || data.length === 0) {
             hasLoadedPublishedPricesRef.current = true;
             setPublishedPreviewReady(true);
@@ -2677,6 +2707,41 @@ export function ProductAttributeBuilder({
     // ============ CSV Logic ============
     const [importing, setImporting] = useState(false);
     const [pushing, setPushing] = useState(false);
+    const [publishProgress, setPublishProgress] = useState<{ saved: number; total: number } | null>(null);
+    const persistedPriceCount = parsePublishedPriceCount(publishedPricesFingerprint) || 0;
+    const hasDependencyFilteredSections = useMemo(
+        () => layoutRows.some(row => row.sections.some(section =>
+            section.hideUnavailableValues === true
+            || section.hide_unavailable_values === true
+        )),
+        [layoutRows],
+    );
+    const dependencyFilteredCombinationKeys = useMemo(
+        () => getDependencyFilteredCombinationKeys(publishedPriceRows),
+        [publishedPriceRows],
+    );
+    const dependencyFilteredGeneratorKeys = useMemo(
+        () => getDependencyFilteredGeneratorKeys(publishedPriceRows),
+        [publishedPriceRows],
+    );
+    const isExistingDependencyCombination = useCallback((
+        formatId: string,
+        materialId: string,
+        variantId: string,
+        verticalValueId: string,
+    ) => {
+        if (!hasDependencyFilteredSections) return true;
+        return dependencyFilteredCombinationKeys.has([
+            formatId,
+            materialId,
+            variantId || 'none',
+            verticalValueId,
+        ].join('::'));
+    }, [dependencyFilteredCombinationKeys, hasDependencyFilteredSections]);
+    const isExistingDependencyPriceKey = useCallback((priceKey: string) => {
+        if (!hasDependencyFilteredSections) return true;
+        return dependencyFilteredGeneratorKeys.has(priceKey);
+    }, [dependencyFilteredGeneratorKeys, hasDependencyFilteredSections]);
 
     // Generate CSV Rows (All Combinations currently in Layout)
     const getAllRows = useCallback(() => {
@@ -2784,9 +2849,14 @@ export function ProductAttributeBuilder({
             toast.error('Vælg mindst ét oplag først.');
             return;
         }
+        if (hasDependencyFilteredSections && persistedPriceCount > 0 && dependencyFilteredCombinationKeys.size === 0) {
+            toast.error('Vent til de eksisterende priser er indlæst, før du eksporterer denne prisliste.');
+            return;
+        }
 
         // 1. Collect vertical axis info
-        const verticalGroup = productAttrs.groups.find(g => {
+        const verticalGroup = productAttrs.groups.find(g => g.id === verticalAxisConfig.groupId)
+            || productAttrs.groups.find(g => {
             if (verticalAxisConfig.sectionType === 'formats') return g.kind === 'format';
             if (verticalAxisConfig.sectionType === 'materials') return g.kind === 'material';
             if (verticalAxisConfig.sectionType === 'finishes') return g.kind === 'finish';
@@ -2907,10 +2977,14 @@ export function ProductAttributeBuilder({
                     thumbnail_size: normalizeThumbnailSize(sec.thumbnail_size),
                     thumbnail_custom_px: normalizeThumbnailCustomPx(sec.thumbnail_custom_px),
                     title: sec.title || '',
-                    description: sec.description || ''
+                    description: sec.description || '',
+                    hideUnavailableValues: sec.hideUnavailableValues,
+                    hide_unavailable_values: sec.hide_unavailable_values,
                 }))
             })),
-            quantities: selectedOplag.sort((a, b) => a - b)
+            quantities: selectedOplag.sort((a, b) => a - b),
+            hideUnavailableQuantities: persistedPricingStructureRef.current?.hideUnavailableQuantities,
+            hide_unavailable_quantities: persistedPricingStructureRef.current?.hide_unavailable_quantities,
         };
 
         let sectionHeaders: string[];
@@ -3007,6 +3081,19 @@ export function ProductAttributeBuilder({
 
                 for (const vertVal of verticalValues) {
                     for (const combo of sectionCombinations) {
+                        const selectionBySection: Record<string, string> = {
+                            [verticalSectionId]: vertVal.id,
+                        };
+                        combo.forEach((value: any, index: number) => {
+                            const section = sections[index];
+                            if (section && value?.id) selectionBySection[section.sectionId] = value.id;
+                        });
+                        const formatId = getActiveFormatId(selectionBySection);
+                        const materialId = getActiveMaterialId(selectionBySection);
+                        const variantId = getVariantKeyFromSelections(selectionBySection);
+                        if (!isExistingDependencyCombination(formatId, materialId, variantId, vertVal.id)) {
+                            continue;
+                        }
                         const cells = [
                             vertVal.name,
                             ...combo.map((v: any) => v.name),
@@ -3034,9 +3121,14 @@ export function ProductAttributeBuilder({
             toast.error('Vælg mindst ét oplag først.');
             return;
         }
+        if (hasDependencyFilteredSections && persistedPriceCount > 0 && dependencyFilteredCombinationKeys.size === 0) {
+            toast.error('Vent til de eksisterende priser er indlæst, før du eksporterer denne prisliste.');
+            return;
+        }
 
         // 1. Collect vertical axis info
-        const verticalGroup = productAttrs.groups.find(g => {
+        const verticalGroup = productAttrs.groups.find(g => g.id === verticalAxisConfig.groupId)
+            || productAttrs.groups.find(g => {
             if (verticalAxisConfig.sectionType === 'formats') return g.kind === 'format';
             if (verticalAxisConfig.sectionType === 'materials') return g.kind === 'material';
             if (verticalAxisConfig.sectionType === 'finishes') return g.kind === 'finish';
@@ -3150,10 +3242,14 @@ export function ProductAttributeBuilder({
                     thumbnail_size: normalizeThumbnailSize(sec.thumbnail_size),
                     thumbnail_custom_px: normalizeThumbnailCustomPx(sec.thumbnail_custom_px),
                     title: sec.title || '',
-                    description: sec.description || ''
+                    description: sec.description || '',
+                    hideUnavailableValues: sec.hideUnavailableValues,
+                    hide_unavailable_values: sec.hide_unavailable_values,
                 }))
             })),
-            quantities: selectedOplag.sort((a, b) => a - b)
+            quantities: selectedOplag.sort((a, b) => a - b),
+            hideUnavailableQuantities: persistedPricingStructureRef.current?.hideUnavailableQuantities,
+            hide_unavailable_quantities: persistedPricingStructureRef.current?.hide_unavailable_quantities,
         };
 
         const sectionHeaders = sections.map(s => {
@@ -3187,6 +3283,9 @@ export function ProductAttributeBuilder({
         const sectionCombinations = allSectionValues.length > 0 ? cartesian(allSectionValues) : [[]];
 
         const computeExportPrice = (formatId: string, materialId: string, variantId: string, qty: number) => {
+            if (!isExistingDependencyPriceKey(`${formatId}::${materialId}::${variantId || 'none'}::${qty}`)) {
+                return '';
+            }
             const computed = computeFinalPriceForContext(formatId, materialId, variantId, qty);
             return computed?.price ? String(computed.price) : '';
         };
@@ -3213,6 +3312,9 @@ export function ProductAttributeBuilder({
                     });
                 });
                 const variantId = variantIds.length > 0 ? variantIds.sort().join('|') : 'none';
+                if (!isExistingDependencyCombination(formatId, materialId, variantId, vertVal.id)) {
+                    continue;
+                }
 
                 const priceCells = selectedOplag.map(qty => computeExportPrice(formatId, materialId, variantId, qty));
                 const cells = [
@@ -3451,7 +3553,8 @@ export function ProductAttributeBuilder({
                     return Number.isNaN(qty) ? null : qty;
                 }).filter((qty): qty is number => qty !== null))).sort((a, b) => a - b);
 
-            const verticalGroup = productAttrs.groups.find(g => {
+            const verticalGroup = productAttrs.groups.find(g => g.id === verticalAxisConfig.groupId)
+                || productAttrs.groups.find(g => {
                 if (verticalAxisConfig.sectionType === 'formats') return g.kind === 'format';
                 if (verticalAxisConfig.sectionType === 'materials') return g.kind === 'material';
                 if (verticalAxisConfig.sectionType === 'finishes') return g.kind === 'finish';
@@ -3462,81 +3565,117 @@ export function ProductAttributeBuilder({
             if (pricingStructure) {
                 pricingStructure.quantities = quantities;
             }
+            const dependencyFilteredSave = isDependencyFilteredMatrix(pricingStructure);
+            const existingPriceRows = await fetchAllGenericProductPrices() as MatrixAdminPersistedPriceRow[];
 
-            // 2. Update product with pricing_structure
-            // We use 'as any' because pricing_structure is missing from the Supabase types
-            const { error: productError } = await supabase
-                .from('products')
-                .update({
-                    pricing_structure: pricingStructure,
-                    pricing_type: 'matrix'
-                } as any)
-                .eq('id', productId);
-
-            if (productError) throw productError;
-
-            // 3. Convert generator prices to generic_product_prices format (with interpolation)
+            // 2. Convert generator prices to generic_product_prices format (with interpolation)
             // Price keys are: formatId::materialId::variantId::qty
             const inserts: any[] = [];
-            const comboMap = new Map<string, { formatId: string; materialId: string; variantId: string }>();
-            generatorKeys.forEach(key => {
-                const parts = key.split('::');
-                if (parts.length < 3) return;
-                const [formatId, materialId, variantIdOrNone] = parts;
-                const variantId = variantIdOrNone === 'none' ? 'none' : variantIdOrNone;
-                const comboKey = `${formatId}::${materialId}::${variantId}`;
-                if (!comboMap.has(comboKey)) {
-                    comboMap.set(comboKey, { formatId, materialId, variantId });
+            if (dependencyFilteredSave) {
+                if (existingPriceRows.length === 0) {
+                    throw new Error('Den beskyttede prisliste har ingen eksisterende prisrækker at opdatere.');
                 }
-            });
 
-            comboMap.forEach(({ formatId, materialId, variantId }) => {
-                const variantKey = variantId === 'none' ? '' : variantId;
-                const variantValueIds = variantKey ? variantKey.split('|').filter(Boolean) : [];
-                // LOCK FIX (2026-02-09): keep variant_name stable across saves by including
-                // all non-vertical selections. Do not simplify this to variant-only keys.
-                // This prevents collisions when only one axis is stored in variant_value.
-                const variantNameParts: string[] = [...variantValueIds];
-                if (verticalAxisConfig.sectionType !== 'formats') variantNameParts.push(formatId);
-                if (verticalAxisConfig.sectionType !== 'materials') variantNameParts.push(materialId);
-                const variantName = Array.from(new Set(variantNameParts.filter(Boolean))).sort().join('|') || 'none';
+                const existingGeneratorKeys = new Set(
+                    existingPriceRows
+                        .map(row => getMatrixAdminPriceContext(row)?.generatorKey)
+                        .filter((key): key is string => Boolean(key)),
+                );
+                const finalPricesByGeneratorKey = new Map<string, number>();
+                const clearedExistingKeys: string[] = [];
 
-                const verticalValueId = verticalAxisConfig.sectionType === 'formats' ? formatId :
-                    verticalAxisConfig.sectionType === 'materials' ? materialId : formatId;
+                generatorKeys.forEach((key) => {
+                    const parts = key.split('::');
+                    if (parts.length < 4) return;
+                    const [formatId, materialId, variantId, qtyText] = parts;
+                    const quantity = Number(qtyText);
+                    const rawEntry = generatorPrices[key];
+                    const rawPrice = typeof rawEntry === 'number' ? rawEntry : Number(rawEntry?.price || 0);
+                    if (!Number.isFinite(rawPrice) || rawPrice <= 0) {
+                        if (existingGeneratorKeys.has(key)) clearedExistingKeys.push(key);
+                        return;
+                    }
+                    const computed = computeFinalPriceForContext(formatId, materialId, variantId, quantity);
+                    if (computed?.price && computed.price > 0) {
+                        finalPricesByGeneratorKey.set(key, computed.price);
+                    }
+                });
 
-                quantities.forEach(qty => {
-                    const computed = computeFinalPriceForContext(formatId, materialId, variantId, qty);
-                    if (!computed || !computed.price || computed.price <= 0) return;
+                if (clearedExistingKeys.length > 0) {
+                    throw new Error('En beskyttet importpris kan ændres, men ikke slettes ved at tømme feltet. Indtast en ny pris.');
+                }
 
-                    inserts.push({
-                        product_id: productId,
-                        tenant_id: tenantId,
-                        variant_name: variantName,
-                        variant_value: verticalValueId,
-                        quantity: qty,
-                        price_dkk: computed.price,
-                        extra_data: {
-                            verticalAxisGroupId: verticalGroup?.id,
-                            verticalAxisValueId: verticalValueId,
-                            formatId,
-                            materialId,
-                            variantId: variantKey || null,
-                            variantValueIds,
-                            selectionMap: {
-                                format: formatId,
-                                material: materialId,
-                                ...(variantKey ? { variant: variantKey, variantValueIds } : {})
-                            },
-                            priceKey: getGenPriceKey(formatId, materialId, variantId, qty),
-                            markup: computed.localMarkup || 0,
-                            productMarkup: computed.prodMarkup || 0,
-                            masterMarkup: Number(masterMarkup) || 0,
-                            priceSource: computed.source,
-                            basePrice: computed.basePrice
-                        }
+                const priceOnlyResult = buildDependencyFilteredPriceOnlyRows({
+                    existingRows: existingPriceRows,
+                    finalPricesByGeneratorKey,
+                    productId,
+                    tenantId,
+                });
+                if (priceOnlyResult.unsupportedGeneratorKeys.length > 0) {
+                    throw new Error('Prisændringen indeholder en model/variant eller et oplag, som ikke findes i den importerede prisliste.');
+                }
+                inserts.push(...priceOnlyResult.rows);
+            } else {
+                const comboMap = new Map<string, { formatId: string; materialId: string; variantId: string }>();
+                generatorKeys.forEach(key => {
+                    const parts = key.split('::');
+                    if (parts.length < 3) return;
+                    const [formatId, materialId, variantIdOrNone] = parts;
+                    const variantId = variantIdOrNone === 'none' ? 'none' : variantIdOrNone;
+                    const comboKey = `${formatId}::${materialId}::${variantId}`;
+                    if (!comboMap.has(comboKey)) {
+                        comboMap.set(comboKey, { formatId, materialId, variantId });
+                    }
+                });
+
+                comboMap.forEach(({ formatId, materialId, variantId }) => {
+                    const variantKey = variantId === 'none' ? '' : variantId;
+                    const variantValueIds = variantKey ? variantKey.split('|').filter(Boolean) : [];
+                    // LOCK FIX (2026-02-09): keep variant_name stable across saves by including
+                    // all non-vertical selections. Do not simplify this to variant-only keys.
+                    const variantNameParts: string[] = [...variantValueIds];
+                    if (verticalAxisConfig.sectionType !== 'formats') variantNameParts.push(formatId);
+                    if (verticalAxisConfig.sectionType !== 'materials') variantNameParts.push(materialId);
+                    const variantName = Array.from(new Set(variantNameParts.filter(Boolean))).sort().join('|') || 'none';
+
+                    const verticalValueId = verticalAxisConfig.sectionType === 'formats' ? formatId :
+                        verticalAxisConfig.sectionType === 'materials' ? materialId :
+                            verticalAxisConfig.valueIds?.length === 1 ? verticalAxisConfig.valueIds[0] : formatId;
+
+                    quantities.forEach(qty => {
+                        const computed = computeFinalPriceForContext(formatId, materialId, variantId, qty);
+                        if (!computed || !computed.price || computed.price <= 0) return;
+
+                        inserts.push({
+                            product_id: productId,
+                            tenant_id: tenantId,
+                            variant_name: variantName,
+                            variant_value: verticalValueId,
+                            quantity: qty,
+                            price_dkk: computed.price,
+                            extra_data: {
+                                verticalAxisGroupId: verticalGroup?.id,
+                                verticalAxisValueId: verticalValueId,
+                                formatId,
+                                materialId,
+                                variantId: variantKey || null,
+                                variantValueIds,
+                                selectionMap: {
+                                    format: formatId,
+                                    material: materialId,
+                                    ...(variantKey ? { variant: variantKey, variantValueIds } : {})
+                                },
+                                priceKey: getGenPriceKey(formatId, materialId, variantId, qty),
+                                markup: computed.localMarkup || 0,
+                                productMarkup: computed.prodMarkup || 0,
+                                masterMarkup: Number(masterMarkup) || 0,
+                                priceSource: computed.source,
+                                basePrice: computed.basePrice
+                            }
+                        });
                     });
                 });
-            });
+            }
 
             console.log('[Matrix V1 Push] generatorPrices entries:', generatorKeys.length);
             console.log('[Matrix V1 Push] Valid inserts:', inserts.length);
@@ -3565,25 +3704,58 @@ export function ProductAttributeBuilder({
                 toast.warning(`Fjernede ${duplicateCount} duplikat(er) før gem`);
             }
 
-            // LOCK FIX (2026-02-09): delete then upsert for this product.
-            // Old rows from previous key schemas can otherwise shadow new prices in frontend lookups.
-            // 4. Upsert to generic_product_prices
-            // Use product_id + variant_name + variant_value + quantity as conflict key
-            const { error: deleteExistingPricesError } = await supabase
-                .from('generic_product_prices')
-                .delete()
-                .eq('product_id', productId);
+            setPublishProgress({ saved: 0, total: deduplicatedInserts.length });
 
-            if (deleteExistingPricesError) throw deleteExistingPricesError;
-
-            console.log('[Matrix V1 Push] Upserting to generic_product_prices...');
-            const { error: priceError } = await supabase
-                .from('generic_product_prices')
-                .upsert(deduplicatedInserts, {
-                    onConflict: 'product_id,variant_name,variant_value,quantity'
-                });
-
-            if (priceError) throw priceError;
+            // Store every desired row before changing the product configuration or
+            // removing obsolete rows. A timeout can therefore never empty a product.
+            const publishResult = await publishGenericPricesSafely({
+                existingRows: existingPriceRows.map((row) => ({
+                    id: row.id,
+                    product_id: productId,
+                    variant_name: row.variant_name,
+                    variant_value: row.variant_value,
+                    quantity: row.quantity,
+                })),
+                desiredRows: deduplicatedInserts,
+                batchSize: 500,
+                upsertBatch: async (batch) => {
+                    const { error } = await supabase
+                        .from('generic_product_prices')
+                        .upsert(batch, {
+                            onConflict: 'product_id,variant_name,variant_value,quantity'
+                        });
+                    if (error) throw error;
+                },
+                updateProduct: async () => {
+                    if (dependencyFilteredSave) return;
+                    const { error } = await supabase
+                        .from('products')
+                        .update({
+                            pricing_structure: pricingStructure,
+                            pricing_type: 'matrix'
+                        } as any)
+                        .eq('id', productId)
+                        .eq('tenant_id', tenantId);
+                    if (error) throw error;
+                },
+                deleteStaleBatch: async (ids) => {
+                    if (dependencyFilteredSave) {
+                        throw new Error('Beskyttede importpriser må ikke fjerne eksisterende prisrækker.');
+                    }
+                    const { error } = await supabase
+                        .from('generic_product_prices')
+                        .delete()
+                        .eq('product_id', productId)
+                        .in('id', ids);
+                    if (error) throw error;
+                },
+                onProgress: (saved, total) => setPublishProgress({ saved, total }),
+            });
+            if (dependencyFilteredSave) {
+                setPublishedPriceRows(deduplicatedInserts as MatrixAdminPersistedPriceRow[]);
+            } else {
+                persistedPricingStructureRef.current = pricingStructure;
+            }
 
             // 5. Auto-backup to Price List Bank (safe fallback)
             try {
@@ -3621,7 +3793,10 @@ export function ProductAttributeBuilder({
                 console.warn('[Matrix V1 Push] Auto-backup failed:', backupError);
             }
 
-            toast.success(`Succes! ${deduplicatedInserts.length} priser gemt med matrix_layout_v1 format.`);
+            const cleanupNote = publishResult.deletedStale > 0
+                ? ` ${publishResult.deletedStale} forældede rækker blev fjernet.`
+                : '';
+            toast.success(`${publishResult.saved.toLocaleString('da-DK')} priser blev gemt sikkert.${cleanupNote}`);
             if (onPricesUpdated) onPricesUpdated();
 
         } catch (error: any) {
@@ -3629,6 +3804,7 @@ export function ProductAttributeBuilder({
             toast.error('Kunne ikke gemme: ' + error.message);
         } finally {
             setPushing(false);
+            setPublishProgress(null);
         }
     };
 
@@ -3641,6 +3817,101 @@ export function ProductAttributeBuilder({
         toast.info(`Starting Import. Rows: ${data.length}. Headers: ${headers.length}`);
 
         try {
+            if (hasDependencyFilteredSections) {
+                if (!csvMeta?.layout_rows?.length || !csvMeta?.vertical_axis) {
+                    throw new Error('Denne beskyttede prisliste kan kun importeres fra en CSV eksporteret fra samme produkt.');
+                }
+                if (dependencyFilteredGeneratorKeys.size === 0) {
+                    throw new Error('Vent til de eksisterende importpriser er indlæst, før CSV-filen importeres.');
+                }
+
+                const normalizeProtectedValue = (value: string) => value.toLowerCase().replace(/[.,\-\s_]/g, '');
+                const protectedQuantityIndices: number[] = [];
+                const protectedAttributeIndices: number[] = [];
+                headers.forEach((header, index) => {
+                    const cleaned = header.replace(/\./g, '');
+                    if (/^\d+$/.test(cleaned)) protectedQuantityIndices.push(index);
+                    else protectedAttributeIndices.push(index);
+                });
+                const protectedMetaColumns = [
+                    { role: 'vertical', ...(csvMeta.vertical_axis || {}) },
+                    ...(csvMeta.layout_rows || []).flatMap((row: any) =>
+                        (row.columns || []).map((column: any) => ({
+                            role: 'section',
+                            rowId: row.id,
+                            ...column,
+                        }))
+                    ),
+                ];
+                if (protectedMetaColumns.length !== protectedAttributeIndices.length) {
+                    throw new Error('CSV-layoutet matcher ikke den beskyttede prisliste.');
+                }
+
+                const resolvedProtectedColumns = protectedMetaColumns.map((metaColumn: any, index: number) => {
+                    const group = productAttrs.groups.find(candidate => candidate.id === metaColumn.groupId);
+                    if (!group) {
+                        throw new Error('CSV-filen henviser til en valgmulighed, som ikke længere findes på produktet.');
+                    }
+                    return {
+                        colIndex: protectedAttributeIndices[index],
+                        sectionId: metaColumn.sectionId || metaColumn.id,
+                        sectionType: metaColumn.sectionType,
+                        group,
+                    };
+                });
+                const protectedVerticalSectionId = csvMeta.vertical_axis.sectionId || 'vertical-axis';
+
+                data.forEach((row) => {
+                    const selections: Record<string, string> = {};
+                    resolvedProtectedColumns.forEach((column) => {
+                        const rawValue = row[column.colIndex]?.trim();
+                        if (!rawValue) return;
+                        const value = column.group.values?.find(candidate =>
+                            normalizeProtectedValue(candidate.name) === normalizeProtectedValue(rawValue)
+                        );
+                        if (!value) {
+                            throw new Error(`CSV-værdien "${rawValue}" findes ikke i den importerede prisliste.`);
+                        }
+                        selections[column.sectionId] = value.id;
+                    });
+
+                    const verticalValueId = selections[protectedVerticalSectionId];
+                    let formatId = '';
+                    let materialId = '';
+                    const variantValueIds: string[] = [];
+                    resolvedProtectedColumns.forEach((column) => {
+                        const valueId = selections[column.sectionId];
+                        if (!valueId) return;
+                        if (column.sectionType === 'formats') formatId = valueId;
+                        else if (column.sectionType === 'materials') materialId = valueId;
+                        else if (column.sectionId !== protectedVerticalSectionId) variantValueIds.push(valueId);
+                    });
+                    const variantId = variantValueIds.length > 0
+                        ? Array.from(new Set(variantValueIds)).sort().join('|')
+                        : 'none';
+                    if (!verticalValueId || !formatId || !materialId) {
+                        throw new Error('CSV-rækken mangler produkt, model eller variant.');
+                    }
+                    if (!isExistingDependencyCombination(formatId, materialId, variantId, verticalValueId)) {
+                        throw new Error('CSV-filen indeholder en model/variant-kombination, som ikke findes i den importerede prisliste.');
+                    }
+
+                    protectedQuantityIndices.forEach((quantityIndex) => {
+                        const rawPrice = row[quantityIndex]?.trim();
+                        if (!rawPrice) return;
+                        const price = Number(rawPrice.replace(/\./g, '').replace(',', '.'));
+                        if (!Number.isFinite(price) || price <= 0) {
+                            throw new Error('CSV-filen indeholder en ugyldig pris.');
+                        }
+                        const quantity = Number(headers[quantityIndex].replace(/\./g, ''));
+                        const priceKey = `${formatId}::${materialId}::${variantId}::${quantity}`;
+                        if (!dependencyFilteredGeneratorKeys.has(priceKey)) {
+                            throw new Error('CSV-filen indeholder et oplag, som ikke findes for den valgte model/variant.');
+                        }
+                    });
+                });
+            }
+
             // 0. Provision Attributes (Create missing Groups/Values)
             // Identify Headers -> Desired Kinds
             const missingValues: { groupId: string, name: string }[] = [];
@@ -3677,6 +3948,7 @@ export function ProductAttributeBuilder({
 
             // First pass: Ensure Groups Exist
             for (let i = 0; i < headers.length; i++) {
+                if (hasDependencyFilteredSections) continue;
                 const h = headers[i];
                 if (!isNaN(parseInt(h))) continue; // Quantity column
 
@@ -3971,7 +4243,9 @@ export function ProductAttributeBuilder({
                             thumbnail_size: normalizeThumbnailSize(col.thumbnail_size),
                             thumbnail_custom_px: normalizeThumbnailCustomPx(col.thumbnail_custom_px),
                             title: col.title || '',
-                            description: col.description || ''
+                            description: col.description || '',
+                            hideUnavailableValues: col.hideUnavailableValues === true,
+                            hide_unavailable_values: col.hide_unavailable_values === true,
                         };
                     })
                 }));
@@ -4032,7 +4306,11 @@ export function ProductAttributeBuilder({
                     }
 
                     const variantValueIds = Object.entries(selectionBySection)
-                        .filter(([secId]) => secId !== verticalSectionId)
+                        .filter(([secId]) => {
+                            if (secId === verticalSectionId) return false;
+                            const sectionType = sectionTypeById[secId];
+                            return sectionType !== 'formats' && sectionType !== 'materials';
+                        })
                         .map(([, valId]) => valId)
                         .filter(Boolean);
 
@@ -4524,6 +4802,21 @@ export function ProductAttributeBuilder({
     const activeGenFormat = getActiveFormatId(selectedSectionValues);
     const activeGenMaterial = getActiveMaterialId(selectedSectionValues);
     const activeGenVariant = getVariantKeyFromSelections(selectedSectionValues);
+    const activeGeneratorQuantities = useMemo(
+        () => hasDependencyFilteredSections
+            ? selectedOplag.filter((quantity) => isExistingDependencyPriceKey(
+                `${activeGenFormat}::${activeGenMaterial}::${activeGenVariant || 'none'}::${quantity}`,
+            ))
+            : selectedOplag,
+        [
+            activeGenFormat,
+            activeGenMaterial,
+            activeGenVariant,
+            hasDependencyFilteredSections,
+            isExistingDependencyPriceKey,
+            selectedOplag,
+        ],
+    );
     const hiddenSectionIds = useMemo(() => {
         const ids = new Set<string>();
         layoutRows.forEach(row => {
@@ -4551,6 +4844,13 @@ export function ProductAttributeBuilder({
             .filter(section => section.ui_mode !== 'hidden')
             .map((section, index) => ({ section, index }));
 
+        // Imported dependency-filtered matrices deliberately define their choice order
+        // (for example calendar model before compatible filling). Keep that order so an
+        // internal format/material type does not reverse the customer dependency.
+        if (hasDependencyFilteredSections) {
+            return flattened.map(item => item.section);
+        }
+
         const getSectionPriority = (section: LayoutSection) => {
             const label = getPreviewSectionLabel(section);
             if (section.sectionType === 'formats') return 0;
@@ -4568,7 +4868,7 @@ export function ProductAttributeBuilder({
                 return a.index - b.index;
             })
             .map(item => item.section);
-    }, [getPreviewSectionLabel, layoutRows]);
+    }, [getPreviewSectionLabel, hasDependencyFilteredSections, layoutRows]);
     const previewSectionOrderById = useMemo(() => {
         const order: Record<string, number> = {};
         previewVisibleSections.forEach((section, index) => {
@@ -4584,6 +4884,19 @@ export function ProductAttributeBuilder({
         return sortValuesForDisplay(rawValues, sectionLabel);
     }, [getPreviewSectionLabel, productAttrs.groups]);
     const previewPositivePriceRows = useMemo(() => {
+        if (hasDependencyFilteredSections) {
+            return publishedPriceRows.flatMap((row) => {
+                if (!Number.isFinite(Number(row.price_dkk)) || Number(row.price_dkk) <= 0) return [];
+                const context = getMatrixAdminPriceContext(row);
+                if (!context) return [];
+                return [{
+                    formatId: context.formatId,
+                    materialId: context.materialId,
+                    variantIds: context.variantId === 'none' ? [] : context.variantId.split('|').filter(Boolean),
+                    verticalValueId: context.verticalValueId,
+                }];
+            });
+        }
         return Object.entries(generatorPrices).flatMap(([key, row]) => {
             const parts = key.split('::');
             if (parts.length < 4) return [];
@@ -4610,7 +4923,7 @@ export function ProductAttributeBuilder({
                 })()
             }];
         });
-    }, [generatorPrices, verticalAxisConfig.sectionType, verticalAxisConfig.valueIds]);
+    }, [generatorPrices, hasDependencyFilteredSections, publishedPriceRows, verticalAxisConfig.sectionType, verticalAxisConfig.valueIds]);
     const previewRowMatchesSelections = useCallback((row: { formatId: string; materialId: string; variantIds: string[]; verticalValueId: string | null }, selections: Record<string, string>, excludeSectionId?: string) => {
         for (const [sectionId, valueId] of Object.entries(selections)) {
             if (!valueId || sectionId === excludeSectionId) continue;
@@ -4897,6 +5210,7 @@ export function ProductAttributeBuilder({
     // Set anchor data for current format+material+variant at a specific qty
     const setAnchorData = (qty: number, data: { price?: number; markup?: number; isLocked?: boolean; excludeFromCurve?: boolean }) => {
         const key = getGenPriceKey(activeGenFormat, activeGenMaterial, activeGenVariant, qty);
+        if (!isExistingDependencyPriceKey(key)) return;
 
         setGeneratorPrices(prev => ({
             ...prev,
@@ -4907,6 +5221,7 @@ export function ProductAttributeBuilder({
     const applyManualPriceForKey = (priceKey: string, finalPrice: number | null) => {
         const parts = priceKey.split('::');
         if (parts.length < 4) return;
+        if (!isExistingDependencyPriceKey(priceKey)) return;
         const [formatId, materialId, variantId] = parts;
         const existing = generatorPrices[priceKey] || { price: 0, markup: 0 };
 
@@ -5164,6 +5479,7 @@ export function ProductAttributeBuilder({
                 const qty = Number(qtyStr);
                 if (quantityFilter && !quantityFilter.has(qty)) return;
                 const targetKey = getGenPriceKey(activeGenFormat, activeGenMaterial, targetVariantId, qty);
+                if (!isExistingDependencyPriceKey(targetKey)) return;
                 const normalized = typeof data === 'number' ? { price: data, markup: 0 } : { ...data };
                 next[targetKey] = normalized;
                 copied += 1;
@@ -5183,7 +5499,7 @@ export function ProductAttributeBuilder({
         } else {
             toast.error('Ingen priser at kopiere');
         }
-    }, [activeGenFormat, activeGenMaterial, activeGenVariant, selectedOplag]);
+    }, [activeGenFormat, activeGenMaterial, activeGenVariant, isExistingDependencyPriceKey, selectedOplag]);
 
     // ==========================================
     // PROTECTED CORE LOGIC: PRICE INTERPOLATION
@@ -5849,9 +6165,9 @@ export function ProductAttributeBuilder({
 
     return (
         <>
-            <div className="space-y-6">
+            <div className="admin-matrix-context space-y-6">
                 {/* Product Groups - TABBED UI with Library Browsers */}
-                <Card>
+                <Card className="admin-matrix-library">
                     <CardHeader className="pb-3">
                         <CardTitle className="text-base flex items-center gap-2">
                             <Package className="h-4 w-4" />
@@ -6119,7 +6435,7 @@ export function ProductAttributeBuilder({
                 </Card>
 
                 {/* ============ LAYOUT BUILDER - Rows & Sections ============ */}
-                <Card>
+                <Card className="admin-matrix-layout">
                     <CardHeader className="pb-3">
                         <div className="flex items-center justify-between gap-4">
                             <CardTitle className="text-base flex items-center gap-2">
@@ -6587,7 +6903,7 @@ export function ProductAttributeBuilder({
                                                                 setTemplateConnectSectionId(section.id);
                                                             }}
                                                         >
-                                                            Template Connect
+                                                            Tilknyt skabelon
                                                             {Object.values(section.valueSettings || {}).some((settings) => Boolean(settings?.linkedTemplateId)) ? (
                                                                 <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px]">
                                                                     {Object.values(section.valueSettings || {}).filter((settings) => Boolean(settings?.linkedTemplateId)).length}
@@ -6808,7 +7124,7 @@ export function ProductAttributeBuilder({
                 </Card>
 
                 {/* ============ E) OPLAG BUILDER ============ */}
-                <Card>
+                <Card className="admin-matrix-quantities">
                     <CardHeader className="pb-3">
                         <CardTitle className="text-base">Antal</CardTitle>
                         <CardDescription className="text-xs">
@@ -7013,9 +7329,16 @@ export function ProductAttributeBuilder({
                                                 )}>
                                                     {visibleSections.map((section) => {
                                                         const sectionLabel = section.title || productAttrs.groups.find(g => g.id === section.groupId)?.name || section.sectionType;
-                                                        const values = sortValuesForDisplay((productAttrs.groups || [])
+                                                        const rawValues = (productAttrs.groups || [])
                                                             .flatMap(g => (g.values || []))
-                                                            .filter(v => section.valueIds?.includes(v.id)), sectionLabel);
+                                                            .filter(v => section.valueIds?.includes(v.id));
+                                                        const availableValueIds = previewAvailableValueIdsBySection[section.id];
+                                                        const values = sortValuesForDisplay(
+                                                            hasDependencyFilteredSections && availableValueIds
+                                                                ? rawValues.filter(value => availableValueIds.has(value.id))
+                                                                : rawValues,
+                                                            sectionLabel,
+                                                        );
                                                         const sectionThumbPx = resolveThumbnailSizePx(
                                                             section.thumbnail_size,
                                                             section.thumbnail_custom_px
@@ -7163,8 +7486,8 @@ export function ProductAttributeBuilder({
                                                                         {values.map(v => {
                                                                             const isSelected = selectedValue === v.id;
                                                                             const settings = section.valueSettings?.[v.id];
-                                                                            const thumbUrl = settings?.customImage;
                                                                             const displayName = getDisplayName(v.name, settings);
+                                                                            const thumbUrl = settings?.customImage || getBuiltInOptionImage(displayName);
                                                                             const pictureMode = displayMode === 'xl_notext' ? 'xl' : displayMode;
                                                                             const size = PICTURE_SIZES[pictureMode as PictureSizeMode] || PICTURE_SIZES.medium;
                                                                             const showPictureLabel = pictureMode !== 'small' && displayMode !== 'xl_notext';
@@ -7305,9 +7628,9 @@ export function ProductAttributeBuilder({
                             < div className="space-y-2" >
                                 <div className="flex items-center justify-between">
                                     <Label className="text-xs font-medium">
-                                        Ankerpunkter ({selectedOplag.length} mængder)
+                                        Ankerpunkter ({activeGeneratorQuantities.length} mængder)
                                     </Label>
-                                    {selectedOplag.length > 5 && (
+                                    {activeGeneratorQuantities.length > 5 && (
                                         <div className="flex items-center gap-1">
                                             <Button
                                                 size="sm"
@@ -7319,13 +7642,13 @@ export function ProductAttributeBuilder({
                                                 <ChevronUp className="h-3 w-3 rotate-[-90deg]" />
                                             </Button>
                                             <span className="text-xs text-muted-foreground">
-                                                {anchorPage * 5 + 1}-{Math.min((anchorPage + 1) * 5, selectedOplag.length)} af {selectedOplag.length}
+                                                {anchorPage * 5 + 1}-{Math.min((anchorPage + 1) * 5, activeGeneratorQuantities.length)} af {activeGeneratorQuantities.length}
                                             </span>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                onClick={() => setAnchorPage(p => Math.min(Math.ceil(selectedOplag.length / 5) - 1, p + 1))}
-                                                disabled={(anchorPage + 1) * 5 >= selectedOplag.length}
+                                                onClick={() => setAnchorPage(p => Math.min(Math.ceil(activeGeneratorQuantities.length / 5) - 1, p + 1))}
+                                                disabled={(anchorPage + 1) * 5 >= activeGeneratorQuantities.length}
                                                 className="h-6 w-6 p-0"
                                             >
                                                 <ChevronDown className="h-3 w-3 rotate-[-90deg]" />
@@ -7335,9 +7658,11 @@ export function ProductAttributeBuilder({
                                 </div>
 
                                 {
-                                    selectedOplag.length === 0 ? (
+                                    activeGeneratorQuantities.length === 0 ? (
                                         <p className="text-xs text-muted-foreground py-2">
-                                            Vælg oplag mængder først for at definere ankerpunkter
+                                            {hasDependencyFilteredSections
+                                                ? 'Ingen importerede oplag findes for den valgte kombination'
+                                                : 'Vælg oplag mængder først for at definere ankerpunkter'}
                                         </p>
                                     ) : (
                                         <div className="space-y-2">
@@ -7345,7 +7670,7 @@ export function ProductAttributeBuilder({
                                             {/* PROTECTED CORE LOGIC: GENERATOR RENDER LOOP */}
                                             {/* Handles Manual Anchors vs Slider Overrides  */}
                                             {/* ========================================== */}
-                                            {selectedOplag.slice(anchorPage * 5, (anchorPage + 1) * 5).map(qty => {
+                                            {activeGeneratorQuantities.slice(anchorPage * 5, (anchorPage + 1) * 5).map(qty => {
                                                 const anchorData = getAnchorData(qty);
                                                 const isLocked = !!anchorData.isLocked;
                                                 let rawInterpolatedBase = 0;
@@ -7729,10 +8054,14 @@ export function ProductAttributeBuilder({
                                                                     }
 
                                                                     const availableFormatIds = previewAvailableValueIdsBySection[section.id];
-                                                                    const sectionFormats = availableFormatIds && availableFormatIds.size > 0
+                                                                    const sectionFormats = hasDependencyFilteredSections && availableFormatIds
                                                                         ? rawSectionFormats.filter(format => availableFormatIds.has(format.id))
                                                                         : rawSectionFormats;
                                                                     const selectedFormatId = selectedSectionValues[section.id] || sectionFormats[0]?.id;
+
+                                                                    if (sectionFormats.length === 0) {
+                                                                        return <span className="text-[10px] text-muted-foreground italic">Ingen gyldige valg for den valgte kombination</span>;
+                                                                    }
 
                                                                     if (uiMode === 'dropdown') {
                                                                         return (
@@ -7807,8 +8136,8 @@ export function ProductAttributeBuilder({
                                                                                 {sectionFormats.map((format) => {
                                                                                     const isSelected = selectedFormatId === format.id;
                                                                                     const settings = section.valueSettings?.[format.id];
-                                                                                    const thumbUrl = settings?.customImage;
                                                                                     const displayName = getDisplayName(format.name, settings);
+                                                                                    const thumbUrl = settings?.customImage || getBuiltInOptionImage(displayName);
                                                                                     const pictureMode = uiMode === 'xl_notext' ? 'xl' : uiMode;
                                                                                     const size = PICTURE_SIZES[pictureMode as PictureSizeMode] || PICTURE_SIZES.medium;
                                                                                     const showPictureLabel = pictureMode !== 'small' && uiMode !== 'xl_notext';
@@ -7904,7 +8233,7 @@ export function ProductAttributeBuilder({
                                                                     // Only show values that are in this section's valueIds whitelist
                                                                     const rawSectionValues = getPreviewSectionValueOptions(section);
                                                                     const availableSectionValues = previewAvailableValueIdsBySection[section.id];
-                                                                    const sectionValues = availableSectionValues && availableSectionValues.size > 0
+                                                                    const sectionValues = hasDependencyFilteredSections && availableSectionValues
                                                                         ? rawSectionValues.filter(v => availableSectionValues.has(v.id))
                                                                         : rawSectionValues;
                                                                     const uiMode = section.ui_mode || 'buttons';
@@ -8045,8 +8374,8 @@ export function ProductAttributeBuilder({
                                                                                 {sectionValues.map((v: any) => {
                                                                                     const isSelected = selectedValueId === v.id;
                                                                                     const settings = section.valueSettings?.[v.id];
-                                                                                    const thumbUrl = settings?.customImage;
                                                                                     const displayName = getDisplayName(v.name, settings);
+                                                                                    const thumbUrl = settings?.customImage || getBuiltInOptionImage(displayName);
                                                                                     const pictureMode = uiMode === 'xl_notext' ? 'xl' : uiMode;
                                                                                     const size = PICTURE_SIZES[pictureMode as PictureSizeMode] || PICTURE_SIZES.medium;
                                                                                     const showPictureLabel = pictureMode !== 'small' && uiMode !== 'xl_notext';
@@ -8281,8 +8610,11 @@ export function ProductAttributeBuilder({
                                                             </TableCell>
                                                             {visibleOplag.map((qty) => {
                                                                 const priceKey = getGenPriceKey(rowFormatId, rowMaterialId, rowVariantId, qty);
+                                                                const isImportedPriceCell = isExistingDependencyPriceKey(priceKey);
                                                                 const isEditing = matrixEditMode && editingPriceKey === priceKey;
-                                                                const computed = computeFinalPriceForContext(rowFormatId, rowMaterialId, rowVariantId, qty);
+                                                                const computed = isImportedPriceCell
+                                                                    ? computeFinalPriceForContext(rowFormatId, rowMaterialId, rowVariantId, qty)
+                                                                    : null;
                                                                 const priceValue = computed?.price ?? null;
 
                                                                 return (
@@ -8290,10 +8622,11 @@ export function ProductAttributeBuilder({
                                                                         key={qty}
                                                                         className={cn(
                                                                             "text-center p-1 text-sm font-medium",
-                                                                            matrixEditMode && "cursor-pointer hover:bg-muted/40"
+                                                                            matrixEditMode && isImportedPriceCell && "cursor-pointer hover:bg-muted/40",
+                                                                            matrixEditMode && !isImportedPriceCell && "text-muted-foreground bg-muted/20"
                                                                         )}
                                                                         onClick={(e) => {
-                                                                            if (!matrixEditMode) return;
+                                                                            if (!matrixEditMode || !isImportedPriceCell) return;
                                                                             e.stopPropagation();
                                                                             setSelection(verticalValue.id);
                                                                             setEditingPriceKey(priceKey);
@@ -8380,10 +8713,12 @@ export function ProductAttributeBuilder({
                     <div className="mb-4">
                         <h3 className="text-lg font-semibold flex items-center gap-2">
                             <CloudUpload className="h-5 w-5" />
-                            Prisliste Handlinger & CSV
+                            Prislisteværktøjer (valgfrit)
                         </h3>
                         <p className="text-sm text-muted-foreground">
-                            Eksporter den aktuelle struktur til CSV, udfyld priser i Excel, importer og udgiv direkte.
+                            {persistedPriceCount > 0
+                                ? `${persistedPriceCount.toLocaleString('da-DK')} priser er allerede gemt. Brug kun CSV eller Gem prisændringer, hvis priserne skal redigeres.`
+                                : 'Eksporter strukturen til CSV, udfyld priser i Excel, og importer dem igen ved manuel prisopsætning.'}
                         </p>
                     </div>
 
@@ -8434,8 +8769,12 @@ export function ProductAttributeBuilder({
                                         disabled={pushing}
                                         className="bg-green-600 hover:bg-green-700 text-white shadow-md"
                                     >
-                                        {pushing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CloudUpload className="h-4 w-4 mr-2" />}
-                                        Udgiv Priser til Webshop
+                                        {pushing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                                        {pushing && publishProgress
+                                            ? `Gemmer ${publishProgress.saved.toLocaleString('da-DK')} / ${publishProgress.total.toLocaleString('da-DK')}`
+                                            : persistedPriceCount > 0
+                                                ? 'Gem prisændringer'
+                                                : 'Gem priser'}
                                     </Button>
                                 )}
                             </div>
@@ -8460,7 +8799,9 @@ export function ProductAttributeBuilder({
                                     <div>
                                         <p className="font-medium text-blue-800 dark:text-blue-200">Priser klar til udgivelse!</p>
                                         <p className="text-xs text-blue-700 dark:text-blue-300">
-                                            {Object.keys(generatorPrices).filter(k => generatorPrices[k]?.price > 0).length} priser er konfigureret. Klik på "Udgiv Priser til Webshop" for at gemme.
+                                            {persistedPriceCount > 0
+                                                ? `${persistedPriceCount.toLocaleString('da-DK')} priser findes allerede i databasen. Knappen ovenfor er kun nødvendig efter en prisændring.`
+                                                : `${Object.keys(generatorPrices).filter(k => generatorPrices[k]?.price > 0).length.toLocaleString('da-DK')} priser er konfigureret og kan gemmes.`}
                                         </p>
                                     </div>
                                 </div>
@@ -8468,7 +8809,7 @@ export function ProductAttributeBuilder({
 
                             <div className="mt-4 text-xs text-muted-foreground flex gap-4">
                                 <p>Eksport inkluderer alle {formatGroups.flatMap(g => g.values || []).filter(v => v.enabled).length} formater og kombinationer.</p>
-                                <p>Bemærk: Udgivelse indsætter priser direkte i databasen.</p>
+                                <p>Produktets synlighed i webshoppen styres separat i produktoversigten.</p>
                             </div>
                         </CardContent>
                     </Card >

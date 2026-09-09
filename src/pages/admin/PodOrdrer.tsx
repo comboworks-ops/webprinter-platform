@@ -1,3 +1,4 @@
+import { WorkspaceJobSummary } from "@/components/admin/WorkspaceJobSummary";
 // POD Orders - Tenant view of POD fulfillment jobs
 
 import { useState, useEffect } from "react";
@@ -14,6 +15,7 @@ import { toast } from "sonner";
 
 export function PodOrdrer() {
     const [tenantId, setTenantId] = useState<string | null>(null);
+    const [inspectedJobId, setInspectedJobId] = useState<string | null>(null);
 
     useEffect(() => {
         resolveAdminTenant().then(({ tenantId: tid }) => setTenantId(tid));
@@ -65,6 +67,8 @@ export function PodOrdrer() {
 
     const billingReady = billing?.is_ready && billing?.default_payment_method_id;
 
+    const inspectedJob = jobs?.find((job) => job.id === inspectedJobId) || jobs?.[0] || null;
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -100,6 +104,8 @@ export function PodOrdrer() {
                 </Card>
             )}
 
+            <div className="workspace-production-selection">
+            <div className="workspace-production-groups">
             {isLoading ? (
                 <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -136,8 +142,8 @@ export function PodOrdrer() {
                                     </TableHeader>
                                     <TableBody>
                                         {pendingJobs.map((job) => (
-                                            <TableRow key={job.id}>
-                                                <TableCell className="font-mono text-xs">{job.id.slice(0, 8)}</TableCell>
+                                            <TableRow key={job.id} className={inspectedJob?.id === job.id ? "workspace-selected-row" : undefined}>
+                                                <TableCell className="font-mono text-xs"><button type="button" className="workspace-row-title" onClick={() => setInspectedJobId(job.id)}>{job.id.slice(0, 8)}</button></TableCell>
                                                 <TableCell className="font-mono text-xs">{job.order_id.slice(0, 8)}</TableCell>
                                                 <TableCell className="text-sm">{job.variant_signature || "-"}</TableCell>
                                                 <TableCell>{job.qty} stk</TableCell>
@@ -194,8 +200,8 @@ export function PodOrdrer() {
                                     </TableHeader>
                                     <TableBody>
                                         {processingJobs.map((job) => (
-                                            <TableRow key={job.id}>
-                                                <TableCell className="font-mono text-xs">{job.id.slice(0, 8)}</TableCell>
+                                            <TableRow key={job.id} className={inspectedJob?.id === job.id ? "workspace-selected-row" : undefined}>
+                                                <TableCell className="font-mono text-xs"><button type="button" className="workspace-row-title" onClick={() => setInspectedJobId(job.id)}>{job.id.slice(0, 8)}</button></TableCell>
                                                 <TableCell className="font-mono text-xs">{job.order_id.slice(0, 8)}</TableCell>
                                                 <TableCell>{job.qty} stk</TableCell>
                                                 <TableCell>
@@ -237,8 +243,8 @@ export function PodOrdrer() {
                                     </TableHeader>
                                     <TableBody>
                                         {completedJobs.slice(0, 10).map((job) => (
-                                            <TableRow key={job.id}>
-                                                <TableCell className="font-mono text-xs">{job.id.slice(0, 8)}</TableCell>
+                                            <TableRow key={job.id} className={inspectedJob?.id === job.id ? "workspace-selected-row" : undefined}>
+                                                <TableCell className="font-mono text-xs"><button type="button" className="workspace-row-title" onClick={() => setInspectedJobId(job.id)}>{job.id.slice(0, 8)}</button></TableCell>
                                                 <TableCell className="font-mono text-xs">{job.order_id.slice(0, 8)}</TableCell>
                                                 <TableCell>{job.qty} stk</TableCell>
                                                 <TableCell>
@@ -271,6 +277,10 @@ export function PodOrdrer() {
                     )}
                 </div>
             )}
+
+            </div>
+            <WorkspaceJobSummary job={inspectedJob} statusLabel={inspectedJob ? POD_JOB_STATUS_LABELS[inspectedJob.status] : undefined} />
+            </div>
 
             {/* Confirm Approval Dialog */}
             <Dialog open={confirmDialog.open} onOpenChange={(open) => setConfirmDialog({ ...confirmDialog, open })}>

@@ -49,7 +49,7 @@ const pricingModules = [
 
 export function PricingModules() {
     return (
-        <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="space-y-6 workspace-pricing-modules">
             <div>
                 <h1 className="text-3xl font-bold tracking-tight">Prismoduler</h1>
                 <p className="text-muted-foreground mt-1">
@@ -115,7 +115,7 @@ export function PricingModules() {
                     </CardContent>
                 </Card>
 
-                <div className="grid gap-6 md:grid-cols-2">
+                <div className="workspace-open-register">
                     <Card className="border-dashed">
                         <CardHeader>
                             <CardTitle className="text-lg">Konfigurer Global Avance</CardTitle>

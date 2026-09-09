@@ -6,6 +6,7 @@
  */
 
 import type { ThemeDefinition, ThemeMetadata } from './types';
+import { DEFAULT_PRINT_DESIGN_ID } from '@/lib/branding/printDesignPresets';
 
 // =============================================================================
 // THEME REGISTRY
@@ -15,7 +16,7 @@ import type { ThemeDefinition, ThemeMetadata } from './types';
 const themeRegistry = new Map<string, ThemeDefinition>();
 
 /** Default theme ID (fallback when no theme is specified) */
-export const DEFAULT_THEME_ID = 'classic';
+export const DEFAULT_THEME_ID = DEFAULT_PRINT_DESIGN_ID;
 
 // =============================================================================
 // REGISTRY FUNCTIONS

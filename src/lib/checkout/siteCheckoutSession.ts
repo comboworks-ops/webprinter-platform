@@ -4,6 +4,7 @@ const SITE_CHECKOUT_DESIGN_READY_PREFIX = "order-design";
 const SITE_CHECKOUT_DESIGN_SIGNATURE_PREFIX = "order-design-signature";
 
 export interface SiteCheckoutUpload {
+  sha256?: string | null;
   name?: string | null;
   mimeType?: string | null;
   fileUrl?: string | null;
@@ -21,6 +22,7 @@ export interface SiteCheckoutUpload {
 }
 
 export interface SiteCheckoutDesignerExport {
+  sha256?: string | null;
   name?: string | null;
   mimeType?: string | null;
   fileUrl?: string | null;
@@ -32,6 +34,7 @@ export interface SiteCheckoutDesignerExport {
   primaryFormat?: "png" | "pdf" | null;
   alternateFormats?: Array<"png" | "pdf"> | null;
   productionFiles?: Array<{
+    sha256?: string | null;
     format: "png" | "pdf";
     name?: string | null;
     mimeType?: string | null;
@@ -71,6 +74,8 @@ export interface SiteCheckoutCustomerDraft {
   deliveryRecipientName?: string | null;
   deliveryCompany?: string | null;
   deliveryAddress?: string | null;
+  deliveryAddress2?: string | null;
+  deliveryCountry?: string | null;
   deliveryZip?: string | null;
   deliveryCity?: string | null;
   selectedSavedAddressId?: string | null;
@@ -82,12 +87,15 @@ export interface SiteCheckoutCustomerDraft {
   billingName?: string | null;
   billingCompany?: string | null;
   billingAddress?: string | null;
+  billingAddress2?: string | null;
+  billingCountry?: string | null;
   billingZip?: string | null;
   billingCity?: string | null;
   selectedCustomerProfileId?: string | null;
 }
 
 export interface SiteCheckoutState {
+  checkoutInstanceId?: string | null;
   companyId?: string | null;
   companyOfficeId?: string | null;
   companyAddressId?: string | null;
@@ -96,6 +104,7 @@ export interface SiteCheckoutState {
   companyWorkingDesignId?: string | null;
   productId?: string | null;
   productSlug?: string | null;
+  productReturnPath?: string | null;
   productName?: string | null;
   designerMode?: string | null;
   pricingModel?: string | null;
@@ -116,6 +125,9 @@ export interface SiteCheckoutState {
   linkedTemplateId?: string | null;
   templatePdfName?: string | null;
   templatePdfUrl?: string | null;
+  templatePdfSha256?: string | null;
+  templateArtworkMode?: "online_designer" | "professional_pdf_upload_only" | null;
+  templateArtworkModeReasonDa?: string | null;
   templateDownloadedAt?: string | null;
   designWidthMm?: number | null;
   designHeightMm?: number | null;
@@ -126,6 +138,7 @@ export interface SiteCheckoutState {
   pricingQuote?: {
     productId?: string | null;
     productSlug?: string | null;
+    pricingModel?: string | null;
     quantity?: number | null;
     formatId?: string | null;
     materialId?: string | null;
@@ -137,6 +150,16 @@ export interface SiteCheckoutState {
     optionIds?: string[] | null;
     shippingSelected?: string | null;
     areaM2?: number | null;
+    widthMm?: number | null;
+    heightMm?: number | null;
+    storformat?: {
+      widthMm: number;
+      heightMm: number;
+      materialId: string;
+      finishIds: string[];
+      productIds: string[];
+      selectedSectionValues: Record<string, string | null>;
+    } | null;
   } | null;
   sourceSiteId?: string | null;
   apparelConfig?: SiteCheckoutApparelConfig | null;
@@ -199,6 +222,9 @@ export function getSiteCheckoutDesignSignature(input: SiteCheckoutState | null |
     linkedTemplateId: input.linkedTemplateId || null,
     templatePdfName: input.templatePdfName || null,
     templatePdfUrl: input.templatePdfUrl || null,
+    templatePdfSha256: input.templatePdfSha256 || null,
+    templateArtworkMode: input.templateArtworkMode || null,
+    templateArtworkModeReasonDa: input.templateArtworkModeReasonDa || null,
     quantity: Number(input.quantity || 0),
     summary: input.summary || null,
     designWidthMm: input.designWidthMm ?? null,

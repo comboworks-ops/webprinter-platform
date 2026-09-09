@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -481,7 +482,7 @@ export function MasterResources() {
                                                     <Loader2 className="animate-spin h-8 w-8 text-primary" />
                                                 </div>
                                             ) : (
-                                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                                <WorkspaceCollection label="Platformressourcer" className="workspace-master-assets" items={[...assets.filter(asset => asset.category_id === category.id).map(asset => ({ id: asset.id, title: asset.name, image: asset.mime_type?.startsWith("image/") ? asset.thumbnail_url || asset.url : undefined, subtitle: asset.mime_type })), { id: "upload", title: "Upload ressource", icon: <Upload aria-hidden="true" /> }]}>
                                                     {assets
                                                         .filter(a => a.category_id === category.id)
                                                         .map((asset) => (
@@ -514,6 +515,7 @@ export function MasterResources() {
                                                                             className="h-7 w-7"
                                                                             onClick={() => togglePublish(asset)}
                                                                             title={asset.is_published ? 'Skjul' : 'Publicér'}
+                                                                            aria-label={`${asset.is_published ? "Skjul" : "Publicér"} ${asset.name}`}
                                                                         >
                                                                             {asset.is_published ? (
                                                                                 <Eye className="h-3 w-3" />
@@ -527,6 +529,7 @@ export function MasterResources() {
                                                                                     variant="destructive"
                                                                                     size="icon"
                                                                                     className="h-7 w-7"
+                                                                                    aria-label={`Slet ${asset.name}`}
                                                                                 >
                                                                                     <Trash2 className="h-3 w-3" />
                                                                                 </Button>
@@ -583,7 +586,7 @@ export function MasterResources() {
                                                             disabled={uploading}
                                                         />
                                                     </label>
-                                                </div>
+                                                </WorkspaceCollection>
                                             )}
                                         </CardContent>
                                         <CardFooter>
@@ -622,7 +625,7 @@ export function MasterResources() {
                                     </p>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                <WorkspaceCollection label="Gemt site design" items={premadeDesigns.map(design => ({ id: design.id, title: design.name, image: design.thumbnail_url, subtitle: design.description }))}>
                                     {premadeDesigns.map((design) => (
                                         <Card key={design.id} className="overflow-hidden">
                                             <div className="aspect-video bg-muted flex items-center justify-center">
@@ -696,7 +699,7 @@ export function MasterResources() {
                                             </CardFooter>
                                         </Card>
                                     ))}
-                                </div>
+                                </WorkspaceCollection>
                             )}
                         </CardContent>
                     </Card>

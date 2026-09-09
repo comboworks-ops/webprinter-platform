@@ -10,8 +10,6 @@ import { Loader2 } from "lucide-react";
 import { Navigate } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
 import { BrandingEditorV2 } from "./BrandingEditorV2";
-import { useSidebar } from "@/components/ui/sidebar";
-import { useEffect, useRef } from "react";
 import {
     createMasterAdapter,
     MASTER_CAPABILITIES,
@@ -19,18 +17,6 @@ import {
 
 export function MasterBrandingTemplate() {
     const { isMasterAdmin, loading: roleLoading } = useUserRole();
-    const { setOpen } = useSidebar();
-    const hasOpenedSidebarRef = useRef(false);
-
-    // Keep admin sidebar visible in the site designer.
-    useEffect(() => {
-        if (hasOpenedSidebarRef.current) {
-            return;
-        }
-        setOpen(true);
-        hasOpenedSidebarRef.current = true;
-    }, [setOpen]);
-
     if (roleLoading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
@@ -47,10 +33,13 @@ export function MasterBrandingTemplate() {
     const adapter = createMasterAdapter();
 
     return (
+        <div className="workspace-master-branding">
+        <header className="mb-6"><h1>Platform Master Design</h1><p className="mt-2 text-muted-foreground">Redigér masterdesignet og de fælles designskabeloner.</p></header>
         <BrandingEditorV2
             adapter={adapter}
             capabilities={MASTER_CAPABILITIES}
         />
+        </div>
     );
 }
 

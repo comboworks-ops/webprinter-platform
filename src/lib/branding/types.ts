@@ -7,6 +7,8 @@
  * - Capability configuration for feature gating
  */
 
+import { inheritSystemPrintDesign } from './printDesignPresets';
+import { resolveDropdownPreset } from './dropdownPresets';
 import {
     type BrandingData,
     type FeaturedProductConfig,
@@ -313,7 +315,7 @@ export interface BrandingEditorContext {
  * Merge branding data with defaults to ensure all fields exist.
  */
 export function mergeBrandingWithDefaults(data: Partial<BrandingData>): BrandingData {
-    return {
+    const merged = {
         ...DEFAULT_BRANDING,
         ...data,
         fonts: { ...DEFAULT_BRANDING.fonts, ...data.fonts },
@@ -334,6 +336,7 @@ export function mergeBrandingWithDefaults(data: Partial<BrandingData>): Branding
         header: {
             ...DEFAULT_HEADER,
             ...data.header,
+            dropdownPreset: resolveDropdownPreset(data.header?.dropdownPreset),
             scroll: { ...DEFAULT_HEADER_SCROLL, ...data.header?.scroll },
             cta: { ...DEFAULT_HEADER_CTA, ...data.header?.cta },
         },
@@ -466,6 +469,7 @@ export function mergeBrandingWithDefaults(data: Partial<BrandingData>): Branding
         },
         navigation: { ...DEFAULT_BRANDING.navigation, ...data.navigation },
     };
+    return inheritSystemPrintDesign(merged, DEFAULT_BRANDING);
 }
 
 /**

@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
-  ArrowRightLeft,
-  BadgeInfo,
   CheckCircle2,
   Clock3,
   Coins,
@@ -23,7 +21,9 @@ import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { IMPOSITION_PRESETS, ImpositionPreview } from "@/components/admin/ImpositionPreview";
+import { MachineDraftCostPreview } from "./MachineDraftCostPreview";
+import { NumberInput } from "@/components/ui/number-input";
+import "@/styles/machinePricing.css";
 
 interface MachineFormProps {
   open: boolean;
@@ -51,11 +51,6 @@ const getDefaultFormData = (machine?: any) => ({
   m2_per_hour: machine?.m2_per_hour || 0,
   machine_rate_per_hour: machine?.machine_rate_per_hour || 0,
 });
-
-const sanitizeNumber = (value: string, fallback = 0) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
 
 const sectionConfig = [
   {
@@ -97,14 +92,13 @@ function UnitField({ id, label, unit, value, onChange, step = "1", min = 0, hint
         {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
       </div>
       <div className="relative">
-        <Input
+        <NumberInput
           id={id}
-          type="number"
           min={min}
           step={step}
           value={value}
-          onChange={(event) => onChange(sanitizeNumber(event.target.value))}
-          className="h-12 rounded-xl border-white/70 bg-white pr-16 shadow-sm"
+          onValueChange={onChange}
+          className="h-12 rounded-[4px] border-slate-200 bg-white pr-16"
         />
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
           {unit}
@@ -116,9 +110,6 @@ function UnitField({ id, label, unit, value, onChange, step = "1", min = 0, hint
 
 export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }: MachineFormProps) {
   const [formData, setFormData] = useState(getDefaultFormData(machine));
-  const [previewPresetId, setPreviewPresetId] = useState("a4");
-  const [previewBleedMm, setPreviewBleedMm] = useState(3);
-  const [previewGapMm, setPreviewGapMm] = useState(2);
   const [activeSection, setActiveSection] = useState<(typeof sectionConfig)[number]["id"]>(sectionConfig[0].id);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
 
@@ -140,11 +131,6 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
   const operatingLabel = formData.mode === "SHEET"
     ? `${Math.round(Number(formData.sheets_per_hour || 0))} ark/t`
     : `${Number(formData.m2_per_hour || 0).toFixed(1)} m²/t`;
-  const previewPreset = useMemo(
-    () => IMPOSITION_PRESETS.find((preset) => preset.id === previewPresetId) || IMPOSITION_PRESETS[2],
-    [previewPresetId]
-  );
-
   const sectionStatus = useMemo(() => {
     const generalMissing: string[] = [];
     if (!formData.name.trim()) generalMissing.push("Navn");
@@ -234,63 +220,63 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="left-4 right-4 top-4 z-50 h-[calc(100vh-2rem)] w-auto max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-[28px] border-none bg-slate-50 p-0 shadow-2xl data-[state=closed]:slide-out-to-top-[4%] data-[state=open]:slide-in-from-top-[4%] sm:left-6 sm:right-6 sm:top-6 sm:h-[calc(100vh-3rem)]">
+      <DialogContent className="machine-pricing-dialog left-4 right-4 top-4 z-50 h-[calc(100vh-2rem)] w-auto max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-[5px] border-none bg-slate-50 p-0 shadow-2xl data-[state=closed]:slide-out-to-top-[4%] data-[state=open]:slide-in-from-top-[4%] sm:left-6 sm:right-6 sm:top-6 sm:h-[calc(100vh-3rem)]">
         <form onSubmit={handleSubmit} className="flex h-full min-h-0 flex-col">
           <DialogHeader className="border-b border-slate-200 bg-white px-6 py-5 text-left">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="space-y-2">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <DialogTitle className="text-2xl font-semibold tracking-tight">
                     {machine?.id ? "Rediger maskine" : "Ny maskine"}
                   </DialogTitle>
-                  <Badge variant="outline" className="rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.18em]">
+                  <Badge variant="outline" className="rounded-[4px] px-3 py-1 text-[11px] uppercase tracking-[0.18em]">
                     {formData.mode === "SHEET" ? "Ark-maskine" : "Rulle-maskine"}
                   </Badge>
                   {isDirty ? (
-                    <Badge className="rounded-full bg-amber-100 px-3 py-1 text-amber-700 hover:bg-amber-100">
+                    <Badge className="rounded-[4px] bg-amber-100 px-3 py-1 text-amber-700 hover:bg-amber-100">
                       Ugemte ændringer
                     </Badge>
                   ) : null}
                 </div>
                 <DialogDescription className="max-w-2xl text-sm text-slate-500">
-                  En tydelig maskinprofil med sektioner, direkte preview og nøglemålinger. Beregningslogikken ændres først, når profilen gemmes.
+                  Indtast maskinens format og driftsdata. Se med det samme, hvor mange emner der passer, og hvad maskintiden koster.
                 </DialogDescription>
               </div>
 
-              <div className="grid gap-2 text-right text-sm text-slate-500 sm:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="hidden gap-2 text-right text-sm text-slate-500 sm:grid sm:grid-cols-3">
+                <div className="rounded-[5px] border border-slate-200 bg-slate-50 px-4 py-3">
                   <div className="text-[11px] uppercase tracking-[0.18em]">Printbart felt</div>
                   <div className="mt-1 font-semibold text-slate-900">
                     {printableWidth} x {printableHeight} mm
                   </div>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="rounded-[5px] border border-slate-200 bg-slate-50 px-4 py-3">
                   <div className="text-[11px] uppercase tracking-[0.18em]">Kapacitet</div>
                   <div className="mt-1 font-semibold text-slate-900">{operatingLabel}</div>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="text-[11px] uppercase tracking-[0.18em]">Maskin-rate</div>
-                  <div className="mt-1 font-semibold text-emerald-700">{Number(formData.machine_rate_per_hour || 0).toFixed(0)} kr/t</div>
+                <div className="rounded-[5px] border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.18em]">Timepris</div>
+                  <div className="mt-1 font-semibold text-emerald-700">{Number(formData.machine_rate_per_hour || 0).toLocaleString("da-DK", { maximumFractionDigits: 2 })} kr/t</div>
                 </div>
               </div>
             </div>
           </DialogHeader>
 
           <div ref={scrollViewportRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            <div className="grid min-h-full lg:grid-cols-[240px_minmax(0,1fr)_340px]">
-              <aside className="hidden border-r border-slate-200 bg-white/80 lg:block">
+            <div className="grid min-h-full lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[220px_minmax(0,1fr)_360px]">
+              <aside className="hidden border-r border-slate-200 bg-white xl:block">
                 <div className="flex h-full flex-col p-4">
-                  <div className="mb-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex items-center justify-between gap-3">
+                  <div className="mb-4 rounded-[5px] border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                        <div className="text-xs font-medium text-slate-500">
                           Profilopsætning
                         </div>
                         <div className="mt-1 text-lg font-semibold text-slate-900">{completionPercent}% klar</div>
                       </div>
                       <div className={cn(
-                        "rounded-full px-3 py-1 text-xs font-semibold",
-                        completionPercent === 100 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                        "rounded-[4px] px-3 py-1 text-xs font-semibold",
+                        completionPercent === 100 ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"
                       )}>
                         {completedSections}/{sectionConfig.length}
                       </div>
@@ -303,7 +289,6 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
 
                   <div className="space-y-2">
                     {sectionConfig.map((section, index) => {
-                      const Icon = section.icon;
                       const missing = sectionStatus[section.id];
                       const isComplete = missing.length === 0;
                       const isActive = activeSection === section.id;
@@ -313,56 +298,39 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                           type="button"
                           onClick={() => jumpToSection(section.id)}
                           className={cn(
-                            "group flex w-full items-start gap-3 rounded-2xl border px-4 py-4 text-left transition",
+                            "group flex w-full items-start gap-2 rounded-[5px] border px-3 py-3 text-left transition-colors",
                             isActive
-                              ? "border-teal-200 bg-teal-50 shadow-sm"
-                              : "border-transparent bg-slate-50 hover:border-teal-200 hover:bg-teal-50"
+                              ? "border-sky-200 bg-sky-50"
+                              : "border-transparent bg-slate-50 hover:border-sky-200 hover:bg-sky-50"
                           )}
                         >
-                          <div className={cn(
-                            "flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 transition",
-                            isComplete ? "text-emerald-600" : isActive ? "text-teal-600" : "text-slate-500"
-                          )}>
-                            <Icon className="h-4 w-4" />
-                          </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                              <div className="text-sm font-semibold text-slate-900">
+                              <div className="min-w-0 break-words text-sm font-medium text-slate-900">
                                 {index + 1}. {section.title}
                               </div>
                               {isComplete ? (
-                                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                                <CheckCircle2 className="h-4 w-4 shrink-0 text-sky-700" />
                               ) : (
-                                <AlertCircle className="h-4 w-4 text-amber-500" />
+                                <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
                               )}
                             </div>
                             <div className="mt-1 text-xs leading-relaxed text-slate-500">
-                              {isComplete ? section.description : `Mangler: ${missing.join(", ")}`}
+                              {isComplete ? "Udfyldt" : `Mangler: ${missing.join(", ")}`}
                             </div>
                           </div>
                         </button>
                       );
                     })}
                   </div>
-                  <div className="mt-auto rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex items-start gap-3">
-                      <BadgeInfo className="mt-0.5 h-4 w-4 text-slate-500" />
-                      <div className="space-y-1 text-xs text-slate-500">
-                        <p className="font-semibold uppercase tracking-[0.16em] text-slate-400">Retning</p>
-                        <p>
-                          Maskindata er samlet i klare blokke, så profilen er let at kontrollere før brug.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </aside>
 
               <div className="px-4 py-5 sm:px-6">
                 <div className="space-y-6">
-                  <section id="general" className="scroll-mt-6 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                  <section id="general" className="scroll-mt-6 rounded-[5px] border border-slate-200 bg-white p-6">
                     <div className="mb-5 flex items-center gap-3">
-                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-[5px] bg-slate-100 text-slate-700">
                         <Cpu className="h-5 w-5" />
                       </div>
                       <div>
@@ -380,14 +348,14 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                           onChange={(event) => setFormData({ ...formData, name: event.target.value })}
                           placeholder="f.eks. HP Indigo 7900"
                           required
-                          className="h-12 rounded-xl border-white/70 bg-slate-50 shadow-sm"
+                          className="h-12 rounded-[4px] border-slate-200 bg-slate-50"
                         />
                       </div>
 
                       <div className="space-y-2">
                         <Label>Maskintype</Label>
                         <Select value={formData.mode} onValueChange={(value) => setFormData({ ...formData, mode: value })}>
-                          <SelectTrigger className="h-12 rounded-xl border-white/70 bg-slate-50 shadow-sm">
+                          <SelectTrigger className="h-12 rounded-[4px] border-slate-200 bg-slate-50">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -397,7 +365,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                         </Select>
                       </div>
 
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="rounded-[5px] border border-slate-200 bg-slate-50 px-4 py-3">
                         <div className="flex items-center justify-between gap-4">
                           <div>
                             <div className="text-sm font-medium text-slate-900">Duplex-understøttelse</div>
@@ -414,9 +382,9 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                   </section>
 
                   <section id="sizes" className="scroll-mt-6 space-y-6">
-                    <div className="rounded-[28px] border border-teal-100 bg-gradient-to-br from-teal-50 via-white to-cyan-50 p-6 shadow-sm">
+                    <div className="rounded-[5px] border border-slate-200 bg-white p-6">
                       <div className="mb-5 flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-100 text-teal-700">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-[5px] bg-slate-100 text-slate-700">
                           <Ruler className="h-5 w-5" />
                         </div>
                         <div>
@@ -460,9 +428,9 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                       </div>
                     </div>
 
-                    <div className="rounded-[28px] border border-rose-100 bg-gradient-to-br from-rose-50 via-white to-fuchsia-50 p-6 shadow-sm">
+                    <div className="rounded-[5px] border border-slate-200 bg-white p-6">
                       <div className="mb-5 flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-rose-100 text-rose-700">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-[5px] bg-slate-100 text-slate-700">
                           <ShieldAlert className="h-5 w-5" />
                         </div>
                         <div>
@@ -504,9 +472,9 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                     </div>
                   </section>
 
-                  <section id="capacity" className="scroll-mt-6 rounded-[28px] border border-amber-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
+                  <section id="capacity" className="scroll-mt-6 rounded-[5px] border border-slate-200 bg-white p-6">
                     <div className="mb-5 flex items-center gap-3">
-                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-[5px] bg-slate-100 text-slate-700">
                         <Gauge className="h-5 w-5" />
                       </div>
                       <div>
@@ -567,14 +535,14 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                     </div>
 
                     <div className="mt-6 grid gap-4 sm:grid-cols-3">
-                      <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
+                      <div className="rounded-[5px] border border-slate-200 bg-white/80 p-4">
                         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                           <Clock3 className="h-4 w-4" />
                           Opsætning
                         </div>
                         <div className="mt-2 text-2xl font-semibold text-slate-900">{Number(formData.setup_time_min || 0)} min</div>
                       </div>
-                      <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
+                      <div className="rounded-[5px] border border-slate-200 bg-white/80 p-4">
                         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                           <Layers3 className="h-4 w-4" />
                           Spild
@@ -583,147 +551,21 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
                           {Number(formData.setup_waste_sheets || 0)} + {Number(formData.run_waste_pct || 0)}%
                         </div>
                       </div>
-                      <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
+                      <div className="rounded-[5px] border border-slate-200 bg-white/80 p-4">
                         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                           <Coins className="h-4 w-4" />
                           Drift
                         </div>
-                        <div className="mt-2 text-2xl font-semibold text-emerald-700">{Number(formData.machine_rate_per_hour || 0).toFixed(0)} kr/t</div>
+                        <div className="mt-2 text-2xl font-semibold text-emerald-700">{Number(formData.machine_rate_per_hour || 0).toLocaleString("da-DK", { maximumFractionDigits: 2 })} kr/t</div>
                       </div>
                     </div>
                   </section>
                 </div>
               </div>
 
-              <aside className="border-t border-slate-200 bg-white px-5 py-5 lg:border-l lg:border-t-0">
-                <div className="space-y-5 lg:sticky lg:top-5">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Preview</div>
-                    <h3 className="mt-1 text-lg font-semibold text-slate-900">Oplægningstest</h3>
-                  </div>
-
-                  <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
-                    <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Testformat</div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {IMPOSITION_PRESETS.map((preset) => (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() => setPreviewPresetId(preset.id)}
-                          className={cn(
-                            "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
-                            previewPreset.id === preset.id
-                              ? "border-cyan-200 bg-cyan-100 text-cyan-800"
-                              : "border-slate-200 bg-white text-slate-600 hover:border-cyan-200 hover:text-cyan-700"
-                          )}
-                        >
-                          {preset.shortLabel}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="preview-bleed">Test beskæring</Label>
-                        <div className="relative">
-                          <Input
-                            id="preview-bleed"
-                            type="number"
-                            min={0}
-                            step="0.1"
-                            value={previewBleedMm}
-                            onChange={(event) => setPreviewBleedMm(sanitizeNumber(event.target.value))}
-                            className="h-11 rounded-xl border-white/70 bg-white pr-14 shadow-sm"
-                          />
-                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            mm
-                          </span>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="preview-gap">Mellemrum</Label>
-                        <div className="relative">
-                          <Input
-                            id="preview-gap"
-                            type="number"
-                            min={0}
-                            step="0.1"
-                            value={previewGapMm}
-                            onChange={(event) => setPreviewGapMm(sanitizeNumber(event.target.value))}
-                            className="h-11 rounded-xl border-white/70 bg-white pr-14 shadow-sm"
-                          />
-                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            mm
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-3 text-xs text-slate-500">
-                      Lokal preview-kontrol. Den ændrer ikke maskinens gemte data.
-                    </div>
-                  </div>
-
-                  <ImpositionPreview
-                    sheetWidthMm={sheetWidth}
-                    sheetHeightMm={sheetHeight}
-                    marginLeftMm={Number(formData.margin_left_mm || 0)}
-                    marginRightMm={Number(formData.margin_right_mm || 0)}
-                    marginTopMm={Number(formData.margin_top_mm || 0)}
-                    marginBottomMm={Number(formData.margin_bottom_mm || 0)}
-                    itemWidthMm={previewPreset.widthMm}
-                    itemHeightMm={previewPreset.heightMm}
-                    bleedMm={previewBleedMm}
-                    gapMm={previewGapMm}
-                  />
-
-                  <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
-                    <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Maskinresume</div>
-                    <div className="mt-4 space-y-4 text-sm">
-                      <div className="flex items-start justify-between gap-4">
-                        <span className="text-slate-500">Produktionsmode</span>
-                        <span className="font-medium text-slate-900">{formData.mode === "SHEET" ? "Ark" : "Rulle"}</span>
-                      </div>
-                      <div className="flex items-start justify-between gap-4">
-                        <span className="text-slate-500">Råformat</span>
-                        <span className="text-right font-medium text-slate-900">
-                          {formData.mode === "SHEET" ? `${sheetWidth} × ${sheetHeight} mm` : `${sheetWidth} mm rulle`}
-                        </span>
-                      </div>
-                      <div className="flex items-start justify-between gap-4">
-                        <span className="text-slate-500">Printbart felt</span>
-                        <span className="text-right font-medium text-slate-900">{printableWidth} × {printableHeight} mm</span>
-                      </div>
-                      <div className="flex items-start justify-between gap-4">
-                        <span className="text-slate-500">Testlayout</span>
-                        <span className="text-right font-medium text-slate-900">
-                          {previewPreset.name} · {previewBleedMm}/{previewGapMm} mm
-                        </span>
-                      </div>
-                      <div className="flex items-start justify-between gap-4">
-                        <span className="text-slate-500">Duplex</span>
-                        <span className="font-medium text-slate-900">{formData.duplex_supported ? "Ja" : "Nej"}</span>
-                      </div>
-                      <div className="flex items-start justify-between gap-4">
-                        <span className="text-slate-500">Kapacitet</span>
-                        <span className="font-medium text-slate-900">{capacityPerHour > 0 ? operatingLabel : "Ikke sat"}</span>
-                      </div>
-                      <div className="flex items-start justify-between gap-4">
-                        <span className="text-slate-500">Spildprofil</span>
-                        <span className="text-right font-medium text-slate-900">
-                          {Number(formData.setup_waste_sheets || 0)} opstart / {Number(formData.run_waste_pct || 0)}% drift
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[28px] border border-cyan-100 bg-cyan-50 p-5 text-sm text-cyan-900">
-                    <div className="mb-2 flex items-center gap-2 font-semibold">
-                      <ArrowRightLeft className="h-4 w-4" />
-                      Designretning
-                    </div>
-                    <p className="leading-relaxed">
-                      Brug previewet til at kontrollere marginer og format. Bekræft derefter kapacitet, spild og timekost med egne produktionsdata.
-                    </p>
-                  </div>
+              <aside className="min-w-0 border-t border-slate-200 bg-white px-4 py-5 sm:px-5 lg:border-l lg:border-t-0">
+                <div className="lg:sticky lg:top-5">
+                  <MachineDraftCostPreview machine={formData} />
                 </div>
               </aside>
             </div>
@@ -737,7 +579,7 @@ export function MachineForm({ open, onOpenChange, machine, tenantId, onSuccess }
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
                 Annuller
               </Button>
-              <Button type="submit" className="rounded-xl bg-emerald-500 px-5 hover:bg-emerald-600">
+              <Button type="submit" className="rounded-[4px] bg-primary px-5 hover:bg-primary/90">
                 Gem maskine
               </Button>
             </div>

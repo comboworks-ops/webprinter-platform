@@ -1,708 +1,207 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Loader2, Package, Truck, CheckCircle, AlertCircle, Upload, FileText, Clock, MessageCircle, Send, ChevronDown, ChevronUp, FileDown, MapPin, LayoutDashboard, Settings, CheckCheck } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { AccountLoadingShell } from '@/components/account/AccountLoadingShell';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { supabase } from '@/integrations/supabase/client';
+import { Button } from '@/components/ui/button';
+import { AccountShell, AccountState } from '@/components/account/AccountShell';
+import { useCustomerAccount } from '@/components/account/CustomerAccountContext';
+import { CustomerOrdersView } from '@/components/account/CustomerOrdersView';
+import { customerOrderHref, loadingOrderDetails, requirePersistedRow, scopedOrderDetailQuery, scopedOrdersQuery, type CustomerOrder, type CustomerOrderDetails, type OrderMessage, type OrderScope } from '@/lib/account/orders';
+import { uploadCustomerReplacementFile } from '@/lib/account/replacementFile';
+import { acknowledgeCustomerOrderMessages } from '@/lib/account/readReceipts';
 
-interface Order {
-    id: string;
-    order_number: string;
-    product_name: string;
-    product_configuration?: string | null;
-    quantity: number;
-    total_price: number;
-    status: string;
-    status_note: string | null;
-    delivery_type: string | null;
-    tracking_number: string | null;
-    estimated_delivery: string | null;
-    has_problem: boolean;
-    problem_description: string | null;
-    requires_file_reupload: boolean;
-    created_at: string;
-    shipped_at: string | null;
-    delivered_at: string | null;
+// Legacy orders tables are absent from the generated Database type.
+const db = supabase as unknown as SupabaseClient;
+
+function ScopedCustomerOrders({ userId, tenantId }: { userId: string; tenantId: string }) {
+  const { link } = useCustomerAccount();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const scope = useMemo<OrderScope>(() => ({ userId, tenantId }), [userId, tenantId]);
+  const [orders, setOrders] = useState<CustomerOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [productLookupError, setProductLookupError] = useState<string | null>(null);
+  const [details, setDetails] = useState<CustomerOrderDetails>(loadingOrderDetails);
+  const [detailsKey, setDetailsKey] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const alive = useRef(true);
+  const listRequest = useRef(0);
+  const detailRequest = useRef(0);
+  const pendingMessages = useRef<Record<string, { id: string; content: string }>>({});
+  const sendLock = useRef(false);
+  const uploadLock = useRef(false);
+  const selectedOrderId = new URLSearchParams(location.search).get('order');
+  const selectedRef = useRef(selectedOrderId);
+  selectedRef.current = selectedOrderId;
+  const selectedOrderExists = orders.some(order => order.id === selectedOrderId);
+
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+
+  const loadOrders = useCallback(async () => {
+    const request = ++listRequest.current;
+    setLoading(true);
+    setError(null);
+    setProductLookupError(null);
+    try {
+      const result = await scopedOrdersQuery(db, scope).order('created_at', { ascending: false });
+      if (result.error) throw result.error;
+      const rows: CustomerOrder[] = result.data || [];
+      const slugs = [...new Set(rows.map(order => order.product_slug).filter(Boolean))];
+      let products: CustomerOrder['product'][] = [];
+      if (slugs.length) {
+        try {
+          const productResult = await db.from('products').select('slug,image_url,is_published').eq('tenant_id', scope.tenantId).eq('is_published', true).in('slug', slugs);
+          if (productResult.error) throw productResult.error;
+          products = productResult.data || [];
+        } catch {
+          if (alive.current && request === listRequest.current) setProductLookupError('Vi kunne ikke kontrollere produktets tilgængelighed. Genindlæs siden for at prøve igen.');
+        }
+      }
+      if (!alive.current || request !== listRequest.current) return;
+      setOrders(rows.map(order => ({ ...order, product: products.find(product => product?.slug === order.product_slug) || null })));
+    } catch {
+      if (alive.current && request === listRequest.current) { setOrders([]); setError('Dine ordrer kunne ikke hentes. Prøv igen om et øjeblik.'); }
+    } finally {
+      if (alive.current && request === listRequest.current) setLoading(false);
+    }
+  }, [scope]);
+
+  useEffect(() => { void loadOrders(); }, [loadOrders]);
+
+  const loadDetails = useCallback(async (orderId: string) => {
+    const request = ++detailRequest.current;
+    setDetailsKey(orderId);
+    setDetails(loadingOrderDetails());
+    const sections = [
+      ['messages', 'order_messages', 'created_at', true, 'Beskederne kunne ikke hentes.'],
+      ['files', 'order_files', 'uploaded_at', false, 'Trykfilerne kunne ikke hentes.'],
+      ['tracking', 'delivery_tracking', 'occurred_at', false, 'Leveringsopdateringerne kunne ikke hentes.'],
+      ['invoices', 'order_invoices', 'created_at', false, 'Fakturaerne kunne ikke hentes.'],
+      ['history', 'order_status_history', 'created_at', false, 'Ordrehistorikken kunne ikke hentes.'],
+    ] as const;
+    await Promise.allSettled(sections.map(async ([key, table, sort, ascending, description]) => {
+      try {
+        const result = await scopedOrderDetailQuery(db, table, orderId, scope).order(sort, { ascending });
+        if (result.error) throw result.error;
+        if (alive.current && request === detailRequest.current && selectedRef.current === orderId) setDetails(previous => ({ ...previous, [key]: { status: 'ready', data: result.data || [] } }));
+      } catch {
+        if (alive.current && request === detailRequest.current && selectedRef.current === orderId) setDetails(previous => ({ ...previous, [key]: { status: 'error', error: description } }));
+      }
+    }));
+  }, [scope]);
+
+  useEffect(() => {
+    setMessageError(null);
+    setUploadError(null);
+    if (selectedOrderId && selectedOrderExists) void loadDetails(selectedOrderId);
+    else { detailRequest.current++; setDetailsKey(null); setDetails(loadingOrderDetails()); }
+  }, [selectedOrderId, selectedOrderExists, loadDetails]);
+
+  const assertCurrentOrder = async (orderId: string) => {
+    if (!alive.current || !orders.some(order => order.id === orderId)) throw new Error('Ordren er ikke længere valgt.');
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError || auth.user?.id !== userId || !alive.current) throw new Error('Log ind igen, før du fortsætter.');
+    const result = await scopedOrdersQuery(db, scope).eq('id', orderId).single();
+    const order = requirePersistedRow<CustomerOrder>(result, orderId);
+    if (!alive.current) throw new Error('Kundekontoen er ændret.');
+    return order;
+  };
+
+  const sendMessage = async (orderId: string, content: string): Promise<boolean> => {
+    if (sendLock.current || !content.trim() || content.length > 5000) return false;
+    sendLock.current = true;
+    setSending(true);
+    setMessageError(null);
+    const pending = pendingMessages.current[orderId]?.content === content ? pendingMessages.current[orderId] : { id: crypto.randomUUID(), content };
+    pendingMessages.current[orderId] = pending;
+    try {
+      await assertCurrentOrder(orderId);
+      // Reconcile an uncertain response before a manual retry, using the same id.
+      const existing = await scopedOrderDetailQuery(db, 'order_messages', orderId, scope).eq('id', pending.id).maybeSingle();
+      if (existing.error) throw existing.error;
+      if (!alive.current) return false;
+      let saved: OrderMessage;
+      if (existing.data) {
+        saved = requirePersistedRow<OrderMessage>({ data: existing.data as unknown as OrderMessage, error: existing.error }, pending.id);
+        if (saved.content !== content || saved.sender_type !== 'customer') throw new Error('Beskeden kunne ikke bekræftes.');
+      } else {
+        const result = await db.from('order_messages').insert({ id: pending.id, order_id: orderId, sender_id: userId, sender_type: 'customer', content }).select('*').single();
+        saved = requirePersistedRow<OrderMessage>(result, pending.id);
+      }
+      if (!alive.current) return false;
+      delete pendingMessages.current[orderId];
+      if (selectedRef.current === orderId) setDetails(previous => previous.messages.status === 'ready' ? { ...previous, messages: { status: 'ready', data: [...previous.messages.data.filter(message => message.id !== saved.id), saved] } } : previous);
+      toast.success('Din besked er sendt.');
+      return true;
+    } catch {
+      if (alive.current && selectedRef.current === orderId) setMessageError('Beskeden kunne ikke bekræftes som sendt. Din tekst er bevaret. Prøv igen for at kontrollere og sende den.');
+      return false;
+    } finally {
+      sendLock.current = false;
+      if (alive.current) setSending(false);
+    }
+  };
+
+  const markConversationRead = async (orderId: string) => {
+    if (detailsKey !== orderId || details.messages.status !== 'ready') return;
+    const unread = details.messages.data.filter(message => message.sender_type === 'admin' && !message.is_read);
+    if (!unread.length) return;
+    try {
+      await assertCurrentOrder(orderId);
+      const savedIds = await acknowledgeCustomerOrderMessages(db, { orderId, tenantId, messageIds: unread.map(message => message.id) });
+      if (!alive.current || selectedRef.current !== orderId) return;
+      setDetails(previous => ({ ...previous, readReceiptError: savedIds.size !== unread.length ? 'Læsekvitteringen kunne ikke gemmes. Du kan stadig læse og besvare beskederne.' : null, messages: previous.messages.status === 'ready' ? { status: 'ready', data: previous.messages.data.map(message => savedIds.has(message.id) ? { ...message, is_read: true } : message) } : previous.messages }));
+    } catch {
+      if (alive.current && selectedRef.current === orderId) setDetails(previous => ({ ...previous, readReceiptError: 'Læsekvitteringen kunne ikke gemmes. Du kan stadig læse og besvare beskederne.' }));
+    }
+  };
+
+  const uploadFile = async (orderId: string, file: File): Promise<boolean> => {
+    if (uploadLock.current || detailsKey !== orderId || details.files.status !== 'ready') return false;
+    uploadLock.current = true;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const order = await assertCurrentOrder(orderId);
+      if (!order.requires_file_reupload) throw new Error('Ordren afventer ikke længere en ny fil. Genindlæs ordren.');
+      await uploadCustomerReplacementFile(db, { orderId, tenantId, userId, file, expectedCurrentFileIds: details.files.data.filter(item => item.is_current).map(item => item.id) });
+      if (!alive.current) return false;
+      toast.success('Din nye trykfil er gemt.');
+      await loadOrders();
+      if (selectedRef.current === orderId) await loadDetails(orderId);
+      return true;
+    } catch (failure) {
+      if (alive.current && selectedRef.current === orderId) setUploadError(failure instanceof Error ? failure.message : 'Den nye fil kunne ikke gemmes. Din tidligere fil er bevaret.');
+      return false;
+    } finally {
+      uploadLock.current = false;
+      if (alive.current) setUploading(false);
+    }
+  };
+
+  const selectOrder = (id: string | null) => {
+    if (id) navigate(link(customerOrderHref(id, location.search)));
+    else {
+      const params = new URLSearchParams(location.search);
+      params.delete('order');
+      navigate(link(`/min-konto/ordrer${params.size ? `?${params}` : ''}`));
+    }
+  };
+
+  return <AccountShell title="Dine ordrer" description="Se og følg dine ordrer, upload nye filer og hold dialogen med trykkeriet." actions={<Button asChild className="co-primary"><Link to={link('/produkter')}>Ny bestilling<ArrowRight /></Link></Button>}>
+    {loading ? <AccountState kind="loading" title="Henter dine ordrer" /> : error ? <AccountState kind="error" title="Vi kunne ikke hente dine ordrer" description={error} onRetry={() => void loadOrders()} /> : <CustomerOrdersView orders={orders} selectedOrderId={selectedOrderId} onSelectOrder={selectOrder} details={detailsKey === selectedOrderId ? details : loadingOrderDetails()} onRetryDetails={() => selectedOrderId && void loadDetails(selectedOrderId)} link={link} onSendMessage={sendMessage} onOpenConversation={markConversationRead} onUploadFile={uploadFile} sending={sending} uploading={uploading} messageError={messageError} uploadError={uploadError} productLookupError={productLookupError} />}
+  </AccountShell>;
 }
-
-interface Message {
-    id: string;
-    content: string;
-    sender_type: 'customer' | 'admin';
-    created_at: string;
-    is_read: boolean;
-}
-
-interface TrackingEvent {
-    id: string;
-    event_type: string;
-    location: string | null;
-    description: string | null;
-    occurred_at: string;
-}
-
-interface Invoice {
-    id: string;
-    invoice_number: string;
-    total: number;
-    status: string;
-    pdf_url: string | null;
-}
-
-const statusConfig: Record<string, { label: string; color: string; icon: any }> = {
-    pending: { label: 'Afventer', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
-    processing: { label: 'Behandles', color: 'bg-blue-100 text-blue-800', icon: Package },
-    production: { label: 'Under produktion', color: 'bg-purple-100 text-purple-800', icon: Package },
-    shipped: { label: 'Afsendt', color: 'bg-cyan-100 text-cyan-800', icon: Truck },
-    delivered: { label: 'Leveret', color: 'bg-green-100 text-green-800', icon: CheckCircle },
-    cancelled: { label: 'Annulleret', color: 'bg-gray-100 text-gray-800', icon: AlertCircle },
-    problem: { label: 'Problem', color: 'bg-red-100 text-red-800', icon: AlertCircle },
-};
-
-const trackingEventLabels: Record<string, string> = {
-    order_placed: 'Ordre modtaget',
-    processing: 'Behandles',
-    in_production: 'I produktion',
-    quality_check: 'Kvalitetskontrol',
-    packed: 'Pakket',
-    picked_up: 'Afhentet af fragtfirma',
-    in_transit: 'Undervejs',
-    out_for_delivery: 'Ude til levering',
-    delivered: 'Leveret',
-};
-
-const sidebarItems = [
-    { path: '/min-konto', label: 'Oversigt', icon: LayoutDashboard, end: true },
-    { path: '/min-konto/ordrer', label: 'Mine Ordrer', icon: Package },
-    { path: '/min-konto/adresser', label: 'Leveringsadresser', icon: MapPin },
-    { path: '/min-konto/indstillinger', label: 'Indstillinger', icon: Settings },
-];
 
 export default function MyOrders() {
-    const navigate = useNavigate();
-    const location = useLocation();
-    const [orders, setOrders] = useState<Order[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [user, setUser] = useState<any>(null);
-    const [uploadingOrderId, setUploadingOrderId] = useState<string | null>(null);
-    const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
-    const [messages, setMessages] = useState<Record<string, Message[]>>({});
-    const [newMessage, setNewMessage] = useState<Record<string, string>>({});
-    const [sendingMessage, setSendingMessage] = useState<string | null>(null);
-    const [trackingEvents, setTrackingEvents] = useState<Record<string, TrackingEvent[]>>({});
-    const [invoices, setInvoices] = useState<Record<string, Invoice | null>>({});
-
-    useEffect(() => {
-        checkUser();
-    }, []);
-
-    const checkUser = async () => {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-            navigate('/auth?redirect=/mine-ordrer');
-            return;
-        }
-        setUser(user);
-        fetchOrders(user.id);
-    };
-
-    const fetchOrders = async (userId: string) => {
-        try {
-            const { data, error } = await supabase
-                .from('orders' as any)
-                .select('*')
-                .eq('user_id', userId)
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
-            const ordersData = (data as any[]) || [];
-            setOrders(ordersData);
-
-            // Fetch message counts for all orders to show badges correctly
-            if (ordersData.length > 0) {
-                const orderIds = ordersData.map(o => o.id);
-                const { data: messagesData } = await supabase
-                    .from('order_messages' as any)
-                    .select('order_id, sender_type, is_read')
-                    .in('order_id', orderIds);
-
-                if (messagesData) {
-                    // Group messages by order_id to set initial state
-                    const messagesByOrder: Record<string, any[]> = {};
-                    (messagesData as any[]).forEach(msg => {
-                        if (!messagesByOrder[msg.order_id]) {
-                            messagesByOrder[msg.order_id] = [];
-                        }
-                        messagesByOrder[msg.order_id].push(msg);
-                    });
-                    setMessages(messagesByOrder);
-                }
-            }
-        } catch (error) {
-            console.error('Error fetching orders:', error);
-            toast.error('Kunne ikke hente ordrer');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const fetchOrderDetails = async (orderId: string) => {
-        // Fetch messages
-        try {
-            const { data: messagesData } = await supabase
-                .from('order_messages' as any)
-                .select('*')
-                .eq('order_id', orderId)
-                .order('created_at', { ascending: true });
-
-            setMessages(prev => ({ ...prev, [orderId]: (messagesData as any[]) || [] }));
-        } catch (e) {
-            console.debug('Messages not available yet');
-        }
-
-        // Fetch tracking events
-        try {
-            const { data: trackingData } = await supabase
-                .from('delivery_tracking' as any)
-                .select('*')
-                .eq('order_id', orderId)
-                .order('occurred_at', { ascending: false });
-
-            setTrackingEvents(prev => ({ ...prev, [orderId]: (trackingData as any[]) || [] }));
-        } catch (e) {
-            console.debug('Tracking not available yet');
-        }
-
-        // Fetch invoice
-        try {
-            const { data: invoiceData } = await supabase
-                .from('order_invoices' as any)
-                .select('*')
-                .eq('order_id', orderId)
-                .single();
-
-            setInvoices(prev => ({ ...prev, [orderId]: invoiceData as any }));
-        } catch (e) {
-            console.debug('Invoice not available yet');
-        }
-    };
-
-    const toggleOrderExpanded = async (orderId: string) => {
-        if (expandedOrderId === orderId) {
-            setExpandedOrderId(null);
-        } else {
-            setExpandedOrderId(orderId);
-            fetchOrderDetails(orderId);
-
-            // Mark messages from admin as read when customer views them
-            try {
-                await supabase
-                    .from('order_messages' as any)
-                    .update({ is_read: true })
-                    .eq('order_id', orderId)
-                    .eq('sender_type', 'admin')
-                    .eq('is_read', false);
-
-                // Update local state to reflect read status
-                setMessages(prev => ({
-                    ...prev,
-                    [orderId]: (prev[orderId] || []).map(m =>
-                        m.sender_type === 'admin' ? { ...m, is_read: true } : m
-                    )
-                }));
-            } catch (e) {
-                console.debug('Could not mark messages as read');
-            }
-        }
-    };
-
-    const handleSendMessage = async (orderId: string) => {
-        const content = newMessage[orderId]?.trim();
-        if (!content) return;
-
-        setSendingMessage(orderId);
-        try {
-            const { error } = await supabase.from('order_messages' as any).insert({
-                order_id: orderId,
-                sender_id: user?.id,
-                sender_type: 'customer',
-                content,
-            });
-
-            if (error) throw error;
-
-            setNewMessage(prev => ({ ...prev, [orderId]: '' }));
-            toast.success('Besked sendt!');
-            fetchOrderDetails(orderId);
-        } catch (error) {
-            console.error('Error sending message:', error);
-            toast.error('Kunne ikke sende besked');
-        } finally {
-            setSendingMessage(null);
-        }
-    };
-
-    const handleFileUpload = async (orderId: string, file: File) => {
-        setUploadingOrderId(orderId);
-        try {
-            const fileExt = file.name.split('.').pop();
-            const fileName = `${orderId}/${Date.now()}.${fileExt}`;
-
-            const { error: uploadError } = await supabase.storage
-                .from('order-files')
-                .upload(fileName, file);
-
-            if (uploadError) throw uploadError;
-
-            const { data: { publicUrl } } = supabase.storage
-                .from('order-files')
-                .getPublicUrl(fileName);
-
-            await supabase
-                .from('order_files' as any)
-                .update({ is_current: false })
-                .eq('order_id', orderId);
-
-            await supabase.from('order_files' as any).insert({
-                order_id: orderId,
-                file_name: file.name,
-                file_url: publicUrl,
-                file_type: fileExt,
-                file_size: file.size,
-                uploaded_by: user?.id,
-            });
-
-            await supabase
-                .from('orders' as any)
-                .update({ requires_file_reupload: false })
-                .eq('id', orderId);
-
-            toast.success('Fil uploadet succesfuldt!');
-            fetchOrders(user.id);
-        } catch (error) {
-            console.error('Error uploading file:', error);
-            toast.error('Kunne ikke uploade fil');
-        } finally {
-            setUploadingOrderId(null);
-        }
-    };
-
-    const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleDateString('da-DK', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-        });
-    };
-
-    const formatDateTime = (dateString: string) => {
-        return new Date(dateString).toLocaleDateString('da-DK', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
-    };
-
-    const formatPrice = (price: number) => {
-        return new Intl.NumberFormat('da-DK', {
-            style: 'currency',
-            currency: 'DKK',
-        }).format(price);
-    };
-
-    const getSizeDistributionText = (order: Order) => {
-        const fromConfiguration = String(order.product_configuration || "").trim();
-        if (fromConfiguration) return fromConfiguration;
-        const statusNote = String(order.status_note || "").trim();
-        const prefix = "[SIZE-DISTRIBUTION]";
-        if (statusNote.startsWith(prefix)) {
-            return statusNote.slice(prefix.length).trim();
-        }
-        return null;
-    };
-
-    if (loading) {
-        return <AccountLoadingShell />;
-    }
-
-    return (
-        <div className="min-h-screen flex flex-col">
-            <Header />
-
-            <main className="flex-1 bg-slate-50/70">
-                <div className="container mx-auto max-w-7xl px-4 py-6 sm:py-8">
-                    {/* Page Header */}
-                    <div className="mb-6 rounded-2xl border bg-white px-5 py-5 shadow-sm sm:mb-8 sm:px-6">
-                        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">Min Konto</h1>
-                        <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-                            Administrer dine oplysninger og indstillinger
-                        </p>
-                    </div>
-
-                    <div className="flex flex-col gap-6 lg:flex-row">
-                        {/* Sidebar */}
-                        <aside className="flex-shrink-0 lg:w-72">
-                            <nav className="grid grid-cols-1 gap-1 rounded-2xl border bg-white/95 p-2 shadow-sm backdrop-blur sm:grid-cols-2 lg:sticky lg:top-24 lg:grid-cols-1">
-                                {sidebarItems.map((item) => {
-                                    const Icon = item.icon;
-                                    const isActive = item.end
-                                        ? location.pathname === item.path
-                                        : location.pathname.startsWith(item.path);
-
-                                    return (
-                                        <Link
-                                            key={item.path}
-                                            to={item.path}
-                                            aria-current={isActive ? 'page' : undefined}
-                                            className={cn(
-                                                "flex min-h-12 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200",
-                                                isActive
-                                                    ? "bg-primary !text-white shadow-sm ring-1 ring-primary/20 hover:!text-white [&_svg]:!text-white"
-                                                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
-                                            )}
-                                        >
-                                            <Icon className="h-5 w-5" />
-                                            {item.label}
-                                        </Link>
-                                    );
-                                })}
-                            </nav>
-                        </aside>
-
-                        {/* Main Content */}
-                        <div className="flex-1">
-                            <h2 className="text-2xl font-bold mb-2">Mine Ordrer</h2>
-                            <p className="text-muted-foreground mb-6">Se status på dine bestillinger og kontakt os</p>
-
-                            {orders.length === 0 ? (
-                                <Card>
-                                    <CardContent className="py-12 text-center">
-                                        <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                                        <h3 className="text-lg font-semibold mb-2">Ingen ordrer endnu</h3>
-                                        <p className="text-muted-foreground mb-4">
-                                            Du har ikke afgivet nogen ordrer endnu.
-                                        </p>
-                                        <Button onClick={() => navigate('/produkter')}>
-                                            Se produkter
-                                        </Button>
-                                    </CardContent>
-                                </Card>
-                            ) : (
-                                <div className="space-y-4">
-                                    {orders.map((order) => {
-                                        const status = statusConfig[order.status] || statusConfig.pending;
-                                        const StatusIcon = status.icon;
-                                        const isExpanded = expandedOrderId === order.id;
-                                        const orderMessages = messages[order.id] || [];
-                                        const orderTracking = trackingEvents[order.id] || [];
-                                        const orderInvoice = invoices[order.id];
-
-                                        return (
-                                            <Card key={order.id} className={cn("shadow-sm", order.has_problem && 'border-red-300')}>
-                                                <CardHeader className="pb-3">
-                                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                                        <div className="flex-1">
-                                                            <CardTitle className="text-lg flex items-center gap-2">
-                                                                Ordre #{order.order_number}
-                                                                {order.has_problem && (
-                                                                    <AlertCircle className="h-4 w-4 text-red-500" />
-                                                                )}
-                                                            </CardTitle>
-                                                            <CardDescription>
-                                                                Bestilt {formatDate(order.created_at)}
-                                                            </CardDescription>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <Badge className={status.color}>
-                                                                <StatusIcon className="h-3 w-3 mr-1" />
-                                                                {status.label}
-                                                            </Badge>
-                                                            <Tooltip>
-                                                                <TooltipTrigger asChild>
-                                                                    <button
-                                                                        onClick={() => toggleOrderExpanded(order.id)}
-                                                                        className={cn(
-                                                                            "relative flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200",
-                                                                            isExpanded
-                                                                                ? "bg-gradient-to-br from-green-500 to-green-600 text-white shadow-lg shadow-green-500/40 scale-110"
-                                                                                : "bg-gradient-to-br from-green-400 to-green-500 text-white hover:from-green-500 hover:to-green-600 hover:shadow-lg hover:shadow-green-500/30 hover:scale-105"
-                                                                        )}
-                                                                    >
-                                                                        <MessageCircle className="h-5 w-5" />
-                                                                        {/* iOS-style notification badge */}
-                                                                        {orderMessages.filter(m => m.sender_type === 'admin' && !m.is_read).length > 0 && (
-                                                                            <span className="absolute -top-1.5 -right-1.5 flex items-center justify-center min-w-[20px] h-[20px] px-1 rounded-full bg-red-500 text-[11px] font-bold text-white shadow-md border-2 border-white">
-                                                                                {orderMessages.filter(m => m.sender_type === 'admin' && !m.is_read).length}
-                                                                            </span>
-                                                                        )}
-                                                                        {/* Read receipt indicator */}
-                                                                        {orderMessages.some(m => m.sender_type === 'admin') && orderMessages.filter(m => m.sender_type === 'admin' && !m.is_read).length === 0 && (
-                                                                            <span className="absolute -bottom-0.5 -right-0.5 flex items-center justify-center bg-white rounded-full p-0.5">
-                                                                                <CheckCheck className="h-3 w-3 text-blue-500" />
-                                                                            </span>
-                                                                        )}
-                                                                    </button>
-                                                                </TooltipTrigger>
-                                                                <TooltipContent side="left" className="bg-gray-900 text-white border-0">
-                                                                    <p className="font-medium">
-                                                                        {orderMessages.filter(m => m.sender_type === 'admin' && !m.is_read).length > 0
-                                                                            ? `${orderMessages.filter(m => m.sender_type === 'admin' && !m.is_read).length} ny besked`
-                                                                            : orderMessages.some(m => m.sender_type === 'admin')
-                                                                                ? 'Svar modtaget'
-                                                                                : 'Send besked'}
-                                                                    </p>
-                                                                </TooltipContent>
-                                                            </Tooltip>
-                                                        </div>
-                                                    </div>
-                                                </CardHeader>
-
-                                                <CardContent className="space-y-4">
-                                                    {/* Order details */}
-                                                    <div className="flex justify-between items-center py-2 border-b">
-                                                        <div>
-                                                            <p className="font-medium">{order.product_name}</p>
-                                                            <p className="text-sm text-muted-foreground">
-                                                                Antal: {order.quantity}
-                                                            </p>
-                                                            {getSizeDistributionText(order) && (
-                                                                <p className="text-xs text-muted-foreground mt-1">
-                                                                    {getSizeDistributionText(order)}
-                                                                </p>
-                                                            )}
-                                                        </div>
-                                                        <p className="font-semibold">{formatPrice(order.total_price)}</p>
-                                                    </div>
-
-                                                    {/* Tracking info */}
-                                                    {order.tracking_number && (
-                                                        <div className="flex items-center gap-2 text-sm">
-                                                            <Truck className="h-4 w-4" />
-                                                            <span>Tracking: {order.tracking_number}</span>
-                                                        </div>
-                                                    )}
-
-                                                    {order.estimated_delivery && (
-                                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                            <Clock className="h-4 w-4" />
-                                                            <span>Forventet levering: {formatDate(order.estimated_delivery)}</span>
-                                                        </div>
-                                                    )}
-
-                                                    {/* Status timeline */}
-                                                    <div className="pt-2">
-                                                        <div className="flex items-center gap-2 text-xs">
-                                                            <div className={`w-2.5 h-2.5 rounded-full ${order.status === 'pending' ? 'bg-yellow-500' : 'bg-green-500'}`} />
-                                                            <span className={order.status === 'pending' ? 'font-medium' : 'text-muted-foreground'}>Modtaget</span>
-                                                            <div className="flex-1 h-0.5 bg-muted" />
-                                                            <div className={`w-2.5 h-2.5 rounded-full ${['processing', 'production', 'shipped', 'delivered'].includes(order.status) ? 'bg-green-500' : 'bg-muted'}`} />
-                                                            <span className={order.status === 'processing' ? 'font-medium' : 'text-muted-foreground'}>Behandles</span>
-                                                            <div className="flex-1 h-0.5 bg-muted" />
-                                                            <div className={`w-2.5 h-2.5 rounded-full ${['production', 'shipped', 'delivered'].includes(order.status) ? 'bg-green-500' : 'bg-muted'}`} />
-                                                            <span className={order.status === 'production' ? 'font-medium' : 'text-muted-foreground'}>Produktion</span>
-                                                            <div className="flex-1 h-0.5 bg-muted" />
-                                                            <div className={`w-2.5 h-2.5 rounded-full ${['shipped', 'delivered'].includes(order.status) ? 'bg-green-500' : 'bg-muted'}`} />
-                                                            <span className={order.status === 'shipped' ? 'font-medium' : 'text-muted-foreground'}>Afsendt</span>
-                                                            <div className="flex-1 h-0.5 bg-muted" />
-                                                            <div className={`w-2.5 h-2.5 rounded-full ${order.status === 'delivered' ? 'bg-green-500' : 'bg-muted'}`} />
-                                                            <span className={order.status === 'delivered' ? 'font-medium' : 'text-muted-foreground'}>Leveret</span>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Problem alert */}
-                                                    {order.has_problem && (
-                                                        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                                                            <div className="flex items-start gap-2">
-                                                                <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-                                                                <div>
-                                                                    <p className="font-medium text-red-800">Der er et problem med din ordre</p>
-                                                                    {order.problem_description && (
-                                                                        <p className="text-sm text-red-700 mt-1">{order.problem_description}</p>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    )}
-
-                                                    {/* File reupload section */}
-                                                    {order.requires_file_reupload && (
-                                                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                                                            <div className="flex items-start gap-2">
-                                                                <Upload className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-                                                                <div className="flex-1">
-                                                                    <p className="font-medium text-yellow-800">Upload ny fil</p>
-                                                                    <p className="text-sm text-yellow-700 mt-1 mb-3">
-                                                                        Vi har brug for en ny fil til denne ordre.
-                                                                    </p>
-                                                                    <div className="flex items-center gap-2">
-                                                                        <Input
-                                                                            type="file"
-                                                                            accept=".pdf,.jpg,.jpeg,.png,.ai,.eps"
-                                                                            disabled={uploadingOrderId === order.id}
-                                                                            onChange={(e) => {
-                                                                                const file = e.target.files?.[0];
-                                                                                if (file) handleFileUpload(order.id, file);
-                                                                            }}
-                                                                            className="max-w-xs"
-                                                                        />
-                                                                        {uploadingOrderId === order.id && (
-                                                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    )}
-
-                                                    {/* Expanded content */}
-                                                    {isExpanded && (
-                                                        <div className="border-t pt-4 space-y-6">
-                                                            {/* Invoice section */}
-                                                            {orderInvoice && (
-                                                                <div className="bg-muted/30 rounded-lg p-4">
-                                                                    <h4 className="font-medium flex items-center gap-2 mb-2">
-                                                                        <FileText className="h-4 w-4" />
-                                                                        Faktura
-                                                                    </h4>
-                                                                    <div className="flex items-center justify-between">
-                                                                        <div>
-                                                                            <p className="text-sm">#{orderInvoice.invoice_number}</p>
-                                                                            <p className="text-lg font-bold">{formatPrice(orderInvoice.total)}</p>
-                                                                        </div>
-                                                                        <Badge className={
-                                                                            orderInvoice.status === 'paid' ? 'bg-green-100 text-green-800' :
-                                                                                orderInvoice.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                                                                                    'bg-gray-100 text-gray-800'
-                                                                        }>
-                                                                            {orderInvoice.status === 'paid' ? 'Betalt' :
-                                                                                orderInvoice.status === 'pending' ? 'Afventer' : orderInvoice.status}
-                                                                        </Badge>
-                                                                    </div>
-                                                                    {orderInvoice.pdf_url && (
-                                                                        <Button variant="outline" size="sm" className="mt-2" asChild>
-                                                                            <a href={orderInvoice.pdf_url} target="_blank" rel="noopener noreferrer">
-                                                                                <FileDown className="h-4 w-4 mr-2" />
-                                                                                Download PDF
-                                                                            </a>
-                                                                        </Button>
-                                                                    )}
-                                                                </div>
-                                                            )}
-
-                                                            {/* Detailed tracking */}
-                                                            {orderTracking.length > 0 && (
-                                                                <div>
-                                                                    <h4 className="font-medium flex items-center gap-2 mb-3">
-                                                                        <Truck className="h-4 w-4" />
-                                                                        Leveringssporing
-                                                                    </h4>
-                                                                    <div className="space-y-3">
-                                                                        {orderTracking.map((event, idx) => (
-                                                                            <div key={event.id} className="flex gap-3">
-                                                                                <div className="flex flex-col items-center">
-                                                                                    <div className={`w-3 h-3 rounded-full ${idx === 0 ? 'bg-green-500' : 'bg-muted'}`} />
-                                                                                    {idx < orderTracking.length - 1 && (
-                                                                                        <div className="w-0.5 h-8 bg-muted" />
-                                                                                    )}
-                                                                                </div>
-                                                                                <div className="flex-1 pb-3">
-                                                                                    <p className="font-medium text-sm">
-                                                                                        {trackingEventLabels[event.event_type] || event.event_type}
-                                                                                    </p>
-                                                                                    {event.location && (
-                                                                                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                                                                            <MapPin className="h-3 w-3" />
-                                                                                            {event.location}
-                                                                                        </p>
-                                                                                    )}
-                                                                                    <p className="text-xs text-muted-foreground">
-                                                                                        {formatDateTime(event.occurred_at)}
-                                                                                    </p>
-                                                                                </div>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-
-                                                            {/* Messages */}
-                                                            <div>
-                                                                <h4 className="font-medium flex items-center gap-2 mb-3">
-                                                                    <MessageCircle className="h-4 w-4" />
-                                                                    Beskeder ({orderMessages.length})
-                                                                </h4>
-
-                                                                {/* Message list */}
-                                                                <div className="bg-muted/30 rounded-lg p-3 max-h-64 overflow-y-auto mb-3 space-y-3">
-                                                                    {orderMessages.length === 0 ? (
-                                                                        <p className="text-sm text-muted-foreground text-center py-4">
-                                                                            Ingen beskeder endnu. Send en besked hvis du har spørgsmål.
-                                                                        </p>
-                                                                    ) : (
-                                                                        orderMessages.map((msg) => (
-                                                                            <div
-                                                                                key={msg.id}
-                                                                                className={`p-3 rounded-lg ${msg.sender_type === 'customer'
-                                                                                    ? 'bg-primary text-primary-foreground ml-8'
-                                                                                    : 'bg-background mr-8 border'
-                                                                                    }`}
-                                                                            >
-                                                                                <p className="text-sm">{msg.content}</p>
-                                                                                <p className={`text-xs mt-1 ${msg.sender_type === 'customer' ? 'text-primary-foreground/70' : 'text-muted-foreground'
-                                                                                    }`}>
-                                                                                    {msg.sender_type === 'customer' ? 'Dig' : 'Kundeservice'} • {formatDateTime(msg.created_at)}
-                                                                                </p>
-                                                                            </div>
-                                                                        ))
-                                                                    )}
-                                                                </div>
-
-                                                                {/* New message input */}
-                                                                <div className="flex gap-2">
-                                                                    <Textarea
-                                                                        placeholder="Skriv en besked..."
-                                                                        value={newMessage[order.id] || ''}
-                                                                        onChange={(e) => setNewMessage(prev => ({ ...prev, [order.id]: e.target.value }))}
-                                                                        rows={2}
-                                                                        className="flex-1"
-                                                                    />
-                                                                    <Button
-                                                                        onClick={() => handleSendMessage(order.id)}
-                                                                        disabled={sendingMessage === order.id || !newMessage[order.id]?.trim()}
-                                                                    >
-                                                                        {sendingMessage === order.id ? (
-                                                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                                                        ) : (
-                                                                            <Send className="h-4 w-4" />
-                                                                        )}
-                                                                    </Button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </CardContent>
-                                            </Card>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </main>
-
-            <Footer />
-        </div>
-    );
+  const { user, shop, loading, error, retry } = useCustomerAccount();
+  if (error || loading || !user || !shop) return <AccountShell title="Dine ordrer"><AccountState kind={error ? 'error' : 'loading'} title={error ? 'Din konto kunne ikke hentes' : 'Henter din konto'} description={error || undefined} onRetry={error ? retry : undefined} /></AccountShell>;
+  // Reset all rows/drafts synchronously before rendering a different customer/shop.
+  return <ScopedCustomerOrders key={`${user.id}:${shop.id}`} userId={user.id} tenantId={shop.id} />;
 }

@@ -17,6 +17,8 @@ export const STANDARD_FORMATS: FormatDimension[] = [
     { id: 'A4', name: 'A4', width: 210, height: 297, category: 'A-rækken' },
     { id: 'A5', name: 'A5', width: 148, height: 210, category: 'A-rækken' },
     { id: 'A6', name: 'A6', width: 105, height: 148, category: 'A-rækken' },
+    { id: 'A7', name: 'A7', width: 74, height: 105, category: 'A-rækken' },
+    { id: 'A8', name: 'A8', width: 52, height: 74, category: 'A-rækken' },
 
     // Plakater
     { id: '50x70', name: '50x70 cm', width: 500, height: 700, category: 'Plakater' },

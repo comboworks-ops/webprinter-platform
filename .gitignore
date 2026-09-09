@@ -36,6 +36,8 @@ dist-ssr
 *.js
 *.mjs
 *.json
+!docs/ADMIN_DESIGN_SELECTIONS_2026-09-08.json
+!docs/ADMIN_WORKSPACE_SURFACES_IMPLEMENTATION_2026-09-08.json
 !package.json
 !package-lock.json
 !tsconfig.json
@@ -49,15 +51,21 @@ dist-ssr
 !public/site-previews/**/*.js
 !public/site-previews/**/*.mjs
 !public/site-previews/*/branding.json
+!public/platform/landing/motion/gsap.min.js
+!public/platform/landing/motion/preview-bridge.js
 !eslint.config.js
 !supabase/migrations/*.sql
 !supabase/functions/**
+!supabase/tests/storefrontOrderEmailDb.test.mjs
 !docs/*.md
 !src/**/*.ts
 !src/**/*.tsx
 !src/**/*.js
 !src/**/*.jsx
+!src/**/*.test.mjs
 !scripts/log-push-ready.mjs
+!scripts/tests/customer-account-database.test.mjs
+!scripts/tests/checkout-browser.test.mjs
 !scripts/sql/
 !scripts/sql/supabase-db-health.sql
 !scripts/sql/wmd-latest-delta-review-state.sql
@@ -101,6 +109,9 @@ dist-ssr
 !scripts/check-tenant-proof-routes.mjs
 !scripts/supabase-cli.mjs
 !scripts/supabase-cli
+!supabase/tests/storefrontCheckoutDb.test.mjs
+!supabase/tests/storefrontStorformatSnapshotParity.mjs
+!docs/remaining-issues-2026-09-08/storformat-parity-summary.json
 !scripts/product-import/
 !scripts/product-import/**/*.js
 !scripts/product-import/tshirt-size-distribution-lock.js
@@ -146,3 +157,8 @@ classic-race-tilbud.html
 Salgsmapper_A4_4plus4_pricinghub_import_ready.csv
 .vercelignore 2
 .env*.local
+
+# Reusable Pixart replacement-price validation (not generated extraction data).
+!scripts/audit-pixart-replacement.mjs
+!scripts/audit-pixart-replacement.test.mjs
+!supabase/tests/storformat_source_quote_model.test.mjs

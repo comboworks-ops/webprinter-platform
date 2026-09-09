@@ -93,7 +93,7 @@ export function AdminUpdates() {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="workspace-updates workspace-summary-grid">
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight">System Opdateringer</h2>
@@ -183,6 +183,15 @@ export function AdminUpdates() {
                     </Table>
                 </CardContent>
             </Card>
+            <aside className="workspace-inline-detail" aria-label="Forhåndsvisning af ny opdatering">
+                <h2>Ny systemopdatering</h2>
+                <p className="text-sm text-muted-foreground">Opret version og beskrivelse i udgivelsesdialogen.</p>
+                <dl>
+                    <div><dt>Version</dt><dd>{version || 'Ikke angivet'}</dd></div>
+                    <div><dt>Beskrivelse</dt><dd className="whitespace-pre-wrap">{description || 'Ingen beskrivelse angivet.'}</dd></div>
+                </dl>
+                <Button className="mt-6" variant="outline" onClick={() => setOpen(true)}>Rediger opdatering</Button>
+            </aside>
         </div>
     );
 }

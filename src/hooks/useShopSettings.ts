@@ -1,13 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useLocation } from "react-router-dom";
+import { mergeBrandingWithDefaults } from "@/hooks/useBrandingDraft";
 import { supabase } from "@/integrations/supabase/client";
 import { USE_API_TENANT_CONTEXT } from "@/lib/api/featureFlags";
 import { fetchTenantContext } from "@/lib/api/tenantContext";
+import { extractPublishedBranding } from "@/lib/branding/settings-persistence";
+import { isLocalStorefrontContext, shopSettingsRouteScope, storefrontPinContextId } from "@/lib/storefront/tenantContext";
+import { customerShopTarget, type CustomerShopTarget } from "@/lib/account/shop";
 
 // Define the root domain for subdomain parsing
 const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 const LOCAL_STOREFRONT_TENANT_KEY = "wp_local_storefront_tenant";
+const LOCAL_STOREFRONT_TENANT_EVENT = "wp-local-storefront-tenant-changed";
 const STOREFRONT_SETTINGS_CACHE_PREFIX = "wp_storefront_settings:";
 
 type LocalStorefrontTenantPin = {
@@ -17,29 +23,6 @@ type LocalStorefrontTenantPin = {
 };
 
 type NormalizedShopSettings = ReturnType<typeof normalizeSettings>;
-
-/**
- * Helper to extract the correct branding object.
- * Handles both new format (branding.published/draft) and legacy flat format.
- */
-function extractPublishedBranding(settings: any): any {
-    const branding = settings?.branding;
-    if (!branding) return undefined;
-
-    // New format: branding has 'published' and/or 'draft' keys
-    if (branding.published || branding.draft) {
-        // Use published if available, otherwise use draft
-        return branding.published || branding.draft;
-    }
-
-    // Legacy flat format: branding IS the data (has logo_url, colors, etc. directly)
-    if (branding.logo_url || branding.colors || branding.fonts || branding.hero || branding.header) {
-        return branding;
-    }
-
-    // Empty or unknown format
-    return undefined;
-}
 
 /**
  * Normalize tenant settings to always have flat branding at the top level.
@@ -76,14 +59,16 @@ function readLocalStorefrontTenantPin(): LocalStorefrontTenantPin | null {
 }
 
 function writeLocalStorefrontTenantPin(tenant: any): void {
-    if (typeof window === "undefined" || !tenant?.id || tenant.id === MASTER_TENANT_ID) return;
+    if (typeof window === "undefined" || !tenant?.id) return;
     try {
+        const previousId = readLocalStorefrontTenantPin()?.id;
         const payload: LocalStorefrontTenantPin = {
             id: tenant.id,
             name: tenant.name ?? null,
             domain: tenant.domain ?? null,
         };
         window.localStorage.setItem(LOCAL_STOREFRONT_TENANT_KEY, JSON.stringify(payload));
+        if (previousId !== payload.id) window.dispatchEvent(new Event(LOCAL_STOREFRONT_TENANT_EVENT));
     } catch {
         // Ignore storage errors
     }
@@ -117,7 +102,8 @@ function readStorefrontSettingsCacheByKey(key: string): NormalizedShopSettings |
 
 function readStorefrontSettingsCacheByTenantId(tenantId: string | null | undefined): NormalizedShopSettings | null {
     if (!tenantId) return null;
-    return readStorefrontSettingsCacheByKey(buildStorefrontSettingsCacheKey("tenant", tenantId));
+    const cached = readStorefrontSettingsCacheByKey(buildStorefrontSettingsCacheKey("tenant", tenantId));
+    return cached?.id === tenantId ? cached : null;
 }
 
 function readStorefrontSettingsCacheByDomain(domain: string | null | undefined): NormalizedShopSettings | null {
@@ -151,24 +137,6 @@ function writeStorefrontSettingsCache(settings: any): void {
     }
 }
 
-function isLocalStorefrontContext(pathname: string): boolean {
-    if (!pathname) return true;
-    const blockedPrefixes = ["/admin", "/preview", "/platform"];
-    if (blockedPrefixes.some((prefix) => pathname.startsWith(prefix))) return false;
-    const blockedExactPaths = new Set([
-        "/priser",
-        "/white-label",
-        "/beregning",
-        "/order-flow",
-        "/online-designer",
-        "/privacy-policy",
-        "/handelsbetingelser",
-        "/cookiepolitik",
-        "/opret-shop",
-    ]);
-    return !blockedExactPaths.has(pathname);
-}
-
 function isTransportError(error: any): boolean {
     if (!error) return false;
     const message = String(error?.message || '').toLowerCase();
@@ -183,7 +151,7 @@ function isTransportError(error: any): boolean {
         || details.includes('failed to fetch')
         || details.includes('aborterror')
         || hint.includes('failed to fetch')
-        || status === 0
+        || (error?.status !== undefined && status === 0)
         || status === 522
     );
 }
@@ -196,41 +164,64 @@ function throwIfTransportError(error: any, context: string): void {
 }
 
 export function useShopSettings() {
-    const searchParams = new URLSearchParams(window.location.search);
+    const location = useLocation();
+    const searchParams = new URLSearchParams(location.search);
     const forceDomain = searchParams.get('force_domain');
     const forceSubdomain = searchParams.get('tenant_subdomain');
     const forceTenantId = searchParams.get('tenantId') || searchParams.get('tenant_id');
     const hostname = window.location.hostname;
-    const pathname = window.location.pathname;
+    let subdomainTarget: CustomerShopTarget | null = null;
+    let subdomainTargetError: unknown = null;
+    if (!forceTenantId && !forceDomain && forceSubdomain !== null) {
+        try {
+            subdomainTarget = customerShopTarget(hostname, location.search, ROOT_DOMAIN);
+        } catch (error) {
+            subdomainTargetError = error;
+        }
+    }
+    const lookupTenantId = forceTenantId || (subdomainTarget?.kind === 'id' ? subdomainTarget.value : null);
+    const lookupDomain = forceDomain || (subdomainTarget?.kind === 'domain' ? subdomainTarget.value : null);
+    const pathname = location.pathname;
     const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
     const shouldHonorLocalStorefrontPin = isLocalhost && isLocalStorefrontContext(pathname);
     const marketingDomains = [ROOT_DOMAIN, `www.${ROOT_DOMAIN}`];
-    const cachedTenantPin = shouldHonorLocalStorefrontPin ? readLocalStorefrontTenantPin() : null;
-    const cachedMasterStorefrontSettings =
-        readStorefrontSettingsCacheByTenantId(MASTER_TENANT_ID)
-        || readStorefrontSettingsCacheByDomain(ROOT_DOMAIN);
+    const [localTenantPin, setLocalTenantPin] = useState(readLocalStorefrontTenantPin);
+    const cachedTenantPin = shouldHonorLocalStorefrontPin ? localTenantPin : null;
+    const pinContextId = storefrontPinContextId({
+        honorPin: shouldHonorLocalStorefrontPin,
+        pinnedTenantId: cachedTenantPin?.id,
+        forceTenantId,
+        forceDomain,
+        forceSubdomain,
+    });
+    const isPreviewRoute = pathname.startsWith('/preview-shop') || pathname.startsWith('/preview-storefront');
+    const isDraftPreview = searchParams.get('draft') === '1' || searchParams.get('preview_mode') === '1';
+    const routeScope = shopSettingsRouteScope(pathname, isDraftPreview);
 
-    const cachedStorefrontSettings = forceTenantId
-        ? (
-            forceTenantId === MASTER_TENANT_ID
-                ? (
-                    cachedMasterStorefrontSettings || {
-                        branding: undefined,
-                        _rawBranding: undefined,
-                        tenant_name: 'Webprinter',
-                        id: MASTER_TENANT_ID,
-                        subdomain: 'master',
-                        domain: ROOT_DOMAIN,
-                        is_platform_owned: true,
-                    }
-                )
-                : readStorefrontSettingsCacheByTenantId(forceTenantId)
-        )
-        : forceDomain
-            ? readStorefrontSettingsCacheByDomain(forceDomain)
+    const cachedStorefrontSettings = lookupTenantId
+        ? (lookupTenantId === MASTER_TENANT_ID && isPreviewRoute && isDraftPreview
+            ? null
+            : readStorefrontSettingsCacheByTenantId(lookupTenantId))
+        : lookupDomain
+            ? readStorefrontSettingsCacheByDomain(lookupDomain)
+            : forceSubdomain !== null
+                ? null
             : (!isLocalhost && !marketingDomains.includes(hostname)
                 ? readStorefrontSettingsCacheByDomain(hostname)
-                : readStorefrontSettingsCacheByTenantId(cachedTenantPin?.id));
+                : readStorefrontSettingsCacheByTenantId(pinContextId));
+
+    useEffect(() => {
+        const refreshPin = () => setLocalTenantPin(readLocalStorefrontTenantPin());
+        const onStorage = (event: StorageEvent) => {
+            if (event.key === LOCAL_STOREFRONT_TENANT_KEY || event.key === null) refreshPin();
+        };
+        window.addEventListener('storage', onStorage);
+        window.addEventListener(LOCAL_STOREFRONT_TENANT_EVENT, refreshPin);
+        return () => {
+            window.removeEventListener('storage', onStorage);
+            window.removeEventListener(LOCAL_STOREFRONT_TENANT_EVENT, refreshPin);
+        };
+    }, []);
 
     // Track session state to invalidate query on login/logout
     const [userId, setUserId] = useState<string | null>(null);
@@ -285,12 +276,26 @@ export function useShopSettings() {
 
     const query = useQuery({
         // Include userId in query key to force refetch on login/logout
-        queryKey: ["shop-settings", hostname, forceDomain, forceSubdomain, forceTenantId, userId, brandingPublishedAt],
+        queryKey: ["shop-settings", hostname, forceDomain, forceSubdomain, forceTenantId, routeScope, pinContextId, userId, brandingPublishedAt],
         placeholderData: cachedStorefrontSettings || undefined,
-        queryFn: async () => {
+        queryFn: async ({ signal }) => {
             const isVercel = hostname.endsWith('.vercel.app');
-            const isPreviewRoute = window.location.pathname.startsWith('/preview-shop') || window.location.pathname.startsWith('/preview-storefront');
-            const isDraftPreview = searchParams.get('draft') === '1' || searchParams.get('preview_mode') === '1';
+            const rememberLocalTenant = (tenant: any) => {
+                if (!shouldHonorLocalStorefrontPin || signal.aborted) return;
+                const currentSearch = new URLSearchParams(window.location.search);
+                const currentDraftPreview = currentSearch.get('draft') === '1' || currentSearch.get('preview_mode') === '1';
+                // A previous query can still have observers after navigation. Its result
+                // may populate its own cache, but must not replace the newly selected shop.
+                if (window.location.hostname !== hostname
+                    || shopSettingsRouteScope(window.location.pathname, currentDraftPreview) !== routeScope
+                    || (currentSearch.get('tenantId') || currentSearch.get('tenant_id')) !== forceTenantId
+                    || currentSearch.get('force_domain') !== forceDomain
+                    || currentSearch.get('tenant_subdomain') !== forceSubdomain) return;
+                // An automatic owner lookup also yields to a selection made while it was loading.
+                if (!forceTenantId && !forceDomain && !forceSubdomain
+                    && (readLocalStorefrontTenantPin()?.id || null) !== (cachedTenantPin?.id || null)) return;
+                writeLocalStorefrontTenantPin(tenant);
+            };
             const localhostFallback = {
                 branding: undefined,
                 _rawBranding: undefined,
@@ -302,43 +307,36 @@ export function useShopSettings() {
             };
 
             try {
+                if (subdomainTargetError) throw subdomainTargetError;
                 // Allow overriding hostname for local testing
                 // Check if we're on /local-tenant route - if so, skip localhost check
-                const isLocalTenantRoute = window.location.pathname.startsWith('/local-tenant');
+                const isLocalTenantRoute = pathname.startsWith('/local-tenant');
 
                 // 0. Direct Tenant Lookup by ID (explicit override)
-                if (forceTenantId) {
-                    if (forceTenantId === MASTER_TENANT_ID && isPreviewRoute && isDraftPreview) {
+                if (lookupTenantId) {
+                    if (lookupTenantId === MASTER_TENANT_ID && isPreviewRoute && isDraftPreview) {
                         // In preview, fall back to the logged-in tenant if master is requested.
                     } else {
                         const { data: tenantById, error: tenantByIdError } = await supabase
                             .from('tenants' as any)
                             .select('*')
-                            .eq('id', forceTenantId)
+                            .eq('id', lookupTenantId)
                             .maybeSingle();
                         throwIfTransportError(tenantByIdError, 'tenantById');
+                        if (tenantByIdError) throw tenantByIdError;
 
                         if (tenantById) {
-                            if (shouldHonorLocalStorefrontPin) {
-                                writeLocalStorefrontTenantPin(tenantById);
-                            }
+                            rememberLocalTenant(tenantById);
                             return normalizeSettings(tenantById);
                         }
+                        throw new Error('Den valgte shop blev ikke fundet eller er ikke tilgængelig.');
                     }
                 }
 
-                // 0. Direct Tenant Lookup by Subdomain (for local dev)
-                // Usage: /local-tenant?tenant_subdomain=demo
-                if (forceSubdomain) {
-                    // Since subdomain column doesn't exist, we must rely on domain or assume subdomain is part of settings?
-                    // For now, let's skip direct subdomain lookup against the table if column missing.
-                    // Or if we fixed it, we'd use it. But based on inspection, column is missing.
-                    console.warn("Subdomain lookup requested but column missing in DB.");
-                }
-
                 // If forcing a domain OR on /local-tenant, treat as a production tenant lookup
-                const effectiveHostname = forceDomain || hostname;
-                const isEffectiveLocalhost = !forceDomain && !isLocalTenantRoute && (effectiveHostname === 'localhost' || effectiveHostname === '127.0.0.1');
+                // Valid tenant_subdomain values share the account flow's exact domain mapping.
+                const effectiveHostname = lookupDomain || hostname;
+                const isEffectiveLocalhost = !lookupDomain && !isLocalTenantRoute && (effectiveHostname === 'localhost' || effectiveHostname === '127.0.0.1');
 
                 if (USE_API_TENANT_CONTEXT && !isEffectiveLocalhost && !marketingDomains.includes(effectiveHostname)) {
                     try {
@@ -346,7 +344,7 @@ export function useShopSettings() {
                             mode: "storefront",
                             hostname: effectiveHostname,
                             pathname,
-                            force_domain: forceDomain || undefined,
+                            force_domain: lookupDomain || undefined,
                         });
 
                         const resolvedTenantId = tenantContext.success ? tenantContext.tenant?.id : null;
@@ -359,9 +357,7 @@ export function useShopSettings() {
                             throwIfTransportError(tenantByContextError, 'tenantByContext');
 
                             if (tenantByContext) {
-                                if (shouldHonorLocalStorefrontPin) {
-                                    writeLocalStorefrontTenantPin(tenantByContext);
-                                }
+                                rememberLocalTenant(tenantByContext);
                                 return normalizeSettings(tenantByContext);
                             }
                         }
@@ -387,9 +383,7 @@ export function useShopSettings() {
                     throwIfTransportError(tenantByDomainError, 'tenantByDomain');
 
                     if (tenantByDomain) {
-                        if (shouldHonorLocalStorefrontPin) {
-                            writeLocalStorefrontTenantPin(tenantByDomain);
-                        }
+                        rememberLocalTenant(tenantByDomain);
                         return normalizeSettings(tenantByDomain);
                     }
 
@@ -414,29 +408,30 @@ export function useShopSettings() {
                         throwIfTransportError(tenantBySubdomainError, 'tenantByConstructedSubdomain');
 
                         if (tenantBySubdomainDomain) {
-                            if (shouldHonorLocalStorefrontPin) {
-                                writeLocalStorefrontTenantPin(tenantBySubdomainDomain);
-                            }
+                            rememberLocalTenant(tenantBySubdomainDomain);
                             return normalizeSettings(tenantBySubdomainDomain);
                         }
                     }
                 }
 
-                // 1c. Local storefront pin: keep the chosen tenant stable across refresh/logout on localhost.
-                if (shouldHonorLocalStorefrontPin) {
-                    const pinnedTenant = readLocalStorefrontTenantPin();
-                    if (pinnedTenant?.id) {
-                        const { data: tenantByPinnedId, error: tenantByPinnedIdError } = await supabase
-                            .from('tenants' as any)
-                            .select('*')
-                            .eq('id', pinnedTenant.id)
-                            .maybeSingle();
-                        throwIfTransportError(tenantByPinnedIdError, 'tenantByPinnedId');
+                if (lookupDomain && !marketingDomains.includes(lookupDomain)) {
+                    throw new Error('Den valgte shops domæne blev ikke fundet eller er ikke tilgængeligt.');
+                }
 
-                        if (tenantByPinnedId) {
-                            return normalizeSettings(tenantByPinnedId);
-                        }
+                // 1c. Local storefront pin: keep the chosen tenant stable across refresh/logout on localhost.
+                if (pinContextId) {
+                    const { data: tenantByPinnedId, error: tenantByPinnedIdError } = await supabase
+                        .from('tenants' as any)
+                        .select('*')
+                        .eq('id', pinContextId)
+                        .maybeSingle();
+                    throwIfTransportError(tenantByPinnedIdError, 'tenantByPinnedId');
+                    if (tenantByPinnedIdError) throw tenantByPinnedIdError;
+
+                    if (tenantByPinnedId) {
+                        return normalizeSettings(tenantByPinnedId);
                     }
+                    throw new Error('Den valgte shop blev ikke fundet eller er ikke tilgængelig.');
                 }
 
                 // 2. Dev / Preview: Check Logged In User's Tenant
@@ -488,9 +483,7 @@ export function useShopSettings() {
                         console.log("[useShopSettings] Filtered real shops (Fix Applied):", realShops.map(t => t.name));
 
                         if (realShops.length > 0) {
-                            if (shouldHonorLocalStorefrontPin) {
-                                writeLocalStorefrontTenantPin(realShops[0]);
-                            }
+                            rememberLocalTenant(realShops[0]);
                             return normalizeSettings(realShops[0]);
                         }
 
@@ -516,26 +509,29 @@ export function useShopSettings() {
                 return null;
             } catch (error) {
                 if ((error as any)?.code === 'SHOP_SETTINGS_TRANSPORT') {
-                    const fallbackDomain = forceDomain || (isLocalhost ? ROOT_DOMAIN : hostname);
+                    const fallbackDomain = lookupDomain || (isLocalhost ? ROOT_DOMAIN : hostname);
 
                     // Prefer the previously cached successful tenant over the generic
                     // Webprinter/master fallback. Otherwise a transient Supabase blip
                     // while the user's tab is backgrounded causes a tenant shop (e.g.
                     // onlinetryksager.dk) to visually swap to the Webprinter master
                     // site even though the URL hasn't changed.
-                    // Only return the master fallback if we truly have nothing cached.
-                    const cachedForThisContext = forceTenantId
-                        ? readStorefrontSettingsCacheByTenantId(forceTenantId)
-                        : forceDomain
-                            ? readStorefrontSettingsCacheByDomain(forceDomain)
+                    // Local previews and explicit selections fail if their own cache is missing.
+                    const cachedForThisContext = lookupTenantId && !(lookupTenantId === MASTER_TENANT_ID && isPreviewRoute && isDraftPreview)
+                        ? readStorefrontSettingsCacheByTenantId(lookupTenantId)
+                        : lookupDomain
+                            ? readStorefrontSettingsCacheByDomain(lookupDomain)
                             : (!isLocalhost && !marketingDomains.includes(hostname)
                                 ? readStorefrontSettingsCacheByDomain(hostname)
-                                : null);
+                                : readStorefrontSettingsCacheByTenantId(pinContextId));
 
                     if (cachedForThisContext) {
                         console.warn('[useShopSettings] Supabase transport unavailable. Reusing cached tenant settings for', hostname);
                         return cachedForThisContext;
                     }
+
+                    // A requested shop must never turn into another shop on a network failure.
+                    if (isLocalhost || forceTenantId || forceDomain || forceSubdomain || pinContextId) throw error;
 
                     console.warn('[useShopSettings] Supabase transport unavailable and no tenant cache. Using fallback tenant context.');
                     return {
@@ -562,5 +558,12 @@ export function useShopSettings() {
         writeStorefrontSettingsCache(query.data);
     }, [query.data]);
 
-    return query;
+    // Every tenant inherits the shared standard unless it has selected a theme.
+    // Normalize only the consumer's view; caches and hosted settings retain their source data.
+    const storefrontData = useMemo(() => query.data ? {
+        ...query.data,
+        branding: mergeBrandingWithDefaults(query.data.branding),
+    } : query.data, [query.data]);
+
+    return { ...query, data: storefrontData };
 }

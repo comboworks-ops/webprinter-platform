@@ -46,3 +46,21 @@ export function resolveThumbnailSizePx(
   if (normalizedCustom) return normalizedCustom;
   return getThumbnailSizePx(value);
 }
+
+export function clearPerValueThumbnailSizeOverrides<
+  T extends Record<string, { imageSizePx?: number }>
+>(valueSettings: T): T {
+  let changed = false;
+  const normalizedEntries = Object.entries(valueSettings).map(([valueId, setting]) => {
+    if (!Object.prototype.hasOwnProperty.call(setting, "imageSizePx")) {
+      return [valueId, setting] as const;
+    }
+
+    const normalizedSetting = { ...setting };
+    delete normalizedSetting.imageSizePx;
+    changed = true;
+    return [valueId, normalizedSetting] as const;
+  });
+
+  return changed ? Object.fromEntries(normalizedEntries) as T : valueSettings;
+}

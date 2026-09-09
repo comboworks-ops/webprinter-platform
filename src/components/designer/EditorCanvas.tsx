@@ -5,6 +5,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { fabric } from 'fabric';
 import { mmToPx, calculateCanvasDimensions, calculateDisplayScale } from '@/utils/unitConversions';
+import { stripPdfTemplateOverlaysFromCanvasJson } from '@/lib/designer/templateOverlaySerialization';
 
 import { FONT_CATALOG } from './fontCatalog';
 import { ensureFontLoaded } from './fontLoader';
@@ -93,6 +94,7 @@ export interface EditorCanvasRef {
     getCanvas: () => fabric.Canvas | null;
     getJSON: () => object;
     loadJSON: (json: object) => Promise<void>;
+    loadArtworkJSON: (json: object) => Promise<void>;
     importJSON: (json: any) => void;
     importSVG: (svgString: string) => void;
     addCutContour: (svgString: string) => void;
@@ -114,7 +116,18 @@ export interface EditorCanvasRef {
         mode?: 'detected-contour' | 'vector-outline'
     ) => Promise<boolean>;
     createCutContourFromSelection: () => Promise<boolean>;
-    addPdfTemplate: (imageDataUrl: string, widthMm: number, heightMm: number) => void;
+    addPdfTemplate: (
+        imageDataUrl: string,
+        widthMm: number,
+        heightMm: number,
+        metadata?: {
+            sourceUrl?: string | null;
+            sha256?: string | null;
+            fileName?: string | null;
+            designerTemplateId?: string | null;
+            pageIndex?: number;
+        },
+    ) => Promise<void>;
     addText: (text?: string, options?: Partial<fabric.ITextOptions>) => void;
     addImage: (
         url: string,
@@ -164,6 +177,7 @@ const SERIALIZED_CANVAS_PROPS = [
     'hoverCursor',
 ] as const;
 const PASTEBOARD_PADDING_MM = 50;
+const PDF_TEMPLATE_GUIDE_OPACITY = 0.7;
 
 const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     width,
@@ -181,7 +195,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     showPasteboardMasks = true,
     showDocumentGuideOverlay = false,
     documentBackgroundFill = '#ffffff',
-    documentBackgroundStroke = '#e5e5e5',
+    documentBackgroundStroke = '#4B5563',
     selectedTool,
     onSelectionChange,
     onCanvasChange,
@@ -508,7 +522,11 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     }, []);
 
     const buildCanvasSnapshot = useCallback((canvas: fabric.Canvas) => {
-        return cloneCanvasSnapshot(canvas.toJSON([...SERIALIZED_CANVAS_PROPS]) as object);
+        const snapshot = canvas.toJSON([...SERIALIZED_CANVAS_PROPS]) as {
+            objects?: unknown[];
+            [key: string]: unknown;
+        };
+        return cloneCanvasSnapshot(stripPdfTemplateOverlaysFromCanvasJson(snapshot));
     }, [cloneCanvasSnapshot]);
 
     const buildHistorySnapshot = useCallback((canvas: fabric.Canvas) => {
@@ -632,7 +650,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         const trimWidth = fullWidth - (bleedPx * 2);
         const trimHeight = fullHeight - (bleedPx * 2);
 
-        // Trim Line (Red dashed line where the cut happens)
+        // Skærelinje: Webprinter magenta, stiplet.
         // Inset by bleedPx from the bleed box edge
         const trimRect = new fabric.Rect({
             left: pasteboardPadding + bleedPx,
@@ -640,7 +658,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             width: trimWidth,
             height: trimHeight,
             fill: 'transparent',
-            stroke: '#ff0000', // Red for trim/cut
+            stroke: '#EC008C',
             strokeDashArray: [5, 5],
             strokeWidth: 1,
             opacity: showDocumentGuideOverlay ? 0 : 1,
@@ -652,7 +670,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         (trimRect as any).__isStaticFrame = true;
         canvas.add(trimRect);
 
-        // Safe Zone (Green dashed line, stay inside this for important content)
+        // Sikkerhedsafstand: Webprinter blå, ubrudt.
         // Inset by safePx (3mm) from the trim line
         const safeRect = new fabric.Rect({
             left: pasteboardPadding + bleedPx + safePx,
@@ -660,8 +678,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             width: trimWidth - (safePx * 2),
             height: trimHeight - (safePx * 2),
             fill: 'transparent',
-            stroke: '#00ff00', // Green for safe
-            strokeDashArray: [2, 2],
+            stroke: '#2F80ED',
             strokeWidth: 1,
             opacity: showDocumentGuideOverlay ? 0 : 0.5,
             selectable: false,
@@ -730,6 +747,13 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
 
         // History tracking
         canvas.on('object:added', (e) => {
+            const isNonPrintingSystemObject = Boolean(
+                (e.target as any)?.__isDocumentBackground
+                || (e.target as any)?.__isGuide
+                || (e.target as any)?.__isGuideLabel
+                || (e.target as any)?.__isPdfTemplate
+            );
+
             // Assign layer ID
             if (e.target && !(e.target as any).__layerId) {
                 (e.target as any).__layerId = `layer-${objectCounter.current++}`;
@@ -737,18 +761,29 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
 
             bringSystemOverlaysToFront(canvas);
 
-            if (!isUndoRedo.current) {
+            if (!isNonPrintingSystemObject && !isUndoRedo.current) {
                 saveHistory();
             }
-            onCanvasChange?.();
+            if (!isNonPrintingSystemObject) {
+                onCanvasChange?.();
+            }
             emitLayersUpdate();
         });
 
-        canvas.on('object:removed', () => {
-            if (!isUndoRedo.current) {
+        canvas.on('object:removed', (e) => {
+            const isNonPrintingSystemObject = Boolean(
+                (e.target as any)?.__isDocumentBackground
+                || (e.target as any)?.__isGuide
+                || (e.target as any)?.__isGuideLabel
+                || (e.target as any)?.__isPdfTemplate
+            );
+
+            if (!isNonPrintingSystemObject && !isUndoRedo.current) {
                 saveHistory();
             }
-            onCanvasChange?.();
+            if (!isNonPrintingSystemObject) {
+                onCanvasChange?.();
+            }
             emitLayersUpdate();
         });
 
@@ -942,6 +977,21 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         loadJSON: (json: object) => {
             return new Promise<void>((resolve) => {
                 restoreCanvasSnapshot(json, () => {
+                    const canvas = fabricRef.current;
+                    if (!canvas) {
+                        resolve();
+                        return;
+                    }
+                    historyRef.current = [buildCanvasSnapshot(canvas)];
+                    historyIndexRef.current = 0;
+                    resolve();
+                });
+            });
+        },
+
+        loadArtworkJSON: (json: object) => {
+            return new Promise<void>((resolve) => {
+                restoreHistorySnapshot(json, () => {
                     const canvas = fabricRef.current;
                     if (!canvas) {
                         resolve();
@@ -1190,61 +1240,75 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             return true;
         },
 
-        addPdfTemplate: (imageDataUrl: string, widthMm: number, heightMm: number) => {
+        addPdfTemplate: (imageDataUrl: string, widthMm: number, heightMm: number, metadata) => {
             const canvas = fabricRef.current;
-            if (!canvas) return;
+            if (!canvas) return Promise.resolve();
 
-            fabric.Image.fromURL(imageDataUrl, (img) => {
-                if (!img.width || !img.height) {
-                    console.error('[Editor] Failed to load PDF template image');
-                    return;
-                }
+            return new Promise<void>((resolve) => {
+                fabric.Image.fromURL(imageDataUrl, (img) => {
+                    if (!img.width || !img.height) {
+                        console.error('[Editor] Failed to load PDF template image');
+                        resolve();
+                        return;
+                    }
 
-                // Scale to fit the document area exactly (including bleed)
-                // docWidth/docHeight already include bleed from calculateCanvasDimensions
-                const scaleX = docWidth / img.width;
-                const scaleY = docHeight / img.height;
+                    // Scale to fit the document area exactly (including bleed)
+                    // docWidth/docHeight already include bleed from calculateCanvasDimensions
+                    const scaleX = docWidth / img.width;
+                    const scaleY = docHeight / img.height;
 
-                // Use uniform scale to maintain aspect ratio, fitting within document
-                const scale = Math.min(scaleX, scaleY);
+                    // Use uniform scale to maintain aspect ratio, fitting within document
+                    const scale = Math.min(scaleX, scaleY);
 
-                // Position at center of document area (not canvas center)
-                // pasteboardPadding is the offset from canvas edge to document edge
-                img.set({
-                    left: pasteboardPadding + (docWidth / 2),
-                    top: pasteboardPadding + (docHeight / 2),
-                    originX: 'center',
-                    originY: 'center',
-                    scaleX: scale,
-                    scaleY: scale,
-                    opacity: 0.5,              // Semi-transparent
-                    selectable: false,
-                    evented: false,
-                    lockMovementX: true,       // Lock position by default
-                    lockMovementY: true,
-                    lockScalingX: true,        // Lock scale
-                    lockScalingY: true,
-                    lockRotation: true,        // Lock rotation
-                    hasControls: false,        // No resize handles
-                    hasBorders: false,
-                    excludeFromExport: true,   // Non-printing
-                    hoverCursor: 'default',
-                });
+                    // Position at center of document area (not canvas center)
+                    // pasteboardPadding is the offset from canvas edge to document edge
+                    img.set({
+                        left: pasteboardPadding + (docWidth / 2),
+                        top: pasteboardPadding + (docHeight / 2),
+                        originX: 'center',
+                        originY: 'center',
+                        scaleX: scale,
+                        scaleY: scale,
+                        opacity: PDF_TEMPLATE_GUIDE_OPACITY,
+                        // White template areas stay neutral while guide lines remain visible over artwork.
+                        globalCompositeOperation: 'multiply',
+                        selectable: false,
+                        evented: false,
+                        lockMovementX: true,       // Lock position by default
+                        lockMovementY: true,
+                        lockScalingX: true,        // Lock scale
+                        lockScalingY: true,
+                        lockRotation: true,        // Lock rotation
+                        hasControls: false,        // No resize handles
+                        hasBorders: false,
+                        excludeFromExport: true,   // Non-printing
+                        hoverCursor: 'default',
+                    });
 
-                // Mark as PDF template for preflight exclusion
-                (img as any).__isPdfTemplate = true;
-                (img as any).__layerId = `pdftemplate-${objectCounter.current++}`;
-                lockPdfTemplate(img);
+                    // Mark as PDF template for preflight exclusion
+                    (img as any).__isPdfTemplate = true;
+                    (img as any).__layerId = `pdftemplate-${objectCounter.current++}`;
+                    (img as any).data = {
+                        kind: 'pdf_template_overlay',
+                        templatePdfUrl: metadata?.sourceUrl || null,
+                        templatePdfSha256: metadata?.sha256 || null,
+                        originalFileName: metadata?.fileName || null,
+                        designerTemplateId: metadata?.designerTemplateId || null,
+                        pageIndex: metadata?.pageIndex ?? 0,
+                    };
+                    lockPdfTemplate(img);
 
-                canvas.add(img);
+                    canvas.add(img);
 
-                bringSystemOverlaysToFront(canvas);
-                canvas.renderAll();
-                emitLayersUpdate();
-                saveHistory();
+                    bringSystemOverlaysToFront(canvas);
+                    canvas.renderAll();
+                    emitLayersUpdate();
+                    saveHistory();
 
-                console.log('[Editor] PDF template added - fitted to document format');
-            }, { crossOrigin: 'anonymous' });
+                    console.log('[Editor] PDF template added - fitted to document format');
+                    resolve();
+                }, { crossOrigin: 'anonymous' });
+            });
         },
 
         addText: (text = 'Dobbeltklik for at redigere', options = {}) => {
@@ -1400,7 +1464,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 pasteboardPadding + docWidth, // End at document right edge
                 guideY,
             ], {
-                stroke: '#ff00ff',           // Magenta for visibility (overprint color)
+                stroke: '#00A7C4',           // Cyan for a non-printing fold guide
                 strokeWidth: 1,
                 strokeDashArray: [8, 4],     // Dashed line
                 selectable: true,
@@ -1423,7 +1487,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             const distanceMM = Math.round(distanceFromBottom / (effectiveDisplayDpi / 25.4) * 10) / 10;
             const label = new fabric.Text(`${distanceMM} mm`, {
                 fontSize: 10,
-                fill: '#ff00ff',
+                fill: '#00A7C4',
                 fontFamily: 'Arial, sans-serif',
                 left: pasteboardPadding + 5,
                 top: guideY - 14,
@@ -1474,7 +1538,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 guideX,
                 pasteboardPadding + docHeight, // End at document bottom edge
             ], {
-                stroke: '#ff00ff',            // Magenta for visibility
+                stroke: '#00A7C4',            // Cyan for a non-printing fold guide
                 strokeWidth: 1,
                 strokeDashArray: [8, 4],      // Dashed line
                 selectable: true,
@@ -1496,7 +1560,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             const distanceMM = Math.round(distanceFromLeft / (effectiveDisplayDpi / 25.4) * 10) / 10;
             const label = new fabric.Text(`${distanceMM} mm`, {
                 fontSize: 10,
-                fill: '#ff00ff',
+                fill: '#00A7C4',
                 fontFamily: 'Arial, sans-serif',
                 left: guideX + 5,
                 top: pasteboardPadding + 5,
@@ -1895,7 +1959,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             >
                 {showDocumentGuideOverlay && (
                     <div
-                        className="absolute border border-dashed border-emerald-500/90"
+                        className="absolute border border-[#2F80ED]"
                         style={{ inset: safeAreaDisplayInset }}
                     />
                 )}
@@ -1913,16 +1977,16 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                         }}
                     >
                         <span className="flex items-center gap-1">
-                            <span className="w-3 h-0.5 bg-blue-500"></span>
-                            Trim
+                            <span className="h-0.5 w-3 bg-slate-600"></span>
+                            Dataformat / udfald
                         </span>
                         <span className="flex items-center gap-1">
-                            <span className="w-3 h-0.5 bg-red-400"></span>
-                            Bleed
+                            <span className="w-3 border-t-2 border-dashed border-[#EC008C]"></span>
+                            Skærelinje
                         </span>
                         <span className="flex items-center gap-1">
-                            <span className="w-3 h-0.5 bg-green-500"></span>
-                            Safe Zone
+                            <span className="h-0.5 w-3 bg-[#2F80ED]"></span>
+                            Sikkerhedsafstand
                         </span>
                     </div>
 
@@ -1935,7 +1999,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                             zIndex: 20,
                         }}
                     >
-                        Overfill (vil blive skåret væk) - Zoom in if needed
+                        Udfaldsområde (skæres væk) – zoom ind ved behov
                     </div>
                 </>
             )}

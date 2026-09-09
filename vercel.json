@@ -1,6 +1,13 @@
 {
   "routes": [
     {
+      "src": "/(.*)",
+      "headers": {
+        "X-Robots-Tag": "noindex, nofollow, noarchive"
+      },
+      "continue": true
+    },
+    {
       "src": "^/favicon\\.ico$",
       "dest": "/api/favicon"
     },
@@ -39,5 +46,7 @@
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ]
+  ],
+  "installCommand": "npx --yes pnpm@11.19.0 install --frozen-lockfile --ignore-scripts",
+  "buildCommand": "pnpm run build:test"
 }

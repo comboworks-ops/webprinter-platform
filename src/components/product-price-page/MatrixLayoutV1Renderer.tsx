@@ -8,7 +8,7 @@
  * 4. Queries generic_product_prices and builds the price matrix
  */
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { PriceMatrix } from "@/components/product-price-page/PriceMatrix";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -28,14 +28,37 @@ import {
     resolveTextButtonsConfig,
 } from "@/lib/pricing/selectorStyling";
 import { getApparelColorOption } from "@/lib/designer/apparelDesigner";
-import { Shirt } from "lucide-react";
+import { CheckCircle2, Shirt } from "lucide-react";
+import { getBuiltInOptionImage } from "@/lib/pricing/builtInOptionImages";
+import { findEmbeddedAdaptiveSelectorSectionId } from "@/lib/pricing/focusedAdaptiveSelector";
+import {
+    resolveClosestExactCombination,
+    type ExactCombinationCandidate,
+} from "@/lib/pricing/exactCombinationResolver";
+import { shouldShowInitialMatrixSkeleton } from "@/lib/pricing/matrixLoadingPresentation";
+import { resolveSelectorValueGroups } from "@/lib/pricing/selectorValueGroups";
+import {
+    getBuiltInCalendarOptionArtworkLabel,
+    getBuiltInCalendarOptionImage,
+    type CalendarOptionArtworkLabel,
+} from "@/lib/pricing/builtInCalendarOptionImages";
+import {
+    getBuiltInOptionBrandBadge,
+    type OptionBrandBadge,
+} from "@/lib/pricing/builtInOptionBrandBadges";
 
 // Types from pricing structure
 type ValueSetting = {
     showThumbnail?: boolean;
     customImage?: string;
+    preferCustomImage?: boolean;
+    prefer_custom_image?: boolean;
     hoverImage?: string;
     imageSizePx?: number;
+    brandBadgeImage?: string;
+    brandBadgeAlt?: string;
+    brandBadgeLabel?: string;
+    brandBadgeBackgroundColor?: string;
     displayName?: string;
     backgroundColor?: string;
     hoverBackgroundColor?: string;
@@ -82,11 +105,25 @@ interface LayoutColumn {
         pictureButtons?: Record<string, unknown>;
         selectorBox?: Record<string, unknown>;
     };
+    valueGroups?: Array<{ id: string; label: string; valueIds: string[] }>;
+    value_groups?: Array<{ id: string; label: string; valueIds: string[] }>;
     labelOverride?: string;
     title?: string;
     description?: string;
     thumbnail_size?: 'small' | 'medium' | 'large' | 'xl';
     thumbnail_custom_px?: number;
+    hideUnavailableValues?: boolean;
+    hide_unavailable_values?: boolean;
+    preferCustomImage?: boolean;
+    prefer_custom_image?: boolean;
+    focusSelectedValue?: boolean;
+    focus_selected_value?: boolean;
+    neutralWhiteSurface?: boolean;
+    neutral_white_surface?: boolean;
+    adaptiveImageSelector?: boolean;
+    adaptive_image_selector?: boolean;
+    hideSingleAvailableValue?: boolean;
+    hide_single_available_value?: boolean;
 }
 
 interface LayoutRow {
@@ -102,13 +139,33 @@ interface MatrixLayoutV1 {
     vertical_axis: VerticalAxisConfig;
     layout_rows: LayoutRow[];
     quantities?: number[];
+    autoResolveExactCombination?: boolean;
+    auto_resolve_exact_combination?: boolean;
+    customerSelectionOrder?: string[];
+    templateBinding?: {
+        profile?: string;
+        axisSections?: Record<string, string>;
+    };
+    hideUnavailableQuantities?: boolean;
+    hide_unavailable_quantities?: boolean;
 }
+
+type AttributeValueMeta = {
+    image?: string;
+    descriptionDa?: string;
+    formatLabels?: string[];
+    materialLabels?: string[];
+    fillingLabels?: string[];
+    printLabelDa?: string;
+    presentationKind?: 'filling' | 'format' | string;
+    sourceSelections?: Record<string, unknown>;
+};
 
 interface AttributeValue {
     id: string;
     name: string;
     enabled: boolean;
-    meta?: { image?: string };
+    meta?: AttributeValueMeta;
 }
 
 interface AttributeGroup {
@@ -139,12 +196,137 @@ interface SelectorSectionConfig {
     valueIds: string[];
 }
 
+type SectionRuntimeConfig = {
+    uiMode?: string;
+    displayMode?: string;
+    hideUnavailableValues?: boolean;
+    hide_unavailable_values?: boolean;
+    preferCustomImage?: boolean;
+    prefer_custom_image?: boolean;
+    focusSelectedValue?: boolean;
+    focus_selected_value?: boolean;
+    neutralWhiteSurface?: boolean;
+    neutral_white_surface?: boolean;
+    adaptiveImageSelector?: boolean;
+    adaptive_image_selector?: boolean;
+    hideSingleAvailableValue?: boolean;
+    hide_single_available_value?: boolean;
+};
+
 const isOptionalSelectionMode = (mode?: 'required' | 'optional' | 'free') => mode === 'optional';
 const isPriceNeutralSectionType = (sectionType?: string) => sectionType !== 'formats' && sectionType !== 'materials';
+
+const prefersConfiguredOptionImage = (
+    valueSetting: ValueSetting | undefined,
+    sectionPrefersCustomImage?: boolean,
+) => Boolean(
+    sectionPrefersCustomImage
+    || valueSetting?.preferCustomImage
+    || valueSetting?.prefer_custom_image
+);
+
+const getResolvedOptionImageUrl = (
+    valueSetting: ValueSetting | undefined,
+    valueName: string,
+    options?: {
+        allowBuiltInCalendarArtwork?: boolean;
+        preferCustomImage?: boolean;
+        fallbackImage?: string;
+    },
+) => {
+    const configuredImage = getOptionImageUrl(valueSetting, options?.fallbackImage);
+    const builtInCalendarImage = options?.allowBuiltInCalendarArtwork
+        ? getBuiltInCalendarOptionImage(valueName)
+        : undefined;
+    const preferCustomImage = prefersConfiguredOptionImage(valueSetting, options?.preferCustomImage);
+
+    if (preferCustomImage && configuredImage) return configuredImage;
+    return builtInCalendarImage || configuredImage || getBuiltInOptionImage(valueName);
+};
+
+const getResolvedOptionBrandBadge = (
+    valueSetting: ValueSetting | undefined,
+    valueName: string,
+    allowBuiltInCalendarArtwork: boolean,
+): OptionBrandBadge | undefined => {
+    const builtInBadge = allowBuiltInCalendarArtwork
+        ? getBuiltInOptionBrandBadge(valueName)
+        : undefined;
+    if (!valueSetting?.brandBadgeImage) return builtInBadge;
+
+    return {
+        imageUrl: valueSetting.brandBadgeImage,
+        alt: valueSetting.brandBadgeAlt || builtInBadge?.alt || valueName,
+        variantLabel: valueSetting.brandBadgeLabel || builtInBadge?.variantLabel,
+        backgroundColor: valueSetting.brandBadgeBackgroundColor || builtInBadge?.backgroundColor,
+        shape: builtInBadge?.shape || "wide",
+    };
+};
+
+function OptionBrandBadgeOverlay({
+    badge,
+    compact = false,
+}: {
+    badge: OptionBrandBadge;
+    compact?: boolean;
+}) {
+    const isSquare = badge.shape === "square";
+
+    return (
+        <span
+            aria-hidden="true"
+            title={badge.alt}
+            className={cn(
+                "pointer-events-none absolute right-1.5 top-1.5 z-20 flex flex-col items-center justify-center overflow-hidden border border-white/90 shadow-[0_2px_9px_rgba(15,23,42,0.2)]",
+                isSquare ? "rounded-lg p-0.5" : "rounded-md px-1.5 py-1",
+                isSquare
+                    ? (compact ? "h-9 w-9" : "h-11 w-11")
+                    : (compact ? "h-8 w-[4.25rem]" : "h-10 w-20"),
+            )}
+            style={{ backgroundColor: badge.backgroundColor || "rgba(255,255,255,0.96)" }}
+        >
+            <img
+                src={badge.imageUrl}
+                alt=""
+                className={cn(
+                    "max-h-full max-w-full object-contain",
+                    badge.variantLabel && "max-h-[70%]",
+                )}
+            />
+            {badge.variantLabel && (
+                <span className="mt-0.5 text-[7px] font-extrabold leading-none tracking-[0.12em] text-[#5B4636]">
+                    {badge.variantLabel}
+                </span>
+            )}
+        </span>
+    );
+}
+
+function CalendarArtworkLabelOverlay({ label }: { label: CalendarOptionArtworkLabel }) {
+    return (
+        <span
+            aria-hidden="true"
+            className="pointer-events-none absolute z-10 flex items-center justify-center rounded-sm border border-[#0EA5E9] bg-white px-1 text-center text-[8px] font-extrabold leading-none tracking-[0.08em] text-[#0EA5E9] shadow-sm"
+            style={{
+                left: label.left,
+                top: label.top,
+                width: label.width,
+                height: label.height,
+            }}
+        >
+            {label.text}
+        </span>
+    );
+}
 
 interface MatrixLayoutV1RendererProps {
     productId: string;
     pricingStructure: MatrixLayoutV1;
+    /** Exact documented configurations, normally sourced from connected PDF templates. */
+    exactCombinationSelections?: Array<Record<string, string | null>>;
+    initialSelection?: Record<string, string | null>;
+    initialSelectedRow?: string;
+    initialSelectedQuantity?: number;
     onCellClick?: (row: string, column: number, price: number) => void;
     onSelectionChange?: (
         selections: Record<string, string | null>,
@@ -162,6 +344,13 @@ const PRICE_PAGE_FALLBACK_SIZES = [PRICE_PAGE_SIZE, 250, 100, 50, 25] as const;
 const PRICING_SHADOW_READ_ENABLED = false;
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const normalizeMetaStringList = (value: unknown): string[] => {
+    if (!Array.isArray(value)) return [];
+    return value
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean);
+};
 
 const normalizeLooseText = (value?: string | null): string => {
     return String(value || "")
@@ -450,6 +639,10 @@ async function fetchVariantPriceRowsCached(
 export function MatrixLayoutV1Renderer({
     productId,
     pricingStructure: basePricingStructure,
+    exactCombinationSelections,
+    initialSelection,
+    initialSelectedRow,
+    initialSelectedQuantity,
     onCellClick,
     onSelectionChange,
     onSelectionSummary
@@ -469,19 +662,34 @@ export function MatrixLayoutV1Renderer({
     const matrixStyleVars = getMatrixStyleVars(activeBranding as any, (pricingStructure as any).matrixBox);
 
     // State: per-section selections (sectionId -> valueId)
-    const [selectedSectionValues, setSelectedSectionValues] = useState<Record<string, string | null>>({});
+    const [selectedSectionValues, setSelectedSectionValues] = useState<Record<string, string | null>>(
+        () => ({ ...(initialSelection || {}) }),
+    );
     const [attributeGroups, setAttributeGroups] = useState<AttributeGroup[]>([]);
     const [availabilityPrices, setAvailabilityPrices] = useState<any[]>([]);
     const [variantPrices, setVariantPrices] = useState<any[]>([]);
+    const [variantPricesKey, setVariantPricesKey] = useState<string | null>(null);
     const [availabilityLoading, setAvailabilityLoading] = useState(true);
     const [matrixLoading, setMatrixLoading] = useState(true);
-    const [selectedCell, setSelectedCell] = useState<{ row: string; column: number } | null>(null);
+    const [selectedCell, setSelectedCell] = useState<{ row: string; column: number } | null>(() => (
+        initialSelectedRow && initialSelectedQuantity && initialSelectedQuantity > 0
+            ? { row: initialSelectedRow, column: initialSelectedQuantity }
+            : null
+    ));
     const [hoveredPictureKey, setHoveredPictureKey] = useState<string | null>(null);
+    const [focusedSelectionSectionIds, setFocusedSelectionSectionIds] = useState<Set<string>>(() => new Set());
 
     const lastNotifiedCellRef = useRef<string>("");
     const lastLoadedProductIdRef = useRef<string | null>(null);
     const lastVariantProductIdRef = useRef<string | null>(null);
+    const lastPresentedProductIdRef = useRef<string | null>(null);
     const pricingShadowSignatureRef = useRef<string>("");
+    const focusedSelectionOptionButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+    const focusedSelectionDetailRefs = useRef(new Map<string, HTMLElement>());
+    const pendingFocusedSelectionFocusRef = useRef<{
+        sectionId: string;
+        valueId: string;
+    } | null>(null);
 
     // Merge per-product button styling with global branding (per-product takes precedence)
     const pictureButtonsConfig = useMemo(() => {
@@ -595,7 +803,11 @@ export function MatrixLayoutV1Renderer({
         return map;
     }, [pricingStructure]);
 
-    const sectionConfigs = (pricingStructure as any).sectionConfigs || {};
+    const sectionConfigs = useMemo<Record<string, SectionRuntimeConfig>>(() => (
+        (pricingStructure as MatrixLayoutV1 & {
+            sectionConfigs?: Record<string, SectionRuntimeConfig>;
+        }).sectionConfigs || {}
+    ), [pricingStructure]);
     
     const sectionUiModeById = useMemo(() => {
         const map: Record<string, string> = {};
@@ -636,7 +848,7 @@ export function MatrixLayoutV1Renderer({
     }, [pricingStructure]);
 
     const valueSettingsById = useMemo(() => {
-        const map: Record<string, Record<string, { showThumbnail?: boolean; customImage?: string; displayName?: string }>> = {};
+        const map: Record<string, Record<string, ValueSetting>> = {};
         pricingStructure.layout_rows.forEach(row => {
             row.columns.forEach(col => {
                 if (col.valueSettings) {
@@ -962,14 +1174,26 @@ export function MatrixLayoutV1Renderer({
         return preparePriceRows(availabilityPrices);
     }, [availabilityPrices, preparePriceRows]);
 
-    const matrixPreparedPrices = useMemo(() => {
-        if (variantPrices.length > 0) {
-            return preparePriceRows(variantPrices);
-        }
-        return availabilityPreparedPrices;
-    }, [variantPrices, availabilityPreparedPrices, preparePriceRows]);
+    const availabilityPricesByVariantKey = useMemo(() => {
+        const index = new Map<string, PreparedPriceRow[]>();
 
-    const hasResolvedPriceRows = availabilityPreparedPrices.length > 0 || variantPrices.length > 0;
+        availabilityPreparedPrices.forEach((row) => {
+            const keys = new Set([
+                row.variantName,
+                row.variantNameNorm,
+                row.selectionMapVariantSortedKey,
+                row.variantValueIdsNorm,
+            ].filter(Boolean));
+
+            keys.forEach((key) => {
+                const rows = index.get(key);
+                if (rows) rows.push(row);
+                else index.set(key, [row]);
+            });
+        });
+
+        return index;
+    }, [availabilityPreparedPrices]);
 
     const selectorSections = useMemo<SelectorSectionConfig[]>(() => {
         const sections: SelectorSectionConfig[] = [
@@ -1033,6 +1257,40 @@ export function MatrixLayoutV1Renderer({
     }, [buildVariantKeyFromSelections, pricingSelectedSectionValues]);
 
     const selectedVariantKey = computeVariantKey;
+    const selectedVariantPreparedPrices = useMemo(() => {
+        const normalizedKey = normalizeVariantKey(selectedVariantKey);
+        return availabilityPricesByVariantKey.get(selectedVariantKey)
+            || availabilityPricesByVariantKey.get(normalizedKey)
+            || [];
+    }, [availabilityPricesByVariantKey, normalizeVariantKey, selectedVariantKey]);
+
+    const matrixPreparedPrices = useMemo(() => {
+        if (selectedVariantPreparedPrices.length > 0) {
+            return selectedVariantPreparedPrices;
+        }
+        if (variantPricesKey === selectedVariantKey && variantPrices.length > 0) {
+            return preparePriceRows(variantPrices);
+        }
+        // Older imports can encode variants by display name instead of IDs.
+        return availabilityPreparedPrices;
+    }, [availabilityPreparedPrices, preparePriceRows, selectedVariantKey, selectedVariantPreparedPrices, variantPrices, variantPricesKey]);
+
+    const hasResolvedPriceRows = matrixPreparedPrices.length > 0
+        || (variantPricesKey === selectedVariantKey && variantPrices.length > 0);
+
+    useEffect(() => {
+        if (hasResolvedPriceRows) {
+            lastPresentedProductIdRef.current = productId;
+        }
+    }, [hasResolvedPriceRows, productId]);
+
+    const showInitialMatrixSkeleton = shouldShowInitialMatrixSkeleton({
+        productId,
+        lastPresentedProductId: lastPresentedProductIdRef.current,
+        matrixLoading,
+        hasResolvedPriceRows,
+    });
+
     const selectedVariantValueIds = useMemo(() => {
         return selectedVariantKey === 'none'
             ? []
@@ -1054,6 +1312,57 @@ export function MatrixLayoutV1Renderer({
         return map;
     }, [selectorSections]);
 
+    const autoResolveExactCombination = pricingStructure.autoResolveExactCombination === true
+        || pricingStructure.auto_resolve_exact_combination === true;
+    const exactCombinationSectionOrder = useMemo(() => {
+        const configuredAxisOrder = Array.isArray(pricingStructure.customerSelectionOrder)
+            ? pricingStructure.customerSelectionOrder
+            : [];
+        const axisSections = pricingStructure.templateBinding?.axisSections || {};
+        const knownSectionIds = new Set(selectorSections.map((section) => section.id));
+        const orderedSectionIds = configuredAxisOrder
+            .map((axis) => axisSections[axis] || axis)
+            .filter((sectionId) => knownSectionIds.has(sectionId));
+
+        selectorSections.forEach((section) => {
+            if (!orderedSectionIds.includes(section.id)) orderedSectionIds.push(section.id);
+        });
+
+        return orderedSectionIds;
+    }, [pricingStructure.customerSelectionOrder, pricingStructure.templateBinding?.axisSections, selectorSections]);
+    const folderModelSectionId = pricingStructure.templateBinding?.axisSections?.folder_model || null;
+    const providedExactCombinationCandidates = useMemo<ExactCombinationCandidate[]>(() => {
+        if (!autoResolveExactCombination || !Array.isArray(exactCombinationSelections)) return [];
+
+        const requiredSectionIds = selectorSections
+            .filter((section) => !isPriceNeutralSectionId(section.id))
+            .map((section) => section.id);
+        const unique = new Map<string, ExactCombinationCandidate>();
+
+        exactCombinationSelections.forEach((rawSelections) => {
+            if (!rawSelections || typeof rawSelections !== 'object') return;
+            const selections: Record<string, string | null> = {};
+            requiredSectionIds.forEach((sectionId) => {
+                const valueId = rawSelections[sectionId];
+                if (typeof valueId === 'string' && valueId) selections[sectionId] = valueId;
+            });
+            if (!requiredSectionIds.every((sectionId) => !!selections[sectionId])) return;
+
+            const key = requiredSectionIds
+                .map((sectionId) => `${sectionId}=${selections[sectionId]}`)
+                .join('|');
+            if (!unique.has(key)) unique.set(key, { selections });
+        });
+
+        return Array.from(unique.values());
+    }, [
+        autoResolveExactCombination,
+        exactCombinationSelections,
+        isPriceNeutralSectionId,
+        selectorSections,
+    ]);
+    const hasProvidedExactCompatibility = providedExactCombinationCandidates.length > 0;
+
     const hasCompleteRequiredSelection = useMemo(() => {
         return selectorSections.every(section => {
             if (section.id === pricingStructure.vertical_axis.sectionId) return true;
@@ -1072,9 +1381,22 @@ export function MatrixLayoutV1Renderer({
         const cached = priceRowsCache.get(productId);
         const hasFreshCache = !!cached && isFresh(cached.at);
 
+        // Exact connected templates are a compact, validated compatibility index.
+        // They avoid downloading an entire large sparse price table just to decide
+        // which selector values can be combined. Active prices are still fetched
+        // from generic_product_prices for the selected exact variant below.
+        if (hasProvidedExactCompatibility) {
+            setAvailabilityPrices([]);
+            setAvailabilityLoading(false);
+            lastLoadedProductIdRef.current = productId;
+            return () => {
+                active = false;
+            };
+        }
+
         async function fetchAvailabilityPrices() {
             try {
-                const all = await fetchPriceRowsCached(productId, hasFreshCache);
+                const all = await fetchPriceRowsCached(productId);
                 if (active) {
                     setAvailabilityPrices(all);
                 }
@@ -1105,7 +1427,7 @@ export function MatrixLayoutV1Renderer({
         return () => {
             active = false;
         };
-    }, [productId]);
+    }, [hasProvidedExactCompatibility, productId]);
 
     useEffect(() => {
         let active = true;
@@ -1114,6 +1436,16 @@ export function MatrixLayoutV1Renderer({
             if (!hasCompleteRequiredSelection) {
                 if (active) {
                     setVariantPrices([]);
+                    setVariantPricesKey(null);
+                    setMatrixLoading(false);
+                }
+                return;
+            }
+
+            // The full table can resolve every button change synchronously. Variant reads are
+            // only an initial-load fallback while that table is still being downloaded.
+            if (availabilityPreparedPrices.length > 0) {
+                if (active) {
                     setMatrixLoading(false);
                 }
                 return;
@@ -1127,10 +1459,12 @@ export function MatrixLayoutV1Renderer({
                 );
                 if (active) {
                     setVariantPrices(rows);
+                    setVariantPricesKey(selectedVariantKey);
                 }
             } catch {
                 if (active) {
                     setVariantPrices([]);
+                    setVariantPricesKey(selectedVariantKey);
                 }
             } finally {
                 if (active) {
@@ -1141,6 +1475,7 @@ export function MatrixLayoutV1Renderer({
 
         if (lastVariantProductIdRef.current && lastVariantProductIdRef.current !== productId) {
             setVariantPrices([]);
+            setVariantPricesKey(null);
         }
         lastVariantProductIdRef.current = productId;
         setMatrixLoading(true);
@@ -1154,6 +1489,7 @@ export function MatrixLayoutV1Renderer({
         selectedVariantKey,
         pricingStructure.vertical_axis.valueIds,
         hasCompleteRequiredSelection,
+        availabilityPreparedPrices.length,
     ]);
 
     const getSectionValueIdForPreparedRow = useCallback((sectionId: string, row: PreparedPriceRow): string | null => {
@@ -1262,12 +1598,58 @@ export function MatrixLayoutV1Renderer({
 
         selectorSections.forEach(section => {
             if (isPriceNeutralSectionId(section.id)) return;
+            if (
+                hasProvidedExactCompatibility
+                && providedExactCombinationCandidates.some((candidate) => !!candidate.selections[section.id])
+            ) {
+                ids.add(section.id);
+                return;
+            }
             const hasAny = availabilityPreparedPrices.some(row => !!getSectionValueIdForPreparedRow(section.id, row));
             if (hasAny) ids.add(section.id);
         });
 
         return ids;
-    }, [selectorSections, availabilityPreparedPrices, getSectionValueIdForPreparedRow, isPriceNeutralSectionId]);
+    }, [
+        selectorSections,
+        hasProvidedExactCompatibility,
+        providedExactCombinationCandidates,
+        availabilityPreparedPrices,
+        getSectionValueIdForPreparedRow,
+        isPriceNeutralSectionId,
+    ]);
+
+    const exactCombinationCandidates = useMemo<ExactCombinationCandidate[]>(() => {
+        if (!autoResolveExactCombination) return [];
+        if (hasProvidedExactCompatibility) return providedExactCombinationCandidates;
+
+        const candidates = new Map<string, ExactCombinationCandidate>();
+        availabilityPreparedPrices.forEach((row) => {
+            const selections: Record<string, string | null> = {};
+            exactCombinationSectionOrder.forEach((sectionId) => {
+                if (!mappableSectionIds.has(sectionId)) return;
+                selections[sectionId] = getSectionValueIdForPreparedRow(sectionId, row);
+            });
+
+            const key = exactCombinationSectionOrder
+                .filter((sectionId) => mappableSectionIds.has(sectionId))
+                .map((sectionId) => `${sectionId}=${selections[sectionId] || ''}`)
+                .join('|');
+            if (key && !candidates.has(key)) {
+                candidates.set(key, { selections });
+            }
+        });
+
+        return Array.from(candidates.values());
+    }, [
+        autoResolveExactCombination,
+        hasProvidedExactCompatibility,
+        providedExactCombinationCandidates,
+        availabilityPreparedPrices,
+        exactCombinationSectionOrder,
+        getSectionValueIdForPreparedRow,
+        mappableSectionIds,
+    ]);
 
     const rowMatchesSelections = useCallback((
         row: PreparedPriceRow,
@@ -1298,6 +1680,26 @@ export function MatrixLayoutV1Renderer({
         return true;
     }, [selectorSections, mappableSectionIds, pricingStructure.vertical_axis.sectionId, getSectionValueIdForPreparedRow]);
 
+    const candidateMatchesSelections = useCallback((
+        candidate: ExactCombinationCandidate,
+        selections: Record<string, string | null>,
+        excludeSectionId?: string,
+        options?: { ignoreVerticalSelection?: boolean },
+    ) => {
+        for (const section of selectorSections) {
+            if (section.id === excludeSectionId) continue;
+            if (!mappableSectionIds.has(section.id)) continue;
+            if (options?.ignoreVerticalSelection && section.id === pricingStructure.vertical_axis.sectionId) {
+                continue;
+            }
+
+            const selectedValueId = selections[section.id];
+            if (!selectedValueId) continue;
+            if (candidate.selections[section.id] !== selectedValueId) return false;
+        }
+        return true;
+    }, [mappableSectionIds, pricingStructure.vertical_axis.sectionId, selectorSections]);
+
     const availableValueIdsBySection = useMemo(() => {
         const map: Record<string, Set<string>> = {};
 
@@ -1320,6 +1722,21 @@ export function MatrixLayoutV1Renderer({
                     return (sectionOrderById[selectedSectionId] ?? 0) < currentSectionOrder;
                 })
             );
+            if (hasProvidedExactCompatibility) {
+                providedExactCombinationCandidates.forEach((candidate) => {
+                    if (!candidateMatchesSelections(
+                        candidate,
+                        upstreamSelections,
+                        section.id,
+                        { ignoreVerticalSelection },
+                    )) return;
+                    const valueId = candidate.selections[section.id];
+                    if (valueId && configuredIds.has(valueId)) available.add(valueId);
+                });
+                map[section.id] = available;
+                return;
+            }
+
             availabilityPreparedPrices.forEach(row => {
                 if (!rowMatchesSelections(row, upstreamSelections, section.id, { ignoreVerticalSelection })) return;
 
@@ -1344,6 +1761,9 @@ export function MatrixLayoutV1Renderer({
         selectorSections,
         sectionOrderById,
         mappableSectionIds,
+        hasProvidedExactCompatibility,
+        providedExactCombinationCandidates,
+        candidateMatchesSelections,
         availabilityPreparedPrices,
         rowMatchesSelections,
         pricingSelectedSectionValues,
@@ -1356,6 +1776,43 @@ export function MatrixLayoutV1Renderer({
         if (!available || available.size === 0) return true;
         return available.has(String(valueId));
     }, [availableValueIdsBySection]);
+
+    const resolveExactCombinationForValue = useCallback((
+        sectionId: string,
+        valueId: string,
+        currentSelections: Record<string, string | null>,
+    ): ExactCombinationCandidate | null => {
+        if (!autoResolveExactCombination || exactCombinationCandidates.length === 0) return null;
+
+        return resolveClosestExactCombination({
+            candidates: exactCombinationCandidates,
+            currentSelections,
+            requestedSectionId: sectionId,
+            requestedValueId: String(valueId),
+            sectionOrder: exactCombinationSectionOrder,
+            lockedSectionIds: folderModelSectionId && folderModelSectionId !== sectionId
+                ? [folderModelSectionId]
+                : [],
+        });
+    }, [
+        autoResolveExactCombination,
+        exactCombinationCandidates,
+        exactCombinationSectionOrder,
+        folderModelSectionId,
+    ]);
+
+    const isValueSelectable = useCallback((sectionId: string, valueId: string) => {
+        if (autoResolveExactCombination && mappableSectionIds.has(sectionId)) {
+            return resolveExactCombinationForValue(sectionId, valueId, selectedSectionValues) != null;
+        }
+        return isValueCurrentlyAvailable(sectionId, valueId);
+    }, [
+        autoResolveExactCombination,
+        isValueCurrentlyAvailable,
+        mappableSectionIds,
+        resolveExactCombinationForValue,
+        selectedSectionValues,
+    ]);
 
     useEffect(() => {
         if (availabilityLoading) return;
@@ -1412,6 +1869,103 @@ export function MatrixLayoutV1Renderer({
         });
         return map;
     }, [attributeGroupById, sectionById]);
+
+    const getSectionBooleanFlag = useCallback((
+        sectionId: string,
+        camelCaseKey: string,
+        snakeCaseKey: string,
+    ): boolean => {
+        const column = sectionById[sectionId];
+        const sectionConfig = sectionConfigs[sectionId] as Record<string, unknown> | undefined;
+        return sectionConfig?.[camelCaseKey] === true
+            || sectionConfig?.[snakeCaseKey] === true
+            || column?.[camelCaseKey] === true
+            || column?.[snakeCaseKey] === true;
+    }, [sectionById, sectionConfigs]);
+
+    const isCalendarFillingSection = useCallback((sectionId: string): boolean => {
+        const section = sectionById[sectionId];
+        const identity = [
+            sectionId,
+            section?.title,
+            section?.labelOverride,
+            sectionGroupNameById[sectionId],
+        ]
+            .filter(Boolean)
+            .join(' ')
+            .toLocaleLowerCase('da-DK');
+
+        return /filling|fillings|fyld|chokolade|chocolate|füllung|fuellung|konfekt|slik|indhold|contents?/.test(identity);
+    }, [sectionById, sectionGroupNameById]);
+
+    const shouldPreferCustomImage = useCallback((sectionId: string): boolean => (
+        getSectionBooleanFlag(sectionId, 'preferCustomImage', 'prefer_custom_image')
+    ), [getSectionBooleanFlag]);
+
+    const shouldHideUnavailableValues = useCallback((sectionId: string): boolean => (
+        getSectionBooleanFlag(sectionId, 'hideUnavailableValues', 'hide_unavailable_values')
+    ), [getSectionBooleanFlag]);
+
+    const shouldFocusSelectedValue = useCallback((sectionId: string): boolean => (
+        getSectionBooleanFlag(sectionId, 'focusSelectedValue', 'focus_selected_value')
+    ), [getSectionBooleanFlag]);
+
+    const shouldUseNeutralWhiteSurface = useCallback((sectionId: string): boolean => (
+        getSectionBooleanFlag(sectionId, 'neutralWhiteSurface', 'neutral_white_surface')
+    ), [getSectionBooleanFlag]);
+
+    const shouldUseAdaptiveImageSelector = useCallback((sectionId: string): boolean => (
+        getSectionBooleanFlag(sectionId, 'adaptiveImageSelector', 'adaptive_image_selector')
+    ), [getSectionBooleanFlag]);
+
+    const shouldHideSingleAvailableValue = useCallback((sectionId: string): boolean => (
+        getSectionBooleanFlag(sectionId, 'hideSingleAvailableValue', 'hide_single_available_value')
+    ), [getSectionBooleanFlag]);
+
+    const progressiveFocusSectionId = useMemo(() => {
+        for (const row of pricingStructure.layout_rows) {
+            const focusColumn = row.columns.find((column) => shouldFocusSelectedValue(column.id));
+            if (focusColumn) return focusColumn.id;
+        }
+        return null;
+    }, [pricingStructure.layout_rows, shouldFocusSelectedValue]);
+    const isProgressiveFocusConfirmed = !progressiveFocusSectionId
+        || focusedSelectionSectionIds.has(progressiveFocusSectionId);
+
+    useEffect(() => {
+        setFocusedSelectionSectionIds(new Set());
+        pendingFocusedSelectionFocusRef.current = null;
+    }, [productId]);
+
+    useEffect(() => {
+        if (!progressiveFocusSectionId || !initialSelection?.[progressiveFocusSectionId]) return;
+        setFocusedSelectionSectionIds((previous) => {
+            if (previous.has(progressiveFocusSectionId)) return previous;
+            const next = new Set(previous);
+            next.add(progressiveFocusSectionId);
+            return next;
+        });
+    }, [initialSelection, progressiveFocusSectionId, productId]);
+
+    useEffect(() => {
+        const pending = pendingFocusedSelectionFocusRef.current;
+        if (!pending || typeof window === 'undefined') return;
+
+        const frame = window.requestAnimationFrame(() => {
+            const selectedButton = focusedSelectionOptionButtonRefs.current.get(`${pending.sectionId}:${pending.valueId}`);
+            const detail = focusedSelectionDetailRefs.current.get(pending.sectionId);
+            const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+
+            selectedButton?.focus({ preventScroll: true });
+            detail?.scrollIntoView({
+                behavior: reduceMotion ? 'auto' : 'smooth',
+                block: 'start',
+            });
+            pendingFocusedSelectionFocusRef.current = null;
+        });
+
+        return () => window.cancelAnimationFrame(frame);
+    }, [focusedSelectionSectionIds, selectedSectionValues]);
 
     const foldSectionIdForFolders = useMemo(() => {
         return Object.entries(sectionById).find(([sectionId, section]) => {
@@ -1546,51 +2100,113 @@ export function MatrixLayoutV1Renderer({
             }
         }
 
+        if (shouldHideUnavailableValues(sectionId) && !availabilityLoading) {
+            visibleValues = visibleValues.filter(value => isValueSelectable(sectionId, value.id));
+        }
+
         return sortValuesForDisplay(sectionId, visibleValues);
     }, [
         sectionGroupNameById,
         foldSectionIdForFolders,
         getValueName,
         getAllowedFolderPageNames,
+        shouldHideUnavailableValues,
+        availabilityLoading,
+        isValueSelectable,
         sortValuesForDisplay,
     ]);
 
-    // Keep selections valid as folders/options/finishes change.
-    useEffect(() => {
-        setSelectedSectionValues(prev => {
-            let changed = false;
-            const next = { ...prev };
+    const normalizeVisibleSelections = useCallback((selections: Record<string, string | null>) => {
+        const original = selections;
+        let changed = false;
+        const next = { ...selections };
 
-            selectorSections.forEach(section => {
-                const allValues = getSectionValues(section.groupId, section.valueIds);
-                const visibleValues = getVisibleValuesForSection(section.id, allValues, next);
-                const currentValue = next[section.id];
-                const isCurrentVisible = !!currentValue && visibleValues.some(value => value.id === currentValue);
+        selectorSections.forEach(section => {
+            const allValues = getSectionValues(section.groupId, section.valueIds);
+            const visibleValues = getVisibleValuesForSection(section.id, allValues, next);
+            const currentValue = next[section.id];
+            const isCurrentVisible = !!currentValue && visibleValues.some(value => value.id === currentValue);
 
-                if (isCurrentVisible) return;
+            if (isCurrentVisible) return;
 
-                if (isOptionalSectionId(section.id)) {
-                    if (currentValue != null) {
-                        delete next[section.id];
-                        changed = true;
-                    }
-                    return;
-                }
-
-                if (visibleValues.length > 0) {
-                    next[section.id] = visibleValues[0].id;
+            if (isOptionalSectionId(section.id)) {
+                if (currentValue != null) {
+                    delete next[section.id];
                     changed = true;
                 }
-            });
+                return;
+            }
 
-            return changed ? next : prev;
+            if (visibleValues.length > 0) {
+                next[section.id] = visibleValues[0].id;
+                changed = true;
+            }
         });
+
+        return changed ? next : original;
     }, [
         selectorSections,
         getSectionValues,
         getVisibleValuesForSection,
         isOptionalSectionId,
     ]);
+
+    // Keep selections valid when layouts or imported option data change.
+    useEffect(() => {
+        setSelectedSectionValues(prev => normalizeVisibleSelections(prev));
+    }, [
+        normalizeVisibleSelections,
+    ]);
+
+    const embeddedAdaptiveSelectorSectionIdByFocusId = useMemo(() => {
+        const candidates = selectorSections.map((section) => {
+            const values = getSectionValues(section.groupId, section.valueIds);
+            const visibleValues = getVisibleValuesForSection(
+                section.id,
+                values,
+                selectedSectionValues,
+            );
+            const availableValues = visibleValues.filter((value) => (
+                isValueSelectable(section.id, value.id)
+            ));
+
+            return {
+                id: section.id,
+                adaptive: shouldUseAdaptiveImageSelector(section.id),
+                availablePresentationKinds: availableValues.map((value) => (
+                    value.meta?.presentationKind
+                )),
+            };
+        });
+        const result: Record<string, string> = {};
+
+        selectorSections.forEach((section) => {
+            if (!shouldFocusSelectedValue(section.id)) return;
+            if (!focusedSelectionSectionIds.has(section.id)) return;
+            if (!selectedSectionValues[section.id]) return;
+
+            const embeddedSectionId = findEmbeddedAdaptiveSelectorSectionId({
+                focusSectionId: section.id,
+                sections: candidates,
+            });
+            if (embeddedSectionId) result[section.id] = embeddedSectionId;
+        });
+
+        return result;
+    }, [
+        focusedSelectionSectionIds,
+        getSectionValues,
+        getVisibleValuesForSection,
+        isValueSelectable,
+        selectedSectionValues,
+        selectorSections,
+        shouldFocusSelectedValue,
+        shouldUseAdaptiveImageSelector,
+    ]);
+
+    const embeddedAdaptiveSelectorSectionIds = useMemo(() => new Set(
+        Object.values(embeddedAdaptiveSelectorSectionIdByFocusId),
+    ), [embeddedAdaptiveSelectorSectionIdByFocusId]);
 
     // Get section type label
     const getSectionLabel = useCallback((sectionType: string, groupId: string, labelOverride?: string, title?: string): string => {
@@ -1637,7 +2253,7 @@ export function MatrixLayoutV1Renderer({
             .map(vId => getDisplayValueName(vId, vertAxis.sectionId))
             .filter(Boolean);
 
-        const columns = [...quantities].sort((a, b) => a - b);
+        const configuredColumns = [...quantities].sort((a, b) => a - b);
         const cells: Record<string, Record<number, number>> = {};
 
         // For each vertical axis value, find matching price
@@ -1647,7 +2263,7 @@ export function MatrixLayoutV1Renderer({
 
             cells[rowLabel] = {};
 
-            for (const qty of columns) {
+            for (const qty of configuredColumns) {
                 const bucketKey = `${vertValueId}::${qty}`;
                 const candidateRows = priceIndexByVerticalQty.get(bucketKey) || [];
                 let matchingPrice = candidateRows.find(row =>
@@ -1679,8 +2295,15 @@ export function MatrixLayoutV1Renderer({
             }
         }
 
-        // Keep row count stable to avoid layout jump while selections/prices update.
-        const rows = allRows;
+        const hideUnavailableQuantities = pricingStructure.hideUnavailableQuantities === true
+            || pricingStructure.hide_unavailable_quantities === true;
+        const columns = hideUnavailableQuantities
+            ? configuredColumns.filter(qty => allRows.some(rowLabel => cells[rowLabel]?.[qty] != null))
+            : configuredColumns;
+
+        // Keep the default row count stable. Opt-in filtered matrices use the existing empty state
+        // when the active combination has no available quantity at all.
+        const rows = hideUnavailableQuantities && columns.length === 0 ? [] : allRows;
 
         return { rows, columns, cells };
     }, [computeVariantKey, getDisplayValueName, getSectionValueIdForPreparedRow, matchesPreparedPriceForSelection, mappableSectionIds, normalizeVariantKey, priceIndexByVerticalQty, pricingSelectedSectionValues, pricingStructure, selectedFormatId, selectedMaterialId, selectedVariantDisplayParts, selectedVariantValueIds, selectorSections]);
@@ -1710,12 +2333,17 @@ export function MatrixLayoutV1Renderer({
         };
 
         if (selectedCell && matrixData.rows.includes(selectedCell.row)) {
-            const currentPrice = Math.round(Number(matrixData.cells[selectedCell.row]?.[selectedCell.column]) || 0);
-            if (currentPrice !== undefined) {
+            const rawCurrentPrice = matrixData.cells[selectedCell.row]?.[selectedCell.column];
+            const currentPrice = Number(rawCurrentPrice);
+            if (rawCurrentPrice != null && Number.isFinite(currentPrice)) {
                 // Avoid re-trigger loops when parent callbacks are re-created each render
-                notifyCellClick(selectedCell.row, selectedCell.column, currentPrice);
+                notifyCellClick(selectedCell.row, selectedCell.column, Math.round(currentPrice));
+                return;
             }
-            return;
+
+            // A model/variant change can remove the previously selected quantity.
+            // Move to the first quantity that is actually priced for the active combination.
+            if (selectRow(selectedCell.row)) return;
         }
 
         if (selectedCell) {
@@ -1908,17 +2536,47 @@ export function MatrixLayoutV1Renderer({
 
     // Handle section selection change
     const handleSectionSelect = (sectionId: string, valueId: string) => {
-        if (!isValueCurrentlyAvailable(sectionId, valueId)) return;
+        if (!isValueSelectable(sectionId, valueId)) return;
+
+        if (shouldFocusSelectedValue(sectionId)) {
+            pendingFocusedSelectionFocusRef.current = { sectionId, valueId };
+            setFocusedSelectionSectionIds((previous) => {
+                if (previous.has(sectionId)) return previous;
+                const next = new Set(previous);
+                next.add(sectionId);
+                return next;
+            });
+        }
+
         setSelectedSectionValues(prev => {
+            const isOptionalToggleOff = isOptionalSectionId(sectionId) && prev[sectionId] === valueId;
+            const shouldResolveExactly = autoResolveExactCombination
+                && mappableSectionIds.has(sectionId)
+                && !isOptionalToggleOff;
+            const exactResolution = shouldResolveExactly
+                ? resolveExactCombinationForValue(sectionId, valueId, prev)
+                : null;
+            if (shouldResolveExactly && !exactResolution) return prev;
+            if (!shouldResolveExactly && !isValueCurrentlyAvailable(sectionId, valueId)) return prev;
+
             const updated = { ...prev };
-            const currentValue = prev[sectionId];
-            if (isOptionalSectionId(sectionId) && currentValue === valueId) {
-                delete updated[sectionId];
+            if (exactResolution) {
+                exactCombinationSectionOrder.forEach((resolvedSectionId) => {
+                    if (!Object.prototype.hasOwnProperty.call(exactResolution.selections, resolvedSectionId)) return;
+                    const resolvedValueId = exactResolution.selections[resolvedSectionId];
+                    if (resolvedValueId == null) delete updated[resolvedSectionId];
+                    else updated[resolvedSectionId] = resolvedValueId;
+                });
             } else {
-                updated[sectionId] = valueId;
+                const currentValue = prev[sectionId];
+                if (isOptionalSectionId(sectionId) && currentValue === valueId) {
+                    delete updated[sectionId];
+                } else {
+                    updated[sectionId] = valueId;
+                }
             }
 
-            if (finishSectionIds.includes(sectionId) && updated[sectionId]) {
+            if (!exactResolution && finishSectionIds.includes(sectionId) && updated[sectionId]) {
                 if (isOptionalSectionId(sectionId)) {
                     finishSectionIds.forEach(finishSectionId => {
                         if (finishSectionId !== sectionId && isOptionalSectionId(finishSectionId)) {
@@ -1936,7 +2594,7 @@ export function MatrixLayoutV1Renderer({
 
             // Enforce print 4+4 when a two-sided finish is selected.
             const selectedSectionType = sectionTypeById[sectionId];
-            if (selectedSectionType === 'finishes' && updated[sectionId]) {
+            if (!exactResolution && selectedSectionType === 'finishes' && updated[sectionId]) {
                 const selectedName = getValueName(valueId).toLowerCase();
                 const requiresFourFour = selectedName.includes('2 sider') || selectedName.includes('2 side');
 
@@ -1958,7 +2616,11 @@ export function MatrixLayoutV1Renderer({
                 }
             }
 
-            return updated;
+            // A resolved selection is copied from one real price row. The
+            // availability map still reflects the previous render here, so let
+            // the next render validate it instead of normalizing it against
+            // stale upstream selections.
+            return exactResolution ? updated : normalizeVisibleSelections(updated);
         });
     };
 
@@ -1983,10 +2645,17 @@ export function MatrixLayoutV1Renderer({
         sectionId: string,
         values: AttributeValue[],
         uiMode: string,
-        isOptionalEnabled: boolean
-    ) => {
+        isOptionalEnabled: boolean,
+        groupedRender?: {
+            skipValueGroups?: boolean;
+            selectedValue?: string;
+            valuesAreVisible?: boolean;
+        },
+    ): ReactNode => {
         const isOptional = isOptionalSectionId(sectionId);
-        const visibleValues = getVisibleValuesForSection(sectionId, values, selectedSectionValues);
+        const visibleValues = groupedRender?.valuesAreVisible
+            ? values
+            : getVisibleValuesForSection(sectionId, values, selectedSectionValues);
         const valueSettings = valueSettingsById[sectionId] || {};
         const selectorStyling = sectionById[sectionId]?.selectorStyling || {};
         const thumbnailPx = resolveThumbnailSizePx(
@@ -1995,7 +2664,39 @@ export function MatrixLayoutV1Renderer({
         );
         // Get section config display mode override
         const sectionConfigDisplayMode = sectionConfigs[sectionId]?.displayMode;
-        
+        const isActive = !isOptional || isOptionalEnabled;
+        const selectedValue = groupedRender?.selectedValue !== undefined
+            ? groupedRender.selectedValue
+            : selectedSectionValues[sectionId] ?? (isOptional ? "" : visibleValues[0]?.id || "");
+        const sectionIdentity = [
+            sectionId,
+            sectionById[sectionId]?.title,
+            sectionGroupNameById[sectionId],
+        ].filter(Boolean).join(" ").toLocaleLowerCase("da-DK");
+        const isApparelColorSection = /t-?shirt.*farve|tekstilfarve|textilfarbe|shirt.*colou?r|tshirtcolor/.test(sectionIdentity);
+        const allowBuiltInCalendarArtwork = isCalendarFillingSection(sectionId);
+        const preferCustomImage = shouldPreferCustomImage(sectionId);
+        const focusSelectedValue = shouldFocusSelectedValue(sectionId);
+        const neutralWhiteSurface = shouldUseNeutralWhiteSurface(sectionId);
+        const adaptiveImageSelector = shouldUseAdaptiveImageSelector(sectionId);
+        const isEmbeddedAdaptiveSelector = embeddedAdaptiveSelectorSectionIds.has(sectionId);
+        const hasAdaptiveVisual = adaptiveImageSelector && visibleValues.some((value) => {
+            if (!isValueSelectable(sectionId, value.id)) return false;
+            const valueSetting = valueSettings[value.id];
+            const displayName = getDisplayValueName(value.id, sectionId);
+            const configuredImage = getOptionImageUrl(valueSetting, value.meta?.image);
+            const builtInImage = allowBuiltInCalendarArtwork
+                ? getBuiltInCalendarOptionImage(displayName)
+                : undefined;
+            const badge = getResolvedOptionBrandBadge(valueSetting, displayName, allowBuiltInCalendarArtwork);
+            return Boolean(configuredImage || builtInImage || badge?.imageUrl);
+        });
+        const effectiveUiMode = groupedRender?.valuesAreVisible
+            ? uiMode
+            : adaptiveImageSelector
+                ? (hasAdaptiveVisual ? 'small' : 'dropdown')
+                : uiMode;
+
         const sectionTextButtonsConfig = resolveTextButtonsConfig({
             productConfig: textButtonsConfig,
             selectorConfig: selectorStyling.textButtons as Record<string, unknown>,
@@ -2003,23 +2704,315 @@ export function MatrixLayoutV1Renderer({
         const sectionPictureButtonsConfig = resolvePictureButtonsConfig({
             productConfig: pictureButtonsConfig,
             selectorConfig: selectorStyling.pictureButtons as Record<string, unknown>,
-            uiMode: sectionConfigDisplayMode || uiMode,
+            uiMode: sectionConfigDisplayMode || effectiveUiMode,
             thumbnailSize: sectionThumbnailConfigById[sectionId]?.size,
             thumbnailCustomPx: sectionThumbnailConfigById[sectionId]?.customPx,
             fallbackHoverColor: activeBranding?.colors?.hover || activeBranding?.colors?.primary || "#0EA5E9",
             fallbackSelectedColor: activeBranding?.colors?.primary || "#0EA5E9",
         });
-        const isActive = !isOptional || isOptionalEnabled;
-
-        const selectedValue = selectedSectionValues[sectionId] ?? (isOptional ? "" : visibleValues[0]?.id || "");
-        const sectionIdentity = [
-            sectionId,
-            sectionById[sectionId]?.title,
-            sectionGroupNameById[sectionId],
-        ].filter(Boolean).join(" ").toLocaleLowerCase("da-DK");
-        const isApparelColorSection = /t-?shirt.*farve|tekstilfarve|textilfarbe|shirt.*colou?r|tshirtcolor/.test(sectionIdentity);
 
         if (visibleValues.length === 0) return null;
+
+        const selectedAttributeValue = visibleValues.find((value) => value.id === selectedValue);
+        if (
+            focusSelectedValue
+            && focusedSelectionSectionIds.has(sectionId)
+            && selectedAttributeValue
+        ) {
+            const valueSetting = valueSettings[selectedAttributeValue.id];
+            const displayName = getDisplayValueName(selectedAttributeValue.id, sectionId);
+            const selectedModelImage = getResolvedOptionImageUrl(valueSetting, displayName, {
+                allowBuiltInCalendarArtwork,
+                preferCustomImage: true,
+                fallbackImage: selectedAttributeValue.meta?.image,
+            });
+            const selectedBadge = getResolvedOptionBrandBadge(
+                valueSetting,
+                displayName,
+                allowBuiltInCalendarArtwork,
+            );
+            const embeddedAdaptiveSectionId = embeddedAdaptiveSelectorSectionIdByFocusId[sectionId];
+            const embeddedAdaptiveSection = embeddedAdaptiveSectionId
+                ? sectionById[embeddedAdaptiveSectionId]
+                : undefined;
+            const embeddedAdaptiveValues = embeddedAdaptiveSection
+                ? getVisibleValuesForSection(
+                    embeddedAdaptiveSectionId,
+                    getSectionValues(embeddedAdaptiveSection.groupId, embeddedAdaptiveSection.valueIds),
+                    selectedSectionValues,
+                )
+                : [];
+            const availableEmbeddedAdaptiveValues = embeddedAdaptiveValues.filter((value) => (
+                isValueSelectable(embeddedAdaptiveSectionId || '', value.id)
+            ));
+            const selectedEmbeddedAdaptiveId = embeddedAdaptiveSectionId
+                ? selectedSectionValues[embeddedAdaptiveSectionId]
+                : null;
+            const selectedEmbeddedAdaptiveValue = embeddedAdaptiveValues.find((value) => (
+                value.id === selectedEmbeddedAdaptiveId
+            )) || availableEmbeddedAdaptiveValues[0];
+            const selectedEmbeddedAdaptiveSetting = selectedEmbeddedAdaptiveValue && embeddedAdaptiveSectionId
+                ? valueSettingsById[embeddedAdaptiveSectionId]?.[selectedEmbeddedAdaptiveValue.id]
+                : undefined;
+            const selectedEmbeddedPresentationKind = selectedEmbeddedAdaptiveValue?.meta?.presentationKind;
+            const selectedFormatImage = selectedEmbeddedPresentationKind === 'format'
+                && selectedEmbeddedAdaptiveValue
+                ? getOptionImageUrl(
+                    selectedEmbeddedAdaptiveSetting,
+                    selectedEmbeddedAdaptiveValue.meta?.image,
+                )
+                : undefined;
+            const selectedImage = selectedFormatImage || selectedModelImage;
+            const sourceFormatValue = selectedEmbeddedPresentationKind === 'format'
+                ? selectedEmbeddedAdaptiveValue?.meta?.sourceSelections?.format
+                : undefined;
+            const selectedSourceFormat = (
+                typeof sourceFormatValue === 'string'
+                || typeof sourceFormatValue === 'number'
+            )
+                ? String(sourceFormatValue).trim()
+                : '';
+            const selectedImageAlt = selectedSourceFormat
+                ? `${displayName} – ${selectedSourceFormat}`
+                : displayName;
+            const detailRows = [
+                {
+                    label: selectedSourceFormat ? 'Valgt format' : 'Formatvalg',
+                    values: selectedSourceFormat
+                        ? [selectedSourceFormat]
+                        : normalizeMetaStringList(selectedAttributeValue.meta?.formatLabels),
+                },
+                { label: 'Materiale', values: normalizeMetaStringList(selectedAttributeValue.meta?.materialLabels) },
+                { label: 'Tryk', values: selectedAttributeValue.meta?.printLabelDa ? [selectedAttributeValue.meta.printLabelDa] : [] },
+                { label: 'Muligt indhold', values: normalizeMetaStringList(selectedAttributeValue.meta?.fillingLabels) },
+            ].filter((row) => row.values.length > 0);
+            const embeddedPresentationKinds = new Set(
+                availableEmbeddedAdaptiveValues
+                    .map((value) => value.meta?.presentationKind)
+                    .filter(Boolean),
+            );
+            const embeddedSelectorLabel = embeddedPresentationKinds.size === 1
+                && embeddedPresentationKinds.has('filling')
+                ? 'Hvad ønsker du i kalenderen?'
+                : embeddedPresentationKinds.size === 1
+                    && embeddedPresentationKinds.has('format')
+                    ? 'Vælg format eller orientering'
+                    : embeddedAdaptiveSection?.title || 'Vælg variant';
+            const showEmbeddedAdaptiveSelector = Boolean(
+                embeddedAdaptiveSection
+                && embeddedAdaptiveSectionId
+                && (
+                    availableEmbeddedAdaptiveValues.length > 1
+                    || !shouldHideSingleAvailableValue(embeddedAdaptiveSectionId)
+                )
+            );
+            const focusedPickerImagePx = Math.min(sectionPictureButtonsConfig.sizePx, 88);
+            const focusedPickerCardMinPx = Math.max(112, focusedPickerImagePx + 24);
+            const focusedDetailHeadingId = `selected-product-${productId}-${sectionId}`;
+            const focusedSelectionSubject = (
+                sectionById[sectionId]?.title
+                || sectionGroupNameById[sectionId]
+                || 'produktvariant'
+            )
+                .replace(/^vælg\s+/i, '')
+                .trim()
+                .toLocaleLowerCase('da-DK');
+            const focusedPickerHeading = `Vælg ${focusedSelectionSubject}`;
+
+            return (
+                <section
+                    className="space-y-4"
+                    aria-label={`Valgt ${focusedSelectionSubject}: ${displayName}`}
+                    data-calendar-selection-stage="true"
+                >
+                    <div
+                        className="space-y-3 rounded-xl border border-border bg-white p-4 sm:p-5"
+                        data-calendar-model-picker="true"
+                    >
+                        <div>
+                            <h4 className="text-sm font-semibold text-foreground">{focusedPickerHeading}</h4>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                                Alle relevante valg vises i boksen nedenfor.
+                            </p>
+                        </div>
+                        <div
+                            className="grid"
+                            style={{
+                                gap: `${sectionPictureButtonsConfig.gapBetweenPx}px`,
+                                gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${focusedPickerCardMinPx}px), 1fr))`,
+                            }}
+                            role="group"
+                            aria-label={focusedPickerHeading}
+                        >
+                            {visibleValues.map((value) => {
+                                const compactValueSetting = valueSettings[value.id];
+                                const compactDisplayName = getDisplayValueName(value.id, sectionId);
+                                const compactImage = getResolvedOptionImageUrl(
+                                    compactValueSetting,
+                                    compactDisplayName,
+                                    {
+                                        allowBuiltInCalendarArtwork,
+                                        preferCustomImage: true,
+                                        fallbackImage: value.meta?.image,
+                                    },
+                                );
+                                const isSelected = value.id === selectedAttributeValue.id;
+                                const isSelectable = isValueSelectable(sectionId, value.id);
+                                const compactImagePx = Math.min(
+                                    compactValueSetting?.imageSizePx ?? focusedPickerImagePx,
+                                    focusedPickerImagePx,
+                                );
+                                const contextualId = `product-option.${productId}.${sectionId}.${value.id}.${encodeURIComponent(compactDisplayName)}`;
+
+                                return (
+                                    <button
+                                        key={value.id}
+                                        ref={(element) => {
+                                            const refKey = `${sectionId}:${value.id}`;
+                                            if (element) focusedSelectionOptionButtonRefs.current.set(refKey, element);
+                                            else focusedSelectionOptionButtonRefs.current.delete(refKey);
+                                        }}
+                                        type="button"
+                                        data-site-design-target={contextualId}
+                                        onClick={() => {
+                                            if (window.parent !== window) {
+                                                window.parent.postMessage({
+                                                    type: 'EDIT_SECTION',
+                                                    sectionId: contextualId,
+                                                }, '*');
+                                            }
+                                            handleSectionSelect(sectionId, value.id);
+                                        }}
+                                        disabled={!isSelectable}
+                                        aria-pressed={isSelected}
+                                        aria-label={`${isSelected ? 'Valgt: ' : 'Vælg '}${compactDisplayName}`}
+                                        className={cn(
+                                            "flex min-h-11 min-w-0 touch-manipulation flex-col items-center gap-1.5 rounded-lg border bg-white p-2 text-center text-[11px] font-medium leading-tight text-foreground transition-colors duration-150 hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transition-none",
+                                            isSelected ? "border-primary ring-1 ring-primary/30" : "border-border",
+                                            !isSelectable && "cursor-not-allowed opacity-45",
+                                        )}
+                                    >
+                                        <span
+                                            className="flex max-w-full items-center justify-center overflow-hidden rounded-md bg-white"
+                                            style={{ width: compactImagePx, height: compactImagePx }}
+                                        >
+                                            {compactImage ? (
+                                                <img
+                                                    src={getHiResThumbnailUrl(compactImage, compactImagePx * 2, compactImagePx * 2)}
+                                                    alt=""
+                                                    className="h-full w-full object-contain"
+                                                    loading="lazy"
+                                                />
+                                            ) : (
+                                                <span aria-hidden="true" className="text-xs font-semibold text-muted-foreground">
+                                                    {(compactDisplayName || '?').slice(0, 3).toUpperCase()}
+                                                </span>
+                                            )}
+                                        </span>
+                                        <span className="min-h-7 w-full break-words [hyphens:auto]" lang="da">
+                                            {compactDisplayName}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    <div
+                        ref={(element) => {
+                            if (element) focusedSelectionDetailRefs.current.set(sectionId, element);
+                            else focusedSelectionDetailRefs.current.delete(sectionId);
+                        }}
+                        role="region"
+                        tabIndex={-1}
+                        aria-labelledby={focusedDetailHeadingId}
+                        className="scroll-mt-24 overflow-hidden rounded-xl border border-border bg-white shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 sm:scroll-mt-28"
+                        data-calendar-model-detail="true"
+                    >
+                        <div className="grid bg-white md:grid-cols-[minmax(12rem,19rem)_minmax(0,1fr)]">
+                            <div className="relative flex min-h-52 items-center justify-center bg-white p-4 sm:min-h-64">
+                                {selectedImage ? (
+                                    <img
+                                        src={getHiResThumbnailUrl(selectedImage, 640, 640)}
+                                        alt={selectedImageAlt}
+                                        className="h-full max-h-72 w-full object-contain"
+                                        loading="eager"
+                                    />
+                                ) : (
+                                    <span className="text-sm font-semibold text-foreground">{displayName}</span>
+                                )}
+                                {selectedBadge && <OptionBrandBadgeOverlay badge={selectedBadge} />}
+                            </div>
+
+                            <div className="flex min-w-0 flex-col justify-center gap-4 border-t border-border bg-white p-5 sm:p-6 md:border-l md:border-t-0">
+                                <div className="space-y-2">
+                                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-primary">
+                                        <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                                        Valgt {focusedSelectionSubject}
+                                    </span>
+                                    <h3
+                                        id={focusedDetailHeadingId}
+                                        className="text-xl font-semibold leading-tight text-foreground sm:text-2xl"
+                                    >
+                                        {displayName}
+                                    </h3>
+                                    {selectedAttributeValue.meta?.descriptionDa && (
+                                        <p className="max-w-prose text-sm leading-6 text-muted-foreground">
+                                            {selectedAttributeValue.meta.descriptionDa}
+                                        </p>
+                                    )}
+                                </div>
+
+                                {detailRows.length > 0 && (
+                                    <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                                        {detailRows.map((row) => (
+                                            <div key={row.label} className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                                                <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                    {row.label}
+                                                </dt>
+                                                <dd className="mt-1 font-medium leading-5 text-foreground">
+                                                    {row.values.join(' · ')}
+                                                </dd>
+                                            </div>
+                                        ))}
+                                    </dl>
+                                )}
+
+                                {showEmbeddedAdaptiveSelector && embeddedAdaptiveSection && embeddedAdaptiveSectionId && (
+                                    <div
+                                        className="space-y-2 rounded-lg border border-border bg-white p-3"
+                                        data-site-design-target={`product-selector-box.${productId}.${embeddedAdaptiveSectionId}.${encodeURIComponent(embeddedSelectorLabel)}`}
+                                        data-calendar-configuration="true"
+                                    >
+                                        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                            {embeddedSelectorLabel}
+                                        </span>
+                                        {embeddedAdaptiveSection.description && (
+                                            <p className="text-[10px] text-muted-foreground">
+                                                {embeddedAdaptiveSection.description}
+                                            </p>
+                                        )}
+                                        {renderValueSelector(
+                                            embeddedAdaptiveSectionId,
+                                            embeddedAdaptiveValues,
+                                            embeddedAdaptiveSection.ui_mode || 'buttons',
+                                            !isOptionalSectionId(embeddedAdaptiveSectionId)
+                                                || Boolean(selectedSectionValues[embeddedAdaptiveSectionId]),
+                                        )}
+                                    </div>
+                                )}
+
+                                <p className="max-w-prose text-xs leading-5 text-muted-foreground">
+                                    {embeddedPresentationKinds.has('format')
+                                        ? 'Formatvalget angiver leverandørens bestillings-/trykformat. For foldede modeller kan det færdige produktmål afvige.'
+                                        : 'Dit valg opdaterer pris og den tilknyttede trykskabelon automatisk.'}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            );
+        }
 
         if (isApparelColorSection) {
             return (
@@ -2028,7 +3021,7 @@ export function MatrixLayoutV1Renderer({
                         const displayName = getDisplayValueName(value.id, sectionId);
                         const color = getApparelColorOption(displayName);
                         const isSelected = selectedValue === value.id;
-                        const isAvailable = isValueCurrentlyAvailable(sectionId, value.id);
+                        const isSelectable = isValueSelectable(sectionId, value.id);
                         const fill = color?.hex || "#CBD5E1";
                         const isLight = color?.id === "white" || color?.id === "yellow" || color?.id === "sky-blue";
 
@@ -2040,11 +3033,11 @@ export function MatrixLayoutV1Renderer({
                                 aria-label={`${displayName}${color?.pantone ? `, cirka Pantone ${color.pantone}` : ""}`}
                                 title={`${displayName}${color?.pantone ? ` · ca. Pantone ${color.pantone}` : ""}`}
                                 onClick={() => handleSectionSelect(sectionId, value.id)}
-                                disabled={!isActive || !isAvailable}
+                                disabled={!isActive || !isSelectable}
                                 className={cn(
                                     "flex min-h-12 min-w-[5.5rem] touch-manipulation items-center gap-2 rounded-md border bg-background px-3 py-2 text-left text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
                                     isSelected ? "border-primary bg-primary/10 shadow-sm" : "border-border hover:border-primary/50",
-                                    (!isActive || !isAvailable) && "cursor-not-allowed opacity-45"
+                                    (!isActive || !isSelectable) && "cursor-not-allowed opacity-45"
                                 )}
                             >
                                 <Shirt
@@ -2061,21 +3054,22 @@ export function MatrixLayoutV1Renderer({
             );
         }
 
-        if (uiMode === 'dropdown') {
+        if (effectiveUiMode === 'dropdown') {
             return (
                 <select
                     value={selectedValue}
                     onChange={(e) => handleSectionSelect(sectionId, e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
+                    className="min-h-11 w-full rounded-lg border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                     disabled={!isActive}
+                    aria-label={sectionById[sectionId]?.title || sectionGroupNameById[sectionId] || 'Vælg mulighed'}
                 >
                     {isOptional && (
                         <option value="">Ingen</option>
                     )}
                     {visibleValues.map(v => {
-                        const isAvailable = isValueCurrentlyAvailable(sectionId, v.id);
+                        const isSelectable = isValueSelectable(sectionId, v.id);
                         return (
-                            <option key={v.id} value={v.id} disabled={!isAvailable}>
+                            <option key={v.id} value={v.id} disabled={!isSelectable}>
                                 {getDisplayValueName(v.id, sectionId)}
                             </option>
                         );
@@ -2084,17 +3078,59 @@ export function MatrixLayoutV1Renderer({
             );
         }
 
-        if (uiMode === 'checkboxes') {
+        const configuredValueGroups = sectionById[sectionId]?.valueGroups
+            || sectionById[sectionId]?.value_groups;
+        const resolvedValueGroups = groupedRender?.skipValueGroups
+            ? []
+            : resolveSelectorValueGroups(visibleValues, configuredValueGroups);
+
+        if (
+            resolvedValueGroups.length > 0
+            && effectiveUiMode !== 'hidden'
+        ) {
+            return (
+                <div className="space-y-4" data-selector-value-groups="true">
+                    {resolvedValueGroups.map((group, groupIndex) => (
+                        <section
+                            key={`${group.id}:${groupIndex}`}
+                            className="space-y-2"
+                            data-selector-value-group={group.id}
+                        >
+                            <h4 className="text-xs font-semibold text-foreground">
+                                {group.label}
+                            </h4>
+                            {renderValueSelector(
+                                sectionId,
+                                group.values,
+                                effectiveUiMode,
+                                isOptionalEnabled,
+                                {
+                                    skipValueGroups: true,
+                                    selectedValue,
+                                    valuesAreVisible: true,
+                                },
+                            )}
+                        </section>
+                    ))}
+                </div>
+            );
+        }
+
+        if (effectiveUiMode === 'checkboxes') {
             return (
                 <div className={cn("space-y-1", !isActive && "opacity-60 pointer-events-none")}>
                     {visibleValues.map(v => {
                         const isSelected = selectedValue === v.id;
-                        const isAvailable = isValueCurrentlyAvailable(sectionId, v.id);
+                        const isSelectable = isValueSelectable(sectionId, v.id);
                         const valueSetting = valueSettings[v.id];
                         const displayName = getDisplayValueName(v.id, sectionId);
                         const checkboxKey = `${sectionId}:${v.id}`;
                         const isHovered = hoveredPictureKey === checkboxKey;
-                        const thumbUrl = getOptionImageUrl(valueSetting);
+                        const thumbUrl = getResolvedOptionImageUrl(valueSetting, displayName, {
+                            allowBuiltInCalendarArtwork,
+                            preferCustomImage: preferCustomImage || adaptiveImageSelector,
+                            fallbackImage: v.meta?.image,
+                        });
                         const renderedThumbUrl = isHovered && valueSetting?.hoverImage
                             ? valueSetting.hoverImage
                             : thumbUrl;
@@ -2105,10 +3141,10 @@ export function MatrixLayoutV1Renderer({
                                 className={cn(
                                     "flex items-center gap-2 p-1.5 rounded border cursor-pointer text-xs transition-all",
                                     isSelected ? "bg-primary/10 border-primary" : "bg-background border-muted hover:border-muted-foreground/30",
-                                    !isAvailable && "opacity-45 cursor-not-allowed"
+                                    !isSelectable && "opacity-45 cursor-not-allowed"
                                 )}
                                 onClick={() => {
-                                    if (!isAvailable) return;
+                                    if (!isSelectable) return;
                                     handleSectionSelect(sectionId, v.id);
                                 }}
                                 onMouseEnter={() => setHoveredPictureKey(checkboxKey)}
@@ -2136,10 +3172,15 @@ export function MatrixLayoutV1Renderer({
         }
 
         // Picture grid display (small / medium / large / xl + xl_notext)
-        if (['small', 'medium', 'large', 'xl', 'xl_notext'].includes(uiMode)) {
+        if (['small', 'medium', 'large', 'xl', 'xl_notext'].includes(effectiveUiMode)) {
             return (
                 <div 
-                    className={cn("flex flex-wrap", !isActive && "opacity-60 pointer-events-none")}
+                    className={cn(
+                        isEmbeddedAdaptiveSelector
+                            ? "grid grid-cols-1 min-[360px]:grid-cols-2"
+                            : "flex flex-wrap",
+                        !isActive && "opacity-60 pointer-events-none",
+                    )}
                     style={{ gap: `${sectionPictureButtonsConfig.gapBetweenPx}px` }}
                 >
                     {visibleValues.map(v => {
@@ -2147,10 +3188,31 @@ export function MatrixLayoutV1Renderer({
                         const isHovered = hoveredPictureKey === pictureKey;
                         const isSelected = selectedValue === v.id;
                         const valueSetting = valueSettings[v.id];
-                        const primaryThumbUrl = getOptionImageUrl(valueSetting);
                         const displayName = getDisplayValueName(v.id, sectionId);
-                        const isAvailable = isValueCurrentlyAvailable(sectionId, v.id);
-                        const pictureImagePx = valueSetting?.imageSizePx ?? sectionPictureButtonsConfig.sizePx;
+                        const primaryThumbUrl = getResolvedOptionImageUrl(valueSetting, displayName, {
+                            allowBuiltInCalendarArtwork,
+                            preferCustomImage: preferCustomImage || adaptiveImageSelector,
+                            fallbackImage: v.meta?.image,
+                        });
+                        const brandBadge = getResolvedOptionBrandBadge(
+                            valueSetting,
+                            displayName,
+                            allowBuiltInCalendarArtwork,
+                        );
+                        const artworkLabel = allowBuiltInCalendarArtwork
+                            && !(
+                                (prefersConfiguredOptionImage(valueSetting, preferCustomImage) || adaptiveImageSelector)
+                                && getOptionImageUrl(valueSetting, v.meta?.image)
+                            )
+                            ? getBuiltInCalendarOptionArtworkLabel(displayName)
+                            : undefined;
+                        const isSelectable = isValueSelectable(sectionId, v.id);
+                        const configuredPictureImagePx = valueSetting?.imageSizePx ?? sectionPictureButtonsConfig.sizePx;
+                        const pictureImagePx = isEmbeddedAdaptiveSelector
+                            ? Math.min(configuredPictureImagePx, 72)
+                            : adaptiveImageSelector
+                                ? Math.min(configuredPictureImagePx, 112)
+                                : configuredPictureImagePx;
                         const thumbUrl = isHovered && valueSetting?.hoverImage
                             ? valueSetting.hoverImage
                             : primaryThumbUrl;
@@ -2158,22 +3220,32 @@ export function MatrixLayoutV1Renderer({
                             isHovered,
                             isSelected,
                         });
-                        const overlayColor = pictureStateStyles.backgroundColor !== sectionPictureButtonsConfig.backgroundColor
+                        const overlayColor = !neutralWhiteSurface && pictureStateStyles.backgroundColor !== sectionPictureButtonsConfig.backgroundColor
                             ? pictureStateStyles.backgroundColor
                             : undefined;
                         const useDetachedLabel = (
-                            sectionPictureButtonsConfig.displayMode === "text_below_image"
+                            isEmbeddedAdaptiveSelector
+                            || sectionPictureButtonsConfig.displayMode === "text_below_image"
                             || sectionPictureButtonsConfig.labelOutsideImage
                         )
                             && sectionPictureButtonsConfig.showImage
                             && sectionPictureButtonsConfig.showLabel;
 
-                        const pictureImageSizeCss = `min(${pictureImagePx}px, 44vw)`;
-                        const buttonWidth = sectionPictureButtonsConfig.showImage ? pictureImageSizeCss : 'auto';
+                        const pictureImageSizeCss = `min(${pictureImagePx}px, 36vw)`;
+                        const buttonWidth = isEmbeddedAdaptiveSelector
+                            ? '100%'
+                            : sectionPictureButtonsConfig.showImage
+                                ? pictureImageSizeCss
+                                : 'auto';
+                        const pictureFrameWidth = isEmbeddedAdaptiveSelector
+                            ? pictureImageSizeCss
+                            : buttonWidth;
                         const buttonHeight = !useDetachedLabel && sectionPictureButtonsConfig.showImage
                             ? `calc(${pictureImageSizeCss} + ${sectionPictureButtonsConfig.showLabel ? 24 : 0}px)`
                             : 'auto';
-                        const pictureBackgroundColor = valueSetting?.backgroundColor || sectionPictureButtonsConfig.backgroundColor;
+                        const pictureBackgroundColor = neutralWhiteSurface
+                            ? "#FFFFFF"
+                            : (valueSetting?.backgroundColor || sectionPictureButtonsConfig.backgroundColor);
                         const pictureTextColor = valueSetting?.textColor || sectionPictureButtonsConfig.textColor;
                         const pictureBorderColor = valueSetting?.borderColor || pictureStateStyles.borderColor;
                         const pictureBorderRadius = valueSetting?.borderRadiusPx ?? sectionPictureButtonsConfig.imageBorderRadiusPx;
@@ -2185,6 +3257,12 @@ export function MatrixLayoutV1Renderer({
                         return (
                             <button
                                 key={v.id}
+                                ref={(element) => {
+                                    const refKey = `${sectionId}:${v.id}`;
+                                    if (element) focusedSelectionOptionButtonRefs.current.set(refKey, element);
+                                    else focusedSelectionOptionButtonRefs.current.delete(refKey);
+                                }}
+                                type="button"
                                 data-site-design-target={contextualId}
                                 onClick={(e) => {
                                     // Check if we're in preview/edit mode (parent will handle the event)
@@ -2197,26 +3275,43 @@ export function MatrixLayoutV1Renderer({
                                     }
                                     handleSectionSelect(sectionId, v.id);
                                 }}
-                                disabled={!isActive || !isAvailable}
+                                disabled={!isActive || !isSelectable}
+                                aria-pressed={isSelected}
+                                aria-label={`${isSelected ? 'Valgt: ' : 'Vælg '}${displayName}`}
                                 onMouseEnter={() => setHoveredPictureKey(pictureKey)}
                                 onMouseLeave={() => setHoveredPictureKey((prev) => prev === pictureKey ? null : prev)}
                                 className={cn(
-                                    "transition-all",
+                                    "min-h-11 min-w-11 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:!transform-none motion-reduce:!transition-none",
                                     useDetachedLabel
-                                        ? "flex max-w-full touch-manipulation flex-col items-center gap-1 bg-transparent p-0"
+                                        ? cn(
+                                            "flex max-w-full touch-manipulation flex-col items-center gap-1",
+                                            isEmbeddedAdaptiveSelector
+                                                ? "rounded-lg border bg-white p-2 hover:border-primary/60"
+                                                : "bg-transparent p-0",
+                                        )
                                         : "relative flex max-w-full touch-manipulation overflow-hidden border-2 flex-col items-center",
                                     isSelected ? "shadow-none" : "",
-                                    (!isActive || !isAvailable) && "cursor-not-allowed opacity-45"
+                                    (!isActive || !isSelectable) && "cursor-not-allowed opacity-45"
                                 )}
                                 style={{
                                     width: buttonWidth,
                                     minHeight: buttonHeight,
-                                    backgroundColor: useDetachedLabel ? "transparent" : pictureBackgroundColor,
-                                    borderColor: useDetachedLabel ? "transparent" : pictureBorderColor,
-                                    borderRadius: useDetachedLabel ? undefined : `${pictureBorderRadius}px`,
-                                    borderWidth: useDetachedLabel ? 0 : `${pictureBorderWidth}px`,
-                                    borderStyle: useDetachedLabel ? 'none' : 'solid',
-                                    boxShadow: useDetachedLabel ? undefined : pictureStateStyles.boxShadow,
+                                    backgroundColor: useDetachedLabel && !isEmbeddedAdaptiveSelector
+                                        ? "transparent"
+                                        : pictureBackgroundColor,
+                                    borderColor: useDetachedLabel && !isEmbeddedAdaptiveSelector
+                                        ? "transparent"
+                                        : pictureBorderColor,
+                                    borderRadius: useDetachedLabel && !isEmbeddedAdaptiveSelector
+                                        ? undefined
+                                        : `${pictureBorderRadius}px`,
+                                    borderWidth: useDetachedLabel && !isEmbeddedAdaptiveSelector
+                                        ? 0
+                                        : `${pictureBorderWidth}px`,
+                                    borderStyle: useDetachedLabel && !isEmbeddedAdaptiveSelector ? 'none' : 'solid',
+                                    boxShadow: useDetachedLabel && !isEmbeddedAdaptiveSelector
+                                        ? undefined
+                                        : pictureStateStyles.boxShadow,
                                     transform: pictureStateStyles.transform,
                                     transitionDuration: pictureStateStyles.transitionDuration,
                                 }}
@@ -2224,16 +3319,19 @@ export function MatrixLayoutV1Renderer({
                                 {useDetachedLabel ? (
                                     <>
                                         <span
-                                            className="relative flex overflow-hidden border-2"
+                                            className={cn(
+                                                "relative mx-auto flex overflow-hidden",
+                                                !isEmbeddedAdaptiveSelector && "border-2",
+                                            )}
                                             style={{
-                                                width: buttonWidth,
+                                                width: pictureFrameWidth,
                                                 minHeight: pictureImageSizeCss,
                                                 backgroundColor: pictureBackgroundColor,
-                                                borderColor: pictureBorderColor,
+                                                borderColor: isEmbeddedAdaptiveSelector ? "transparent" : pictureBorderColor,
                                                 borderRadius: `${pictureBorderRadius}px`,
-                                                borderWidth: `${pictureBorderWidth}px`,
-                                                borderStyle: 'solid',
-                                                boxShadow: pictureStateStyles.boxShadow,
+                                                borderWidth: isEmbeddedAdaptiveSelector ? 0 : `${pictureBorderWidth}px`,
+                                                borderStyle: isEmbeddedAdaptiveSelector ? 'none' : 'solid',
+                                                boxShadow: isEmbeddedAdaptiveSelector ? undefined : pictureStateStyles.boxShadow,
                                             }}
                                         >
                                             {overlayColor && (
@@ -2245,9 +3343,15 @@ export function MatrixLayoutV1Renderer({
                                             {thumbUrl ? (
                                                 <img
                                                     src={getHiResThumbnailUrl(thumbUrl, pictureImagePx, pictureImagePx)}
-                                                    alt={displayName}
-                                                    className="relative z-0 w-full object-cover"
-                                                    style={{ height: pictureImageSizeCss }}
+                                                    alt=""
+                                                    className={cn(
+                                                        "relative z-0 w-full",
+                                                        (brandBadge || neutralWhiteSurface || adaptiveImageSelector) ? "object-contain" : "object-cover",
+                                                    )}
+                                                    style={{
+                                                        height: pictureImageSizeCss,
+                                                        backgroundColor: (brandBadge || neutralWhiteSurface || adaptiveImageSelector) ? "#FFFFFF" : undefined,
+                                                    }}
                                                 />
                                             ) : (
                                                 <div
@@ -2261,9 +3365,15 @@ export function MatrixLayoutV1Renderer({
                                                     {(displayName || '?').slice(0, 3).toUpperCase()}
                                                 </div>
                                             )}
+                                            {artworkLabel && <CalendarArtworkLabelOverlay label={artworkLabel} />}
+                                            {brandBadge && <OptionBrandBadgeOverlay badge={brandBadge} />}
                                         </span>
                                         <span
-                                            className="w-full px-1 text-center leading-tight"
+                                            className={cn(
+                                                "w-full whitespace-normal break-words px-1 text-center leading-tight [hyphens:auto]",
+                                                isEmbeddedAdaptiveSelector && "min-h-10 px-2 text-balance",
+                                            )}
+                                            lang="da"
                                             style={{
                                                 color: sectionPictureButtonsConfig.textColor,
                                                 fontSize: `${valueSetting?.fontSizePx ?? sectionPictureButtonsConfig.labelFontSizePx}px`,
@@ -2284,10 +3394,14 @@ export function MatrixLayoutV1Renderer({
                                             thumbUrl ? (
                                                 <img
                                                     src={getHiResThumbnailUrl(thumbUrl, pictureImagePx, pictureImagePx)}
-                                                    alt={displayName}
-                                                    className="relative z-0 w-full object-cover"
+                                                    alt=""
+                                                    className={cn(
+                                                        "relative z-0 w-full",
+                                                        (brandBadge || neutralWhiteSurface || adaptiveImageSelector) ? "object-contain" : "object-cover",
+                                                    )}
                                                     style={{ 
                                                         height: pictureImageSizeCss,
+                                                        backgroundColor: (brandBadge || neutralWhiteSurface || adaptiveImageSelector) ? "#FFFFFF" : undefined,
                                                         borderRadius: sectionPictureButtonsConfig.isTextBelow ? `${sectionPictureButtonsConfig.imageBorderRadiusPx}px ${sectionPictureButtonsConfig.imageBorderRadiusPx}px 0 0` : undefined
                                                     }}
                                                 />
@@ -2305,9 +3419,16 @@ export function MatrixLayoutV1Renderer({
                                                 </div>
                                             )
                                         )}
+                                        {sectionPictureButtonsConfig.showImage && brandBadge && (
+                                            <OptionBrandBadgeOverlay badge={brandBadge} />
+                                        )}
+                                        {sectionPictureButtonsConfig.showImage && artworkLabel && (
+                                            <CalendarArtworkLabelOverlay label={artworkLabel} />
+                                        )}
                                         {sectionPictureButtonsConfig.showLabel && (
                                             <span
-                                                className="relative z-20 w-full truncate px-1 py-1 text-center leading-tight"
+                                                className="relative z-20 w-full whitespace-normal break-words px-1 py-1 text-center leading-tight [hyphens:auto]"
+                                                lang="da"
                                                 style={{
                                                     color: sectionPictureButtonsConfig.textColor,
                                                     fontSize: `${valueSetting?.fontSizePx ?? sectionPictureButtonsConfig.labelFontSizePx}px`,
@@ -2333,29 +3454,55 @@ export function MatrixLayoutV1Renderer({
             >
                 {visibleValues.map(v => {
                     const isSelected = selectedValue === v.id;
-                    const isAvailable = isValueCurrentlyAvailable(sectionId, v.id);
+                    const isSelectable = isValueSelectable(sectionId, v.id);
                     const valueSetting = valueSettings[v.id];
                     const displayName = getDisplayValueName(v.id, sectionId);
                     const buttonKey = `${sectionId}:${v.id}`;
                     const isHovered = hoveredPictureKey === buttonKey;
                     const paddingPx = valueSetting?.paddingPx ?? sectionTextButtonsConfig.paddingPx;
                     const borderRadiusPx = valueSetting?.borderRadiusPx ?? sectionTextButtonsConfig.borderRadiusPx;
-                    const primaryThumbUrl = getOptionImageUrl(valueSetting);
                     const renderedThumbUrl = isHovered && valueSetting?.hoverImage
                         ? valueSetting.hoverImage
-                        : primaryThumbUrl;
+                        : getResolvedOptionImageUrl(valueSetting, displayName, {
+                            allowBuiltInCalendarArtwork,
+                            preferCustomImage: preferCustomImage || adaptiveImageSelector,
+                            fallbackImage: v.meta?.image,
+                        });
+                    const brandBadge = getResolvedOptionBrandBadge(
+                        valueSetting,
+                        displayName,
+                        allowBuiltInCalendarArtwork,
+                    );
+                    const artworkLabel = allowBuiltInCalendarArtwork
+                        && !(
+                            (prefersConfiguredOptionImage(valueSetting, preferCustomImage) || adaptiveImageSelector)
+                            && getOptionImageUrl(valueSetting, v.meta?.image)
+                        )
+                        ? getBuiltInCalendarOptionArtworkLabel(displayName)
+                        : undefined;
                     const imagePx = valueSetting?.imageSizePx ?? thumbnailPx;
+                    const isInteractiveHover = isHovered && !isSelected;
                     
                     // Determine colors based on state
-                    const bgColor = isSelected 
-                        ? sectionTextButtonsConfig.selectedBackgroundColor 
-                        : (valueSetting?.backgroundColor || sectionTextButtonsConfig.backgroundColor);
-                    const textColor = isSelected 
-                        ? sectionTextButtonsConfig.selectedTextColor 
-                        : (valueSetting?.textColor || sectionTextButtonsConfig.textColor);
+                    const bgColor = neutralWhiteSurface
+                        ? "#FFFFFF"
+                        : isSelected
+                            ? sectionTextButtonsConfig.selectedBackgroundColor
+                            : isInteractiveHover
+                            ? (valueSetting?.hoverBackgroundColor || sectionTextButtonsConfig.hoverBackgroundColor)
+                            : (valueSetting?.backgroundColor || sectionTextButtonsConfig.backgroundColor);
+                    const textColor = neutralWhiteSurface
+                        ? (valueSetting?.textColor || sectionTextButtonsConfig.textColor)
+                        : isSelected
+                            ? sectionTextButtonsConfig.selectedTextColor
+                            : isInteractiveHover
+                            ? (valueSetting?.hoverTextColor || sectionTextButtonsConfig.hoverTextColor)
+                            : (valueSetting?.textColor || sectionTextButtonsConfig.textColor);
                     const borderColor = isSelected 
                         ? sectionTextButtonsConfig.selectedBackgroundColor 
-                        : (valueSetting?.borderColor || sectionTextButtonsConfig.borderColor);
+                        : isInteractiveHover
+                            ? (valueSetting?.hoverBorderColor || sectionTextButtonsConfig.hoverBorderColor)
+                            : (valueSetting?.borderColor || sectionTextButtonsConfig.borderColor);
                     
                     // Build contextual editor ID for click-to-edit
                     const contextualId = `product-option.${productId}.${sectionId}.${v.id}.${encodeURIComponent(displayName)}`;
@@ -2363,6 +3510,12 @@ export function MatrixLayoutV1Renderer({
                     return (
                         <button
                             key={v.id}
+                            ref={(element) => {
+                                const refKey = `${sectionId}:${v.id}`;
+                                if (element) focusedSelectionOptionButtonRefs.current.set(refKey, element);
+                                else focusedSelectionOptionButtonRefs.current.delete(refKey);
+                            }}
+                            type="button"
                             data-site-design-target={contextualId}
                             onClick={(e) => {
                                 // Check if we're in preview/edit mode (parent will handle the event)
@@ -2375,10 +3528,11 @@ export function MatrixLayoutV1Renderer({
                                 }
                                 handleSectionSelect(sectionId, v.id);
                             }}
-                            disabled={!isActive || !isAvailable}
+                            disabled={!isActive || !isSelectable}
+                            aria-pressed={isSelected}
                             className={cn(
-                                "flex min-h-11 min-w-[min(10rem,100%)] touch-manipulation items-center justify-center gap-2 text-center leading-tight transition-all duration-200 sm:min-w-0",
-                                !isAvailable && "opacity-45 cursor-not-allowed"
+                                "flex min-h-11 min-w-[min(10rem,100%)] touch-manipulation items-center justify-center gap-2 text-center leading-tight transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transition-none sm:min-w-0",
+                                !isSelectable && "opacity-45 cursor-not-allowed"
                             )}
                             style={{
                                 backgroundColor: bgColor,
@@ -2392,36 +3546,39 @@ export function MatrixLayoutV1Renderer({
                                 minHeight: `${valueSetting?.minHeightPx ?? sectionTextButtonsConfig.minHeightPx}px`,
                                 fontFamily: sectionTextButtonsConfig.fontFamily || 'inherit',
                             }}
-                            onMouseEnter={(e) => {
+                            onMouseEnter={() => {
                                 setHoveredPictureKey(buttonKey);
-                                if (isSelected) return;
-                                e.currentTarget.style.backgroundColor = valueSetting?.hoverBackgroundColor || sectionTextButtonsConfig.hoverBackgroundColor;
-                                e.currentTarget.style.color = valueSetting?.hoverTextColor || sectionTextButtonsConfig.hoverTextColor;
-                                e.currentTarget.style.borderColor = valueSetting?.hoverBorderColor || sectionTextButtonsConfig.hoverBorderColor;
                             }}
-                            onMouseLeave={(e) => {
+                            onMouseLeave={() => {
                                 setHoveredPictureKey((prev) => prev === buttonKey ? null : prev);
-                                if (isSelected) return;
-                                e.currentTarget.style.backgroundColor = valueSetting?.backgroundColor || sectionTextButtonsConfig.backgroundColor;
-                                e.currentTarget.style.color = valueSetting?.textColor || sectionTextButtonsConfig.textColor;
-                                e.currentTarget.style.borderColor = valueSetting?.borderColor || sectionTextButtonsConfig.borderColor;
                             }}
                         >
                             {valueSetting?.showThumbnail && renderedThumbUrl && (
-                                <img
-                                    src={getHiResThumbnailUrl(
-                                        renderedThumbUrl,
-                                        imagePx,
-                                        imagePx
-                                    )}
-                                    alt={displayName}
-                                    className="object-cover shrink-0"
-                                    style={{ 
+                                <span
+                                    className="relative shrink-0"
+                                    style={{
                                         width: imagePx,
                                         height: imagePx,
-                                        borderRadius: `${borderRadiusPx / 2}px`
+                                        backgroundColor: (brandBadge || neutralWhiteSurface) ? "#FFFFFF" : undefined,
+                                        borderRadius: `${borderRadiusPx / 2}px`,
                                     }}
-                                />
+                                >
+                                    <img
+                                        src={getHiResThumbnailUrl(
+                                            renderedThumbUrl,
+                                            imagePx,
+                                            imagePx
+                                        )}
+                                        alt={displayName}
+                                        className={cn(
+                                            "h-full w-full",
+                                            (brandBadge || neutralWhiteSurface) ? "object-contain" : "object-cover",
+                                        )}
+                                        style={{ borderRadius: `${borderRadiusPx / 2}px` }}
+                                    />
+                                    {artworkLabel && <CalendarArtworkLabelOverlay label={artworkLabel} />}
+                                    {brandBadge && <OptionBrandBadgeOverlay badge={brandBadge} compact />}
+                                </span>
                             )}
                             {displayName}
                         </button>
@@ -2431,7 +3588,7 @@ export function MatrixLayoutV1Renderer({
         );
     };
 
-    if (matrixLoading && !hasResolvedPriceRows) {
+    if (showInitialMatrixSkeleton) {
         return (
             <div className="space-y-6 min-h-[560px]">
                 <div className="h-4 text-xs text-muted-foreground" aria-live="polite">
@@ -2469,7 +3626,13 @@ export function MatrixLayoutV1Renderer({
     }
 
     return (
-        <div className="space-y-6 [font-family:var(--matrix-font)]" style={matrixStyleVars} data-branding-id="productPage.matrix">
+        <div
+            className="space-y-6 [font-family:var(--matrix-font)]"
+            style={matrixStyleVars}
+            data-branding-id="productPage.matrix"
+            data-matrix-loading={matrixLoading ? "true" : "false"}
+            aria-busy={matrixLoading}
+        >
             <div className="h-4 text-xs text-muted-foreground" aria-live="polite">
                 {matrixLoading ? 'Opdaterer priser...' : '\u00A0'}
             </div>
@@ -2480,8 +3643,39 @@ export function MatrixLayoutV1Renderer({
                         col => col.id !== pricingStructure.vertical_axis.sectionId
                             && !isHiddenColumn(col)
                     );
+                    const renderableColumns = filteredColumns.filter((col) => {
+                        if (
+                            !isProgressiveFocusConfirmed
+                            && progressiveFocusSectionId
+                            && col.id !== progressiveFocusSectionId
+                        ) {
+                            return false;
+                        }
+                        if (embeddedAdaptiveSelectorSectionIds.has(col.id)) {
+                            return false;
+                        }
+                        const values = getSectionValues(col.groupId, col.valueIds);
+                        const visibleValues = getVisibleValuesForSection(col.id, values, selectedSectionValues);
+                        if (visibleValues.length === 0) return false;
+                        const availableVisibleValues = visibleValues.filter((value) => (
+                            isValueSelectable(col.id, value.id)
+                        ));
+                        if (
+                            shouldHideSingleAvailableValue(col.id)
+                            && !isOptionalSectionId(col.id)
+                            && availableVisibleValues.length === 1
+                        ) {
+                            return false;
+                        }
+                        return true;
+                    });
 
-                    if (filteredColumns.length === 0) return null;
+                    if (renderableColumns.length === 0) return null;
+                    const rowHasFocusedSelection = renderableColumns.some((col) => (
+                        shouldFocusSelectedValue(col.id)
+                        && focusedSelectionSectionIds.has(col.id)
+                        && Boolean(selectedSectionValues[col.id])
+                    ));
 
                     return (
                         <div key={row.id} className="space-y-2 pb-3 border-b last:border-b-0">
@@ -2489,15 +3683,29 @@ export function MatrixLayoutV1Renderer({
                             {row.description && <p className="text-xs text-muted-foreground">{row.description}</p>}
                             <div className={cn(
                                 "grid grid-cols-1 gap-3",
-                                filteredColumns.length === 1 && "grid-cols-1",
-                                filteredColumns.length === 2 && "sm:grid-cols-2",
-                                filteredColumns.length >= 3 && "sm:grid-cols-2 lg:grid-cols-3"
+                                renderableColumns.length === 1 && "grid-cols-1",
+                                renderableColumns.length === 2 && "sm:grid-cols-2",
+                                renderableColumns.length >= 3 && "sm:grid-cols-2 lg:grid-cols-3"
                             )}>
-                                {filteredColumns.map((col, colIndex) => {
+                                {renderableColumns.map((col, colIndex) => {
                                     const values = getSectionValues(col.groupId, col.valueIds);
                                     const visibleValues = getVisibleValuesForSection(col.id, values, selectedSectionValues);
                                     if (visibleValues.length === 0) return null;
-                                    const sectionLabel = col.title || getSectionTypeLabel(col.sectionType);
+                                    const availablePresentationKinds = new Set(
+                                        visibleValues
+                                            .filter((value) => isValueSelectable(col.id, value.id))
+                                            .map((value) => value.meta?.presentationKind)
+                                            .filter(Boolean),
+                                    );
+                                    const adaptiveSectionLabel = shouldUseAdaptiveImageSelector(col.id)
+                                        && availablePresentationKinds.size === 1
+                                        ? availablePresentationKinds.has('filling')
+                                            ? 'Hvad ønsker du i kalenderen?'
+                                            : availablePresentationKinds.has('format')
+                                                ? 'Vælg format eller orientering'
+                                                : null
+                                        : null;
+                                    const sectionLabel = adaptiveSectionLabel || col.title || getSectionTypeLabel(col.sectionType);
                                     const uiMode = col.ui_mode || 'buttons';
                                     const isOptional = isOptionalSectionId(col.id);
                                     const isOptionalEnabled = isOptional && !!selectedSectionValues[col.id];
@@ -2508,7 +3716,7 @@ export function MatrixLayoutV1Renderer({
                                         if (!isOptional) return;
                                         if (checked) {
                                             const firstSelectableValue = visibleValues.find((value) =>
-                                                isValueCurrentlyAvailable(col.id, value.id)
+                                                isValueSelectable(col.id, value.id)
                                             ) || visibleValues[0];
                                             if (!selectedSectionValues[col.id] && firstSelectableValue) {
                                                 handleSectionSelect(col.id, firstSelectableValue.id);
@@ -2525,7 +3733,8 @@ export function MatrixLayoutV1Renderer({
                                             className={cn(
                                                 "space-y-1.5 transition-colors",
                                                 isOptionalEnabled && "ring-1 ring-primary/20",
-                                                colIndex > 0 && col.sectionType !== "finishes" && "sm:border-l-2 sm:border-primary/20"
+                                                colIndex > 0 && col.sectionType !== "finishes" && !rowHasFocusedSelection && "sm:border-l-2 sm:border-primary/20",
+                                                rowHasFocusedSelection && "sm:col-span-full"
                                             )}
                                             style={{
                                                 backgroundColor: selectorBoxConfig.backgroundColor,
@@ -2560,7 +3769,7 @@ export function MatrixLayoutV1Renderer({
             </div>
 
             {/* Price Matrix */}
-            {matrixData.rows.length > 0 && matrixData.columns.length > 0 && (
+            {isProgressiveFocusConfirmed && matrixData.rows.length > 0 && matrixData.columns.length > 0 && (
                 <div className="mt-6">
                     <PriceMatrix
                         rows={matrixData.rows}
@@ -2576,7 +3785,7 @@ export function MatrixLayoutV1Renderer({
             )}
 
             {/* Empty state */}
-            {matrixData.rows.length === 0 && (
+            {isProgressiveFocusConfirmed && matrixData.rows.length === 0 && (
                 <div className="text-center py-12 text-muted-foreground">
                     <p>Ingen priser fundet for dette produkt.</p>
                     <p className="text-sm">Vælg format og produkt ovenfor.</p>

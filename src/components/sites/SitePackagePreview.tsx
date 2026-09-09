@@ -86,6 +86,8 @@ type RuntimeSiteStorformatConfig = {
   roundingStep: number;
   globalMarkupPct: number;
   quantities: number[];
+  areaPricingBasis?: string | null;
+  sourceQuoteModel?: unknown;
 };
 
 type RuntimeSiteStorformatMaterial = {
@@ -670,6 +672,8 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
               ? {
                 roundingStep: asNumber(configRow.rounding_step) ?? 1,
                 globalMarkupPct: asNumber(configRow.global_markup_pct) ?? 0,
+                areaPricingBasis: asString(configRow.area_pricing_basis),
+                sourceQuoteModel: configRow.source_quote_model,
                 quantities: Array.isArray(configRow.quantities)
                   ? configRow.quantities
                     .map((value) => asNumber(value))

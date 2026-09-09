@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { getPriceForSelection } from "./productPricing";
-import { calculateStorformatPrice } from "./storformatPricing";
+import { calculateStorformatDisplayPrice } from "./storformatDisplayPrice";
+import { getStorformatSourceQuoteFields } from "@/lib/pricing/storformatQuoteUi";
 
 interface Product {
   id: string;
@@ -192,11 +193,13 @@ export async function getProductDisplayPrice(product: Product): Promise<string> 
 
     // Generic/Machine Pricing Add-On (MPA) support
     if (product.pricing_type === 'STORFORMAT') {
-      const { data: cfg } = await supabase
+      const { data: cfg, error: configError } = await supabase
         .from('storformat_configs' as any)
         .select('*')
         .eq('product_id', product.id)
         .maybeSingle();
+      // A missing config may conceal quote-based pricing. Never fall back to old tiers in that state.
+      if (configError || !cfg) return 'Se priser';
 
       const { data: materialRows } = await supabase
         .from('storformat_materials' as any)
@@ -241,22 +244,13 @@ export async function getProductDisplayPrice(product: Product): Promise<string> 
 
       if (materialsWithTiers.length > 0) {
         const config = {
-          rounding_step: cfg?.rounding_step || 1,
+          rounding_step: cfg?.rounding_step ?? 1,
           global_markup_pct: cfg?.global_markup_pct || 0,
+          ...getStorformatSourceQuoteFields(cfg),
           quantities: cfg?.quantities?.length ? cfg.quantities : [1]
         };
-        const quantity = config.quantities[0] || 1;
-        const material = materialsWithTiers[0];
-        const productSelection = productsWithPricing[0] || null;
-        const result = calculateStorformatPrice({
-          widthMm: 1000,
-          heightMm: 1000,
-          quantity,
-          material,
-          product: productSelection,
-          config
-        });
-        return `Fra ${Math.round(result.totalPrice)} kr`;
+        const price = calculateStorformatDisplayPrice(config, materialsWithTiers, productsWithPricing);
+        return price == null ? 'Se priser' : `Fra ${Math.round(price)} kr`;
       }
     }
 

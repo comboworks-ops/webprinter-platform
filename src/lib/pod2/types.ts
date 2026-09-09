@@ -96,6 +96,7 @@ export interface PodFulfillmentJob {
     product_name?: string;
     variant_signature: string;
     qty: number;
+    /** Webprinter product price owed by the tenant before its own markup. */
     tenant_cost: number;
     currency: string;
     status: 'awaiting_approval' | 'payment_pending' | 'paid' | 'submitted' | 'processing' | 'failed' | 'completed';

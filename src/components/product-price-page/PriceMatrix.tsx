@@ -6,10 +6,12 @@ import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { getMatrixStyleVars } from "@/lib/branding/matrix";
 
 type PriceMatrixProps = {
+  maxColumnsPerPage?: number;
   rows: string[];
   columns: number[];
   cells: Record<string, Record<number, number>>;
   onCellClick: (row: string, column: number, basePrice: number, displayPrice: number) => void;
+  isCellUnavailable?: (row: string, column: number) => boolean;
   selectedCell?: { row: string; column: number } | null;
   columnUnit?: string; // e.g., "stk", "m²"
   customArea?: number; // For area-based products - multiplier for price calculation
@@ -26,10 +28,12 @@ type PriceMatrixProps = {
 };
 
 export function PriceMatrix({
+  maxColumnsPerPage,
   rows,
   columns,
   cells,
   onCellClick,
+  isCellUnavailable,
   selectedCell,
   columnUnit = "stk",
   customArea,
@@ -60,7 +64,7 @@ export function PriceMatrix({
     };
   };
   const [columnOffset, setColumnOffset] = useState(0);
-  const [columnsPerPage, setColumnsPerPage] = useState(8);
+  const [columnsPerPage, setColumnsPerPage] = useState(maxColumnsPerPage ?? 8);
   // const [isUpdating, setIsUpdating] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -96,14 +100,14 @@ export function PriceMatrix({
         // Estimate: ~100px per column + 150px for row headers
         const availableWidth = width - 150;
         const cols = Math.floor(availableWidth / 100);
-        setColumnsPerPage(Math.max(4, Math.min(cols, columns.length)));
+        setColumnsPerPage(Math.min(maxColumnsPerPage ?? Infinity, Math.max(4, Math.min(cols, columns.length))));
       }
     };
 
     updateColumnsPerPage();
     window.addEventListener("resize", updateColumnsPerPage);
     return () => window.removeEventListener("resize", updateColumnsPerPage);
-  }, [columns.length]);
+  }, [columns.length, maxColumnsPerPage]);
 
   const visibleColumns = columns.slice(columnOffset, columnOffset + columnsPerPage);
   const canGoPrev = columnOffset > 0;
@@ -118,50 +122,32 @@ export function PriceMatrix({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, row: string, col: number) => {
-    const currentRowIndex = rows.indexOf(row);
-    const currentColIndex = columns.indexOf(col);
-
-    switch (e.key) {
-      case "ArrowUp":
-        e.preventDefault();
-        if (currentRowIndex > 0) {
-          const newRow = rows[currentRowIndex - 1];
-          const { base, display } = getPrices(newRow, col);
-          onCellClick(newRow, col, base, display);
-        }
-        break;
-      case "ArrowDown":
-        e.preventDefault();
-        if (currentRowIndex < rows.length - 1) {
-          const newRow = rows[currentRowIndex + 1];
-          const { base, display } = getPrices(newRow, col);
-          onCellClick(newRow, col, base, display);
-        }
-        break;
-      case "ArrowLeft":
-        e.preventDefault();
-        if (currentColIndex > 0) {
-          const newCol = columns[currentColIndex - 1];
-          const { base, display } = getPrices(row, newCol);
-          onCellClick(row, newCol, base, display);
-        }
-        break;
-      case "ArrowRight":
-        e.preventDefault();
-        if (currentColIndex < columns.length - 1) {
-          const newCol = columns[currentColIndex + 1];
-          const { base, display } = getPrices(row, newCol);
-          onCellClick(row, newCol, base, display);
-        }
-        break;
-      case "Enter":
-      case " ":
-        e.preventDefault();
-        const { base, display } = getPrices(row, col);
-        onCellClick(row, col, base, display);
-        break;
+    let rowIndex = rows.indexOf(row);
+    let colIndex = columns.indexOf(col);
+    const direction = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
+    if (direction) {
+      e.preventDefault();
+      do {
+        rowIndex += direction[0];
+        colIndex += direction[1];
+        if (rowIndex < 0 || rowIndex >= rows.length || colIndex < 0 || colIndex >= columns.length) return;
+      } while (isCellUnavailable?.(rows[rowIndex], columns[colIndex]));
+      const { base, display } = getPrices(rows[rowIndex], columns[colIndex]);
+      onCellClick(rows[rowIndex], columns[colIndex], base, display);
+      requestAnimationFrame(() => {
+        containerRef.current?.querySelector<HTMLButtonElement>(`[data-matrix-row="${rowIndex}"][data-matrix-column="${colIndex}"]`)?.focus();
+      });
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (isCellUnavailable?.(row, col)) return;
+      const { base, display } = getPrices(row, col);
+      onCellClick(row, col, base, display);
     }
   };
+  const hasAvailableSelection = selectedCell && !isCellUnavailable?.(selectedCell.row, selectedCell.column);
+  const firstAvailableCell = isCellUnavailable && !hasAvailableSelection
+    ? rows.flatMap(row => visibleColumns.map(column => ({ row, column }))).find(cell => !isCellUnavailable(cell.row, cell.column))
+    : null;
 
   return (
     <div
@@ -232,24 +218,30 @@ export function PriceMatrix({
               </div>
               {visibleColumns.map((col) => {
                 const { base, display } = getPrices(row, col);
-                const isSelected = selectedCell?.row === row && selectedCell?.column === col;
+                const unavailable = Boolean(isCellUnavailable?.(row, col));
+                const isSelected = !unavailable && selectedCell?.row === row && selectedCell?.column === col;
+                const isFirstAvailable = firstAvailableCell?.row === row && firstAvailableCell?.column === col;
 
                 return (
                   <button
                     key={`${row}-${col}`}
                     role="gridcell"
-                    tabIndex={isSelected ? 0 : -1}
-                    aria-label={`${row}, ${col} ${columnUnit}, ${display} kr`}
+                    data-matrix-row={rows.indexOf(row)}
+                    data-matrix-column={columns.indexOf(col)}
+                    disabled={unavailable}
+                    tabIndex={isSelected || isFirstAvailable ? 0 : -1}
+                    aria-label={`${row}, ${col} ${columnUnit}, ${unavailable ? "Ingen pris for valgt format og tilvalg" : `${display} kr`}`}
+                    title={unavailable ? "Ingen pris for valgt format og tilvalg" : undefined}
                     aria-selected={isSelected}
-                    onClick={() => onCellClick(row, col, base, display)}
+                    onClick={() => { if (!unavailable) onCellClick(row, col, base, display); }}
                     onKeyDown={(e) => handleKeyDown(e, row, col)}
                     data-site-design-target="productPage.matrix.pricing"
-                    className={`min-h-11 w-20 flex-shrink-0 touch-manipulation border-l border-[var(--matrix-border)] p-2 text-center text-xs tabular-nums transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--matrix-selected-bg)] focus:ring-inset sm:w-24 sm:p-3 sm:text-sm ${isSelected
+                    className={`disabled:cursor-not-allowed disabled:opacity-50 min-h-11 w-20 flex-shrink-0 touch-manipulation border-l border-[var(--matrix-border)] p-2 text-center text-xs tabular-nums transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--matrix-selected-bg)] focus:ring-inset sm:w-24 sm:p-3 sm:text-sm ${isSelected
                       ? "bg-[var(--matrix-selected-bg)] font-semibold text-[var(--matrix-selected-text)]"
                       : "cursor-pointer bg-[var(--matrix-cell-bg)] text-[var(--matrix-cell-text)] hover:bg-[var(--matrix-cell-hover-bg)] hover:text-[var(--matrix-cell-hover-text)]"
                       }`}
                   >
-                    {display > 0 ? `${display} kr` : "-"}
+                    {unavailable ? "—" : display > 0 ? `${display} kr` : "-"}
                   </button>
                 );
               })}

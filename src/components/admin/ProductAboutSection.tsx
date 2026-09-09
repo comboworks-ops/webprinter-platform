@@ -9,14 +9,36 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { Json } from "@/integrations/supabase/types";
 import { toast } from "sonner";
-import { Loader2, Save, Upload, X, Download, FileText, Plus, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
+import { Loader2, Save, Upload, X, Download, FileText, Plus, ArrowUp, ArrowDown, Trash2, ExternalLink, ScanLine } from "lucide-react";
+import {
+  inferTemplateConfiguration,
+  inferTemplateFormat,
+} from "@/lib/designer/productTemplateLinks";
+import { MASTER_TENANT_ID, isAttributeTemplateType } from "@/lib/designer/templateLibrary";
+import {
+  normalizeProductInfoGalleryLayout,
+  normalizeProductInfoShowWhen,
+  type ProductInfoGalleryLayout,
+  type ProductInfoShowWhenCondition,
+} from "@/lib/storefront/productInfoVisibility";
+import {
+  buildOptimisticProductAboutUpdate,
+  haveTemplateFilesChanged,
+} from "./productAboutTemplatePersistence";
 
 
 interface TemplateFile {
+  [key: string]: Json | undefined;
   name: string;
   url: string;
   path: string;
   format?: string;
+  configuration?: string | null;
+  designerTemplateId?: string | null;
+  widthMm?: number | null;
+  heightMm?: number | null;
+  bleedMm?: number | null;
+  safeMm?: number | null;
   designerUrl?: string | null;
   designerLabel?: string | null;
   uploadedAt: string;
@@ -24,7 +46,7 @@ interface TemplateFile {
 
 interface ProductAboutSectionProps {
   productId: string;
-  productSlug?: string;
+  tenantId: string;
   aboutTitle: string | null;
   aboutDescription: string | null;
   aboutImageUrl: string | null;
@@ -34,11 +56,29 @@ interface ProductAboutSectionProps {
   onUpdate: () => void;
 }
 
+type DesignerTemplateOption = {
+  id: string;
+  name: string;
+  tenant_id: string;
+  is_public: boolean;
+  template_type: string | null;
+  width_mm: number | null;
+  height_mm: number | null;
+  bleed_mm: number | null;
+  safe_area_mm: number | null;
+};
+
 type GalleryEffect = "fade" | "fade-zoom" | "fade-up";
+type ProductInfoGallerySize = "compact" | "standard" | "large" | "full";
+
+const normalizeProductInfoGallerySize = (value: unknown): ProductInfoGallerySize => {
+  if (value === "compact" || value === "large" || value === "full") return value;
+  return "standard";
+};
 
 type ProductInfoBlock = {
   id: string;
-  type: "text" | "image" | "gallery";
+  type: "text" | "image" | "gallery" | "guide";
   title?: string;
   text?: string;
   imageUrl?: string;
@@ -46,6 +86,12 @@ type ProductInfoBlock = {
   images?: string[];
   effect?: GalleryEffect;
   intervalMs?: number;
+  format?: string;
+  configuration?: string;
+  placement?: "left" | "right";
+  galleryLayout?: ProductInfoGalleryLayout;
+  gallerySize?: ProductInfoGallerySize;
+  showWhen?: ProductInfoShowWhenCondition[];
 };
 
 type ProductInfoV2Config = {
@@ -54,17 +100,7 @@ type ProductInfoV2Config = {
   blocks: ProductInfoBlock[];
 };
 
-// Available formats for different product types
-const formatOptions: Record<string, string[]> = {
-  flyers: ['A6', 'M65', 'A5', 'A4', 'A3'],
-  foldere: ['A5', 'M65', 'A4'],
-  plakater: ['A3', 'A2', 'A1', 'A0'],
-  haefter: ['A6', 'A5', 'A4'],
-  hæfter: ['A6', 'A5', 'A4'],
-  salgsmapper: ['M65', 'A5', 'A4'],
-  visitkort: ['Standard (85x55mm)'],
-  klistermærker: ['5x5cm', '10x10cm', '15x15cm', '20x20cm'],
-};
+const PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 const createBlockId = () => `block-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -95,7 +131,7 @@ const getProductInfoV2FromSpecs = (specs: Json | null | undefined): ProductInfoV
     .map((item) => {
       if (!isObjectRecord(item)) return null;
       const type = item.type;
-      if (type !== "text" && type !== "image" && type !== "gallery") return null;
+      if (type !== "text" && type !== "image" && type !== "gallery" && type !== "guide") return null;
       return {
         id: typeof item.id === "string" && item.id ? item.id : createBlockId(),
         type,
@@ -110,6 +146,12 @@ const getProductInfoV2FromSpecs = (specs: Json | null | undefined): ProductInfoV
         intervalMs: typeof item.intervalMs === "number" && Number.isFinite(item.intervalMs)
           ? Math.max(2000, Math.min(12000, Math.round(item.intervalMs)))
           : 4500,
+        format: typeof item.format === "string" ? item.format : "",
+        configuration: typeof item.configuration === "string" ? item.configuration : "",
+        placement: item.placement === "right" ? "right" : "left",
+        galleryLayout: normalizeProductInfoGalleryLayout(item.galleryLayout),
+        gallerySize: normalizeProductInfoGallerySize(item.gallerySize),
+        showWhen: normalizeProductInfoShowWhen(item.showWhen),
       } as ProductInfoBlock;
     })
     .filter(Boolean) as ProductInfoBlock[];
@@ -123,7 +165,7 @@ const getProductInfoV2FromSpecs = (specs: Json | null | undefined): ProductInfoV
 
 export function ProductAboutSection({
   productId,
-  productSlug,
+  tenantId,
   aboutTitle,
   aboutDescription,
   aboutImageUrl,
@@ -143,10 +185,16 @@ export function ProductAboutSection({
   const [templates, setTemplates] = useState<TemplateFile[]>(templateFiles || []);
   const [uploading, setUploading] = useState(false);
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
+  const [designerTemplatesLoading, setDesignerTemplatesLoading] = useState(false);
+  const [designerTemplates, setDesignerTemplates] = useState<DesignerTemplateOption[]>([]);
   const [saving, setSaving] = useState(false);
   const [selectedTemplateFormat, setSelectedTemplateFormat] = useState<string>("");
-
-  const availableFormats = productSlug ? formatOptions[productSlug] || [] : [];
+  const [selectedTemplateConfiguration, setSelectedTemplateConfiguration] = useState<string>("");
+  const [selectedDesignerTemplateId, setSelectedDesignerTemplateId] = useState<string>("none");
+  const templateFilesHaveChanged = useMemo(
+    () => haveTemplateFilesChanged(templates, templateFiles),
+    [templateFiles, templates],
+  );
 
   useEffect(() => {
     setTemplates(templateFiles || []);
@@ -164,6 +212,45 @@ export function ProductAboutSection({
     setContentBlocks(initialInfoConfig.blocks);
   }, [initialInfoConfig]);
 
+  useEffect(() => {
+    if (!tenantId) return;
+
+    let active = true;
+    const loadDesignerTemplates = async () => {
+      setDesignerTemplatesLoading(true);
+      try {
+        const { data, error } = await supabase
+          // Generated database types do not yet include this established table.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .from("designer_templates" as any)
+          .select("id, name, tenant_id, is_public, template_type, width_mm, height_mm, bleed_mm, safe_area_mm")
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true })
+          .order("name", { ascending: true });
+
+        if (error) throw error;
+        if (!active) return;
+
+        const templateRows = (data || []) as unknown as DesignerTemplateOption[];
+        setDesignerTemplates(templateRows.filter((template) => {
+          if (isAttributeTemplateType(template.template_type)) return false;
+          return template.tenant_id === tenantId
+            || (template.tenant_id === MASTER_TENANT_ID && template.is_public);
+        }) as DesignerTemplateOption[]);
+      } catch (error) {
+        console.error("[ProductAboutSection] Failed to load designer templates", error);
+        if (active) setDesignerTemplates([]);
+      } finally {
+        if (active) setDesignerTemplatesLoading(false);
+      }
+    };
+
+    void loadDesignerTemplates();
+    return () => {
+      active = false;
+    };
+  }, [tenantId]);
+
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     try {
@@ -175,7 +262,7 @@ export function ProductAboutSection({
         return;
       }
 
-      if (file.size > 5 * 1024 * 1024) {
+      if (file.size > PRODUCT_IMAGE_MAX_BYTES) {
         toast.error('Billedet må ikke være større end 5MB');
         return;
       }
@@ -246,6 +333,12 @@ export function ProductAboutSection({
       images: [],
       effect: "fade",
       intervalMs: 4500,
+      format: "",
+      configuration: "",
+      placement: "left",
+      galleryLayout: "slideshow",
+      gallerySize: "standard",
+      showWhen: [],
     };
     setContentBlocks((prev) => [...prev, newBlock]);
     setUseSectionBlocks(true);
@@ -280,8 +373,8 @@ export function ProductAboutSection({
         return;
       }
 
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error("Billedet må ikke være større end 10MB");
+      if (file.size > PRODUCT_IMAGE_MAX_BYTES) {
+        toast.error("Billedet må ikke være større end 5MB");
         return;
       }
 
@@ -331,24 +424,76 @@ export function ProductAboutSection({
     );
   };
 
+  const moveGalleryImage = (blockId: string, imageIndex: number, direction: "up" | "down") => {
+    setContentBlocks((prev) => prev.map((block) => {
+      if (block.id !== blockId) return block;
+      const images = [...(block.images || [])];
+      const targetIndex = direction === "up" ? imageIndex - 1 : imageIndex + 1;
+      if (targetIndex < 0 || targetIndex >= images.length) return block;
+      [images[imageIndex], images[targetIndex]] = [images[targetIndex], images[imageIndex]];
+      return { ...block, images };
+    }));
+  };
+
+  const addGalleryCondition = (blockId: string) => {
+    setContentBlocks((prev) => prev.map((block) => (
+      block.id === blockId
+        ? {
+            ...block,
+            showWhen: [
+              ...(block.showWhen || []),
+              { sectionId: "", valueIds: [] },
+            ],
+          }
+        : block
+    )));
+  };
+
+  const updateGalleryCondition = (
+    blockId: string,
+    conditionIndex: number,
+    patch: Partial<ProductInfoShowWhenCondition>,
+  ) => {
+    setContentBlocks((prev) => prev.map((block) => {
+      if (block.id !== blockId) return block;
+      return {
+        ...block,
+        showWhen: (block.showWhen || []).map((condition, index) => (
+          index === conditionIndex ? { ...condition, ...patch } : condition
+        )),
+      };
+    }));
+  };
+
+  const removeGalleryCondition = (blockId: string, conditionIndex: number) => {
+    setContentBlocks((prev) => prev.map((block) => (
+      block.id === blockId
+        ? {
+            ...block,
+            showWhen: (block.showWhen || []).filter((_, index) => index !== conditionIndex),
+          }
+        : block
+    )));
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      const templatesForStorage = templates.map(t => ({
-        name: t.name,
-        url: t.url,
-        path: t.path,
-        format: t.format || null,
-        designerUrl: t.designerUrl || null,
-        designerLabel: t.designerLabel || null,
-        uploadedAt: t.uploadedAt
-      }));
-
       const technicalSpecsObject = isObjectRecord(technicalSpecs)
         ? { ...(technicalSpecs as Record<string, unknown>) }
         : {};
+      const originalProductInfo = isObjectRecord(technicalSpecsObject.product_page_info_v2)
+        ? technicalSpecsObject.product_page_info_v2
+        : {};
+      const originalBlockById = new Map(
+        (Array.isArray(originalProductInfo.blocks) ? originalProductInfo.blocks : [])
+          .filter(isObjectRecord)
+          .filter((block) => typeof block.id === "string")
+          .map((block) => [String(block.id), block]),
+      );
 
       const normalizedBlocks = contentBlocks.map((block) => ({
+        ...(originalBlockById.get(block.id) || {}),
         id: block.id,
         type: block.type,
         title: block.title || "",
@@ -358,29 +503,108 @@ export function ProductAboutSection({
         images: (block.images || []).filter((url) => typeof url === "string" && url.length > 0),
         effect: block.effect || "fade",
         intervalMs: typeof block.intervalMs === "number" ? Math.max(2000, Math.min(12000, Math.round(block.intervalMs))) : 4500,
+        format: block.format || "",
+        configuration: block.configuration || "",
+        placement: block.placement || "left",
+        ...(block.type === "gallery" ? {
+          galleryLayout: normalizeProductInfoGalleryLayout(block.galleryLayout),
+          gallerySize: normalizeProductInfoGallerySize(block.gallerySize),
+          showWhen: normalizeProductInfoShowWhen(block.showWhen),
+        } : {}),
       }));
 
-      const productInfoV2: ProductInfoV2Config = {
+      const productInfoV2: ProductInfoV2Config & Record<string, unknown> = {
+        ...originalProductInfo,
         useSections: useSectionBlocks,
         imagePosition,
         blocks: normalizedBlocks,
       };
 
-      const { error } = await supabase
-        .from('products')
-        .update({
+      const editedTechnicalSpecs = {
+        ...technicalSpecsObject,
+        product_page_info_v2: productInfoV2,
+      };
+      const { data: currentRow, error: currentRowError } = await supabase
+        .from("products")
+        .select("updated_at, about_title, about_description, about_image_url, technical_specs, template_files")
+        .eq("id", productId)
+        .maybeSingle();
+
+      if (currentRowError) throw currentRowError;
+      if (!currentRow) {
+        toast.error("Kunne ikke gemme, fordi produktet ikke længere findes.");
+        return;
+      }
+
+      const persistenceResult = buildOptimisticProductAboutUpdate({
+        current: {
+          updated_at: currentRow.updated_at,
+          about_title: currentRow.about_title,
+          about_description: currentRow.about_description,
+          about_image_url: currentRow.about_image_url,
+          technical_specs: currentRow.technical_specs,
+          template_files: Array.isArray(currentRow.template_files) ? currentRow.template_files : [],
+        },
+        original: {
+          about_title: aboutTitle || null,
+          about_description: aboutDescription || null,
+          about_image_url: aboutImageUrl || null,
+          technical_specs: technicalSpecs,
+          template_files: templateFiles || [],
+        },
+        edited: {
           about_title: title || null,
           about_description: description || null,
           about_image_url: imageUrl || null,
-          template_files: templatesForStorage as any,
-          technical_specs: {
-            ...technicalSpecsObject,
-            product_page_info_v2: productInfoV2,
-          } as any,
-        })
-        .eq('id', productId);
+          technical_specs: editedTechnicalSpecs,
+          template_files: templates,
+        },
+      });
+
+      if (persistenceResult.status === "conflict") {
+        const fieldLabel = persistenceResult.field === "product_page_info_v2"
+          ? "galleriet eller produktinformationen"
+          : persistenceResult.field === "template_files"
+            ? "produktskabelonerne"
+            : "produktteksten eller billedet";
+        toast.error(
+          `Kunne ikke gemme, fordi ${fieldLabel} er blevet ændret et andet sted. Genindlæs produktet og prøv igen.`,
+        );
+        return;
+      }
+
+      if (Object.keys(persistenceResult.payload).length === 0) {
+        toast.success("Produktinfo er allerede opdateret");
+        onUpdate();
+        return;
+      }
+
+      const updatePayload = persistenceResult.payload as {
+        about_title?: string | null;
+        about_description?: string | null;
+        about_image_url?: string | null;
+        technical_specs?: Json;
+        template_files?: Json;
+      };
+      let guardedUpdate = supabase
+        .from("products")
+        .update(updatePayload)
+        .eq("id", productId);
+      guardedUpdate = persistenceResult.expectedUpdatedAt
+        ? guardedUpdate.eq("updated_at", persistenceResult.expectedUpdatedAt)
+        : guardedUpdate.is("updated_at", null);
+
+      const { data: updatedRow, error } = await guardedUpdate
+        .select("id, updated_at")
+        .maybeSingle();
 
       if (error) throw error;
+      if (!updatedRow) {
+        toast.error(
+          "Kunne ikke gemme, fordi produktet blev ændret, mens du redigerede. Genindlæs produktet og prøv igen.",
+        );
+        return;
+      }
 
       toast.success('Produktinfo opdateret');
       onUpdate();
@@ -426,16 +650,27 @@ export function ProductAboutSection({
         .from('product-templates')
         .getPublicUrl(filePath);
 
+      const linkedDesignerTemplate = designerTemplates.find((template) => (
+        template.id === selectedDesignerTemplateId
+      ));
       const newTemplate: TemplateFile = {
         name: file.name,
         url: publicUrl,
         path: filePath,
         format: selectedTemplateFormat || undefined,
+        configuration: selectedTemplateConfiguration || null,
+        designerTemplateId: selectedDesignerTemplateId === "none" ? null : selectedDesignerTemplateId,
+        widthMm: linkedDesignerTemplate?.width_mm ?? null,
+        heightMm: linkedDesignerTemplate?.height_mm ?? null,
+        bleedMm: linkedDesignerTemplate?.bleed_mm ?? null,
+        safeMm: linkedDesignerTemplate?.safe_area_mm ?? null,
         uploadedAt: new Date().toISOString()
       };
 
       setTemplates([...templates, newTemplate]);
       setSelectedTemplateFormat("");
+      setSelectedTemplateConfiguration("");
+      setSelectedDesignerTemplateId("none");
       toast.success('Skabelon uploadet');
 
       event.target.value = '';
@@ -445,6 +680,12 @@ export function ProductAboutSection({
     } finally {
       setUploadingTemplate(false);
     }
+  };
+
+  const updateTemplate = (index: number, patch: Partial<TemplateFile>) => {
+    setTemplates((current) => current.map((template, templateIndex) => (
+      templateIndex === index ? { ...template, ...patch } : template
+    )));
   };
 
   const handleRemoveTemplate = async (index: number) => {
@@ -469,7 +710,7 @@ export function ProductAboutSection({
     title !== (aboutTitle || "") ||
     description !== (aboutDescription || "") ||
     imageUrl !== (aboutImageUrl || "") ||
-    JSON.stringify(templates) !== JSON.stringify(templateFiles || []) ||
+    templateFilesHaveChanged ||
     useSectionBlocks !== initialInfoConfig.useSections ||
     imagePosition !== initialInfoConfig.imagePosition ||
     JSON.stringify(contentBlocks) !== JSON.stringify(initialInfoConfig.blocks);
@@ -548,7 +789,7 @@ export function ProductAboutSection({
             <div>
               <Label className="text-base font-semibold">Avanceret sektion-opbygning</Label>
               <p className="text-xs text-muted-foreground mt-1">
-                Byg produktside-information med tekstsektioner, billeder og gallerier.
+                Byg produktside-information med tekstsektioner, billeder, filguider og gallerier.
               </p>
             </div>
             <Button
@@ -583,6 +824,10 @@ export function ProductAboutSection({
               <Plus className="h-4 w-4 mr-1" />
               Tilføj billedsektion
             </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => addBlock("guide")}>
+              <ScanLine className="h-4 w-4 mr-1" />
+              Tilføj guidebillede
+            </Button>
             <Button type="button" size="sm" variant="outline" onClick={() => addBlock("gallery")}>
               <Plus className="h-4 w-4 mr-1" />
               Tilføj galleri
@@ -591,7 +836,7 @@ export function ProductAboutSection({
 
           {contentBlocks.length === 0 && (
             <p className="text-xs text-muted-foreground">
-              Ingen sektioner endnu. Tilføj en tekstsektion, billedsektion eller et galleri.
+              Ingen sektioner endnu. Tilføj tekst, billeder, et guidebillede eller et galleri.
             </p>
           )}
 
@@ -602,6 +847,7 @@ export function ProductAboutSection({
                   <div className="text-sm font-medium">
                     {block.type === "text" && `Tekstsektion ${index + 1}`}
                     {block.type === "image" && `Billedsektion ${index + 1}`}
+                    {block.type === "guide" && `Guidebillede ${index + 1}`}
                     {block.type === "gallery" && `Galleri ${index + 1}`}
                   </div>
                   <div className="flex items-center gap-1">
@@ -659,8 +905,49 @@ export function ProductAboutSection({
                   </div>
                 )}
 
-                {block.type === "image" && (
+                {block.type === "guide" && (
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Format (valgfri)</Label>
+                      <Input
+                        value={block.format || ""}
+                        onChange={(e) => updateBlock(block.id, { format: e.target.value })}
+                        placeholder="F.eks. A7"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Variant (valgfri)</Label>
+                      <Input
+                        value={block.configuration || ""}
+                        onChange={(e) => updateBlock(block.id, { configuration: e.target.value })}
+                        placeholder="F.eks. 6 sider"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Placering</Label>
+                      <Select
+                        value={block.placement || "left"}
+                        onValueChange={(value) => updateBlock(block.id, { placement: value as "left" | "right" })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="left">Venstre</SelectItem>
+                          <SelectItem value="right">Højre</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+
+                {(block.type === "image" || block.type === "guide") && (
                   <div className="space-y-3">
+                    {block.type === "guide" && (
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        Uden upload vises den automatisk genererede formatguide. Et uploadet billede erstatter guiden for det valgte format og den valgte variant.
+                      </p>
+                    )}
                     <div className="space-y-2">
                       <Label>Billede</Label>
                       {block.imageUrl ? (
@@ -732,7 +1019,43 @@ export function ProductAboutSection({
 
                 {block.type === "gallery" && (
                   <div className="space-y-3">
-                    <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="space-y-2">
+                        <Label>Visning</Label>
+                        <Select
+                          value={block.galleryLayout || "slideshow"}
+                          onValueChange={(value) => updateBlock(block.id, {
+                            galleryLayout: value as ProductInfoGalleryLayout,
+                          })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="slideshow">Slideshow</SelectItem>
+                            <SelectItem value="grid">Billedgitter</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Visningsstørrelse</Label>
+                        <Select
+                          value={block.gallerySize || "standard"}
+                          onValueChange={(value) => updateBlock(block.id, {
+                            gallerySize: value as ProductInfoGallerySize,
+                          })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="compact">Kompakt</SelectItem>
+                            <SelectItem value="standard">Standard</SelectItem>
+                            <SelectItem value="large">Stor</SelectItem>
+                            <SelectItem value="full">Fuld bredde</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <div className="space-y-2">
                         <Label>Fade-effekt</Label>
                         <Select value={block.effect || "fade"} onValueChange={(value) => updateBlock(block.id, { effect: value as GalleryEffect })}>
@@ -764,13 +1087,100 @@ export function ProductAboutSection({
                       </div>
                     </div>
 
+                    <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+                      <div>
+                        <Label>Vis kun ved bestemte produktvalg</Label>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          Alle betingelser skal passe. Uden betingelser vises galleriet som hidtil for alle valg.
+                        </p>
+                      </div>
+
+                      {(block.showWhen || []).map((condition, conditionIndex) => (
+                        <div
+                          key={`${block.id}-condition-${conditionIndex}`}
+                          className="grid gap-2 rounded-md border bg-background p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] sm:items-end"
+                        >
+                          <div className="min-w-0 space-y-1.5">
+                            <Label htmlFor={`${block.id}-condition-section-${conditionIndex}`}>
+                              Sektions-id
+                            </Label>
+                            <Input
+                              id={`${block.id}-condition-section-${conditionIndex}`}
+                              value={condition.sectionId}
+                              onChange={(event) => updateGalleryCondition(block.id, conditionIndex, {
+                                sectionId: event.target.value,
+                              })}
+                              placeholder="F.eks. calendar-model"
+                            />
+                          </div>
+                          <div className="min-w-0 space-y-1.5">
+                            <Label htmlFor={`${block.id}-condition-values-${conditionIndex}`}>
+                              Tilladte værdi-id'er
+                            </Label>
+                            <Input
+                              id={`${block.id}-condition-values-${conditionIndex}`}
+                              value={condition.valueIds.join(", ")}
+                              onChange={(event) => updateGalleryCondition(block.id, conditionIndex, {
+                                valueIds: [event.target.value],
+                              })}
+                              placeholder="model-a, model-b"
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10 text-destructive"
+                            onClick={() => removeGalleryCondition(block.id, conditionIndex)}
+                            aria-label={`Fjern visningsbetingelse ${conditionIndex + 1}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => addGalleryCondition(block.id)}
+                      >
+                        <Plus className="mr-1 h-4 w-4" />
+                        Tilføj betingelse
+                      </Button>
+                    </div>
+
                     <div className="space-y-2">
                       <Label>Billeder i galleri</Label>
                       {(block.images || []).length > 0 ? (
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                           {(block.images || []).map((url, imageIndex) => (
                             <div key={`${block.id}-gallery-${imageIndex}`} className="relative rounded border overflow-hidden bg-muted/10">
-                              <img src={url} alt={`Galleri ${imageIndex + 1}`} className="w-full h-28 object-cover" />
+                              <img src={url} alt={`Galleri ${imageIndex + 1}`} className="h-28 w-full bg-white object-contain" />
+                              <div className="absolute left-1 top-1 flex gap-1">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="secondary"
+                                  className="h-6 w-6"
+                                  onClick={() => moveGalleryImage(block.id, imageIndex, "up")}
+                                  disabled={imageIndex === 0}
+                                  aria-label={`Flyt galleribillede ${imageIndex + 1} tidligere`}
+                                >
+                                  <ArrowUp className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="secondary"
+                                  className="h-6 w-6"
+                                  onClick={() => moveGalleryImage(block.id, imageIndex, "down")}
+                                  disabled={imageIndex === (block.images || []).length - 1}
+                                  aria-label={`Flyt galleribillede ${imageIndex + 1} senere`}
+                                >
+                                  <ArrowDown className="h-3 w-3" />
+                                </Button>
+                              </div>
                               <Button
                                 type="button"
                                 size="icon"
@@ -820,16 +1230,30 @@ export function ProductAboutSection({
         </div>
 
         <div className="space-y-3 border-t pt-3">
-          <div>
-            <Label className="text-base font-semibold">Skabelonfiler (download links til kunder)</Label>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <Label className="text-base font-semibold">Produktskabeloner</Label>
+              <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
+                Opret én række pr. rigtig produktkombination, f.eks. A4 + 5 mm ryg. Kunden får den samme PDF til download og i designeren. En skabelon uden præcis format- og variantmatch bruges ikke som tilfældig reserve.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" asChild>
+              <a href="/admin/designer-templates" target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Opret designer-template
+              </a>
+            </Button>
           </div>
 
           {templates.length > 0 && (
-            <Table>
+            <div className="overflow-x-auto">
+            <Table className="min-w-[980px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Filnavn</TableHead>
                   <TableHead>Format</TableHead>
+                  <TableHead>Variant</TableHead>
+                  <TableHead>Designer-template</TableHead>
                   <TableHead className="text-right">Handlinger</TableHead>
                 </TableRow>
               </TableHeader>
@@ -840,7 +1264,63 @@ export function ProductAboutSection({
                       <FileText className="h-4 w-4" />
                       {template.name}
                     </TableCell>
-                    <TableCell>{template.format || "Alle"}</TableCell>
+                    <TableCell className="min-w-[150px]">
+                      <Input
+                        value={template.format || ""}
+                        onChange={(event) => updateTemplate(index, { format: event.target.value || undefined })}
+                        placeholder={inferTemplateFormat(template) || "Alle formater"}
+                        aria-label={`Format for ${template.name}`}
+                        className="h-9"
+                      />
+                    </TableCell>
+                    <TableCell className="min-w-[170px]">
+                      <Input
+                        value={template.configuration || ""}
+                        onChange={(event) => updateTemplate(index, { configuration: event.target.value || null })}
+                        placeholder={inferTemplateConfiguration(template) || "F.eks. 5 mm ryg"}
+                        aria-label={`Variant for ${template.name}`}
+                        className="h-9"
+                      />
+                    </TableCell>
+                    <TableCell className="min-w-[280px]">
+                      <Select
+                        value={template.designerTemplateId || "none"}
+                        onValueChange={(value) => {
+                          const linkedDesignerTemplate = designerTemplates.find((item) => item.id === value);
+                          updateTemplate(index, {
+                            designerTemplateId: value === "none" ? null : value,
+                            widthMm: linkedDesignerTemplate?.width_mm ?? null,
+                            heightMm: linkedDesignerTemplate?.height_mm ?? null,
+                            bleedMm: linkedDesignerTemplate?.bleed_mm ?? null,
+                            safeMm: linkedDesignerTemplate?.safe_area_mm ?? null,
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Vælg designer-template" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Kun download</SelectItem>
+                          {designerTemplates.map((designerTemplate) => (
+                            <SelectItem key={designerTemplate.id} value={designerTemplate.id}>
+                              {designerTemplate.name}
+                              {designerTemplate.width_mm && designerTemplate.height_mm
+                                ? ` (${designerTemplate.width_mm}×${designerTemplate.height_mm} mm)`
+                                : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {!template.designerTemplateId ? (
+                        <p className="mt-1 text-[11px] text-amber-700">
+                          Vælg en template for korrekt artboard og hjælpelinjer.
+                        </p>
+                      ) : template.widthMm && template.heightMm ? (
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Artboard: {template.widthMm} × {template.heightMm} mm
+                        </p>
+                      ) : null}
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex gap-2 justify-end">
                         <Button variant="outline" size="sm" onClick={() => window.open(template.url, '_blank')}>
@@ -860,23 +1340,47 @@ export function ProductAboutSection({
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
 
-          <div className="flex gap-3 items-end">
-            {availableFormats.length > 0 && (
-              <div className="space-y-2">
-                <Label>Format</Label>
-                <Select value={selectedTemplateFormat || "all"} onValueChange={(val) => setSelectedTemplateFormat(val === "all" ? "" : val)}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Alle formater" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Alle formater</SelectItem>
-                    {availableFormats.map(format => <SelectItem key={format} value={format}>{format}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+          <div className="grid gap-3 md:grid-cols-[150px_170px_minmax(240px,1fr)_auto] md:items-end">
+            <div className="space-y-2">
+              <Label htmlFor="template-format">Format</Label>
+              <Input
+                id="template-format"
+                value={selectedTemplateFormat}
+                onChange={(event) => setSelectedTemplateFormat(event.target.value)}
+                placeholder="F.eks. A4"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="template-configuration">Variant</Label>
+              <Input
+                id="template-configuration"
+                value={selectedTemplateConfiguration}
+                onChange={(event) => setSelectedTemplateConfiguration(event.target.value)}
+                placeholder="F.eks. 5 mm ryg"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Designer-template</Label>
+              <Select value={selectedDesignerTemplateId} onValueChange={setSelectedDesignerTemplateId}>
+                <SelectTrigger disabled={designerTemplatesLoading}>
+                  <SelectValue placeholder="Vælg designer-template" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Kun download</SelectItem>
+                  {designerTemplates.map((designerTemplate) => (
+                    <SelectItem key={designerTemplate.id} value={designerTemplate.id}>
+                      {designerTemplate.name}
+                      {designerTemplate.width_mm && designerTemplate.height_mm
+                        ? ` (${designerTemplate.width_mm}×${designerTemplate.height_mm} mm)`
+                        : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <Label htmlFor="template-upload">
               <Button variant="outline" disabled={uploadingTemplate} asChild>
                 <span>

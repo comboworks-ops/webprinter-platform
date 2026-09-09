@@ -1,3 +1,7 @@
+import { resolveStorformatSourceQuote, StorformatQuoteUnavailableError } from "./storformatQuoteModel.ts";
+export { StorformatQuoteUnavailableError, validateStorformatQuoteModel } from "./storformatQuoteModel.ts";
+export type { StorformatSourceQuoteModel, StorformatQuotePoint, StorformatQuoteCombination } from "./storformatQuoteModel.ts";
+
 export type StorformatTier = {
   id?: string;
   from_m2: number;
@@ -57,6 +61,8 @@ export type StorformatConfig = {
   quantities: number[];
   layout_rows?: any[];
   vertical_axis?: any;
+  area_pricing_basis?: "total_area" | "per_piece_quotes";
+  source_quote_model?: unknown;
 };
 
 type SplitInfo = {
@@ -66,7 +72,7 @@ type SplitInfo = {
   totalPieces: number;
 };
 
-type StorformatCalculationInput = {
+export type StorformatCalculationInput = {
   widthMm: number;
   heightMm: number;
   quantity: number;
@@ -78,7 +84,7 @@ type StorformatCalculationInput = {
   config: StorformatConfig;
 };
 
-type StorformatCalculationResult = {
+export type StorformatCalculationResult = {
   areaM2: number;
   totalAreaM2: number;
   materialPricePerM2: number;
@@ -110,7 +116,7 @@ const resolveTierPricePerM2 = (
   });
 
   if (!interpolationEnabled) {
-    const fallbackTier = sorted[sorted.length - 1];
+    const fallbackTier = totalArea < sorted[0].from_m2 ? sorted[0] : sorted[sorted.length - 1];
     const basePrice = match?.price_per_m2 ?? fallbackTier.price_per_m2;
     const tierMarkup = match?.markup_pct ?? fallbackTier.markup_pct ?? 0;
     return applyMarkup(applyMarkup(basePrice, tierMarkup), itemMarkupPct);
@@ -127,7 +133,7 @@ const resolveTierPricePerM2 = (
 
   const anchors = sorted.filter((t) => t.is_anchor);
   if (anchors.length < 2) {
-    const fallbackTier = sorted[sorted.length - 1];
+    const fallbackTier = totalArea < sorted[0].from_m2 ? sorted[0] : sorted[sorted.length - 1];
     const basePrice = match?.price_per_m2 ?? fallbackTier.price_per_m2;
     const tierMarkup = match?.markup_pct ?? fallbackTier.markup_pct ?? 0;
     return applyMarkup(applyMarkup(basePrice, tierMarkup), itemMarkupPct);
@@ -190,6 +196,36 @@ export const calculateStorformatPrice = ({
 }: StorformatCalculationInput): StorformatCalculationResult => {
   const areaM2 = (widthMm * heightMm) / 1_000_000;
   const totalAreaM2 = areaM2 * quantity;
+
+  const basis = config.area_pricing_basis ?? "total_area";
+  if (basis !== "total_area" && basis !== "per_piece_quotes") throw new StorformatQuoteUnavailableError();
+  if (basis === "per_piece_quotes") {
+    if (![widthMm, heightMm, areaM2, totalAreaM2].every(value => Number.isFinite(value) && value > 0)) {
+      throw new StorformatQuoteUnavailableError("selection_unavailable");
+    }
+    const selectedFinishes = Array.isArray(finishes) && finishes.length ? finishes : finish ? [finish] : [];
+    const selectedProducts = Array.isArray(products) && products.length ? products : product ? [product] : [];
+    const quote = resolveStorformatSourceQuote({model: config.source_quote_model, materialId: material.id,
+      finishIds: selectedFinishes.map(item => item.id), productIds: selectedProducts.map(item => item.id), areaM2, quantity});
+    const mark = (price: number, markup?: number | null) => {
+      const pct = markup ?? 0;
+      if (!Number.isFinite(pct) || pct <= -100) throw new StorformatQuoteUnavailableError();
+      return price * (1 + pct / 100);
+    };
+    const materialCost = mark(quote.baseTotal, material.markup_pct);
+    const finishCost = mark(quote.finishedTotal - quote.baseTotal, selectedFinishes[0]?.markup_pct);
+    const productCost = mark(quote.selectedTotal - quote.finishedTotal, selectedProducts[0]?.markup_pct);
+    const rounding = config.rounding_step ?? 1;
+    if (!Number.isFinite(rounding) || rounding <= 0) throw new StorformatQuoteUnavailableError();
+    const subtotal = mark(materialCost + finishCost + productCost, config.global_markup_pct);
+    const totalPrice = Math.round(subtotal / rounding) * rounding;
+    if (!Number.isFinite(totalPrice) || totalPrice <= 0) throw new StorformatQuoteUnavailableError();
+    return {areaM2, totalAreaM2, materialPricePerM2: materialCost / totalAreaM2,
+      finishPricePerM2: finishCost / totalAreaM2, productPricePerM2: productCost / totalAreaM2,
+      materialCost, finishCost, productCost, totalPrice,
+      splitInfo: material.allow_split ? buildSplitInfo(widthMm, heightMm, material) : null};
+  }
+  if (config.source_quote_model != null) throw new StorformatQuoteUnavailableError();
 
   const materialPricePerM2 = resolveTierPricePerM2(
     totalAreaM2,
@@ -265,4 +301,14 @@ export const calculateStorformatPrice = ({
     totalPrice,
     splitInfo: material.allow_split ? buildSplitInfo(widthMm, heightMm, material) : null
   };
+};
+
+/** Quote-mode gaps are unavailable prices, never a fabricated zero or a legacy-rate fallback. */
+export const tryCalculateStorformatPrice = (input: StorformatCalculationInput): StorformatCalculationResult | null => {
+  try {
+    return calculateStorformatPrice(input);
+  } catch (error) {
+    if (error instanceof StorformatQuoteUnavailableError) return null;
+    throw error;
+  }
 };

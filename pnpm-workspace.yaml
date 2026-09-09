@@ -1,0 +1,6 @@
+# Lifecycle scripts remain disabled for the frontend test deployment.
+allowBuilds:
+  '@swc/core': false
+  canvas: false
+  core-js: false
+  esbuild: false

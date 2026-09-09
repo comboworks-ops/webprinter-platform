@@ -134,7 +134,7 @@ export function AdminCompanyHubManager({ tenantId }: AdminCompanyHubManagerProps
     };
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="workspace-company-classic grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* Companies List */}
             <Card className="lg:col-span-1">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -227,7 +227,7 @@ export function AdminCompanyHubManager({ tenantId }: AdminCompanyHubManagerProps
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="workspace-company-sections">
                             {/* Hub Items Manager */}
                             <Card>
                                 <CardHeader className="flex flex-row items-center justify-between space-y-0">

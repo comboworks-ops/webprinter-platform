@@ -1,11 +1,9 @@
 import { useEffect } from 'react';
-import { useNavigate, Routes, Route, Navigate } from 'react-router-dom';
+import { useNavigate, useLocation, Routes, Route, Navigate } from 'react-router-dom';
 import { useUserRole } from '@/hooks/useUserRole';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
-import { SidebarProvider } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { AdminHeader } from '@/components/admin/AdminHeader';
 import { Dashboard } from '@/components/admin/Dashboard';
 import { ProductOverview } from '@/components/admin/ProductOverview';
@@ -16,7 +14,6 @@ import { AiSeoManager } from '@/components/admin/AiSeoManager';
 import { OrderManager } from '@/components/admin/OrderManager';
 import AdminMessages from '@/components/admin/AdminMessages';
 import DomainSettings from '@/components/admin/DomainSettings';
-import BrandingSettings from '@/components/admin/BrandingSettings';
 import TenantBrandingSettings from '@/components/admin/TenantBrandingSettings';
 import TenantBrandingSettingsV2 from '@/components/admin/TenantBrandingSettingsV2';
 import TenantSiteDesignV2 from '@/components/admin/TenantSiteDesignV2';
@@ -37,8 +34,6 @@ import TenantTemplatesPage from '@/pages/admin/TenantTemplatesPage';
 import DesignerTemplateManager from '@/components/admin/DesignerTemplateManager';
 import ColorProfilesManager from '@/components/admin/ColorProfilesManager';
 import AdminCompanyHub from '@/pages/admin/AdminCompanyHub';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
 import { supabase } from '@/integrations/supabase/client';
 import { PlatformSeoAdmin } from '@/components/admin/platform-seo';
 import { SearchConsoleCallback } from '@/components/admin/platform-seo/SearchConsoleCallback';
@@ -60,10 +55,14 @@ import SupplierBank from '@/pages/admin/SupplierBank';
 import CommercialReadiness from '@/pages/admin/CommercialReadiness';
 import PrintProduction from '@/pages/admin/PrintProduction';
 import { MasterPodRouteGate } from '@/components/admin/MasterPodRouteGate';
+import '@/styles/adminWorkspace.css';
+import '@/styles/adminSurfacesWorkspace.css';
 
 
 export default function Admin() {
   const navigate = useNavigate();
+  const { search } = useLocation();
+  const tenantContextKey = new URLSearchParams(search).get("force_domain") || "";
   const { isAdmin, loading: roleLoading } = useUserRole();
 
   useEffect(() => {
@@ -105,22 +104,16 @@ export default function Admin() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 font-sans text-slate-950 antialiased dark:bg-slate-950 dark:text-slate-50">
+    <div className="admin-workspace">
       <a
         href="#admin-main"
         className="sr-only z-50 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4 dark:bg-white dark:text-slate-950"
       >
         Spring til indhold
       </a>
-      <SidebarProvider defaultOpen={false}>
-        <div className="flex-1 flex w-full">
-          <AdminSidebar />
-
-          <main id="admin-main" className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            <AdminHeader />
-
-            <div className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
-              <div className="mx-auto w-full max-w-[1600px]">
+      <AdminHeader key={tenantContextKey} />
+      <main id="admin-main" tabIndex={-1} className="admin-workspace-main">
+        <div className="admin-workspace-content" key={tenantContextKey}>
               <Routes>
                 <Route path="/" element={<Dashboard />} /> {/* Changed to Dashboard */}
                 <Route path="/commercial-readiness" element={<CommercialReadiness />} />
@@ -139,7 +132,7 @@ export default function Admin() {
                 <Route path="/beskeder" element={<AdminMessages />} />
                 {/* Min Konto routes */}
                 <Route path="/domaene" element={<DomainSettings />} />
-                <Route path="/branding" element={<Navigate to="/admin/branding-v2" replace />} />
+                <Route path="/branding" element={<Navigate to={`/admin/branding-v2${search}`} replace />} />
                 <Route path="/branding-v2" element={<TenantBrandingSettingsV2 />} />
                 <Route path="/site-design-v2" element={<TenantSiteDesignV2 />} />
                 <Route path="/icon-studio" element={<IconStudioPage />} />
@@ -175,12 +168,10 @@ export default function Admin() {
                 <Route path="/pod2-betaling" element={<MasterPodRouteGate><Pod2Betaling /></MasterPodRouteGate>} />
                 {/* Print on Demand v3 Routes (Flyer Alarm) */}
                 <Route path="/pod3" element={<MasterPodRouteGate><Pod3FlyerAlarm /></MasterPodRouteGate>} />
+                <Route path="*" element={<div className="space-y-4"><h1>Siden blev ikke fundet</h1><p>Vælg et område i menuen for at fortsætte.</p><Button onClick={() => navigate(-1)}>Tilbage</Button></div>} />
               </Routes>
-              </div>
-            </div>
-          </main>
         </div>
-      </SidebarProvider>
+      </main>
     </div>
   );
 }

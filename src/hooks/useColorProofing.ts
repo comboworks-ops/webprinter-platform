@@ -1,488 +1,395 @@
 /**
- * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                        🔒 PROTECTED CORE FILE 🔒                          ║
- * ║                                                                           ║
- * ║  This file contains critical soft proofing functionality.                 ║
- * ║  DO NOT MODIFY without reviewing: /soft-proof-protected                   ║
- * ║                                                                           ║
- * ║  Last verified working: 2026-01-03                                        ║
- * ╚═══════════════════════════════════════════════════════════════════════════╝
- * 
- * useColorProofing Hook
- * 
- * Manages color proofing state, worker communication, and overlay rendering.
- * Communicates with colorProofing.worker.ts for ICC-based color transformations.
+ * Protected soft-proof core. See .agent/workflows/soft-proof-protected.md.
+ * Preview rasterization is display-only; it never changes Fabric artwork.
  */
-
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { fabric } from 'fabric';
-import {
-    ProofingSettings,
-    loadProofingSettings,
-    saveProofingSettings,
-    OUTPUT_PROFILES,
-    SRGB_PROFILE_URL,
-} from '@/lib/color/iccProofing';
-import { toast } from 'sonner';
+import { ProofingSettings, loadProofingSettings, saveProofingSettings, OUTPUT_PROFILES, SRGB_PROFILE_URL, fetchICCProfile } from '@/lib/color/iccProofing';
+import { resolveColorProfile, type ResolvedColorProfile } from '@/lib/color/profileResolver';
+import { computeProofPreviewGeometry, ProofRequestGate, type ProofPreviewBounds, type ProofPreviewGeometry, type ProofRequestTicket } from '@/lib/color/proofPreviewGeometry';
+import { computeExportRasterScale } from '@/lib/designer/export/exportRasterScale';
 
-// Debounce time for canvas updates (ms)
-const DEBOUNCE_MS = 200;
-
-// Max dimension for proofing preview (performance)
-const MAX_PREVIEW_DIMENSION = 1000;
+const DEBOUNCE_MS = 160;
 
 interface UseColorProofingOptions {
     fabricCanvas: fabric.Canvas | null;
     overlayCanvasRef: React.RefObject<HTMLCanvasElement>;
     canvasWidth: number;
     canvasHeight: number;
-    // Document area dimensions (excluding pasteboard)
     docWidth: number;
     docHeight: number;
-    pasteboardOffset: number;  // Offset from canvas edge to document area
-    // Optional: Custom ICC profile data (per-product)
+    pasteboardOffset: number;
+    pixelsPerMm: number;
+    maxTrimMm: number;
+    tenantId?: string;
+    profileContextKey?: string | null;
+    viewportScale?: number;
+    viewportWidth?: number;
+    viewportHeight?: number;
+    viewportOffsetX?: number;
+    viewportOffsetY?: number;
     customProfileId?: string;
     customProfileName?: string;
     customProfileBytes?: ArrayBuffer | null;
+    customProfileLoading?: boolean;
+    customProfileError?: string | null;
+    preferredProfile?: { id: string; sha256?: string } | null;
 }
 
-interface UseColorProofingReturn {
-    settings: ProofingSettings;
-    isProcessing: boolean;
-    error: string | null;
-    setEnabled: (enabled: boolean) => void;
-    setOutputProfile: (profileId: string) => void;
-    setShowGamutWarning: (show: boolean) => void;
-    setCustomProfile: (id: string | undefined, name: string | undefined, bytes: ArrayBuffer | null) => void;
-    refreshProof: () => void;
-    hasCustomProfile: boolean;
-    exportCMYK: (
-        inputProfileUrl: string,
-        outputProfileUrl: string,
-        outputProfileBytes?: ArrayBuffer | null,
-        cropRect?: { left: number; top: number; width: number; height: number }
-    ) => Promise<{ cmykData: Uint8Array; proofedRgbDataUrl: string; width: number; height: number }>;
+export interface CmykPixelResult {
+    cmykData: Uint8Array;
+    proofedImageData: ImageData;
+    width: number;
+    height: number;
+}
+
+interface PendingPreview {
+    id: string;
+    ticket: ProofRequestTicket;
+    geometry: ProofPreviewGeometry;
 }
 
 export function useColorProofing({
-    fabricCanvas,
-    overlayCanvasRef,
-    canvasWidth,
-    canvasHeight,
-    docWidth,
-    docHeight,
-    pasteboardOffset,
-    customProfileId,
-    customProfileName,
-    customProfileBytes,
-}: UseColorProofingOptions): UseColorProofingReturn {
+    fabricCanvas, overlayCanvasRef, canvasWidth, canvasHeight, docWidth, docHeight,
+    pasteboardOffset, pixelsPerMm, maxTrimMm, tenantId, profileContextKey,
+    viewportScale, viewportWidth, viewportHeight, viewportOffsetX, viewportOffsetY,
+    customProfileId, customProfileName, customProfileBytes, customProfileLoading = false,
+    customProfileError, preferredProfile,
+}: UseColorProofingOptions) {
     const [settings, setSettings] = useState<ProofingSettings>(() => {
-        const base = loadProofingSettings();
+        const saved = loadProofingSettings();
         return {
-            ...base,
-            customProfileId: undefined,
-            customProfileName: undefined,
-            customProfileBytes: null,
+            ...saved,
+            // Only standard choices may carry across documents. Product/tenant UUIDs cannot.
+            outputProfileId: OUTPUT_PROFILES.some(p => p.id === saved.outputProfileId) ? saved.outputProfileId : 'fogra39',
+            customProfileId: undefined, customProfileName: undefined, customProfileBytes: null,
         };
     });
+    const [worker, setWorker] = useState<Worker | null>(null);
+    const workerRef = useRef<Worker | null>(null);
+    const [isReady, setIsReady] = useState(false);
+    const readyRef = useRef(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [isInteracting, setIsInteracting] = useState(false);
-    const [isWorkerReady, setIsWorkerReady] = useState(false);
+    const [resolvedOutputProfile, setResolvedOutputProfile] = useState<ResolvedColorProfile | null>(null);
+    const [expectedProfileSha256, setExpectedProfileSha256] = useState<string | undefined>();
+    const [selectionRevision, setSelectionRevision] = useState(0);
+    const [previewBounds, setPreviewBounds] = useState<ProofPreviewBounds | null>(null);
+    const [previewResolutionLimited, setPreviewResolutionLimited] = useState(false);
+    const [isPreviewVisible, setIsPreviewVisible] = useState(false);
+    const [devicePixelRatio, setDevicePixelRatio] = useState(() => typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1);
+    const gateRef = useRef(new ProofRequestGate());
+    const pendingPreviewRef = useRef<PendingPreview | null>(null);
+    const interactionRef = useRef(false);
+    const editingRef = useRef(false);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const initProfileRef = useRef<{ revision: number; profile: ResolvedColorProfile } | null>(null);
+    const exportCounterRef = useRef(0);
+    const pendingExportsRef = useRef(new Map<string, { resolve: (result: CmykPixelResult) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>());
+    const productContextRef = useRef<{ key: string; selectedProductId?: string; preferredKey?: string; userSelected?: boolean }>({ key: '' });
 
-    const workerRef = useRef<Worker | null>(null);
-    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-    const messageIdRef = useRef(0);
-    const lastProcessedRef = useRef<string>('');
+    const clearPreview = useCallback(() => {
+        gateRef.current.invalidatePreview();
+        pendingPreviewRef.current = null;
+        setIsProcessing(false);
+        setIsPreviewVisible(false);
+        const overlay = overlayCanvasRef.current;
+        if (overlay) overlay.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height);
+    }, [overlayCanvasRef]);
 
-    const [worker, setWorker] = useState<Worker | null>(null);
-
-    // Sync props to settings
+    // A product context owns its recommendation; a previous product's UUID must never leak.
     useEffect(() => {
-        if (customProfileId && customProfileBytes) {
-            setSettings(prev => ({
-                ...prev,
-                customProfileId,
-                customProfileName,
-                customProfileBytes,
-                // If the current profile is 'product' or matches this ID, ensure it's selected
-                outputProfileId: (prev.outputProfileId === 'product' || prev.outputProfileId === customProfileId)
-                    ? customProfileId
-                    : prev.outputProfileId
-            }));
+        const key = `${tenantId || ''}:${profileContextKey || 'standalone'}`;
+        const changedContext = productContextRef.current.key !== key;
+        if (changedContext) productContextRef.current = { key };
+        const preferredKey = preferredProfile ? `${preferredProfile.id}:${preferredProfile.sha256 || ''}` : undefined;
+        const shouldSelectPreferred = Boolean(!productContextRef.current.userSelected && preferredProfile && productContextRef.current.preferredKey !== preferredKey);
+        if (shouldSelectPreferred) {
+            productContextRef.current.preferredKey = preferredKey;
+            setExpectedProfileSha256(preferredProfile?.sha256?.toLowerCase());
+        } else if (changedContext || !preferredProfile) {
+            setExpectedProfileSha256(undefined);
         }
-    }, [customProfileId, customProfileName, customProfileBytes]);
+        const shouldSelectProduct = Boolean(!productContextRef.current.userSelected && !preferredProfile && customProfileId && !customProfileLoading
+            && productContextRef.current.selectedProductId !== customProfileId);
+        if (shouldSelectProduct) productContextRef.current.selectedProductId = customProfileId;
+        setSettings(prev => ({
+            ...prev,
+            customProfileId, customProfileName, customProfileBytes: customProfileBytes || null,
+            outputProfileId: shouldSelectPreferred ? preferredProfile!.id
+                : shouldSelectProduct ? customProfileId!
+                : changedContext && profileContextKey ? 'fogra39'
+                : changedContext && !OUTPUT_PROFILES.some(p => p.id === prev.outputProfileId) ? 'fogra39'
+                : prev.outputProfileId,
+        }));
+    }, [tenantId, profileContextKey, customProfileId, customProfileName, customProfileBytes, customProfileLoading, preferredProfile?.id, preferredProfile?.sha256]);
 
-    // Create worker
     useEffect(() => {
+        const update = () => setDevicePixelRatio(window.devicePixelRatio || 1);
+        const query = window.matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
+        query.addEventListener('change', update);
+        window.addEventListener('resize', update);
+        return () => { query.removeEventListener('change', update); window.removeEventListener('resize', update); };
+    }, [devicePixelRatio]);
+
+    const resolveOutputProfile = useCallback(async (profileId = settings.outputProfileId): Promise<ResolvedColorProfile> => {
+        if (customProfileLoading && !productContextRef.current.userSelected && !preferredProfile?.id) {
+            throw new Error('Produktets farveprofil indlæses stadig. Prøv igen om et øjeblik.');
+        }
+        if (customProfileError && !productContextRef.current.userSelected && !preferredProfile?.id
+            && (!customProfileId || profileId === customProfileId)) throw new Error(customProfileError);
+        const profile = await resolveColorProfile({
+            id: profileId,
+            tenantId,
+            productProfile: settings.customProfileId && settings.customProfileBytes ? {
+                id: settings.customProfileId,
+                name: settings.customProfileName || 'Produktets farveprofil',
+                bytes: settings.customProfileBytes,
+            } : undefined,
+        });
+        if (profileId === settings.outputProfileId && expectedProfileSha256 && profile.metadata.sha256.toLowerCase() !== expectedProfileSha256) {
+            throw new Error('Farveprofilens indhold er ændret siden designet blev gemt. Vælg og godkend en profil igen før eksport.');
+        }
+        return profile;
+    }, [settings.outputProfileId, settings.customProfileId, settings.customProfileName, settings.customProfileBytes, tenantId, customProfileLoading, customProfileError, customProfileId, expectedProfileSha256, preferredProfile?.id, selectionRevision]);
+
+    useEffect(() => {
+        const failWorker = (message: string) => {
+            workerRef.current = null;
+            readyRef.current = false;
+            setIsReady(false);
+            setError(message);
+            clearPreview();
+            for (const pending of pendingExportsRef.current.values()) { clearTimeout(pending.timer); pending.reject(new Error(message)); }
+            pendingExportsRef.current.clear();
+        };
+        let newWorker: Worker;
         try {
-            const newWorker = new Worker(
-                new URL('../workers/colorProofing.worker.ts', import.meta.url),
-                { type: 'module' }
-            );
-
-            newWorker.onmessage = (e) => {
-                const msg = e.data;
-                const id = msg.id;
-
-                if (msg.type === 'ready') {
-                    console.log('[Hook] Worker ready:', id);
-                    setIsWorkerReady(true);
+            newWorker = new Worker(new URL('../workers/colorProofing.worker.ts', import.meta.url), { type: 'module' });
+            newWorker.onmessage = ({ data: msg }) => {
+                const pendingExport = pendingExportsRef.current.get(msg.id);
+                if (pendingExport) {
+                    clearTimeout(pendingExport.timer);
+                    pendingExportsRef.current.delete(msg.id);
+                    if (msg.type === 'cmyk-transformed') pendingExport.resolve(msg);
+                    else pendingExport.reject(new Error(msg.error || 'CMYK-konvertering mislykkedes'));
                     return;
                 }
-
-                if (msg.type === 'transformed') {
-                    if (id !== lastProcessedRef.current) return;
-                    setIsProcessing(false);
+                if (msg.type === 'ready') {
+                    const initialized = initProfileRef.current;
+                    if (!initialized || msg.profileRevision !== initialized.revision || !gateRef.current.isCurrentProfile(initialized.revision)) return;
+                    readyRef.current = true;
+                    setResolvedOutputProfile(initialized.profile);
+                    setIsReady(true);
                     setError(null);
-
-                    if (msg.imageData && overlayCanvasRef.current) {
-                        const overlay = overlayCanvasRef.current;
-                        const ctx = overlay.getContext('2d');
-                        if (ctx) {
-                            overlay.width = docWidth;
-                            overlay.height = docHeight;
-                            const tempCanvas = document.createElement('canvas');
-                            tempCanvas.width = msg.imageData.width;
-                            tempCanvas.height = msg.imageData.height;
-                            const tempCtx = tempCanvas.getContext('2d');
-                            if (tempCtx) {
-                                tempCtx.putImageData(msg.imageData, 0, 0);
-                                ctx.clearRect(0, 0, docWidth, docHeight);
-                                ctx.drawImage(tempCanvas, 0, 0, docWidth, docHeight);
-
-                                if (msg.gamutMask) {
-                                    const gamutCanvas = document.createElement('canvas');
-                                    gamutCanvas.width = msg.gamutMask.width;
-                                    gamutCanvas.height = msg.gamutMask.height;
-                                    const gamutCtx = gamutCanvas.getContext('2d');
-                                    if (gamutCtx) {
-                                        gamutCtx.putImageData(msg.gamutMask, 0, 0);
-                                        ctx.drawImage(gamutCanvas, 0, 0, docWidth, docHeight);
-                                    }
-                                }
-                            }
-                        }
+                    return;
+                }
+                const pending = pendingPreviewRef.current;
+                if (msg.type === 'transformed') {
+                    if (!pending || msg.id !== pending.id || msg.profileRevision !== pending.ticket.profileRevision
+                        || !gateRef.current.accepts(pending.ticket) || interactionRef.current || editingRef.current) return;
+                    const overlay = overlayCanvasRef.current;
+                    if (!overlay || !msg.imageData) return;
+                    // Backing pixels are the display-density pixels returned by LCMS. No resizing.
+                    overlay.width = msg.imageData.width;
+                    overlay.height = msg.imageData.height;
+                    const ctx = overlay.getContext('2d');
+                    if (!ctx) return;
+                    ctx.putImageData(msg.imageData, 0, 0);
+                    if (msg.gamutMask) {
+                        const gamutCanvas = document.createElement('canvas');
+                        gamutCanvas.width = msg.gamutMask.width;
+                        gamutCanvas.height = msg.gamutMask.height;
+                        gamutCanvas.getContext('2d')?.putImageData(msg.gamutMask, 0, 0);
+                        ctx.drawImage(gamutCanvas, 0, 0); // Same pixel size, alpha composite only.
                     }
-                } else if (msg.type === 'error') {
+                    setPreviewBounds(pending.geometry.bounds);
+                    setPreviewResolutionLimited(pending.geometry.resolutionLimited);
                     setIsProcessing(false);
-                    setError(msg.error || 'Proofing error');
-                    console.error('Color proofing error:', msg.error);
+                    setIsPreviewVisible(true);
+                    setError(null);
+                } else if (msg.type === 'error') {
+                    const isInit = msg.id === `init-${initProfileRef.current?.revision}`;
+                    const isPreview = pending && msg.id === pending.id && gateRef.current.accepts(pending.ticket);
+                    if (isInit || isPreview) {
+                        clearPreview();
+                        setError(msg.error || 'Farvevisning mislykkedes');
+                        if (isInit) { readyRef.current = false; setIsReady(false); }
+                    }
                 }
             };
-
-            newWorker.onerror = (e) => {
-                console.error('Worker error:', e);
-                setError('Worker runtime error');
-            };
-
-            setWorker(newWorker);
+            newWorker.onerror = () => failWorker('Farvemotoren kunne ikke køre. Genindlæs designeren.');
+            newWorker.onmessageerror = () => failWorker('Farvemotoren returnerede et ugyldigt svar.');
             workerRef.current = newWorker;
-
-            return () => {
-                newWorker.terminate();
-                setWorker(null);
-                workerRef.current = null;
-                setIsWorkerReady(false);
-            };
-        } catch (err) {
-            console.error('Failed to create worker:', err);
-            setError('Could not initialize color proofing');
-        }
-    }, [canvasWidth, canvasHeight, overlayCanvasRef, docWidth, docHeight]);
-
-    // Initialize worker profiles
-    useEffect(() => {
-        const initWorkerProfiles = async () => {
-            if (!worker) return;
-            try {
-                setIsWorkerReady(false);
-                setError('Indlæser farveprofiler...');
-                const profile = OUTPUT_PROFILES.find(p => p.id === settings.outputProfileId) || OUTPUT_PROFILES[0];
-                const now = Date.now();
-                const [inputRes, outputRes] = await Promise.all([
-                    fetch(`${SRGB_PROFILE_URL}?t=${now}`),
-                    fetch(`${profile.url}?t=${now}`)
-                ]);
-                if (!inputRes.ok) throw new Error(`Kunne ikke hente sRGB profil`);
-                if (!outputRes.ok) throw new Error(`Kunne ikke hente output profil`);
-                const [inputBytes, outputBytes] = await Promise.all([
-                    inputRes.arrayBuffer(),
-                    (settings.customProfileId && settings.outputProfileId === settings.customProfileId && settings.customProfileBytes)
-                        ? Promise.resolve(settings.customProfileBytes.slice(0))
-                        : outputRes.arrayBuffer()
-                ]);
-
-                console.log(`[Hook] Profiles loaded: sRGB=${inputBytes.byteLength} bytes, Output=${outputBytes.byteLength} bytes`);
-                if (inputBytes.byteLength === 0 || outputBytes.byteLength === 0) {
-                    throw new Error(`Loaded profile is empty (sRGB: ${inputBytes.byteLength}, Output: ${outputBytes.byteLength})`);
-                }
-
-                worker.postMessage({
-                    type: 'init',
-                    id: 'init-profiles',
-                    inputProfileData: inputBytes,
-                    outputProfileData: outputBytes
-                }, [inputBytes, outputBytes]);
-                setError(null);
-            } catch (err) {
-                console.error('Failed to init profiling profiles:', err);
-                setError(err instanceof Error ? err.message : 'Fejl ved indlæsning af farveprofiler');
-                setIsWorkerReady(false);
-            }
-        };
-        if (worker) initWorkerProfiles();
-    }, [settings.outputProfileId, settings.customProfileBytes, SRGB_PROFILE_URL, worker]);
-
-    // Proof object reference to track the Fabric image on canvas
-    const proofObjectRef = useRef<fabric.Image | null>(null);
-
-    // Clean up proof object when unmounting or disabling
-    const clearProofObject = useCallback(() => {
-        if (fabricCanvas && proofObjectRef.current) {
-            fabricCanvas.remove(proofObjectRef.current);
-            proofObjectRef.current = null;
-            fabricCanvas.requestRenderAll();
-        }
-    }, [fabricCanvas]);
-
-    // Capture and process canvas - only the document area (excluding pasteboard)
-    const processCanvas = useCallback(async () => {
-        if (!fabricCanvas || !workerRef.current || !settings.enabled || !isWorkerReady) {
-            if (overlayCanvasRef.current) {
-                const ctx = overlayCanvasRef.current.getContext('2d');
-                if (ctx) ctx.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
-            }
+            setWorker(newWorker);
+        } catch {
+            failWorker('Farvemotoren kunne ikke initialiseres.');
             return;
         }
+        return () => {
+            newWorker.terminate();
+            workerRef.current = null;
+            readyRef.current = false;
+            for (const pending of pendingExportsRef.current.values()) { clearTimeout(pending.timer); pending.reject(new Error('Designeren blev lukket')); }
+            pendingExportsRef.current.clear();
+        };
+    }, [clearPreview, overlayCanvasRef]);
 
+    useEffect(() => {
+        const revision = gateRef.current.nextProfile();
+        readyRef.current = false;
+        setIsReady(false);
+        setResolvedOutputProfile(null);
+        setError(null);
+        clearPreview();
+        initProfileRef.current = null;
+        if (!worker || (customProfileLoading && !productContextRef.current.userSelected && !preferredProfile?.id)) return;
+        let cancelled = false;
+        void Promise.all([fetchICCProfile(SRGB_PROFILE_URL), resolveOutputProfile()]).then(([inputBytes, profile]) => {
+            if (cancelled || !gateRef.current.isCurrentProfile(revision)) return;
+            initProfileRef.current = { revision, profile };
+            const outputBytes = profile.bytes.slice(0);
+            worker.postMessage({ type: 'init', id: `init-${revision}`, profileRevision: revision, inputProfileData: inputBytes, outputProfileData: outputBytes }, [inputBytes, outputBytes]);
+        }).catch(err => {
+            if (!cancelled && gateRef.current.isCurrentProfile(revision)) setError(err instanceof Error ? err.message : 'Farveprofilen kunne ikke indlæses');
+        });
+        return () => { cancelled = true; };
+    }, [worker, resolveOutputProfile, customProfileLoading, preferredProfile?.id, clearPreview]);
+
+    const processCanvas = useCallback(() => {
+        if (!fabricCanvas || !workerRef.current || !settings.enabled || !readyRef.current || interactionRef.current || editingRef.current) return;
+        const ticket = gateRef.current.nextPreview();
         try {
-            // Use toDataURL to get a consistent snapshot of the document area, ignoring current viewport transform/zoom
-            const dataUrl = fabricCanvas.toDataURL({
-                format: 'png',
-                left: pasteboardOffset,
-                top: pasteboardOffset,
-                width: docWidth,
-                height: docHeight,
-                multiplier: 1,
-                withoutTransform: true
+            // Fabric exports through the active viewport. Crop in those same coordinates.
+            const geometry = computeProofPreviewGeometry({
+                docWidth, docHeight, pasteboardOffset,
+                viewportTransform: fabricCanvas.viewportTransform || fabric.iMatrix,
+                viewportWidth: viewportWidth || fabricCanvas.getWidth(),
+                viewportHeight: viewportHeight || fabricCanvas.getHeight(),
+                devicePixelRatio,
             });
-
-            // Load into an image for processing
-            const img = new Image();
-            await new Promise((resolve, reject) => {
-                img.onload = resolve;
-                img.onerror = reject;
-                img.src = dataUrl;
-            });
-
-            // Scale down if too large for preview performance
-            let width = img.width;
-            let height = img.height;
-            if (width > MAX_PREVIEW_DIMENSION || height > MAX_PREVIEW_DIMENSION) {
-                const scale = MAX_PREVIEW_DIMENSION / Math.max(width, height);
-                width = Math.round(width * scale);
-                height = Math.round(height * scale);
-            }
-
-            const offscreen = document.createElement('canvas');
-            offscreen.width = width;
-            offscreen.height = height;
-            const ctx = offscreen.getContext('2d');
-            if (!ctx) throw new Error('Could not get canvas context');
-
-            // Draw the captured document image
-            ctx.drawImage(img, 0, 0, width, height);
-
-            const imageData = ctx.getImageData(0, 0, width, height);
-            const id = `transform-${++messageIdRef.current}`;
-            lastProcessedRef.current = id;
+            if (!geometry) { clearPreview(); setPreviewBounds(null); return; }
+            const capture = fabricCanvas.toCanvasElement(geometry.multiplier, geometry.bounds);
+            const ctx = capture.getContext('2d');
+            if (!ctx) throw new Error('Forhåndsvisningen kunne ikke tegnes');
+            const imageData = ctx.getImageData(0, 0, capture.width, capture.height);
+            const id = `proof-${ticket.profileRevision}-${ticket.requestId}`;
+            pendingPreviewRef.current = { id, ticket, geometry };
             setIsProcessing(true);
-
-            workerRef.current.postMessage({
-                type: 'transform',
-                id,
-                imageData,
-                showGamutWarning: settings.showGamutWarning,
-                gamutWarningColor: '#00ff00',
-            }, [imageData.data.buffer]);
-
+            workerRef.current.postMessage({ type: 'transform', id, profileRevision: ticket.profileRevision, imageData, showGamutWarning: settings.showGamutWarning, gamutWarningColor: settings.gamutWarningColor }, [imageData.data.buffer]);
         } catch (err) {
-            console.error('Failed to process canvas:', err);
-            setIsProcessing(false);
+            clearPreview();
+            setError(err instanceof Error ? err.message : 'Forhåndsvisningen kunne ikke tegnes');
         }
-    }, [fabricCanvas, settings, overlayCanvasRef, isWorkerReady, docWidth, docHeight, pasteboardOffset]);
+    }, [fabricCanvas, settings.enabled, settings.showGamutWarning, settings.gamutWarningColor, docWidth, docHeight, pasteboardOffset, viewportWidth, viewportHeight, devicePixelRatio, clearPreview]);
 
     const refreshProof = useCallback(() => {
-        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = setTimeout(processCanvas, DEBOUNCE_MS);
-    }, [processCanvas]);
+        clearPreview();
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(processCanvas, DEBOUNCE_MS);
+    }, [processCanvas, clearPreview]);
 
-    useEffect(() => {
-        if (!fabricCanvas || !settings.enabled) {
-            if (overlayCanvasRef.current) {
-                const ctx = overlayCanvasRef.current.getContext('2d');
-                if (ctx) ctx.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
-            }
-            return;
-        }
-        const onInteractionStart = () => {
-            setIsInteracting(true);
-            if (overlayCanvasRef.current) overlayCanvasRef.current.style.opacity = '0';
-        };
-        const onInteractionEnd = () => {
-            setIsInteracting(false);
-            if (overlayCanvasRef.current) {
-                const ctx = overlayCanvasRef.current.getContext('2d');
-                if (ctx) ctx.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
-                overlayCanvasRef.current.style.opacity = '1';
-            }
-            refreshProof();
-        };
-        const onContentChanged = () => refreshProof();
-        fabricCanvas.on('mouse:down', onInteractionStart);
-        fabricCanvas.on('object:moving', onInteractionStart);
-        fabricCanvas.on('object:scaling', onInteractionStart);
-        fabricCanvas.on('object:rotating', onInteractionStart);
-        fabricCanvas.on('mouse:up', onInteractionEnd);
-        fabricCanvas.on('object:modified', onInteractionEnd);
-        fabricCanvas.on('object:added', onContentChanged);
-        fabricCanvas.on('object:removed', onContentChanged);
+    // Clear stale pixels before the browser paints a changed zoom/viewport.
+    useLayoutEffect(() => {
         refreshProof();
-        return () => {
-            fabricCanvas.off('mouse:down', onInteractionStart);
-            fabricCanvas.off('object:moving', onInteractionStart);
-            fabricCanvas.off('object:scaling', onInteractionStart);
-            fabricCanvas.off('object:rotating', onInteractionStart);
-            fabricCanvas.off('mouse:up', onInteractionEnd);
-            fabricCanvas.off('object:modified', onInteractionEnd);
-            fabricCanvas.off('object:added', onContentChanged);
-            fabricCanvas.off('object:removed', onContentChanged);
+        return () => { if (debounceRef.current) clearTimeout(debounceRef.current); clearPreview(); };
+    }, [refreshProof, isReady, settings.enabled, viewportScale, viewportWidth, viewportHeight, viewportOffsetX, viewportOffsetY]);
+
+    useEffect(() => {
+        if (!fabricCanvas) return;
+        const start = () => { interactionRef.current = true; clearPreview(); };
+        const end = () => { interactionRef.current = false; refreshProof(); };
+        const editingStart = () => { editingRef.current = true; clearPreview(); };
+        const editingEnd = () => { editingRef.current = false; refreshProof(); };
+        const textChanged = () => { clearPreview(); if (!editingRef.current) refreshProof(); };
+        const listeners = {
+            'mouse:down': start, 'object:moving': start, 'object:scaling': start, 'object:rotating': start,
+            'mouse:up': end, 'object:modified': end, 'object:added': refreshProof, 'object:removed': refreshProof,
+            'text:editing:entered': editingStart, 'text:editing:exited': editingEnd, 'text:changed': textChanged,
         };
-    }, [fabricCanvas, settings.enabled, refreshProof, overlayCanvasRef]);
+        for (const [event, listener] of Object.entries(listeners)) fabricCanvas.on(event as any, listener);
+        return () => {
+            for (const [event, listener] of Object.entries(listeners)) fabricCanvas.off(event as any, listener);
+            interactionRef.current = false;
+            editingRef.current = false;
+        };
+    }, [fabricCanvas, refreshProof, clearPreview]);
 
-    useEffect(() => {
-        if (settings.enabled && isWorkerReady) refreshProof();
-    }, [settings.outputProfileId, settings.showGamutWarning, settings.enabled, isWorkerReady, refreshProof]);
-
-    const setEnabled = useCallback((enabled: boolean) => {
-        const newSettings = { ...settings, enabled };
-        setSettings(newSettings);
-        saveProofingSettings(newSettings);
-        if (enabled) toast.info('Soft proof aktiveret');
-        else if (overlayCanvasRef.current) {
-            const ctx = overlayCanvasRef.current.getContext('2d');
-            if (ctx) ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-        }
-    }, [settings, overlayCanvasRef, canvasWidth, canvasHeight]);
-
-    const setOutputProfile = useCallback((profileId: string) => {
-        const newSettings = { ...settings, outputProfileId: profileId };
-        setSettings(newSettings);
-        saveProofingSettings(newSettings);
-    }, [settings]);
-
-    // Migration: Reset removed profiles (fogra51, swop) to default
-    useEffect(() => {
-        if (settings.outputProfileId === 'fogra51' || settings.outputProfileId === 'swop') {
-            console.log('[Hook] Migrating from removed profile to default (fogra39)');
-            setOutputProfile('fogra39');
-        }
-    }, [settings.outputProfileId, setOutputProfile]);
-
-    const setShowGamutWarning = useCallback((show: boolean) => {
-        const newSettings = { ...settings, showGamutWarning: show };
-        setSettings(newSettings);
-        saveProofingSettings(newSettings);
-    }, [settings]);
-
+    const updateSettings = useCallback((patch: Partial<ProofingSettings>) => {
+        clearPreview();
+        setSettings(prev => {
+            const next = { ...prev, ...patch };
+            // Persist built-ins only; tenant/product selections belong to this document context.
+            saveProofingSettings({ ...next, outputProfileId: OUTPUT_PROFILES.some(p => p.id === next.outputProfileId) ? next.outputProfileId : 'fogra39', customProfileId: undefined, customProfileName: undefined, customProfileBytes: null });
+            return next;
+        });
+    }, [clearPreview]);
+    const setEnabled = useCallback((enabled: boolean) => updateSettings({ enabled }), [updateSettings]);
+    const setOutputProfile = useCallback((outputProfileId: string) => {
+        productContextRef.current.userSelected = true;
+        setSelectionRevision(previous => previous + 1);
+        setExpectedProfileSha256(undefined);
+        updateSettings({ outputProfileId });
+    }, [updateSettings]);
+    const setShowGamutWarning = useCallback((showGamutWarning: boolean) => updateSettings({ showGamutWarning }), [updateSettings]);
     const setCustomProfile = useCallback((id: string | undefined, name: string | undefined, bytes: ArrayBuffer | null) => {
-        setSettings(prev => ({ ...prev, customProfileId: id, customProfileName: name, customProfileBytes: bytes }));
-    }, []);
+        updateSettings({ customProfileId: id, customProfileName: name, customProfileBytes: bytes });
+    }, [updateSettings]);
 
-    const hasCustomProfile = Boolean(settings.customProfileId && settings.customProfileBytes);
+    const transformPixelsToCMYK = useCallback(async (
+        imageData: ImageData, profile?: ResolvedColorProfile, inputProfileUrl = SRGB_PROFILE_URL,
+    ): Promise<CmykPixelResult> => {
+        const selected = profile || await resolveOutputProfile();
+        const inputBytes = await fetchICCProfile(inputProfileUrl);
+        const outputBytes = selected.bytes.slice(0);
+        const activeWorker = workerRef.current;
+        if (!activeWorker) throw new Error('Farvemotoren er ikke klar');
+        const id = `export-${++exportCounterRef.current}`;
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                pendingExportsRef.current.delete(id);
+                reject(new Error('CMYK-konverteringen tog for lang tid. Prøv et mindre dokument.'));
+            }, 120_000);
+            pendingExportsRef.current.set(id, { resolve, reject, timer });
+            try {
+                // Preserve the caller's pixel buffer, which may still be used by another export step.
+                const pixels = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+                activeWorker.postMessage({ type: 'transform-to-cmyk', id, imageData: pixels, inputProfileData: inputBytes, outputProfileData: outputBytes }, [pixels.data.buffer, inputBytes, outputBytes]);
+            } catch (err) {
+                clearTimeout(timer);
+                pendingExportsRef.current.delete(id);
+                reject(err instanceof Error ? err : new Error('CMYK-konverteringen kunne ikke starte'));
+            }
+        });
+    }, [resolveOutputProfile]);
 
     const exportCMYK = useCallback(async (
-        inputProfileUrl: string,
-        outputProfileUrl: string,
-        outputProfileBytes?: ArrayBuffer | null,
-        cropRect?: { left: number; top: number; width: number; height: number }
+        inputProfileUrl: string, _outputProfileUrl: string, _outputProfileBytes?: ArrayBuffer | null,
+        cropRect?: { left: number; top: number; width: number; height: number },
     ): Promise<{ cmykData: Uint8Array; proofedRgbDataUrl: string; width: number; height: number }> => {
-        if (!fabricCanvas || !workerRef.current) throw new Error('Designer not ready');
-
-        // Adaptive Multiplier for Large Format
-        const sourceCanvas = fabricCanvas.getElement();
-        const maxDocDimMm = Math.max(canvasWidth, canvasHeight) / (96 / 25.4);
-        let targetDPI = 300;
-        if (maxDocDimMm > 2000) targetDPI = 100;
-        else if (maxDocDimMm > 1000) targetDPI = 150;
-        let multiplier = targetDPI / 96;
-        const MAX_EXPORT_PIXELS = 10000;
-        if (sourceCanvas.width * multiplier > MAX_EXPORT_PIXELS) multiplier = MAX_EXPORT_PIXELS / sourceCanvas.width;
-        if (sourceCanvas.height * multiplier > MAX_EXPORT_PIXELS) multiplier = MAX_EXPORT_PIXELS / sourceCanvas.height;
-
-        const dataUrl = fabricCanvas.toDataURL({
-            multiplier,
-            format: 'png',
-            ...(cropRect || {})
-        });
-
-        const img = new Image();
-        await new Promise((resolve) => { img.onload = resolve; img.src = dataUrl; });
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width; canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) throw new Error('Context failed');
-        ctx.drawImage(img, 0, 0);
-        const imageData = ctx.getImageData(0, 0, img.width, img.height);
-
-        let inputBytes: ArrayBuffer, outputBytes: ArrayBuffer;
-        try {
-            const inputPromise = fetch(inputProfileUrl).then(r => r.ok ? r.arrayBuffer() : Promise.reject('Input missing'));
-
-            // Correct logic for choosing custom bytes in export
-            const isCustom = outputProfileBytes &&
-                settings.customProfileId &&
-                (settings.outputProfileId === settings.customProfileId);
-
-            const outputPromise = isCustom
-                ? Promise.resolve(outputProfileBytes!.slice(0))
-                : fetch(outputProfileUrl).then(r => r.ok ? r.arrayBuffer() : Promise.reject('Output missing'));
-
-            [inputBytes, outputBytes] = await Promise.all([inputPromise, outputPromise]);
-        } catch (err) {
-            console.warn('ICC Profiles missing, falling back to RGB export:', err);
-            return { cmykData: new Uint8Array(0), proofedRgbDataUrl: dataUrl, width: img.width, height: img.height };
-        }
-
-        const id = `export-${Date.now()}`;
-        return new Promise((resolve, reject) => {
-            const handler = (e: MessageEvent) => {
-                if (e.data.id === id) {
-                    workerRef.current?.removeEventListener('message', handler);
-                    if (e.data.type === 'cmyk-transformed') {
-                        const { proofedImageData, cmykData, width: w, height: h } = e.data;
-                        const resCanvas = document.createElement('canvas');
-                        resCanvas.width = w; resCanvas.height = h;
-                        const resCtx = resCanvas.getContext('2d');
-                        if (resCtx) {
-                            resCtx.putImageData(proofedImageData, 0, 0);
-                            resolve({ cmykData, proofedRgbDataUrl: resCanvas.toDataURL('image/png'), width: w, height: h });
-                        } else reject(new Error('Final context failed'));
-                    } else reject(new Error(e.data.error || 'Export failed'));
-                }
-            };
-            workerRef.current?.addEventListener('message', handler);
-            workerRef.current?.postMessage({
-                type: 'transform-to-cmyk',
-                id, imageData, inputProfileData: inputBytes, outputProfileData: outputBytes
-            }, [imageData.data.buffer, inputBytes, outputBytes]);
-        });
-    }, [fabricCanvas, canvasWidth, canvasHeight, settings.customProfileId, settings.outputProfileId]);
+        if (!fabricCanvas) throw new Error('Designeren er ikke klar');
+        const profile = await resolveOutputProfile();
+        const { multiplier } = computeExportRasterScale(cropRect?.width ?? fabricCanvas.getWidth(), cropRect?.height ?? fabricCanvas.getHeight(), pixelsPerMm, maxTrimMm);
+        const capture = fabricCanvas.toCanvasElement(multiplier, cropRect || {});
+        const ctx = capture.getContext('2d');
+        if (!ctx) throw new Error('Eksporten kunne ikke tegnes');
+        const result = await transformPixelsToCMYK(ctx.getImageData(0, 0, capture.width, capture.height), profile, inputProfileUrl);
+        const output = document.createElement('canvas');
+        output.width = result.width;
+        output.height = result.height;
+        const outputCtx = output.getContext('2d');
+        if (!outputCtx) throw new Error('Eksporten kunne ikke afsluttes');
+        outputCtx.putImageData(result.proofedImageData, 0, 0);
+        return { cmykData: result.cmykData, proofedRgbDataUrl: output.toDataURL('image/png'), width: result.width, height: result.height };
+    }, [fabricCanvas, pixelsPerMm, maxTrimMm, resolveOutputProfile, transformPixelsToCMYK]);
 
     return {
-        settings, isProcessing, error, setEnabled, setOutputProfile, setShowGamutWarning,
-        setCustomProfile, refreshProof, hasCustomProfile, exportCMYK,
+        settings, isReady: isReady && resolvedOutputProfile?.id === settings.outputProfileId
+            && (!customProfileLoading || productContextRef.current.userSelected || Boolean(preferredProfile?.id)),
+        isProcessing, error, previewBounds, previewResolutionLimited, isPreviewVisible,
+        resolvedOutputProfile, resolveOutputProfile, transformPixelsToCMYK,
+        setEnabled, setOutputProfile, setShowGamutWarning, setCustomProfile, refreshProof,
+        hasCustomProfile: Boolean(settings.customProfileId && settings.customProfileBytes), exportCMYK,
     };
 }
 

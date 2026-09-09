@@ -1,5 +1,7 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { withAdminWorkspaceContext } from "@/lib/admin/workspaceNavigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,6 +55,11 @@ interface SavedDesign {
 
 export default function DesignResources() {
     const navigate = useNavigate();
+    const location = useLocation();
+    const openDesignerInNewTab = (params: Record<string, string>) => {
+        const path = `/admin/print-designer?${new URLSearchParams(params).toString()}`;
+        window.open(withAdminWorkspaceContext(path, location.search), '_blank');
+    };
     const [items, setItems] = useState<DesignLibraryItem[]>([]);
     const [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([]);
     const [templates, setTemplates] = useState<any[]>([]);
@@ -213,7 +220,7 @@ export default function DesignResources() {
     };
 
     const openTemplateDesign = () => {
-        navigate("/admin/designer-templates");
+        navigate(withAdminWorkspaceContext("/admin/designer-templates", location.search));
     };
 
     useEffect(() => {
@@ -338,7 +345,7 @@ export default function DesignResources() {
     };
 
     const openDesignInEditor = (designId: string) => {
-        window.open(`/designer?designId=${designId}`, '_blank');
+        openDesignerInNewTab({ designId });
     };
 
     const handleCopyTemplate = async (template: any) => {
@@ -549,13 +556,13 @@ export default function DesignResources() {
                                     <p className="text-muted-foreground mb-4">
                                         Dine gemte designs fra Print Designer vises her.
                                     </p>
-                                    <Button onClick={() => window.open('/designer?format=A4', '_blank')}>
+                                    <Button onClick={() => openDesignerInNewTab({ format: 'A4' })}>
                                         <Plus className="w-4 h-4 mr-2" />
                                         Opret nyt design
                                     </Button>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                <WorkspaceCollection label="Designs" items={filteredSavedDesigns.map(design => ({ id: design.id, title: design.name, image: design.preview_thumbnail_url, subtitle: `${design.width_mm} × ${design.height_mm} mm` }))}>
                                     {filteredSavedDesigns.map((design) => (
                                         <Card key={design.id} className="overflow-hidden group cursor-pointer" onClick={() => openDesignInEditor(design.id)}>
                                             <div className="aspect-square bg-gradient-to-br from-primary/5 to-primary/10 relative flex items-center justify-center border-b overflow-hidden">
@@ -586,7 +593,7 @@ export default function DesignResources() {
                                                     </Button>
                                                     <AlertDialog>
                                                         <AlertDialogTrigger asChild>
-                                                            <Button size="icon" variant="destructive" className="h-8 w-8" onClick={(e) => e.stopPropagation()}>
+                                                            <Button size="icon" variant="destructive" className="h-8 w-8" aria-label={`Slet ${design.name}`} onClick={(e) => e.stopPropagation()}>
                                                                 <Trash2 className="h-4 w-4" />
                                                             </Button>
                                                         </AlertDialogTrigger>
@@ -613,7 +620,7 @@ export default function DesignResources() {
                                             </CardContent>
                                         </Card>
                                     ))}
-                                </div>
+                                </WorkspaceCollection>
                             )}
                         </TabsContent>
 
@@ -675,9 +682,9 @@ export default function DesignResources() {
                                             Opret ny skabelon
                                         </Button>
                                     </div>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                    <WorkspaceCollection label="Designskabeloner" items={filteredTemplates.map(template => ({ id: template.id, title: template.name, subtitle: `${template.width_mm} × ${template.height_mm} mm` }))}>
                                         {filteredTemplates.map((template) => (
-                                            <Card key={template.id} className="overflow-hidden group cursor-pointer" onClick={() => window.open(`/designer?templateId=${template.id}`, '_blank')}>
+                                            <Card key={template.id} className="overflow-hidden group cursor-pointer" onClick={() => openDesignerInNewTab({ templateId: template.id })}>
                                                 <div className="aspect-[2/1] bg-gradient-to-br from-primary/5 to-primary/10 relative flex items-center justify-center border-b px-2 py-3">
                                                     <div className="text-center">
                                                         <Layers className="w-8 h-8 text-primary/40 mx-auto" />
@@ -691,7 +698,7 @@ export default function DesignResources() {
                                                         <Button
                                                             size="sm"
                                                             variant="secondary"
-                                                            onClick={(e) => { e.stopPropagation(); window.open(`/designer?templateId=${template.id}`, '_blank'); }}
+                                                            onClick={(e) => { e.stopPropagation(); openDesignerInNewTab({ templateId: template.id }); }}
                                                         >
                                                             <ExternalLink className="h-4 w-4 mr-1" />
                                                             Åbn i Designer
@@ -712,15 +719,15 @@ export default function DesignResources() {
                                                     </div>
                                                 </CardContent>
                                                 <div className="flex justify-end p-2 pt-0 gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); handleCopyTemplate(template); }}>
+                                                    <Button size="icon" variant="ghost" className="h-6 w-6" aria-label={`Kopiér ${template.name}`} onClick={(e) => { e.stopPropagation(); handleCopyTemplate(template); }}>
                                                         <Copy className="h-4 w-4" />
                                                     </Button>
-                                                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); setEditingTemplate(template); }}>
+                                                    <Button size="icon" variant="ghost" className="h-6 w-6" aria-label={`Redigér ${template.name}`} onClick={(e) => { e.stopPropagation(); setEditingTemplate(template); }}>
                                                         <Pencil className="h-4 w-4" />
                                                     </Button>
                                                     <AlertDialog>
                                                         <AlertDialogTrigger asChild>
-                                                            <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" onClick={(e) => e.stopPropagation()}>
+                                                            <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" aria-label={`Slet ${template.name}`} onClick={(e) => e.stopPropagation()}>
                                                                 <Trash2 className="h-4 w-4" />
                                                             </Button>
                                                         </AlertDialogTrigger>
@@ -740,7 +747,7 @@ export default function DesignResources() {
                                                 </div>
                                             </Card>
                                         ))}
-                                    </div>
+                                    </WorkspaceCollection>
                                 </div>
                             )}
                         </TabsContent>
@@ -793,7 +800,7 @@ export default function DesignResources() {
                                             Opret nyt materiale
                                         </Button>
                                     </div>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                    <WorkspaceCollection label="Ressourcer" items={materials.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase())).filter(item => !materialFilterCategory || item.category === materialFilterCategory).map(item => ({ id: item.id, title: item.name, subtitle: item.category }))}>
                                         {materials
                                             .filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()))
                                             .filter(m => !materialFilterCategory || m.category === materialFilterCategory)
@@ -827,7 +834,7 @@ export default function DesignResources() {
                                                     </CardContent>
                                                 </Card>
                                             ))}
-                                    </div>
+                                    </WorkspaceCollection>
                                 </div>
                             )}
                         </TabsContent>
@@ -880,7 +887,7 @@ export default function DesignResources() {
                                             Opret ny efterbehandling
                                         </Button>
                                     </div>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                    <WorkspaceCollection label="Ressourcer" items={finishes.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase())).filter(item => !finishFilterCategory || item.category === finishFilterCategory).map(item => ({ id: item.id, title: item.name, subtitle: item.category }))}>
                                         {finishes
                                             .filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()))
                                             .filter(f => !finishFilterCategory || f.category === finishFilterCategory)
@@ -907,7 +914,7 @@ export default function DesignResources() {
                                                     </CardContent>
                                                 </Card>
                                             ))}
-                                    </div>
+                                    </WorkspaceCollection>
                                 </div>
                             )}
                         </TabsContent>
@@ -960,7 +967,7 @@ export default function DesignResources() {
                                             Opret nyt produkt
                                         </Button>
                                     </div>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                    <WorkspaceCollection label="Ressourcer" items={products.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase())).filter(item => !productFilterCategory || item.category === productFilterCategory).map(item => ({ id: item.id, title: item.name, subtitle: item.category }))}>
                                         {products
                                             .filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
                                             .filter(p => !productFilterCategory || p.category === productFilterCategory)
@@ -987,7 +994,7 @@ export default function DesignResources() {
                                                     </CardContent>
                                                 </Card>
                                             ))}
-                                    </div>
+                                    </WorkspaceCollection>
                                 </div>
                             )}
                         </TabsContent>
@@ -1007,7 +1014,7 @@ export default function DesignResources() {
                                     </p>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                <WorkspaceCollection label="Biblioteksressourcer" items={filteredItems.map(item => ({ id: item.id, title: item.name, subtitle: item.kind }))}>
                                     {filteredItems.map((item) => (
                                         <Card key={item.id} className="overflow-hidden group">
                                             <div className="aspect-square bg-muted relative flex items-center justify-center border-b">
@@ -1027,12 +1034,13 @@ export default function DesignResources() {
                                                         className="h-8 w-8"
                                                         onClick={() => toggleVisibility(item)}
                                                         title={item.visibility === 'public' ? 'Gør privat' : 'Gør offentlig'}
+                                                        aria-label={`Gør ${item.name} ${item.visibility === 'public' ? 'privat' : 'offentlig'}`}
                                                     >
                                                         {item.visibility === 'public' ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                                                     </Button>
                                                     <AlertDialog>
                                                         <AlertDialogTrigger asChild>
-                                                            <Button size="icon" variant="destructive" className="h-8 w-8">
+                                                            <Button size="icon" variant="destructive" className="h-8 w-8" aria-label={`Slet ${item.name}`}>
                                                                 <Trash2 className="h-4 w-4" />
                                                             </Button>
                                                         </AlertDialogTrigger>
@@ -1073,7 +1081,7 @@ export default function DesignResources() {
                                             </CardContent>
                                         </Card>
                                     ))}
-                                </div>
+                                </WorkspaceCollection>
                             )}
                         </TabsContent>
                     </CardContent>
@@ -1295,7 +1303,7 @@ function CreateTemplateDialog({ open, onOpenChange, onSuccess, existingCategorie
                             <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
                                 <FileText className="h-4 w-4 text-muted-foreground" />
                                 <span className="text-sm truncate flex-1">{templatePdfUrl.split('/').pop()}</span>
-                                <Button type="button" variant="ghost" size="sm" onClick={() => setTemplatePdfUrl(null)}>
+                                <Button type="button" variant="ghost" size="sm" aria-label="Fjern skabelon-PDF" onClick={() => setTemplatePdfUrl(null)}>
                                     <X className="h-4 w-4" />
                                 </Button>
                             </div>
@@ -1448,7 +1456,7 @@ function EditTemplateDialog({ open, template, onOpenChange, onSuccess, existingC
                             <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
                                 <FileText className="h-4 w-4 text-muted-foreground" />
                                 <span className="text-sm truncate flex-1">{templatePdfUrl.split('/').pop()}</span>
-                                <Button type="button" variant="ghost" size="sm" onClick={() => setTemplatePdfUrl(null)}>
+                                <Button type="button" variant="ghost" size="sm" aria-label="Fjern skabelon-PDF" onClick={() => setTemplatePdfUrl(null)}>
                                     <X className="h-4 w-4" />
                                 </Button>
                             </div>

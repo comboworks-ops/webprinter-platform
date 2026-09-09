@@ -11,7 +11,7 @@ import { CookiePolicyContent } from "@/components/content/CookiePolicyContent";
 
 const Cookiepolitik = () => {
     return (
-        <div className="min-h-screen flex flex-col font-sans">
+        <div className="platform-page min-h-screen flex flex-col font-sans">
             <SEO
                 title="Cookiepolitik | Webprinter Platform"
                 description="Læs om hvordan Webprinter bruger cookies."

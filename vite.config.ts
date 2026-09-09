@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { execFileSync } from "child_process";
 import { componentTagger } from "lovable-tagger";
+import { localColorProfileAssets } from "./scripts/local-color-profile-plugin";
 
 function cleanDistBeforeBuild() {
   return {
@@ -19,6 +20,9 @@ function cleanDistBeforeBuild() {
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  define: {
+    'import.meta.env.VITE_TEST_DEPLOYMENT': JSON.stringify(process.env.WEBPRINTER_TEST_DEPLOYMENT === '1' ? 'true' : 'false'),
+  },
   build: {
     emptyOutDir: false,
   },
@@ -41,7 +45,7 @@ export default defineConfig(({ mode }) => ({
       interval: 1000,
     },
   },
-  plugins: [cleanDistBeforeBuild(), react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [cleanDistBeforeBuild(), localColorProfileAssets(), react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

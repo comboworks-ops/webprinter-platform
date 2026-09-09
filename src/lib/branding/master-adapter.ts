@@ -6,7 +6,7 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
-import { writeTransientString } from '@/lib/storage/transientStorage';
+import { persistBrandingSettings } from './settings-persistence';
 import {
     type BrandingStorageAdapter,
     type BrandingData,
@@ -35,14 +35,13 @@ export function createMasterAdapter(): BrandingStorageAdapter {
 
             if (error) {
                 console.error('Error loading master draft:', error);
-                // Return defaults if master tenant doesn't exist
-                return DEFAULT_BRANDING;
+                throw error;
             }
 
             const settings = (data as any)?.settings || {};
             return mergeBrandingWithDefaults({
-                ...settings.branding_template_draft,
                 ...settings.branding_template_published,
+                ...settings.branding_template_draft,
             });
         },
 
@@ -55,7 +54,7 @@ export function createMasterAdapter(): BrandingStorageAdapter {
 
             if (error) {
                 console.error('Error loading master published:', error);
-                return DEFAULT_BRANDING;
+                throw error;
             }
 
             const settings = (data as any)?.settings || {};
@@ -70,12 +69,7 @@ export function createMasterAdapter(): BrandingStorageAdapter {
                 .eq('id', MASTER_TENANT_ID)
                 .single();
 
-            if (fetchError) {
-                // Master tenant might not exist, try to create
-                console.warn('Master tenant not found, using local storage fallback');
-                writeTransientString('master_branding_draft', JSON.stringify(data));
-                return;
-            }
+            if (fetchError) throw fetchError;
 
             const currentSettings = (current as any)?.settings || {};
             const newSettings = {
@@ -83,12 +77,7 @@ export function createMasterAdapter(): BrandingStorageAdapter {
                 branding_template_draft: data,
             };
 
-            const { error } = await supabase
-                .from('tenants' as any)
-                .update({ settings: newSettings })
-                .eq('id', MASTER_TENANT_ID);
-
-            if (error) throw error;
+            await persistBrandingSettings(supabase, MASTER_TENANT_ID, (current as any)?.settings, newSettings);
         },
 
         async publish(data: BrandingData, label?: string): Promise<void> {
@@ -118,12 +107,7 @@ export function createMasterAdapter(): BrandingStorageAdapter {
                 branding_template_history: [historyEntry, ...history].slice(0, 20),
             };
 
-            const { error } = await supabase
-                .from('tenants' as any)
-                .update({ settings: newSettings })
-                .eq('id', MASTER_TENANT_ID);
-
-            if (error) throw error;
+            await persistBrandingSettings(supabase, MASTER_TENANT_ID, (current as any)?.settings, newSettings);
         },
 
         async discardDraft(): Promise<BrandingData> {
@@ -163,12 +147,7 @@ export function createMasterAdapter(): BrandingStorageAdapter {
 
             console.log('Resetting master branding to defaults with urls:', DEFAULT_BRANDING.hero.images.map(img => img.url));
 
-            const { error } = await supabase
-                .from('tenants' as any)
-                .update({ settings: newSettings })
-                .eq('id', MASTER_TENANT_ID);
-
-            if (error) throw error;
+            await persistBrandingSettings(supabase, MASTER_TENANT_ID, (current as any)?.settings, newSettings);
 
             return DEFAULT_BRANDING;
         },
@@ -232,12 +211,7 @@ export function createMasterAdapter(): BrandingStorageAdapter {
                 ].slice(0, 20),
             };
 
-            const { error } = await supabase
-                .from('tenants' as any)
-                .update({ settings: newSettings })
-                .eq('id', MASTER_TENANT_ID);
-
-            if (error) throw error;
+            await persistBrandingSettings(supabase, MASTER_TENANT_ID, (current as any)?.settings, newSettings);
 
             return newDesign;
         },
@@ -283,12 +257,7 @@ export function createMasterAdapter(): BrandingStorageAdapter {
                 branding_template_savedDesigns: savedDesigns,
             };
 
-            const { error } = await supabase
-                .from('tenants' as any)
-                .update({ settings: newSettings })
-                .eq('id', MASTER_TENANT_ID);
-
-            if (error) throw error;
+            await persistBrandingSettings(supabase, MASTER_TENANT_ID, (current as any)?.settings, newSettings);
         },
 
         async uploadAsset(file: File, type: 'logo' | 'hero-image' | 'hero-video'): Promise<string> {

@@ -20,9 +20,11 @@ import {
   type StorformatMaterial,
   type StorformatProduct,
   type StorformatTier,
-  calculateStorformatPrice
+  calculateStorformatPrice,
+  tryCalculateStorformatPrice
 } from "@/utils/storformatPricing";
 import { cn } from "@/lib/utils";
+import { usesStorformatSourceQuotes, getStorformatSourceQuoteFields, getStorformatQuoteCoverage, normalizeStorformatAnchorState, STORFORMAT_QUOTE_UNAVAILABLE_MESSAGE } from "@/lib/pricing/storformatQuoteUi";
 import {
   THUMBNAIL_CUSTOM_PX_MAX,
   THUMBNAIL_CUSTOM_PX_MIN,
@@ -144,17 +146,6 @@ const getInterpolationInfo = (
     isBetweenAnchors: true,
     rawInterpolatedBase: baseBefore + t * (baseAfter - baseBefore)
   };
-};
-
-const normalizeDefaultAnchorState = <T extends StorformatTier>(tiers: T[]): T[] => {
-  if (!tiers.length) return tiers;
-  const normalized = tiers.map((tier) => ({ ...tier, is_anchor: Boolean(tier.is_anchor) }));
-  const allAnchorsSelected = normalized.every((tier) => tier.is_anchor);
-  if (allAnchorsSelected) {
-    // Treat legacy/all-selected state as default, so anchors are opt-in.
-    return normalized.map((tier) => ({ ...tier, is_anchor: false }));
-  }
-  return normalized;
 };
 
 const createDefaultTiers = (): StorformatTier[] => ([
@@ -293,6 +284,9 @@ export function StorformatManager({
     return selected || section.valueIds?.[0] || null;
   };
 
+  const usesSourceQuotes = usesStorformatSourceQuotes(config);
+  const sourceQuoteCoverage = useMemo(() => getStorformatQuoteCoverage(config.source_quote_model), [config.source_quote_model]);
+
   const previewResult = useMemo(() => {
     if (previewWidthMm <= 0 || previewHeightMm <= 0) return null;
     const verticalSelection = selectedSectionValues[verticalAxis.id];
@@ -304,17 +298,28 @@ export function StorformatManager({
 
     const material = materials.find((m) => m.id === materialId);
     if (!material) return null;
+    const resolvePreviewIds = (type: LayoutSectionType) => {
+      if (verticalAxis.sectionType === type) return verticalSelection ? [verticalSelection] : [];
+      return layoutRows.flatMap(row => row.sections)
+        .filter(section => section.sectionType === type && !isPriceNeutralSection(section, verticalAxis.sectionType))
+        .map(section => selectedSectionValues[section.id] || (isOptionalSelectionMode(section.selection_mode) ? null : section.valueIds?.[0]))
+        .filter((id): id is string => Boolean(id));
+    };
+    const selectedFinishes = finishes.filter(item => resolvePreviewIds("finishes").includes(item.id));
+    const selectedProducts = products.filter(item => resolvePreviewIds("products").includes(item.id));
     const finish = finishes.find((f) => f.id === finishId) || null;
     const product = products.find((p) => p.id === productId) || null;
     const quantity = [...(config.quantities || [])].sort((a, b) => a - b)[0] || 1;
 
-    return calculateStorformatPrice({
+    return tryCalculateStorformatPrice({
       widthMm: previewWidthMm,
       heightMm: previewHeightMm,
       quantity,
       material,
       finish,
+      finishes: selectedFinishes,
       product,
+      products: selectedProducts,
       config
     });
   }, [previewWidthMm, previewHeightMm, selectedSectionValues, verticalAxis, layoutRows, materials, finishes, products, config]);
@@ -411,7 +416,7 @@ export function StorformatManager({
           ...t,
           markup_pct: t.markup_pct ?? 0
         }));
-        const normalizedTiers = normalizeDefaultAnchorState(resolvedTiers);
+        const normalizedTiers = normalizeStorformatAnchorState(resolvedTiers, usesStorformatSourceQuotes(cfg || {}));
         return {
           ...m,
           thumbnail_url: m.thumbnail_url ?? null,
@@ -441,7 +446,7 @@ export function StorformatManager({
           ...t,
           markup_pct: t.markup_pct ?? 0
         }));
-        const normalizedTiers = normalizeDefaultAnchorState(resolvedTiers);
+        const normalizedTiers = normalizeStorformatAnchorState(resolvedTiers, usesStorformatSourceQuotes(cfg || {}));
         return {
           ...f,
           thumbnail_url: f.thumbnail_url ?? null,
@@ -469,7 +474,7 @@ export function StorformatManager({
           ...t,
           markup_pct: t.markup_pct ?? 0
         }));
-        const normalizedTiers = normalizeDefaultAnchorState(resolvedTiers);
+        const normalizedTiers = normalizeStorformatAnchorState(resolvedTiers, usesStorformatSourceQuotes(cfg || {}));
         return {
           ...p,
           thumbnail_url: p.thumbnail_url ?? null,
@@ -574,6 +579,7 @@ export function StorformatManager({
 
       const storedQuantities = cfg?.quantities?.length ? cfg.quantities : defaultQuantities;
       setConfig({
+        ...getStorformatSourceQuoteFields(cfg),
         rounding_step: cfg?.rounding_step || 1,
         global_markup_pct: cfg?.global_markup_pct || 0,
         quantities: storedQuantities,
@@ -755,6 +761,10 @@ export function StorformatManager({
     product: StorformatProduct | null;
     result: ReturnType<typeof calculateStorformatPrice>;
   }) => {
+    if (usesStorformatSourceQuotes(config)) {
+      toast.error("Opdatér leverandørens tilbud via Pixart-agenten. Globale tillæg kan justeres her.");
+      return;
+    }
     const currentPrice = Math.round(result.totalPrice);
     const input = window.prompt("Ny totalpris (kr)", String(currentPrice));
     if (input === null) return;
@@ -1508,6 +1518,7 @@ export function StorformatManager({
       const configRow = {
         tenant_id: tenantId,
         product_id: productId,
+        ...getStorformatSourceQuoteFields(updatedConfig),
         rounding_step: updatedConfig.rounding_step,
         global_markup_pct: updatedConfig.global_markup_pct,
         quantities: updatedConfig.quantities,
@@ -1882,6 +1893,7 @@ export function StorformatManager({
     const spec = t.spec || {};
     if (spec.config) {
       setConfig({
+        ...getStorformatSourceQuoteFields(spec.config),
         rounding_step: spec.config.rounding_step || 1,
         global_markup_pct: spec.config.global_markup_pct || 0,
         quantities: spec.config.quantities?.length ? spec.config.quantities : defaultQuantities,
@@ -1951,12 +1963,20 @@ export function StorformatManager({
   const visibleQuantities = sortedQuantities.slice(startCol, startCol + PREVIEW_COLS);
 
   return (
-    <div className="space-y-6">
+    <div className="admin-storformat-workspace space-y-6">
       <input ref={fileInputRef} type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
-      <div className="space-y-6">
+      <div className="admin-storformat-editor space-y-6">
         <div className="space-y-6">
           <div className="space-y-6">
-            <Card>
+            {usesSourceQuotes && (
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-2" role="note">
+              <p className="font-medium">Prisgrundlag: Leverandørtilbud pr. emne og antal</p>
+              <p className="text-sm text-muted-foreground">Ordinære tilbud, inklusive kombinationens tilvalg. Globale tillæg og afrunding anvendes bagefter. De tidligere m²-tabeller bruges ikke til denne beregning.</p>
+              <p className="text-sm">Indlæste antal: {sourceQuoteCoverage.quantities.join(", ") || "Ingen"}. Arealer pr. emne: {sourceQuoteCoverage.areas.map(area => area.toLocaleString("da-DK", { maximumFractionDigits: 4 })).join(", ") || "Ingen"} m².</p>
+              <p className="text-sm text-muted-foreground">{sourceQuoteCoverage.combinations} kombinationer. Dækningen kan variere mellem materialer, tilvalg og antal. Mellem størrelser beregnes kun inden for den valgte kombinations indlæste arealer. Manglende tilbud skal hentes og valideres via Pixart-agenten før prislisten opdateres.</p>
+            </div>
+          )}
+          <Card>
               <CardHeader>
                 <CardTitle>Materialer, Efterbehandling & Produkter</CardTitle>
                 <CardDescription>
@@ -1998,7 +2018,7 @@ export function StorformatManager({
                     <div className="flex items-center justify-between">
                       <div>
                         <Label className="text-sm font-medium">Materialer</Label>
-                        <p className="text-xs text-muted-foreground">Materialer med max mål, pris pr. m² og interpolation.</p>
+                        <p className="text-xs text-muted-foreground">{usesSourceQuotes ? "Materialer med max mål og tillæg til leverandørtilbud." : "Materialer med max mål, pris pr. m² og interpolation."}</p>
                       </div>
                       <Button
                         size="sm"
@@ -2112,7 +2132,7 @@ export function StorformatManager({
                             />
                           </div>
 
-                          <div className="flex items-center justify-between">
+{!usesSourceQuotes && (                          <div className="flex items-center justify-between">
                             <div>
                               <Label className="text-xs">Interpolation</Label>
                               <p className="text-[11px] text-muted-foreground">Lineær mellem ankerpunkter</p>
@@ -2121,7 +2141,7 @@ export function StorformatManager({
                               checked={material.interpolation_enabled ?? true}
                               onCheckedChange={(checked) => updateMaterial(material.id!, { interpolation_enabled: checked })}
                             />
-                          </div>
+                          </div>)}
 
                           <div className="space-y-2">
                             <Label className="text-xs">Produkt markup (%)</Label>
@@ -2143,7 +2163,7 @@ export function StorformatManager({
                             </div>
                           </div>
 
-                          <div className="space-y-2">
+{!usesSourceQuotes && (                          <div className="space-y-2">
                             <Label className="text-xs">Pris pr. m² (tiers)</Label>
                             <div className="space-y-3">
                               {material.tiers.map((tier) => {
@@ -2238,7 +2258,7 @@ export function StorformatManager({
                             <Button variant="outline" size="sm" onClick={() => addTier("material", material.id!)} className="mt-2">
                               <Plus className="h-4 w-4 mr-2" /> Tilføj tier
                             </Button>
-                          </div>
+                          </div>)}
                         </div>
                       );
                     })()}
@@ -2425,6 +2445,7 @@ export function StorformatManager({
                               <Label className="text-xs">Pris-mode</Label>
                               <Select
                                 value={finish.pricing_mode}
+                                disabled={usesSourceQuotes}
                                 onValueChange={(value) => updateFinish(finish.id!, { pricing_mode: value as "fixed" | "per_m2" })}
                               >
                                 <SelectTrigger className="h-9">
@@ -2442,12 +2463,12 @@ export function StorformatManager({
                                 type="number"
                                 value={finish.fixed_price_per_unit ?? 0}
                                 onChange={(e) => updateFinish(finish.id!, { fixed_price_per_unit: Number(e.target.value) || 0 })}
-                                disabled={finish.pricing_mode !== "fixed"}
+                                disabled={usesSourceQuotes || finish.pricing_mode !== "fixed"}
                               />
                             </div>
                           </div>
 
-                          <div className="flex items-center justify-between gap-2">
+{!usesSourceQuotes && (                          <div className="flex items-center justify-between gap-2">
                             <div>
                               <Label className="text-xs">Interpolation</Label>
                               <p className="text-[11px] text-muted-foreground">Lineær mellem ankerpunkter</p>
@@ -2457,7 +2478,7 @@ export function StorformatManager({
                               onCheckedChange={(checked) => updateFinish(finish.id!, { interpolation_enabled: checked })}
                               disabled={finish.pricing_mode !== "per_m2"}
                             />
-                          </div>
+                          </div>)}
 
                           <div className="space-y-2">
                             <Label className="text-xs">Produkt markup (%)</Label>
@@ -2479,7 +2500,7 @@ export function StorformatManager({
                             </div>
                           </div>
 
-                          {finish.pricing_mode === "per_m2" && (
+                          {!usesSourceQuotes && finish.pricing_mode === "per_m2" && (
                             <div className="space-y-2">
                               <Label className="text-xs">Pris pr. m² (tiers)</Label>
                               <div className="space-y-3">
@@ -2763,6 +2784,7 @@ export function StorformatManager({
                               <Label className="text-xs">Pris-mode</Label>
                               <Select
                                 value={productItem.pricing_mode}
+                                disabled={usesSourceQuotes}
                                 onValueChange={(value) => updateProduct(productItem.id!, { pricing_mode: value as "fixed" | "per_m2" })}
                               >
                                 <SelectTrigger className="h-9">
@@ -2795,7 +2817,7 @@ export function StorformatManager({
                             </div>
                           </div>
 
-                          {productItem.pricing_mode === "fixed" ? (
+                          {!usesSourceQuotes && (productItem.pricing_mode === "fixed" ? (
                             <div className="space-y-3">
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-1">
@@ -2951,7 +2973,7 @@ export function StorformatManager({
                                 </Button>
                               </div>
                             </>
-                          )}
+                          ))}
                         </div>
                       );
                     })()}
@@ -3644,7 +3666,7 @@ export function StorformatManager({
                               open={templateConnectSectionId === section.id}
                               onOpenChange={(open) => setTemplateConnectSectionId(open ? section.id : null)}
                               tenantId={tenantId}
-                              sectionTitle={section.title || getSectionLabel(section.sectionType)}
+                              sectionTitle={section.title || ({ materials: "Materialer", finishes: "Efterbehandling", products: "Produkter" })[section.sectionType]}
                               values={getValuesForType(section.sectionType)
                                 .filter((value) => section.valueIds?.includes(value.id))
                                 .map((value) => ({ id: value.id, name: value.name || "" }))}
@@ -3770,7 +3792,7 @@ export function StorformatManager({
                 </div>
               </div>
               <CardDescription className="text-xs">
-                Justér beregningsregler og valg. Redigér m² tiers under Materialer/Efterbehandling/Produkter ovenfor.
+                {usesSourceQuotes ? "Prisen følger leverandørens tilbud for ét emnes areal, det præcise antal og den valgte kombination." : "Justér beregningsregler og valg. Redigér m² tiers under Materialer/Efterbehandling/Produkter ovenfor."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -3805,6 +3827,8 @@ export function StorformatManager({
                 </div>
               </div>
 
+              {usesSourceQuotes && !previewResult && <p className="text-sm text-muted-foreground" role="status">{STORFORMAT_QUOTE_UNAVAILABLE_MESSAGE}</p>}
+
               {previewResult && (
                 <div className="border rounded-lg p-3 bg-muted/10 flex items-center justify-between">
                   <div>
@@ -3813,7 +3837,7 @@ export function StorformatManager({
                   </div>
                   <div className="text-xs text-muted-foreground text-right">
                     <div>{previewResult.totalAreaM2.toFixed(2)} m² total</div>
-                    <div>Materiale: {previewResult.materialPricePerM2.toFixed(0)} kr/m²</div>
+                    <div>{usesSourceQuotes ? "Tilbud omregnet" : "Materiale"}: {previewResult.materialPricePerM2.toFixed(0)} kr/m²</div>
                     {previewResult.finishPricePerM2 > 0 && (
                       <div>Efterbehandling: {previewResult.finishPricePerM2.toFixed(0)} kr/m²</div>
                     )}
@@ -4117,7 +4141,7 @@ export function StorformatManager({
                 ))}
               </div>
 
-              <div className="space-y-3 border rounded-lg p-3 bg-muted/10">
+{!usesSourceQuotes && (              <div className="space-y-3 border rounded-lg p-3 bg-muted/10">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Aktiv prisgenerator</div>
                   <div className="text-[11px] text-muted-foreground">
@@ -4749,7 +4773,7 @@ export function StorformatManager({
                     )}
                   </div>
                 )}
-              </div>
+              </div>)}
             </CardContent>
           </Card>
 
@@ -4760,7 +4784,7 @@ export function StorformatManager({
                 Prisforhåndsvisning
               </CardTitle>
               <CardDescription className="text-xs">
-                Matrix med beregnede priser. Aktivér redigering for at justere enkelte celler direkte.
+                {usesSourceQuotes ? "Matrix med leverandørtilbud. Manglende kombinationer vises uden pris. Opdatér tilbud via Pixart-agenten." : "Matrix med beregnede priser. Aktivér redigering for at justere enkelte celler direkte."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -4774,7 +4798,8 @@ export function StorformatManager({
                   <div className="flex items-center gap-2">
                     <Switch
                       id="preview-matrix-edit-mode"
-                      checked={previewMatrixEditEnabled}
+                      checked={!usesSourceQuotes && previewMatrixEditEnabled}
+                      disabled={usesSourceQuotes}
                       onCheckedChange={setPreviewMatrixEditEnabled}
                     />
                     <Label htmlFor="preview-matrix-edit-mode" className="text-xs cursor-pointer">
@@ -4907,7 +4932,7 @@ export function StorformatManager({
 
                                 const finish = selectedFinishes[0] || null;
                                 const productSelection = selectedProducts[0] || null;
-                                const result = calculateStorformatPrice({
+                                const result = tryCalculateStorformatPrice({
                                   widthMm: previewWidthMm,
                                   heightMm: previewHeightMm,
                                   quantity: qty,
@@ -4918,16 +4943,17 @@ export function StorformatManager({
                                   products: selectedProducts,
                                   config
                                 });
+                                if (!result) return <TableCell key={`${verticalValue.id}-${qty}`} className="text-center text-muted-foreground" title="Ingen pris for valgt format og tilvalg">—</TableCell>;
                                 return (
                                   <TableCell
                                     key={`${verticalValue.id}-${qty}`}
                                     className={cn(
                                       "text-center",
-                                      previewMatrixEditEnabled && "cursor-copy hover:bg-muted/40"
+                                      !usesSourceQuotes && previewMatrixEditEnabled && "cursor-copy hover:bg-muted/40"
                                     )}
-                                    title={previewMatrixEditEnabled ? "Dobbeltklik for at redigere pris" : undefined}
+                                    title={!usesSourceQuotes && previewMatrixEditEnabled ? "Dobbeltklik for at redigere pris" : undefined}
                                     onDoubleClick={(event) => {
-                                      if (!previewMatrixEditEnabled) return;
+                                      if (usesSourceQuotes || !previewMatrixEditEnabled) return;
                                       event.stopPropagation();
                                       editPreviewMatrixCell({
                                         quantity: qty,
@@ -4993,6 +5019,24 @@ export function StorformatManager({
           </div>
         </div>
       </div>
+
+      <aside className="admin-storformat-preview">
+        <h3 className="text-lg font-semibold">Eksempelvisning</h3>
+        <p className="mt-2 text-sm text-muted-foreground">Pris beregnet ud fra de aktuelle valg og produktets areal.</p>
+        <div className="mt-6 grid grid-cols-2 gap-4">
+          <div className="space-y-2"><Label htmlFor="workspace-width">Bredde (cm)</Label><Input id="workspace-width" type="number" min="0" value={previewWidthMm ? previewWidthMm / 10 : ''} onChange={event => setPreviewWidthMm(event.target.value === '' ? 0 : Number(event.target.value) * 10)} /></div>
+          <div className="space-y-2"><Label htmlFor="workspace-height">Højde (cm)</Label><Input id="workspace-height" type="number" min="0" value={previewHeightMm ? previewHeightMm / 10 : ''} onChange={event => setPreviewHeightMm(event.target.value === '' ? 0 : Number(event.target.value) * 10)} /></div>
+        </div>
+        <div className="my-6 border-y py-7 text-center"><p className="text-3xl font-semibold tabular-nums">{(previewWidthMm * previewHeightMm / 1_000_000).toLocaleString('da-DK', { maximumFractionDigits: 3 })} m²</p><p className="mt-2 text-sm text-muted-foreground">{previewWidthMm / 10} × {previewHeightMm / 10} cm</p></div>
+        {previewResult ? <dl className="space-y-4 text-sm">
+          <div className="flex justify-between gap-4"><dt>Antal i priseksemplet</dt><dd>{sortedQuantities[0] || 1}</dd></div>
+          <div className="flex justify-between gap-4"><dt>Areal i alt</dt><dd>{previewResult.totalAreaM2.toLocaleString('da-DK', { maximumFractionDigits: 3 })} m²</dd></div>
+          <div className="flex justify-between gap-4"><dt>{usesSourceQuotes ? "Tilbud omregnet pr. m²" : "Materiale pr. m²"}</dt><dd>{previewResult.materialPricePerM2.toLocaleString('da-DK', { style: 'currency', currency: 'DKK' })}</dd></div>
+          <div className="flex justify-between gap-4 border-t pt-4 font-semibold"><dt>Samlet priseksempel</dt><dd>{previewResult.totalPrice.toLocaleString('da-DK', { style: 'currency', currency: 'DKK' })}</dd></div>
+          {previewResult.splitInfo?.isSplit && <div className="text-amber-700">Formatet opdeles i {previewResult.splitInfo.totalPieces} felter.</div>}
+        </dl> : <p className="text-sm text-muted-foreground" role="status">{usesSourceQuotes ? STORFORMAT_QUOTE_UNAVAILABLE_MESSAGE : "Vælg materiale og prisgrundlag for at beregne et eksempel."}</p>}
+        <p className="mt-6 text-xs text-muted-foreground">Eksemplet følger produktets prisgrundlag. Ændringer gemmes med Gem produkt.</p>
+      </aside>
 
       <Dialog
         open={showSaveDialog}

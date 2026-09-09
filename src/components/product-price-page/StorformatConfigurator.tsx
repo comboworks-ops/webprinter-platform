@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
+import { readFeaturedStorformatSelection, resolveFeaturedQuantity } from "@/lib/storefront/featuredProductNavigation";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,9 +13,10 @@ import {
   type StorformatMaterial,
   type StorformatProduct,
   type StorformatFixedPrice,
-  calculateStorformatPrice
+  tryCalculateStorformatPrice
 } from "@/utils/storformatPricing";
 import { cn } from "@/lib/utils";
+import { usesStorformatSourceQuotes, getStorformatSourceQuoteFields, STORFORMAT_QUOTE_UNAVAILABLE_MESSAGE } from "@/lib/pricing/storformatQuoteUi";
 import {
   normalizeThumbnailCustomPx,
   normalizeThumbnailSize,
@@ -40,6 +43,10 @@ export type StorformatSelection = {
   quantity: number;
   widthCm: number;
   heightCm: number;
+  materialId: string;
+  finishIds: string[];
+  productIds: string[];
+  selectedSectionValues: Record<string, string | null>;
   materialName: string;
   finishName?: string | null;
   productName?: string | null;
@@ -56,6 +63,7 @@ export type StorformatSelection = {
 
 type StorformatConfiguratorProps = {
   productId: string;
+  layout?: { design: number; intro: ReactNode; summary: ReactNode; extras: ReactNode };
   onSelectionChange: (selection: StorformatSelection | null) => void;
 };
 
@@ -131,10 +139,13 @@ const defaultConfig: StorformatConfig = {
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 export function StorformatConfigurator({
+  layout,
   productId,
   onSelectionChange
 }: StorformatConfiguratorProps) {
   const noneFinishValue = "__none__";
+  const [searchParams] = useSearchParams();
+  const { widthCm: initialWidthCm, heightCm: initialHeightCm, quantity: initialQuantity } = readFeaturedStorformatSelection(searchParams);
   const settings = useShopSettings();
   const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
   const activeBranding = (isPreviewMode && previewBranding)
@@ -149,8 +160,8 @@ export function StorformatConfigurator({
   const [verticalAxis, setVerticalAxis] = useState<VerticalAxisConfig | null>(null);
   const [selectedSectionValues, setSelectedSectionValues] = useState<Record<string, string | null>>({});
 
-  const [widthCm, setWidthCm] = useState(100);
-  const [heightCm, setHeightCm] = useState(100);
+  const [widthCm, setWidthCm] = useState(initialWidthCm);
+  const [heightCm, setHeightCm] = useState(initialHeightCm);
   const [quantity, setQuantity] = useState(1);
   const [materialId, setMaterialId] = useState<string>("");
   const [finishId, setFinishId] = useState<string>(noneFinishValue);
@@ -216,6 +227,8 @@ export function StorformatConfigurator({
   useEffect(() => {
     const fetchStorformat = async () => {
       setLoading(true);
+      setWidthCm(initialWidthCm);
+      setHeightCm(initialHeightCm);
       try {
         const { data: cfg } = await supabase
           .from("storformat_configs" as any)
@@ -424,6 +437,7 @@ export function StorformatConfigurator({
 
         const nextConfig = cfg
           ? {
+              ...getStorformatSourceQuoteFields(cfg),
               rounding_step: cfg.rounding_step || 1,
               global_markup_pct: cfg.global_markup_pct || 0,
               quantities: cfg.quantities?.length ? cfg.quantities : [1],
@@ -433,7 +447,7 @@ export function StorformatConfigurator({
           : defaultConfig;
 
         setConfig(nextConfig);
-        setQuantity(nextConfig.quantities?.[0] || 1);
+        setQuantity(resolveFeaturedQuantity(initialQuantity, nextConfig.quantities || [1]));
         setLayoutRows(nextLayoutRows);
         setVerticalAxis(nextVerticalAxis);
         setMaterials(materialsWithTiers);
@@ -466,7 +480,7 @@ export function StorformatConfigurator({
     };
 
     fetchStorformat();
-  }, [productId]);
+  }, [productId, initialWidthCm, initialHeightCm, initialQuantity]);
 
   const hasConfiguredLayout = layoutRows.length > 0 || !!verticalAxis;
   const verticalAxisId = verticalAxis?.id || "vertical-axis";
@@ -728,7 +742,7 @@ export function StorformatConfigurator({
       .map((id) => products.find((p) => p.id === id) || null)
       .filter((value): value is StorformatProduct => Boolean(value));
 
-    const result = calculateStorformatPrice({
+    const result = tryCalculateStorformatPrice({
       widthMm,
       heightMm,
       quantity,
@@ -739,6 +753,8 @@ export function StorformatConfigurator({
       products: selectedProducts,
       config
     });
+
+    if (!result) return null;
 
     const maxW = material.max_width_mm ?? 0;
     const maxH = material.max_height_mm ?? 0;
@@ -751,6 +767,10 @@ export function StorformatConfigurator({
       quantity,
       widthCm,
       heightCm,
+      materialId: material.id,
+      finishIds: selectedFinishes.map((item) => item.id),
+      productIds: selectedProducts.map((item) => item.id),
+      selectedSectionValues: { ...selectedSectionValues },
       materialName: getConfiguredValueDisplayName("materials", material.id, material.name),
       finishName: selectedFinishes.length
         ? selectedFinishes.map((item) => getConfiguredValueDisplayName("finishes", item.id, item.name)).join(", ")
@@ -1265,7 +1285,7 @@ export function StorformatConfigurator({
           .filter((item): item is StorformatProduct => Boolean(item));
         if (!material) return;
 
-        const result = calculateStorformatPrice({
+        const result = tryCalculateStorformatPrice({
           widthMm,
           heightMm,
           quantity: qty,
@@ -1276,7 +1296,7 @@ export function StorformatConfigurator({
           products: selectedProducts,
           config
         });
-        cells[label][qty] = result.totalPrice;
+        if (result) cells[label][qty] = result.totalPrice;
       });
     });
 
@@ -1299,17 +1319,17 @@ export function StorformatConfigurator({
   }, [verticalAxis, verticalAxisId, selectedSectionValues, matrixData.rowLabelById, quantity]);
 
   const handleMatrixCellClick = useCallback((row: string, column: number) => {
+    if (usesStorformatSourceQuotes(config) && matrixData.cells[row]?.[column] === undefined) return;
     setQuantity(column);
     if (!verticalAxis) return;
     const rowId = matrixData.rowIdByLabel[row];
     if (!rowId) return;
     setSelectedSectionValues((prev) => ({ ...prev, [verticalAxisId]: rowId }));
-  }, [matrixData.rowIdByLabel, verticalAxis, verticalAxisId]);
+  }, [config, matrixData.cells, matrixData.rowIdByLabel, verticalAxis, verticalAxisId]);
 
-  return (
-    <div className="bg-muted/50 border rounded-lg p-6 space-y-4">
+  const controls = <div className="order-calculator-controls space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold">Storformat</h3>
+        <h3 className="font-semibold">{layout ? "Beregn din pris" : "Storformat"}</h3>
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           {selection && (
             <>
@@ -1317,7 +1337,7 @@ export function StorformatConfigurator({
               <span>{selection.quantity} stk</span>
             </>
           )}
-          {loading && <span>Indlaeser...</span>}
+          {loading && <span>Indlæser…</span>}
         </div>
       </div>
 
@@ -1496,10 +1516,16 @@ export function StorformatConfigurator({
         </div>
       )}
 
+  </div>;
+  const notices = <div className="order-calculator-notices">
       {!materials.length && !loading && (
         <p className="text-sm text-muted-foreground">
           Ingen storformat materialer fundet for dette produkt.
         </p>
+      )}
+
+      {!loading && materials.length > 0 && !selection && usesStorformatSourceQuotes(config) && (
+        <p className="text-sm text-muted-foreground" role="status">{STORFORMAT_QUOTE_UNAVAILABLE_MESSAGE}</p>
       )}
 
       {selection?.splitInfo?.isSplit && (
@@ -1513,19 +1539,35 @@ export function StorformatConfigurator({
         </p>
       )}
 
+  </div>;
+  const matrix = <div className="order-calculator-matrix">
       {verticalAxis && matrixData.rows.length > 0 && matrixData.columns.length > 0 && (
         <div className="pt-2">
           <PriceMatrix
+            maxColumnsPerPage={layout ? 4 : undefined}
             rows={matrixData.rows}
             columns={matrixData.columns}
             cells={matrixData.cells}
+            isCellUnavailable={usesStorformatSourceQuotes(config)
+              ? (row, column) => matrixData.cells[row]?.[column] === undefined
+              : undefined}
             onCellClick={(row, column) => handleMatrixCellClick(row, column)}
             selectedCell={matrixSelectedCell}
             columnUnit="stk"
             rowHeaderLabel={verticalAxis.title || getSectionLabel(verticalAxis.sectionType)}
           />
         </div>
-      )}
-    </div>
-  );
+      )}  </div>;
+  if (layout) {
+    const intro = <div className="order-calculator-product">{layout.intro}</div>;
+    const extras = <div className="order-calculator-extras">{notices}{layout.extras}</div>;
+    const summary = <aside className="order-calculator-summary" aria-label="Din bestilling" aria-busy={loading}>
+      {loading ? <div className="py-6 text-sm text-muted-foreground" role="status">Indlæser priser…</div> : layout.summary}
+    </aside>;
+    return <div className="order-calculator-layout" data-calculator-design={layout.design}>
+      <div className="order-calculator-left">{intro}{layout.design === 1 && controls}{matrix}{layout.design === 1 && extras}</div>
+      <div className="order-calculator-right">{layout.design === 2 && controls}{layout.design === 2 && extras}{summary}</div>
+    </div>;
+  }
+  return <div className="bg-muted/50 border rounded-lg p-6 space-y-4">{controls}{notices}{matrix}</div>;
 }

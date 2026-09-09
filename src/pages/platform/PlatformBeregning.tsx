@@ -22,7 +22,7 @@ const PlatformBeregning = () => {
     ];
 
     return (
-        <div className="min-h-screen flex flex-col font-sans">
+        <div className="platform-page min-h-screen flex flex-col font-sans">
             <SEO
                 title="Smart Prisberegning | Webprinter Platform"
                 description="Avanceret prisberegning til tryksager. Matrix-priser, volumensrabat og maskinprisberegning."

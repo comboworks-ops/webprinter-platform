@@ -78,7 +78,7 @@ const PlatformKontakt = () => {
     };
 
     return (
-        <div className="min-h-screen flex flex-col font-sans">
+        <div className="platform-page min-h-screen flex flex-col font-sans">
             <SEO
                 title="Kontakt | Webprinter Platform"
                 description="Kontakt Webprinter Platform. Vi hjælper dig gerne med at komme i gang."

@@ -114,6 +114,11 @@ verify_jwt = false
 [functions.send-order-email]
 verify_jwt = true
 
+# Dedicated scheduler bearer secret is verified by the worker; browser JWTs
+# cannot drain this service-only outbox. Dispatch defaults to disabled.
+[functions.storefront-order-email-dispatch]
+verify_jwt = false
+
 [functions.send-quote-emails]
 verify_jwt = true
 
@@ -147,6 +152,12 @@ verify_jwt = true
 [functions.stripe-create-payment-intent]
 verify_jwt = true
 
+[functions.stripe-finalize-checkout]
+verify_jwt = true
+
+[functions.stripe-storefront-webhook]
+verify_jwt = false
+
 [functions.stripe-subscription-create-checkout]
 verify_jwt = true
 
@@ -163,4 +174,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.verify-admin]
+verify_jwt = true
+
+[functions.erp-shadow-dispatch]
 verify_jwt = true

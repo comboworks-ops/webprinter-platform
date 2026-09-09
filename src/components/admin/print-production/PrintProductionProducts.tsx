@@ -260,7 +260,7 @@ export function PrintProductionProducts({
               <TableHead className="h-10 w-[120px] px-3">Leverandør</TableHead>
               <TableHead className="h-10 w-[135px] px-3">Kategori</TableHead>
               <TableHead className="h-10 w-[145px] px-3">Status</TableHead>
-              <TableHead className="h-10 w-[125px] px-3 text-right">Salgspris fra</TableHead>
+              <TableHead className="h-10 w-[125px] px-3 text-right">Webprinter-pris fra</TableHead>
               <TableHead className="h-10 w-[180px] px-3 text-right">Butikker</TableHead>
               <TableHead className="h-10 w-[300px] px-3 text-right">Handlinger</TableHead>
             </TableRow>

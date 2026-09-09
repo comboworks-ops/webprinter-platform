@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, LogOut, User, Menu, MessageCircle, Moon, Sun } from "lucide-react";
+import { ExternalLink, LogOut, User, ChevronDown, MessageCircle, Moon, Sun } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, Link, useLocation } from "react-router-dom";
-import { useSidebar } from "@/components/ui/sidebar";
+import { AdminWorkspaceNavigation } from "./AdminWorkspaceNavigation";
+import { useIconStudioAccess } from "@/hooks/useIconStudioAccess";
+import { withAdminWorkspaceContext } from "@/lib/admin/workspaceNavigation";
+import { requestAdminWorkspaceExit } from "@/lib/admin/workspaceExit";
 import { toast } from "sonner";
-import { VisitorStatsWidget } from "./VisitorStatsWidget";
 import { resolveAdminTenant, MASTER_TENANT_ID } from "@/lib/adminTenant";
 import {
     DropdownMenu,
@@ -26,11 +28,13 @@ export function AdminHeader() {
     const [unreadCount, setUnreadCount] = useState(0);
     const [unreadPlatformLeadCount, setUnreadPlatformLeadCount] = useState(0);
     const [adminContext, setAdminContext] = useState<{
+        contextKey: string;
         tenantId: string | null;
         tenantName: string;
         domain: string | null;
         isMasterAdmin: boolean;
     }>({
+        contextKey: "",
         tenantId: null,
         tenantName: "Panel",
         domain: null,
@@ -43,17 +47,13 @@ export function AdminHeader() {
         }
         return false;
     });
-    const previousCountRef = useRef(0);
+    const previousCountRef = useRef<number | null>(null);
+    const [loggingOut, setLoggingOut] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
-    const { toggleSidebar } = useSidebar();
-    const withAdminContext = (path: string) => {
-        const forceDomain = new URLSearchParams(location.search).get("force_domain");
-        if (!forceDomain || !path.startsWith("/admin")) return path;
-        const existingParams = new URLSearchParams(path.split("?")[1] || "");
-        if (existingParams.has("force_domain")) return path;
-        return `${path}${path.includes("?") ? "&" : "?"}force_domain=${encodeURIComponent(forceDomain)}`;
-    };
+    const iconStudio = useIconStudioAccess();
+    const contextKey = new URLSearchParams(location.search).get("force_domain") || "default";
+    const withAdminContext = (path: string) => withAdminWorkspaceContext(path, location.search);
 
     // Apply dark mode class to document
     useEffect(() => {
@@ -89,6 +89,7 @@ export function AdminHeader() {
 
             if (!resolution.tenantId) {
                 setAdminContext({
+                    contextKey,
                     tenantId: null,
                     tenantName: "Panel",
                     domain: null,
@@ -97,8 +98,8 @@ export function AdminHeader() {
                 return;
             }
 
-            const { data: tenant } = await (supabase
-                .from("tenants") as any)
+            const { data: tenant } = await (supabase as any)
+                .from("tenants")
                 .select("id, name, domain")
                 .eq("id", resolution.tenantId)
                 .maybeSingle();
@@ -106,6 +107,7 @@ export function AdminHeader() {
             if (!active) return;
 
             setAdminContext({
+                contextKey,
                 tenantId: resolution.tenantId,
                 tenantName: resolution.tenantId === MASTER_TENANT_ID
                     ? "Webprinter Master"
@@ -115,81 +117,109 @@ export function AdminHeader() {
             });
         };
 
-        loadAdminContext();
+        loadAdminContext().catch(() => {
+            if (active) setAdminContext({ contextKey, tenantId: null, tenantName: "Shop kunne ikke hentes", domain: null, isMasterAdmin: false });
+        });
 
         return () => {
             active = false;
         };
-    }, [navigate]);
+    }, [contextKey]);
 
     // Fetch messages logic
     useEffect(() => {
+        previousCountRef.current = null;
+        setUnreadCount(0);
+        setUnreadPlatformLeadCount(0);
         if (!adminContext.tenantId) return;
+        let active = true;
+        let fetching = false;
 
         const fetchMessages = async () => {
+            if (fetching) return;
+            fetching = true;
             try {
                 // 1. Customer Messages (Unread)
-                const { count: customerCount } = await supabase
+                const { count: customerCount, error: customerError } = await supabase
                     .from('order_messages' as any)
-                    .select('*', { count: 'exact', head: true })
+                    .select('id, orders!inner(tenant_id)', { count: 'exact', head: true })
+                    .eq('orders.tenant_id', adminContext.tenantId)
                     .eq('is_read', false)
                     .eq('sender_type', 'customer');
+                if (customerError) throw customerError;
 
                 // 2. Support Messages (Unread)
                 const isMaster = adminContext.tenantId === MASTER_TENANT_ID;
 
-                const { count: supportCount } = await supabase
+                const supportQuery = supabase
                     .from('platform_messages' as any)
                     .select('*', { count: 'exact', head: true })
                     .eq('is_read', false)
                     .eq('sender_role', isMaster ? 'tenant' : 'master');
+                const { count: supportCount, error: supportError } = await (isMaster ? supportQuery : supportQuery.eq('tenant_id', adminContext.tenantId));
+                if (supportError) throw supportError;
 
-                const { count: platformLeadCount } = isMaster
+                const { count: platformLeadCount, error: leadError } = isMaster
                     ? await supabase
                         .from('platform_messages' as any)
                         .select('*', { count: 'exact', head: true })
                         .eq('tenant_id', MASTER_TENANT_ID)
                         .eq('is_read', false)
                         .ilike('content', `${PLATFORM_LEAD_PREFIX}%`)
-                    : { count: 0 };
+                    : { count: 0, error: null };
+                if (leadError) throw leadError;
+                if (customerCount === null || supportCount === null || platformLeadCount === null) return;
 
                 const total = (customerCount || 0) + (supportCount || 0);
+                if (!active) return;
+                const previousCount = previousCountRef.current;
+                previousCountRef.current = total;
                 setUnreadCount(total);
                 setUnreadPlatformLeadCount(platformLeadCount || 0);
+
+                // The first successful observation is existing backlog, not a newly received message.
+                if (previousCount !== null && total > previousCount) {
+                    const isOnlyPlatformLeads = isMaster && platformLeadCount > 0 && platformLeadCount === total;
+                    toast.success('Ny besked modtaget!', {
+                        description: isOnlyPlatformLeads
+                            ? 'Du har en ny ulæst platformhenvendelse.'
+                            : 'Du har en ny ulæst besked fra en kunde.',
+                        action: {
+                            label: 'Se besked',
+                            onClick: () => {
+                                if (requestAdminWorkspaceExit()) navigate(withAdminContext(isOnlyPlatformLeads ? PLATFORM_LEAD_THREAD_PATH : '/admin/beskeder'));
+                            },
+                        },
+                        duration: 5000,
+                    });
+                }
             } catch (e) {
                 console.error("Error fetching messages", e);
+            } finally {
+                fetching = false;
             }
         };
 
         fetchMessages();
         const interval = setInterval(fetchMessages, 30000); // Poll every 30s
-        return () => clearInterval(interval);
+        return () => { active = false; clearInterval(interval); };
     }, [adminContext.tenantId]);
 
-    // Notify on new messages
-    useEffect(() => {
-        if (unreadCount > previousCountRef.current) {
-            const isOnlyPlatformLeads = adminContext.tenantId === MASTER_TENANT_ID
-                && unreadPlatformLeadCount > 0
-                && unreadPlatformLeadCount === unreadCount;
-            toast.success("Ny besked modtaget!", {
-                description: isOnlyPlatformLeads
-                    ? "Du har en ny ulæst platformhenvendelse."
-                    : "Du har en ny ulæst besked fra en kunde.",
-                action: {
-                    label: "Se besked",
-                    onClick: () => navigate(withAdminContext(isOnlyPlatformLeads ? PLATFORM_LEAD_THREAD_PATH : "/admin/beskeder"))
-                },
-                duration: 5000,
-            });
-        }
-        previousCountRef.current = unreadCount;
-    }, [adminContext.tenantId, unreadCount, unreadPlatformLeadCount, navigate]);
-
     const handleLogout = async () => {
-        await supabase.auth.signOut();
-        navigate("/");
-        toast.success("Du er nu logget ud");
+        if (loggingOut) return;
+        if (!requestAdminWorkspaceExit()) return;
+        setLoggingOut(true);
+        try {
+            const { error } = await supabase.auth.signOut();
+            if (error) throw error;
+            navigate('/');
+            toast.success('Du er nu logget ud');
+        } catch (error) {
+            console.error('Could not sign out:', error);
+            toast.error('Du kunne ikke logges ud. Prøv igen.');
+        } finally {
+            setLoggingOut(false);
+        }
     };
 
     const handleVisitShop = () => {
@@ -210,52 +240,40 @@ export function AdminHeader() {
             return;
         }
 
-        window.open(`${window.location.origin}/shop`, '_blank');
+        const shopParams = new URLSearchParams();
+        if (adminContext.tenantId) shopParams.set('tenantId', adminContext.tenantId);
+        const forceDomain = new URLSearchParams(location.search).get('force_domain');
+        if (forceDomain) shopParams.set('force_domain', forceDomain);
+        window.open(`${window.location.origin}/shop?${shopParams}`, '_blank', 'noopener,noreferrer');
     };
 
-    const displayTenantName = adminContext.tenantName;
-    const contextBadge = adminContext.tenantId === MASTER_TENANT_ID ? "Master" : "Tenant";
+    const contextResolved = adminContext.contextKey === contextKey;
+    const contextReady = contextResolved && Boolean(adminContext.tenantId);
+    const displayTenantName = contextResolved ? adminContext.tenantName : "Indlæser…";
+    const isMasterContext = contextReady && adminContext.isMasterAdmin && adminContext.tenantId === MASTER_TENANT_ID;
 
     return (
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-slate-200/80 bg-white/95 px-3 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 sm:px-6">
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={toggleSidebar}
-                    className="shrink-0 rounded-xl md:hidden"
-                    aria-label="Åbn menu"
-                >
-                    <Menu className="h-5 w-5" />
-                </Button>
-                <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-                    <h1 className="truncate text-base font-semibold tracking-tight text-slate-950 dark:text-slate-50 sm:text-xl">{displayTenantName} Panel</h1>
-                    <span className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                        {contextBadge}
-                    </span>
-                </div>
-                <div className="hidden xl:block">
-                    <VisitorStatsWidget />
+        <div className="admin-workspace-chrome">
+        <header className="admin-workspace-header">
+            <div className="admin-workspace-identity">
+                <Link to={withAdminContext('/admin')} className="admin-workspace-wordmark no-link-color" aria-label="Webprinter overblik">webprinter</Link>
+                <div className="admin-workspace-tenant">
+                    <DropdownMenu>
+                        <DropdownMenuTrigger className="admin-workspace-tenant-trigger" aria-label="Åbn shopmenu">
+                            <span>{displayTenantName}</span><ChevronDown size={16} />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="admin-workspace-menu">
+                            <DropdownMenuLabel>{displayTenantName}</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem asChild><Link to={withAdminContext('/admin/indstillinger')}>Shopindstillinger</Link></DropdownMenuItem>
+                            {isMasterContext && <DropdownMenuItem asChild><Link to={withAdminContext('/admin/tenants')}>Administrér lejere</Link></DropdownMenuItem>}
+                            <DropdownMenuItem onClick={handleVisitShop} disabled={!contextReady}>Se webshop</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
             </div>
 
             <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
-                {/* Dark Mode Toggle */}
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={toggleDarkMode}
-                    className="rounded-xl"
-                    title={isDarkMode ? "Skift til lys tilstand" : "Skift til mørk tilstand"}
-                    aria-label={isDarkMode ? "Skift til lys tilstand" : "Skift til mørk tilstand"}
-                >
-                    {isDarkMode ? (
-                        <Sun className="h-5 w-5 text-yellow-500" />
-                    ) : (
-                        <Moon className="h-5 w-5" />
-                    )}
-                </Button>
-
                 {/* Message notification */}
                 <Link
                     to={withAdminContext(
@@ -283,31 +301,38 @@ export function AdminHeader() {
                     </div>
                 </Link>
 
-                <Button variant="outline" size="sm" onClick={handleVisitShop} className="hidden rounded-xl sm:flex">
+                <Button variant="outline" size="sm" onClick={handleVisitShop} className="admin-workspace-visit-shop" disabled={!contextReady}>
                     <ExternalLink className="mr-2 h-4 w-4" />
-                    Se min shop
+                    Se webshop
                 </Button>
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="rounded-xl" aria-label="Åbn konto-menu">
-                            <User className="h-5 w-5" />
+                        <Button variant="ghost" size="icon" className="admin-workspace-avatar" aria-label="Åbn konto-menu">
+                            {userEmail ? <span aria-hidden="true">{userEmail.slice(0, 2).toUpperCase()}</span> : <User className="h-5 w-5" />}
                         </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align="end" className="admin-workspace-menu">
                         <DropdownMenuLabel>Min Konto</DropdownMenuLabel>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem disabled className="text-xs text-muted-foreground">
                             {userEmail}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600">
+                        <DropdownMenuItem onClick={toggleDarkMode}>
+                            {isDarkMode ? <Sun className="mr-2 h-4 w-4" /> : <Moon className="mr-2 h-4 w-4" />}
+                            {isDarkMode ? 'Lys tilstand' : 'Mørk tilstand'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleVisitShop} disabled={!contextReady}><ExternalLink className="mr-2 h-4 w-4" />Se webshop</DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleLogout} disabled={loggingOut} className="text-red-600 focus:text-red-600">
                             <LogOut className="mr-2 h-4 w-4" />
-                            Log ud
+                            {loggingOut ? 'Logger ud…' : 'Log ud'}
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>
         </header>
+        <AdminWorkspaceNavigation isMasterContext={isMasterContext} hasIconStudio={!iconStudio.isLoading && iconStudio.hasAccess} />
+        </div>
     );
 }

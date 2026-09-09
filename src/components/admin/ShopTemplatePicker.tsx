@@ -199,6 +199,9 @@ export function ShopTemplatePicker({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            {!SHOP_NAVIGATION_OPTIONS.some(option => option.id === selectedNavigationPreset) && (
+              <SelectItem value={selectedNavigationPreset}>Nuværende menu · {selectedNavigationPreset}</SelectItem>
+            )}
             {SHOP_NAVIGATION_OPTIONS.map((option) => (
               <SelectItem key={option.id} value={option.id}>
                 {option.name}
@@ -212,8 +215,8 @@ export function ShopTemplatePicker({
       </div>
 
       <div className="rounded-md border bg-muted/25 p-2.5 text-[10px] leading-4 text-muted-foreground">
-        Shopdesign styrer menu, katalog, produktside, bestilling, checkout og footer. Temaet styrer
-        fortsat farver, typografi og effekter.
+        Shopdesign styrer katalog, produktside, bestilling, checkout og footer. Produktmenuen
+        vælges separat og bevares, når du skifter shopdesign. Temaet styrer farver og typografi.
       </div>
     </div>
   );

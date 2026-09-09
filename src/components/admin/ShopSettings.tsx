@@ -148,7 +148,7 @@ export function ShopSettings() {
     if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>;
 
     return (
-        <div className="space-y-6 max-w-4xl mx-auto">
+        <div className="workspace-settings workspace-form-page">
             <div>
                 <h1 className="text-3xl font-bold">Indstillinger</h1>
                 <p className="text-muted-foreground">Generelle indstillinger for din webshop</p>
@@ -359,6 +359,18 @@ export function ShopSettings() {
                     Gem Indstillinger
                 </Button>
             </div>
+            <aside className="workspace-inline-detail workspace-form-context" aria-label="Kontaktoplysninger i din webshop">
+                <h2>Om din shop</h2>
+                <p className="text-sm text-muted-foreground">Forhåndsvisning af de kontaktoplysninger, du redigerer.</p>
+                <dl>
+                    <div><dt>Virksomhed</dt><dd>{companyName || 'Ikke angivet'}</dd></div>
+                    <div><dt>Administrator</dt><dd>{adminName || 'Ikke angivet'}</dd></div>
+                    <div><dt>Email</dt><dd>{email || 'Ikke angivet'}</dd></div>
+                    <div><dt>Telefon</dt><dd>{phone || 'Ikke angivet'}</dd></div>
+                    <div><dt>CVR-nummer</dt><dd>{cvr || 'Ikke angivet'}</dd></div>
+                    <div><dt>Valuta og tidszone</dt><dd>{currency} · {timezone}</dd></div>
+                </dl>
+            </aside>
         </div>
     );
 }

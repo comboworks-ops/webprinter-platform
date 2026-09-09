@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { ArrowLeft, Box, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 
@@ -8,12 +8,17 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches";
 import { supabase } from "@/integrations/supabase/client";
+import { applyProductStylingPatches, persistProductStylingPatches, removeSavedStylingPatches, selectorBoxStylingPatches, type ProductStylingChange, type ProductStylingPreview, type ProductStylingPatch } from "@/lib/preview/productStylingSave";
 import {
     DEFAULT_SELECTOR_BOX_STYLING,
     type SelectorBoxStyling,
 } from "@/types/pricingStructure";
 
 interface ProductOptionSectionBoxEditorProps {
+    tenantId: string;
+    pricingPreview?: ProductStylingPreview | null;
+    persistedStyling?: ProductStylingChange | null;
+    onPricingStructureChange?: (change: ProductStylingChange) => void;
     productId: string;
     sectionId: string;
     sectionName: string;
@@ -31,6 +36,10 @@ const mergeSettings = (settings?: Partial<SelectorBoxStyling> | null): SelectorB
 });
 
 export function ProductOptionSectionBoxEditor({
+    tenantId,
+    pricingPreview,
+    persistedStyling,
+    onPricingStructureChange,
     productId,
     sectionId,
     sectionName,
@@ -46,7 +55,22 @@ export function ProductOptionSectionBoxEditor({
     const [location, setLocation] = useState<StoredLocation>(null);
     const [settings, setSettings] = useState<SelectorBoxStyling>(DEFAULT_SELECTOR_BOX_STYLING);
 
+    const [productPricingStructure, setProductPricingStructure] = useState<Record<string, unknown> | null>(null);
+    const pricingPreviewRef = useRef(pricingPreview);
+    pricingPreviewRef.current = pricingPreview;
+
+    const pendingPatchesRef = useRef<ProductStylingPatch[]>([]);
+    const acknowledgePersistedStyling = useCallback((saved: ProductStylingChange | null | undefined) => {
+        if (saved?.productId !== productId) return;
+        pendingPatchesRef.current = removeSavedStylingPatches(pendingPatchesRef.current, saved.patches);
+    }, [productId]);
+
     useEffect(() => {
+        acknowledgePersistedStyling(persistedStyling);
+    }, [acknowledgePersistedStyling, persistedStyling]);
+
+    useEffect(() => {
+        let cancelled = false;
         async function loadSettings() {
             setLoading(true);
 
@@ -54,13 +78,23 @@ export function ProductOptionSectionBoxEditor({
                 .from("products")
                 .select("name, pricing_structure")
                 .eq("id", productId)
+                .eq("tenant_id", tenantId)
                 .single();
 
+            if (cancelled) return;
             if (product?.name) {
                 setProductName(product.name);
             }
 
-            const structure = (product?.pricing_structure || {}) as any;
+            if (!product) {
+                toast.error("Kunne ikke finde produktet i denne shop");
+                setLocation(null);
+                setLoading(false);
+                return;
+            }
+            const structure = (pricingPreviewRef.current?.productId === productId
+                ? pricingPreviewRef.current.pricingStructure : product.pricing_structure || {}) as any;
+            setProductPricingStructure(structure);
             let foundSettings: Partial<SelectorBoxStyling> | null = null;
             let foundLabel = sectionName || "";
             let foundLocation: StoredLocation = null;
@@ -110,6 +144,9 @@ export function ProductOptionSectionBoxEditor({
                 }
             }
 
+            if (cancelled) return;
+            pendingPatchesRef.current = pricingPreviewRef.current?.productId === productId
+                ? pricingPreviewRef.current.patches.filter(patch => patch.sectionId === sectionId && patch.path[0] === 'selectorStyling' && patch.path[1] === 'selectorBox') : [];
             setLocation(foundLocation);
             setResolvedSectionName(foundLabel || "Valgboks");
             setSettings(mergeSettings(foundSettings));
@@ -117,81 +154,44 @@ export function ProductOptionSectionBoxEditor({
         }
 
         void loadSettings();
-    }, [productId, sectionId, sectionName]);
+        return () => { cancelled = true; };
+    }, [productId, sectionId, sectionName, tenantId]);
 
     const updateSetting = <K extends keyof SelectorBoxStyling>(key: K, value: SelectorBoxStyling[K]) => {
-        setSettings((current) => ({ ...current, [key]: value }));
+        const next = { ...settings, [key]: value };
+        setSettings(next);
+        const patches = selectorBoxStylingPatches(sectionId, { [key]: value });
+        pendingPatchesRef.current = [...new Map([...pendingPatchesRef.current, ...patches].map(patch => [JSON.stringify(patch.path), patch])).values()];
+        if (location === 'product' && productPricingStructure) {
+            onPricingStructureChange?.({ productId, patches, isDirty: true,
+                pricingStructure: applyProductStylingPatches(productPricingStructure, patches) });
+        }
     };
 
     const handleSave = useCallback(async () => {
         setSaving(true);
 
-        const selectorBoxUpdate = {
-            backgroundColor: settings.backgroundColor,
-            borderColor: settings.borderColor,
-            borderRadiusPx: settings.borderRadiusPx,
-            borderWidthPx: settings.borderWidthPx,
-            paddingPx: settings.paddingPx,
-        };
+        const submittedPatches = [...pendingPatchesRef.current];
+        const selectorBoxUpdate = Object.fromEntries(submittedPatches.map(patch => [patch.path[patch.path.length - 1], patch.value]));
 
         let error: any = null;
 
         if (location === "product") {
-            const { data: product, error: loadError } = await supabase
-                .from("products")
-                .select("pricing_structure")
-                .eq("id", productId)
-                .single();
-
-            if (loadError || !product) {
-                error = loadError || new Error("Produktet blev ikke fundet");
-            } else {
-                const updatedStructure = { ...((product.pricing_structure || {}) as any) };
-                let updated = false;
-
-                if (updatedStructure.vertical_axis?.sectionId === sectionId) {
-                    updatedStructure.vertical_axis = {
-                        ...updatedStructure.vertical_axis,
-                        selectorStyling: {
-                            ...(updatedStructure.vertical_axis.selectorStyling || {}),
-                            selectorBox: {
-                                ...(updatedStructure.vertical_axis.selectorStyling?.selectorBox || {}),
-                                ...selectorBoxUpdate,
-                            },
-                        },
-                    };
-                    updated = true;
-                }
-
-                updatedStructure.layout_rows = (updatedStructure.layout_rows || []).map((row: any) => ({
-                    ...row,
-                    columns: (row.columns || []).map((column: any) => {
-                        if (column.id !== sectionId) return column;
-                        updated = true;
-                        return {
-                            ...column,
-                            selectorStyling: {
-                                ...(column.selectorStyling || {}),
-                                selectorBox: {
-                                    ...(column.selectorStyling?.selectorBox || {}),
-                                    ...selectorBoxUpdate,
-                                },
-                            },
-                        };
-                    }),
-                }));
-
-                if (!updated) {
-                    error = new Error("Kunne ikke finde valgboksen i produktets layout");
-                } else {
-                    const result = await supabase
-                        .from("products")
-                        .update({ pricing_structure: updatedStructure })
-                        .eq("id", productId);
-                    error = result.error;
-                }
+            const patches = submittedPatches;
+            try {
+                const pricingStructure = await persistProductStylingPatches(supabase, tenantId, productId, patches);
+                setProductPricingStructure(pricingStructure);
+                onPricingStructureChange?.({ productId, pricingStructure, patches, isDirty: false });
+            } catch (saveError) { error = saveError; }
+        } else if (location === 'storformat') {
+            // Verify the owning tenant again before updating its separate config.
+            const { data: owner, error: ownerError } = await supabase.from('products')
+                .select('id').eq('id', productId).eq('tenant_id', tenantId).single();
+            if (ownerError || !owner) {
+                toast.error('Kunne ikke finde produktet i denne shop');
+                setSaving(false);
+                return;
             }
-        } else {
             const { data: storformatConfig, error: loadError } = await supabase
                 .from("storformat_configs" as any)
                 .select("vertical_axis, layout_rows")
@@ -241,21 +241,26 @@ export function ProductOptionSectionBoxEditor({
                             vertical_axis: updatedVerticalAxis,
                             layout_rows: updatedLayoutRows,
                         } as any)
-                        .eq("product_id", productId);
-                    error = result.error;
+                        .eq("product_id", productId)
+                        .select('product_id').maybeSingle();
+                    error = result.error || (!result.data ? new Error('Valgboksen blev ikke opdateret') : null);
                 }
             }
         }
+
+        if (!location) error = new Error("Valgboksen blev ikke fundet");
 
         if (error) {
             console.error("Error saving selector box settings:", error);
             toast.error("Kunne ikke gemme valgboks");
         } else {
+            pendingPatchesRef.current = pendingPatchesRef.current.filter(patch => !submittedPatches.some(saved =>
+                JSON.stringify(saved.path) === JSON.stringify(patch.path) && JSON.stringify(saved.value) === JSON.stringify(patch.value)));
             toast.success("Valgboks gemt");
         }
 
         setSaving(false);
-    }, [location, productId, sectionId, settings]);
+    }, [location, productId, sectionId, settings, tenantId, onPricingStructureChange]);
 
     if (loading) {
         return (
@@ -367,7 +372,7 @@ export function ProductOptionSectionBoxEditor({
                         </div>
                     </div>
 
-                    <Button onClick={handleSave} disabled={saving} className="w-full gap-2">
+                    <Button onClick={handleSave} disabled={saving || !location} className="w-full gap-2">
                         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                         Gem valgboks
                     </Button>

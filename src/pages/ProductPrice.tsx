@@ -1,3 +1,5 @@
+import { useOrderFlowDesign } from "@/hooks/useOrderFlowDesign";
+import { OrderDesignPreviewSwitch } from "@/components/checkout/OrderDesignPreviewSwitch";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useLocation, useParams, useSearchParams } from "react-router-dom";
 import { PriceMatrix } from "@/components/product-price-page/PriceMatrix";
@@ -5,6 +7,9 @@ import { MatrixLayoutV1Renderer } from "@/components/product-price-page/MatrixLa
 import { ProductPricePanel, type DeliveryMethod } from "@/components/product-price-page/ProductPricePanel";
 import { ProductFilters } from "@/components/product-price-page/ProductFilters";
 import { StaticProductInfo } from "@/components/product-price-page/StaticProductInfo";
+import {
+  type ProductFormatGuideData,
+} from "@/components/product-price-page/ProductFormatGuide";
 import { CustomDimensionsCalculator } from "@/components/product-price-page/CustomDimensionsCalculator";
 import { StorformatConfigurator, type StorformatSelection } from "@/components/product-price-page/StorformatConfigurator";
 import { DynamicProductOptions } from "@/components/product-price-page/DynamicProductOptions";
@@ -29,13 +34,17 @@ import { fetchProductDetailRead } from "@/lib/api/productDetailRead";
 import { resolveCanvaOffer } from "@/lib/canva/launch";
 import { resolveMatrixLinkedTemplateId } from "@/lib/designer/linkedTemplates";
 import {
-  getSalgsmapperFallbackTemplates,
-  mergeProductTemplates,
+  collectExactTemplateSelectionConstraints,
   resolveSelectedDesignerTemplateLaunch,
+  selectionUsesFoldedLayout,
+  templateHasSelectionConstraints,
   type ProductTemplateFile,
 } from "@/lib/designer/productTemplateLinks";
 import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
-import type { SiteCheckoutState } from "@/lib/checkout/siteCheckoutSession";
+import {
+  readSiteCheckoutSession,
+  type SiteCheckoutState,
+} from "@/lib/checkout/siteCheckoutSession";
 import { resolveStorefrontProductFlow } from "@/lib/sites/storefrontProductFlow";
 
 // Legacy product configurations removed on user request (2025-01-30)
@@ -105,6 +114,7 @@ const ProductPrice = () => {
   const shopSettings = useShopSettings();
   const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
   const branding = shopSettings.data?.branding;
+  const orderDesign = useOrderFlowDesign("calculator", branding);
   const tenantName = String(
     branding?.shop_name
     || shopSettings.data?.tenant_name
@@ -113,6 +123,11 @@ const ProductPrice = () => {
   ).trim() || "Din Shop";
 
   const staticProduct = slug ? getProductBySlug(slug) : null;
+  const restoredCheckoutSelection = useMemo(() => {
+    const checkoutState = readSiteCheckoutSession();
+    if (!checkoutState || !slug || checkoutState.productSlug !== slug) return null;
+    return checkoutState;
+  }, [slug]);
   const companyContext = useMemo(() => {
     const state = (location.state || {}) as Partial<SiteCheckoutState>;
     if (!state.companyId || !state.companyCatalogItemId) return null;
@@ -170,6 +185,9 @@ const ProductPrice = () => {
     name: string;
     description: string;
     image_url: string | null;
+    about_title?: string | null;
+    about_description?: string | null;
+    about_image_url?: string | null;
     technical_specs?: any;
     pricing_type?: string;
     category?: string | null;
@@ -205,6 +223,33 @@ const ProductPrice = () => {
   // Always generic if database product exists (unless overridden by specific types below)
   const isGenericPricing = !!dbProduct;
   const isStorformat = !!dbProduct && dbProduct.pricing_type === "STORFORMAT";
+  const selectedFormatId = useMemo(() => {
+    if (selectedFormat && isUuid(selectedFormat)) return selectedFormat;
+    if (selectedVariantName) {
+      const candidates = selectedVariantName.split('|').filter(Boolean);
+      for (const candidate of candidates) {
+        if (isUuid(candidate)) {
+          const meta = valueMetaById[candidate];
+          if (meta?.width_mm && meta?.height_mm) return candidate;
+        }
+      }
+      if (isUuid(selectedVariantName)) return selectedVariantName;
+    }
+    return "";
+  }, [selectedFormat, selectedVariantName, valueMetaById, isUuid]);
+  const optionPricingDimensions = useMemo(() => {
+    if (isStorformat && storformatSelection) {
+      return {widthMm: storformatSelection.widthCm * 10, heightMm: storformatSelection.heightCm * 10};
+    }
+    if (["bannere", "skilte", "folie"].includes(product?.id || "")) {
+      return {widthMm: customWidth * 10, heightMm: customHeight * 10};
+    }
+    const dimensions = valueMetaById[matrixPricingMeta.formatId || selectedFormatId];
+    return dimensions?.width_mm && dimensions?.height_mm
+      ? {widthMm: dimensions.width_mm, heightMm: dimensions.height_mm} : null;
+  }, [isStorformat, storformatSelection, product?.id, customWidth, customHeight, valueMetaById, matrixPricingMeta.formatId, selectedFormatId]);
+  const optionAreaM2 = optionPricingDimensions && optionPricingDimensions.widthMm > 0 && optionPricingDimensions.heightMm > 0
+    ? optionPricingDimensions.widthMm * optionPricingDimensions.heightMm / 1_000_000 : null;
   const isPodProduct = !!dbProduct?.technical_specs?.is_pod;
   const podShippingEnabled = isPodProduct
     && pricingStructure?.mode === "matrix_layout_v1"
@@ -314,9 +359,12 @@ const ProductPrice = () => {
   ]);
 
   const orderValidationError = useMemo(() => {
+    if (Object.values(optionSelections).some(option => option.priceMode === "per_area") && !optionAreaM2) {
+      return "Vælg et format med kendte mål, før tillæg pr. m² kan beregnes.";
+    }
     if (!sizeDistributionMismatch) return null;
     return `Fordel størrelser så summen er ${sizeDistributionSelectionQuantity} stk (nu ${sizeDistributionTotal}).`;
-  }, [sizeDistributionMismatch, sizeDistributionSelectionQuantity, sizeDistributionTotal]);
+  }, [sizeDistributionMismatch, sizeDistributionSelectionQuantity, sizeDistributionTotal, optionSelections, optionAreaM2]);
 
   const sizeDistributionSummary = useMemo(() => {
     if (!sizeDistributionConfig || sizeDistributionEntries.length === 0) return "";
@@ -342,7 +390,7 @@ const ProductPrice = () => {
       setProductUnavailable(false);
       setMpaConfig(null);
       console.log('[ProductPrice] Fetching product with slug:', slug);
-      const productSelect = 'id, slug, name, description, image_url, category, technical_specs, pricing_structure, pricing_type, banner_config, template_files' as any;
+      const productSelect = 'id, slug, name, description, image_url, about_title, about_description, about_image_url, category, technical_specs, pricing_structure, pricing_type, banner_config, template_files' as any;
       const tenantId = shopSettings.data?.id || MASTER_TENANT_ID;
       const applyProductData = (data: any) => {
         setDbProductId(data.id);
@@ -375,6 +423,9 @@ const ProductPrice = () => {
           name: typeof apiProduct.name === "string" ? apiProduct.name : "",
           description: typeof apiProduct.description === "string" ? apiProduct.description : "",
           image_url: typeof apiProduct.image_url === "string" ? apiProduct.image_url : null,
+          about_title: typeof apiProduct.about_title === "string" ? apiProduct.about_title : null,
+          about_description: typeof apiProduct.about_description === "string" ? apiProduct.about_description : null,
+          about_image_url: typeof apiProduct.about_image_url === "string" ? apiProduct.about_image_url : null,
           category: typeof apiProduct.category === "string" ? apiProduct.category : null,
           technical_specs: (apiProduct.technical_specs && typeof apiProduct.technical_specs === "object") ? apiProduct.technical_specs : null,
           pricing_structure: apiProduct.pricing_structure ?? null,
@@ -756,7 +807,7 @@ const ProductPrice = () => {
     setSelectedCell({ row: _row, column });
     // For all m²-based products, trust the matrix value (already includes any volume-based discount)
     setProductPrice(basePrice);
-    const totalExtra = computeOptionExtras(optionSelections, column, customArea || 1);
+    const totalExtra = computeOptionExtras(optionSelections, column, optionAreaM2 || 0);
     setOptionExtraPrice(totalExtra);
   };
 
@@ -774,10 +825,10 @@ const ProductPrice = () => {
   const handleOptionSelectionChange = useCallback((selections: Record<string, { optionId: string; name: string; extraPrice: number; priceMode: "fixed" | "per_quantity" | "per_area" }>) => {
     setOptionSelections(selections);
     const qty = isStorformat ? (storformatSelection?.quantity || 0) : (selectedCell?.column ?? 1);
-    const area = isStorformat ? (storformatSelection?.areaM2 || 1) : (customArea || 1);
+    const area = optionAreaM2 || 0;
     const totalExtra = computeOptionExtras(selections, qty, area);
     setOptionExtraPrice(totalExtra);
-  }, [selectedCell, computeOptionExtras, customArea, isStorformat, storformatSelection]);
+  }, [selectedCell, computeOptionExtras, optionAreaM2, isStorformat, storformatSelection]);
 
   const handleSizeDistributionChange = useCallback((fieldKey: string, rawValue: string) => {
     const parsed = Number(rawValue);
@@ -809,10 +860,10 @@ const ProductPrice = () => {
 
   useEffect(() => {
     const qty = isStorformat ? (storformatSelection?.quantity || 0) : (selectedCell?.column ?? 1);
-    const area = isStorformat ? (storformatSelection?.areaM2 || 1) : (customArea || 1);
+    const area = optionAreaM2 || 0;
     const totalExtra = computeOptionExtras(optionSelections, qty, area);
     setOptionExtraPrice(totalExtra);
-  }, [selectedCell, optionSelections, computeOptionExtras, customArea, isStorformat, storformatSelection]);
+  }, [selectedCell, optionSelections, computeOptionExtras, optionAreaM2, isStorformat, storformatSelection]);
 
   // Recalculate base price when area or selection changes for area-based products
   useEffect(() => {
@@ -831,9 +882,9 @@ const ProductPrice = () => {
     }
 
     setProductPrice(base);
-    const extra = computeOptionExtras(optionSelections, qty, customArea || 1);
+    const extra = computeOptionExtras(optionSelections, qty, optionAreaM2 || 0);
     setOptionExtraPrice(extra);
-  }, [selectedCell, customArea, basePricePerSqm, matrixData, product, computeOptionExtras, optionSelections, mpaConfig, isStorformat, pricingStructure]);
+  }, [selectedCell, customArea, basePricePerSqm, matrixData, product, computeOptionExtras, optionSelections, optionAreaM2, mpaConfig, isStorformat, pricingStructure]);
 
   // Memoized handler for MatrixLayoutV1 to avoid conditional hook errors
   const handleMatrixCellClick = useCallback((row: string, column: number, price: number) => {
@@ -913,12 +964,23 @@ const ProductPrice = () => {
       selectedSectionValues: matrixSelectedSectionValues,
       optionIds: Object.values(optionSelections)
         .map((option) => option.optionId)
-        .filter((optionId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(optionId || ""))),
+        .filter((optionId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(optionId || ""))),
       shippingSelected: null,
-      areaM2: isStorformat ? (storformatSelection?.areaM2 || null) : (customArea || null),
+      areaM2: optionAreaM2,
+      widthMm: optionPricingDimensions?.widthMm || null,
+      heightMm: optionPricingDimensions?.heightMm || null,
+      storformat: isStorformat && storformatSelection ? {
+        widthMm: storformatSelection.widthCm * 10,
+        heightMm: storformatSelection.heightCm * 10,
+        materialId: storformatSelection.materialId,
+        finishIds: storformatSelection.finishIds,
+        productIds: storformatSelection.productIds,
+        selectedSectionValues: storformatSelection.selectedSectionValues,
+      } : null,
     };
   }, [
-    customArea,
+    optionAreaM2,
+    optionPricingDimensions,
     dbProductId,
     isStorformat,
     matrixPricingMeta,
@@ -928,8 +990,7 @@ const ProductPrice = () => {
     selectedCell?.column,
     selectedFormat,
     slug,
-    storformatSelection?.areaM2,
-    storformatSelection?.quantity,
+    storformatSelection,
   ]);
 
 
@@ -1012,45 +1073,60 @@ const ProductPrice = () => {
 
   // Loading State
   // Determine current dimensions based on selection
-  const selectedFormatId = useMemo(() => {
-    if (selectedFormat && isUuid(selectedFormat)) return selectedFormat;
-    if (selectedVariantName) {
-      const candidates = selectedVariantName.split('|').filter(Boolean);
-      for (const candidate of candidates) {
-        if (isUuid(candidate)) {
-          const meta = valueMetaById[candidate];
-          if (meta?.width_mm && meta?.height_mm) return candidate;
-        }
-      }
-      if (isUuid(selectedVariantName)) return selectedVariantName;
-    }
-    return "";
-  }, [selectedFormat, selectedVariantName, valueMetaById, isUuid]);
   const selectedFormatLabel = useMemo(() => {
     if (selectedFormatId && valueNameById[selectedFormatId]) return valueNameById[selectedFormatId];
     return selectedFormat || selectedVariantName || "";
   }, [selectedFormat, selectedFormatId, selectedVariantName, valueNameById]);
   const availableProductTemplates = useMemo(() => {
-    const fallbackTemplates = getSalgsmapperFallbackTemplates({
-      productId: dbProductId || product?.id,
-      productName: dbProduct?.name || product?.name,
-      productSlug: dbProduct?.slug || slug,
-    });
-    return mergeProductTemplates(dbProduct?.template_files, fallbackTemplates);
-  }, [dbProduct?.name, dbProduct?.slug, dbProduct?.template_files, dbProductId, product?.id, product?.name, slug]);
+    return Array.isArray(dbProduct?.template_files) ? dbProduct.template_files : [];
+  }, [dbProduct?.template_files]);
+  const exactTemplateCombinationSelections = useMemo(() => (
+    collectExactTemplateSelectionConstraints(availableProductTemplates)
+  ), [availableProductTemplates]);
   const designerTemplateLaunch = useMemo(() => {
     return resolveSelectedDesignerTemplateLaunch({
       templates: availableProductTemplates,
       selectedFormat,
       selectedFormatLabel,
+      selectedOptionLabels: matrixSelectionSummary,
+      selectedSectionValues: matrixSelectedSectionValues,
     });
-  }, [availableProductTemplates, selectedFormat, selectedFormatLabel]);
-  const productFlow = useMemo(() => resolveStorefrontProductFlow({
+  }, [availableProductTemplates, matrixSelectedSectionValues, matrixSelectionSummary, selectedFormat, selectedFormatLabel]);
+  const legacyLinkedTemplateId = useMemo(() => {
+    if (pricingStructure?.mode === "matrix_layout_v1") {
+      return resolveMatrixLinkedTemplateId(pricingStructure, matrixSelectedSectionValues);
+    }
+    return storformatSelection?.linkedTemplateId || null;
+  }, [matrixSelectedSectionValues, pricingStructure, storformatSelection]);
+  const hasConfigurationSpecificTemplates = useMemo(
+    () => availableProductTemplates.some(templateHasSelectionConstraints),
+    [availableProductTemplates],
+  );
+  const baseProductFlow = useMemo(() => resolveStorefrontProductFlow({
     name: dbProduct?.name || product?.name,
     category: dbProduct?.category || (product as any)?.category || null,
     pricing_type: dbProduct?.pricing_type || null,
     technical_specs: dbProduct?.technical_specs || null,
-  }), [dbProduct?.category, dbProduct?.name, dbProduct?.pricing_type, dbProduct?.technical_specs, product]);
+    template_files: dbProduct?.template_files || null,
+  }), [dbProduct?.category, dbProduct?.name, dbProduct?.pricing_type, dbProduct?.technical_specs, dbProduct?.template_files, product]);
+  const productFlow = useMemo(() => {
+    const hasCompatibleLegacyTemplate = Boolean(legacyLinkedTemplateId) && !hasConfigurationSpecificTemplates;
+    if (
+      baseProductFlow.designerMode !== "pdf_template"
+      || designerTemplateLaunch
+      || hasCompatibleLegacyTemplate
+    ) {
+      return baseProductFlow;
+    }
+
+    return {
+      ...baseProductFlow,
+      badgeLabel: "Skabelon mangler for valget",
+      customerHelpText: "Denne kombination kan bestilles med egen trykfil, men designeren åbnes først, når den korrekte PDF-skabelon er tilknyttet.",
+      showDesignerButton: false,
+      showTemplateDownload: false,
+    };
+  }, [baseProductFlow, designerTemplateLaunch, hasConfigurationSpecificTemplates, legacyLinkedTemplateId]);
   const currentDimensions = useMemo(() => {
     const techSpecs = dbProduct?.technical_specs;
     if (selectedFormatId) {
@@ -1111,12 +1187,72 @@ const ProductPrice = () => {
     }
     return undefined;
   }, [selectedFormatId, valueMetaById, dbProduct?.technical_specs]);
-  const linkedTemplateId = useMemo(() => {
-    if (pricingStructure?.mode === "matrix_layout_v1") {
-      return resolveMatrixLinkedTemplateId(pricingStructure, matrixSelectedSectionValues);
+  const formatGuideData = useMemo<ProductFormatGuideData | null>(() => {
+    if (!product || !selectedFormatLabel || designDimensions.width <= 0 || designDimensions.height <= 0) {
+      return null;
     }
-    return storformatSelection?.linkedTemplateId || null;
-  }, [matrixSelectedSectionValues, pricingStructure, storformatSelection]);
+
+    const layoutKind = selectionUsesFoldedLayout(product.name, selectedFormatLabel, ...matrixSelectionSummary)
+      ? "folded"
+      : "flat";
+    const printSideLabel = matrixSelectionSummary.find((label) => (
+      /4\+0|4\+4|en side|begge sider|enkeltsidet|dobbeltsidet/i.test(label)
+    )) || null;
+    const foldTypeLabel = matrixSelectionSummary.find((label) => /midterfals|rullefalset|zigzag/i.test(label)) || null;
+    const pageCountLabel = matrixSelectionSummary.find((label) => /\d+\s*sider/i.test(label)) || null;
+    const orientationLabel = matrixSelectionSummary.find((label) => /^(lodret|vandret)$/i.test(label)) || null;
+    const swapFinishedDimensions = layoutKind === "folded"
+      && /vandret/i.test(orientationLabel || "")
+      && designDimensions.width !== designDimensions.height;
+    const finishedWidthMm = swapFinishedDimensions ? designDimensions.height : designDimensions.width;
+    const finishedHeightMm = swapFinishedDimensions ? designDimensions.width : designDimensions.height;
+
+    return {
+      productName: product.name,
+      productImageUrl: dbProduct?.image_url || getProductImage(product.slug),
+      formatLabel: selectedFormatLabel,
+      finishedWidthMm: layoutKind === "folded"
+        ? finishedWidthMm
+        : (designerTemplateLaunch?.widthMm ?? designDimensions.width),
+      finishedHeightMm: layoutKind === "folded"
+        ? finishedHeightMm
+        : (designerTemplateLaunch?.heightMm ?? designDimensions.height),
+      dataWidthMm: layoutKind === "folded" ? designerTemplateLaunch?.widthMm : undefined,
+      dataHeightMm: layoutKind === "folded" ? designerTemplateLaunch?.heightMm : undefined,
+      bleedMm: designerTemplateLaunch?.bleedMm ?? designDimensions.bleed ?? 3,
+      safeAreaMm: designerTemplateLaunch?.safeMm ?? designSafeAreaMm ?? 3,
+      minDpi: Number(dbProduct?.technical_specs?.min_dpi || 300),
+      layoutKind,
+      printSideLabel,
+      foldTypeLabel,
+      pageCountLabel,
+      foldGeometry: designerTemplateLaunch?.guideGeometry,
+      template: designerTemplateLaunch
+        ? {
+            name: designerTemplateLaunch.name,
+            url: designerTemplateLaunch.pdfUrl,
+          }
+        : null,
+    };
+  }, [
+    dbProduct?.image_url,
+    dbProduct?.technical_specs?.min_dpi,
+    designDimensions.bleed,
+    designDimensions.height,
+    designDimensions.width,
+    designerTemplateLaunch,
+    designSafeAreaMm,
+    matrixSelectionSummary,
+    product,
+    selectedFormatLabel,
+  ]);
+  const linkedTemplateId = useMemo(() => {
+    if (designerTemplateLaunch?.templateId) return designerTemplateLaunch.templateId;
+
+    if (hasConfigurationSpecificTemplates && !designerTemplateLaunch) return null;
+
+    return legacyLinkedTemplateId;
+  }, [designerTemplateLaunch, hasConfigurationSpecificTemplates, legacyLinkedTemplateId]);
   const currentQuantity = useMemo(() => {
     if (isStorformat) return storformatSelection?.quantity || 0;
     return selectedCell?.column || 0;
@@ -1226,6 +1362,7 @@ const ProductPrice = () => {
   const renderInStorefrontFrame = (content: any, mainClassName: string, topSlot?: any) => (
     <StorefrontThemeFrame
       branding={branding}
+      orderDesign={orderDesign}
       tenantName={tenantName}
       topSlot={topSlot}
     >
@@ -1233,6 +1370,7 @@ const ProductPrice = () => {
         className={`${mainClassName} storefront-order-flow storefront-product-flow`}
         data-storefront-order-flow="product"
       >
+        <OrderDesignPreviewSwitch page="calculator" value={orderDesign} />
         {content}
       </main>
     </StorefrontThemeFrame>
@@ -1286,6 +1424,70 @@ const ProductPrice = () => {
     </div>
   ) : null;
 
+  const productIntro = (
+        <div className="storefront-order-hero flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between sm:gap-8 mb-8" data-branding-id="productPage.heading">
+          <div className="flex-1">
+            {(() => {
+              const ph = (branding as any)?.productPage?.heading;
+              const headingText = ph?.customText?.trim() || product.name;
+              const headingFont = ph?.font || 'inherit';
+              const headingSize = ph?.sizePx ? `${ph.sizePx}px` : undefined;
+              const headingColor = ph?.color || undefined;
+              const subtext = ph?.subtext;
+              const bodyFont = (branding as any)?.fonts?.body || 'inherit';
+              const bodyColor = (branding as any)?.colors?.bodyText || undefined;
+              return (
+                <>
+                  <h1
+                    className="font-bold mb-2 leading-tight"
+                    style={{
+                      fontFamily: headingFont !== 'inherit' ? `'${headingFont}', sans-serif` : undefined,
+                      fontSize: headingSize,
+                      color: headingColor,
+                    }}
+                  >
+                    {headingText}
+                  </h1>
+                  {subtext?.enabled && subtext?.text?.trim() && (
+                    <p
+                      className="font-bold mb-2"
+                      style={{
+                        fontFamily: subtext.font && subtext.font !== 'inherit' ? `'${subtext.font}', sans-serif` : undefined,
+                        fontSize: subtext.sizePx ? `${subtext.sizePx}px` : undefined,
+                        color: subtext.color || undefined,
+                      }}
+                    >
+                      {subtext.text}
+                    </p>
+                  )}
+                  {product.description && (
+                    <p
+                      className="text-muted-foreground"
+                      style={{
+                        fontFamily: bodyFont !== 'inherit' ? `'${bodyFont}', sans-serif` : undefined,
+                        color: bodyColor,
+                      }}
+                    >
+                      {product.description}
+                    </p>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+          {product && (
+            <div className="storefront-order-product-image w-full h-40 flex-shrink-0 sm:w-48 sm:h-48">
+              <img
+                src={dbProduct?.image_url || getProductImage(product.slug)}
+                alt={product.name}
+                className="w-full h-full object-contain"
+                style={{ filter: 'var(--product-filter)' }}
+              />
+            </div>
+          )}
+        </div>
+  );
+
   const renderPricingInterface = () => {
     if (isStorformat && dbProductId) {
       const storformatDeliveryBusinessDayOffset = /fast production/i.test(
@@ -1303,25 +1505,14 @@ const ProductPrice = () => {
         sizeDistributionSummary || null,
       ].filter(Boolean);
 
-      return (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8" data-storefront-order-stage="storformat">
-          <div className="min-w-0 space-y-6 lg:col-span-2">
-            <StorformatConfigurator
-              productId={dbProductId}
-              onSelectionChange={handleStorformatSelection}
-            />
-            {dbProductId && (
-              <div>
-                <DynamicProductOptions
-                  productId={dbProductId}
-                  onSelectionChange={handleOptionSelectionChange}
-                />
-              </div>
-            )}
-            {sizeDistributionBlock}
-          </div>
-          <div className="min-w-0 lg:col-span-1 lg:self-start">
+      return <StorformatConfigurator
+        productId={dbProductId}
+        onSelectionChange={handleStorformatSelection}
+        layout={{ design: orderDesign, intro: productIntro,
+          extras: <><DynamicProductOptions productId={dbProductId} onSelectionChange={handleOptionSelectionChange} />{sizeDistributionBlock}</>,
+          summary: (
             <ProductPricePanel
+              presentation="order-flow"
               productId={dbProductId}
               quantity={storformatSelection?.quantity || 0}
               productPrice={storformatSelection?.totalPrice || 0}
@@ -1350,12 +1541,13 @@ const ProductPrice = () => {
               externalDeliveryError={podShippingError}
               externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
               canvaOffer={canvaOffer}
+              formatGuide={formatGuideData}
               summary={summaryParts.join(' • ')}
               companyContext={companyContext}
             />
-          </div>
-        </div>
-      );
+          ),
+        }}
+      />;
     }
 
     if (pricingStructure?.mode === 'matrix_layout_v1' && dbProductId) {
@@ -1365,6 +1557,10 @@ const ProductPrice = () => {
             <MatrixLayoutV1Renderer
               productId={dbProductId}
               pricingStructure={pricingStructure}
+              exactCombinationSelections={exactTemplateCombinationSelections}
+              initialSelection={restoredCheckoutSelection?.pricingQuote?.selectedSectionValues || undefined}
+              initialSelectedRow={restoredCheckoutSelection?.selectedVariant || undefined}
+              initialSelectedQuantity={restoredCheckoutSelection?.quantity || undefined}
               onCellClick={handleMatrixCellClick}
               onSelectionSummary={setMatrixSelectionSummary}
               onSelectionChange={handleMatrixSelectionChange}
@@ -1377,6 +1573,7 @@ const ProductPrice = () => {
           </div>
           <div className="min-w-0 lg:col-span-1 lg:self-start">
             <ProductPricePanel
+              presentation="order-flow"
               productId={dbProductId}
               quantity={selectedCell?.column || 0}
               productPrice={productPrice}
@@ -1404,6 +1601,7 @@ const ProductPrice = () => {
               externalDeliveryError={podShippingError}
               externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
               canvaOffer={canvaOffer}
+              formatGuide={formatGuideData}
               summary={[
                 product?.name,
                 ...matrixSelectionSummary,
@@ -1510,6 +1708,7 @@ const ProductPrice = () => {
           <div className="min-w-0 space-y-6 lg:col-span-1">
             <div>
               <ProductPricePanel
+              presentation="order-flow"
                 productId={dbProductId || ""}
                 quantity={selectedCell?.column || 0}
                 productPrice={productPrice}
@@ -1537,6 +1736,7 @@ const ProductPrice = () => {
                 externalDeliveryError={podShippingError}
                 externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
                 canvaOffer={canvaOffer}
+                formatGuide={formatGuideData}
                 summary={[
                   product.name,
                   // For area-based products, show custom dimensions instead of format
@@ -1564,67 +1764,7 @@ const ProductPrice = () => {
             {fallbackNotice}
           </div>
         )}
-        <div className="storefront-order-hero flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between sm:gap-8 mb-8" data-branding-id="productPage.heading">
-          <div className="flex-1">
-            {(() => {
-              const ph = (branding as any)?.productPage?.heading;
-              const headingText = ph?.customText?.trim() || product.name;
-              const headingFont = ph?.font || 'inherit';
-              const headingSize = ph?.sizePx ? `${ph.sizePx}px` : undefined;
-              const headingColor = ph?.color || undefined;
-              const subtext = ph?.subtext;
-              const bodyFont = (branding as any)?.fonts?.body || 'inherit';
-              const bodyColor = (branding as any)?.colors?.bodyText || undefined;
-              return (
-                <>
-                  <h1
-                    className="font-bold mb-2 leading-tight"
-                    style={{
-                      fontFamily: headingFont !== 'inherit' ? `'${headingFont}', sans-serif` : undefined,
-                      fontSize: headingSize,
-                      color: headingColor,
-                    }}
-                  >
-                    {headingText}
-                  </h1>
-                  {subtext?.enabled && subtext?.text?.trim() && (
-                    <p
-                      className="font-bold mb-2"
-                      style={{
-                        fontFamily: subtext.font && subtext.font !== 'inherit' ? `'${subtext.font}', sans-serif` : undefined,
-                        fontSize: subtext.sizePx ? `${subtext.sizePx}px` : undefined,
-                        color: subtext.color || undefined,
-                      }}
-                    >
-                      {subtext.text}
-                    </p>
-                  )}
-                  {product.description && (
-                    <p
-                      className="text-muted-foreground"
-                      style={{
-                        fontFamily: bodyFont !== 'inherit' ? `'${bodyFont}', sans-serif` : undefined,
-                        color: bodyColor,
-                      }}
-                    >
-                      {product.description}
-                    </p>
-                  )}
-                </>
-              );
-            })()}
-          </div>
-          {product && (
-            <div className="storefront-order-product-image w-full h-40 flex-shrink-0 sm:w-48 sm:h-48">
-              <img
-                src={dbProduct?.image_url || getProductImage(product.slug)}
-                alt={product.name}
-                className="w-full h-full object-contain"
-                style={{ filter: 'var(--product-filter)' }}
-              />
-            </div>
-          )}
-        </div>
+        {!(isStorformat && dbProductId) && productIntro}
 
         {renderPricingInterface()}
 
@@ -1632,6 +1772,11 @@ const ProductPrice = () => {
           productId={dbProductId || product.slug || product.id}
           selectedFormat={selectedFormat}
           selectedFormatLabel={selectedFormatLabel}
+          selectedOptionLabels={matrixSelectionSummary}
+          selectedSectionValues={matrixSelectedSectionValues}
+          showTemplateDownloads={false}
+          formatGuide={formatGuideData}
+          productData={dbProduct}
         />
 
         {/* Debug Overlay */}

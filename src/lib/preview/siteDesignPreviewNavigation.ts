@@ -12,6 +12,11 @@ const PREVIEW_CONTEXT_QUERY_KEYS = new Set([
 
 const PREVIEW_URL_BASE = "https://preview.webprinter.local";
 
+export const SITE_DESIGN_PREVIEW_EXIT_LINK_PROPS = {
+  "data-preview-exit": "true",
+  target: "_top",
+} as const;
+
 export function normalizeSiteDesignPreviewPath(rawPath?: unknown): string {
   const value = String(rawPath || "").trim();
   if (!value) return "/";

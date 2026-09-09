@@ -17,6 +17,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches";
 import { cn } from "@/lib/utils";
 import { FontSelector } from "./FontSelector";
+import { APPROVED_DROPDOWN_PRESETS, DEFAULT_DROPDOWN_PRESET, isApprovedDropdownPreset, resolveDropdownPreset } from "@/lib/branding/dropdownPresets";
 import { supabase } from "@/integrations/supabase/client";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
@@ -24,7 +25,6 @@ import { Loader2 } from "lucide-react";
 import {
     type HeaderSettings,
     type HeaderDropdownMode,
-    type HeaderDropdownPreset,
     type HeaderSplitPreviewSource,
     type HeaderNavItem,
     type HeaderStyleType,
@@ -52,38 +52,6 @@ import {
     ArrowRight,
     ArrowDown,
 } from "lucide-react";
-
-const DROPDOWN_PRESETS: Array<{
-    value: HeaderDropdownPreset;
-    label: string;
-    description: string;
-}> = [
-    {
-        value: "classic",
-        label: "Classic",
-        description: "Ren dropdown med rolig fade.",
-    },
-    {
-        value: "showcase-bar",
-        label: "Showcase bar",
-        description: "Stor billedlinje øverst og menu under.",
-    },
-    {
-        value: "split-preview",
-        label: "Split preview",
-        description: "Billedfokus til venstre, links til højre.",
-    },
-    {
-        value: "compact-columns",
-        label: "Kompakte kolonner",
-        description: "Tæt menu til mange produkter.",
-    },
-    {
-        value: "gallery-cards",
-        label: "Gallery cards",
-        description: "Kort-layout med mere visuel vægt.",
-    },
-];
 
 interface HeaderSectionProps {
     header: HeaderSettings;
@@ -137,6 +105,7 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
     const safeHeader: HeaderSettings = {
         ...DEFAULT_HEADER,
         ...header,
+        dropdownPreset: resolveDropdownPreset(header?.dropdownPreset),
         scroll: { ...DEFAULT_HEADER.scroll, ...header?.scroll },
         cta: { ...DEFAULT_HEADER.cta, ...header?.cta },
         navItems: header?.navItems || DEFAULT_HEADER.navItems,
@@ -208,6 +177,8 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
         "rounded-xl transition-all duration-200",
         matchesFocus(...targetIds) && "ring-2 ring-primary/50 ring-offset-2"
     );
+    const usesApprovedDropdown = isApprovedDropdownPreset(safeHeader.dropdownPreset);
+    const usesCategoryImages = !usesApprovedDropdown || !['search-and-discover', 'quick-list', 'open-directory'].includes(safeHeader.dropdownPreset || '');
     const dropdownCategoryFontSizePx = safeHeader.dropdownCategoryFontSizePx ?? 13;
     const dropdownProductFontSizePx = safeHeader.dropdownProductFontSizePx ?? 14;
     const dropdownMetaFontSizePx = safeHeader.dropdownMetaFontSizePx ?? 11;
@@ -671,7 +642,7 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                         icon={<ImageIcon className="h-4 w-4" />}
                         defaultOpen={matchesFocus("site-design-focus-header-dropdown-layout")}
                     >
-                        <RadioGroup
+                        {!usesApprovedDropdown && <RadioGroup
                             value={safeHeader.dropdownMode}
                             onValueChange={(value) => updateHeader({ dropdownMode: value as HeaderDropdownMode })}
                             className="grid grid-cols-3 gap-4"
@@ -703,31 +674,40 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                     <span className="text-center text-xs text-muted-foreground">Billeder og tekst</span>
                                 </label>
                             </div>
-	                        </RadioGroup>
-	                        <div className="mt-5 space-y-3 border-t pt-4">
-	                            <Label>Dropdown preset</Label>
-	                            <div className="grid gap-2">
-	                                {DROPDOWN_PRESETS.map((preset) => {
-	                                    const selected = (safeHeader.dropdownPreset || "classic") === preset.value;
-	                                    return (
-	                                        <button
-	                                            key={preset.value}
-	                                            type="button"
-	                                            className={cn(
-	                                                "flex cursor-pointer items-start justify-between gap-3 rounded-lg border p-3 text-left transition-all hover:bg-muted/50",
-	                                                selected && "border-primary bg-primary/5"
-	                                            )}
-	                                            onClick={() => updateHeader({ dropdownPreset: preset.value })}
-	                                        >
-	                                            <span className="min-w-0">
-	                                                <span className="block text-sm font-medium">{preset.label}</span>
-	                                                <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{preset.description}</span>
-	                                            </span>
-	                                            {selected && <Eye className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
-	                                        </button>
-	                                    );
-	                                })}
-	                            </div>
+                        </RadioGroup>}
+                        <div className={cn("space-y-3", !usesApprovedDropdown && "mt-5 border-t pt-4")}>
+                            <Label>Produktmenuens design</Label>
+                            <p className="text-xs leading-5 text-muted-foreground">Vælg mellem ni forskellige menuer. 5. Search &amp; Discover er standard. Billederne viser designretningen; menuen bruger butikkens egne produkter.</p>
+                            {!isApprovedDropdownPreset(safeHeader.dropdownPreset) && (
+                                <p className="rounded-md bg-muted p-3 text-xs leading-5">Butikken bruger en tidligere valgt menu ({safeHeader.dropdownPreset}). Den bevares, indtil du vælger et nyt design.</p>
+                            )}
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                {APPROVED_DROPDOWN_PRESETS.map((preset) => {
+                                    const selected = safeHeader.dropdownPreset === preset.id;
+                                    return (
+                                        <button
+                                            key={preset.id}
+                                            type="button"
+                                            aria-pressed={selected}
+                                            className={cn(
+                                                "min-w-0 overflow-hidden rounded-lg border text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                                selected && "border-primary bg-primary/5"
+                                            )}
+                                            onClick={() => updateHeader({ dropdownPreset: preset.id })}
+                                        >
+                                            <img src={preset.previewImage} alt="" loading="lazy" width={1536} height={1024} className="aspect-[3/2] w-full border-b object-cover" />
+                                            <span className="flex items-start gap-2 p-3">
+                                                <span className="min-w-0 flex-1">
+                                                    <span className="block text-sm font-medium">{preset.number}. {preset.name}</span>
+                                                    {preset.id === DEFAULT_DROPDOWN_PRESET && <span className="mt-1 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">Standard</span>}
+                                                    <span className="mt-1 block text-xs leading-4 text-muted-foreground">{preset.description}</span>
+                                                </span>
+                                                {selected && <Eye className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
                                 {(safeHeader.dropdownPreset || "classic") === "split-preview" && (
                                     <div className="mt-4 rounded-lg border bg-muted/20 p-3">
                                         <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -775,11 +755,12 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                     <CollapsibleCard
                         key={`header-dropdown-media-${matchesFocus("site-design-focus-header-dropdown-media", "site-design-focus-header-dropdown-images") ? focusTargetId : "default"}`}
                         title="Dropdown billeder"
-                        description="Styr størrelse og form på billederne i dropdown-menuen."
+                        description={usesApprovedDropdown ? "Designet bestemmer billedstørrelse og placering. Tilpas hjørnerne her." : "Styr størrelse og form på billederne i dropdown-menuen."}
                         icon={<ImageIcon className="h-4 w-4" />}
                         defaultOpen={matchesFocus("site-design-focus-header-dropdown-media", "site-design-focus-header-dropdown-images")}
                     >
                         <div className="space-y-4">
+                            {!usesApprovedDropdown && <>
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <Label>Stor dropdown-billede</Label>
@@ -806,9 +787,10 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                     step={2}
                                 />
                             </div>
+                            </>}
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
-                                    <Label>Billede hjørner</Label>
+                                    <Label>{usesApprovedDropdown ? "Billed- og felthjørner" : "Billede hjørner"}</Label>
                                     <span className="text-xs text-muted-foreground">{dropdownImageRadiusPx}px</span>
                                 </div>
                                 <Slider
@@ -819,7 +801,7 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                     step={1}
                                 />
                             </div>
-                            <div className="space-y-3 pt-2 border-t">
+                            {!usesApprovedDropdown && <div className="space-y-3 pt-2 border-t">
                                 <Label>Tekst position</Label>
                                 <div className="flex flex-wrap gap-2">
                                     <Button
@@ -846,7 +828,7 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                 <p className="text-xs text-muted-foreground">
                                     Placer teksten ved siden af eller under produktbilledet
                                 </p>
-                            </div>
+                            </div>}
                         </div>
                     </CollapsibleCard>
                 </div>
@@ -904,7 +886,7 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                     step={1}
                                 />
                             </div>
-                            <div className="flex items-center justify-between">
+                            {!usesApprovedDropdown && <div className="flex items-center justify-between">
                                 <div className="space-y-0.5">
                                     <Label>Vis ramme og skygge</Label>
                                     <p className="text-xs text-muted-foreground">Tilføj kant og skygge omkring dropdown-menuen.</p>
@@ -913,7 +895,7 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                     checked={safeHeader.dropdownShowBorder ?? true}
                                     onCheckedChange={(value) => updateHeader({ dropdownShowBorder: value })}
                                 />
-                            </div>
+                            </div>}
                         </div>
                     </CollapsibleCard>
                 </div>
@@ -956,14 +938,14 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                 onRemoveSwatch={onRemoveSwatch}
                             />
                             {/* Category Images Section */}
-                            <div className="space-y-3 pt-4 border-t">
+                            {usesCategoryImages && <div className="space-y-3 pt-4 border-t">
 	                                <Label className="font-medium">Kategori billeder</Label>
 	                                <p className="text-xs text-muted-foreground">
-	                                    Upload billeder til kategorierne. Showcase bar bruger disse som de store billeder øverst.
+	                                    Upload billeder til de viste kategorier. Menuen bruger produktbilleder, når der ikke er valgt et kategoribillede.
 	                                </p>
                                 
                                 {/* Display Mode for Categories */}
-                                <div className="flex flex-wrap gap-1">
+                                {!usesApprovedDropdown && <div className="flex flex-wrap gap-1">
                                     <Button
                                         type="button"
                                         variant={!safeHeader.dropdownCategoryDisplayMode || safeHeader.dropdownCategoryDisplayMode === 'text' ? 'default' : 'outline'}
@@ -991,7 +973,7 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                     >
                                         Begge
                                     </Button>
-                                </div>
+                                </div>}
 
 	                                {/* Category Image Uploads */}
 	                                <div className="space-y-3 pt-2">
@@ -1048,7 +1030,7 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
 	                                            );
 	                                        })}
 	                                </div>
-	                            </div>
+	                            </div>}
                         </div>
                     </CollapsibleCard>
                 </div>

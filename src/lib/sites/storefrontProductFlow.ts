@@ -5,7 +5,7 @@ import {
   type ProductDesignerMode,
   type ProductPricingModel,
   type ProductSiteModeInput,
-} from "@/lib/sites/productSiteModes";
+} from "./productSiteModes.ts";
 
 export interface StorefrontProductFlow {
   designerMode: ProductDesignerMode | null;
@@ -24,6 +24,10 @@ export interface StorefrontProductFlow {
   showTemplateDownload: boolean;
   prefersTemplateOverlay: boolean;
   requiresCutContour: boolean;
+}
+
+export interface StorefrontProductFlowInput extends ProductSiteModeInput {
+  template_files?: unknown;
 }
 
 const FLOW_COPY: Record<ProductDesignerMode, {
@@ -124,9 +128,21 @@ const FLOW_COPY: Record<ProductDesignerMode, {
   },
 };
 
-export function resolveStorefrontProductFlow(input: ProductSiteModeInput): StorefrontProductFlow {
+export function resolveStorefrontProductFlow(input: StorefrontProductFlowInput): StorefrontProductFlow {
   const resolved = resolveProductSiteModes(input);
-  const designerMode = resolved.designerMode || "flat_print";
+  const hasLinkedPdfTemplate = Array.isArray(input.template_files) && input.template_files.some((template) => {
+    if (!template || typeof template !== "object") return false;
+    const record = template as Record<string, unknown>;
+    const candidate = record.pdfUrl || record.url || record.fileUrl || record.downloadUrl;
+    return typeof candidate === "string" && candidate.trim().toLowerCase().split("?")[0].endsWith(".pdf");
+  });
+  const shouldInferTemplateFlow = hasLinkedPdfTemplate && resolved.source !== "explicit";
+  const designerMode = shouldInferTemplateFlow
+    ? "pdf_template"
+    : resolved.designerMode || "flat_print";
+  const pricingModel = shouldInferTemplateFlow
+    ? "template_product"
+    : resolved.pricingModel;
   const copy = FLOW_COPY[designerMode];
   const technicalSpecs = typeof input.technical_specs === "string"
     ? (() => {
@@ -142,10 +158,10 @@ export function resolveStorefrontProductFlow(input: ProductSiteModeInput): Store
 
   return {
     designerMode,
-    pricingModel: resolved.pricingModel,
+    pricingModel,
     source: resolved.source,
     designerModeLabel: getProductDesignerModeLabel(designerMode),
-    pricingModelLabel: getProductPricingModelLabel(resolved.pricingModel),
+    pricingModelLabel: getProductPricingModelLabel(pricingModel),
     requiresCutContour: technicalSpecs?.requires_cut_contour === true,
     ...copy,
   };

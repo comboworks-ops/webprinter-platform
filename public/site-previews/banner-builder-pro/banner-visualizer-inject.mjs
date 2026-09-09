@@ -347,7 +347,7 @@
 
     const orderButton = Array.from(priceSection.querySelectorAll("button")).find(
       function (button) {
-        return normalizeText(button.textContent).includes("bestil nu");
+        return !!button.dataset.wpOriginalOrderLabel || normalizeText(button.textContent).includes("bestil nu");
       }
     );
     if (!orderButton || !orderButton.parentElement) return null;
@@ -478,6 +478,8 @@
       ? {
           roundingStep: Number(configRaw.roundingStep) || 1,
           globalMarkupPct: Number(configRaw.globalMarkupPct) || 0,
+          areaPricingBasis: configRaw.areaPricingBasis,
+          sourceQuoteModel: configRaw.sourceQuoteModel,
           quantities: quantities.length ? quantities : [1],
         }
       : null;
@@ -1777,6 +1779,11 @@
             return !!product.storformat;
           }) || {}).storformat || null;
     if (!storformat) return null;
+    // This legacy site preview has its own m2_rates calculator. New quote-based
+    // products must use the canonical calculator instead of its demo fallback.
+    if (storformat.config && ((storformat.config.areaPricingBasis && storformat.config.areaPricingBasis !== "total_area") || storformat.config.sourceQuoteModel != null)) {
+      return { requiresProductCalculator: true, runtimeProduct: runtimeProduct && runtimeProduct.storformat === storformat ? runtimeProduct : null };
+    }
     const materials = storformat.materials || [];
     const materialPrices = storformat.m2Prices || [];
     if (!materials.length || !materialPrices.length) return null;
@@ -1911,9 +1918,52 @@
     };
   }
 
+  function quoteProductCalculatorUrl(pricingResult) {
+    const product = pricingResult && pricingResult.runtimeProduct;
+    const slug = product && typeof product.slug === "string" ? product.slug.trim() : "";
+    // A configured supplier product must never redirect to a hard-coded demo slug.
+    if (!product || !product.id || !slug || slug === "." || slug === "..") return null;
+    const productUrl = new URL("/produkt/" + encodeURIComponent(slug), window.location.origin);
+    const tenantId = readCheckoutTenantId();
+    if (tenantId) productUrl.searchParams.set("tenantId", tenantId);
+    return productUrl.toString();
+  }
+
   function updateBackendPriceSummaryDisplay(pricingResult, widthCm, heightCm, selectedTitle) {
     const target = findPriceSummaryHost();
     if (!target || !target.orderButton) return;
+
+    if (pricingResult.requiresProductCalculator) {
+      const summaryCard = target.orderButton.closest("div.rounded-xl") || target.orderButton.closest("div");
+      if (summaryCard) summaryCard.querySelectorAll("#" + BACKEND_PRICING_BREAKDOWN_ID + ", #wp-delivery-selector").forEach(function (node) { node.remove(); });
+      const totalHost = target.orderButton.parentElement || target.host;
+      const priceNode = totalHost.querySelector("p[class*='font-pricing']") || Array.from(totalHost.querySelectorAll("p")).find(function (node) {
+        return normalizeText(node.textContent).includes("dkk");
+      });
+      if (priceNode) setSimpleNodeText(priceNode, "Se pris og tilvalg");
+      target.orderButton.dataset.wpOriginalOrderLabel = target.orderButton.dataset.wpOriginalOrderLabel || target.orderButton.textContent;
+      const canNavigate = !!quoteProductCalculatorUrl(pricingResult);
+      target.orderButton.textContent = canNavigate ? "Åbn produktets prisberegner" : "Prisberegner utilgængelig";
+      if (!canNavigate && !target.orderButton.dataset.wpQuoteBlocked) {
+        target.orderButton.dataset.wpQuoteOriginalDisabled = String(target.orderButton.disabled);
+        target.orderButton.dataset.wpQuoteBlocked = "true";
+        target.orderButton.disabled = true;
+      } else if (canNavigate && target.orderButton.dataset.wpQuoteBlocked) {
+        target.orderButton.disabled = target.orderButton.dataset.wpQuoteOriginalDisabled === "true";
+        delete target.orderButton.dataset.wpQuoteBlocked;
+        delete target.orderButton.dataset.wpQuoteOriginalDisabled;
+      }
+      return;
+    }
+    if (target.orderButton.dataset.wpQuoteBlocked) {
+      target.orderButton.disabled = target.orderButton.dataset.wpQuoteOriginalDisabled === "true";
+      delete target.orderButton.dataset.wpQuoteBlocked;
+      delete target.orderButton.dataset.wpQuoteOriginalDisabled;
+    }
+    if (target.orderButton.dataset.wpOriginalOrderLabel) {
+      target.orderButton.textContent = target.orderButton.dataset.wpOriginalOrderLabel;
+      delete target.orderButton.dataset.wpOriginalOrderLabel;
+    }
 
     const summaryCard =
       target.orderButton.closest("div.rounded-xl") ||
@@ -2021,6 +2071,7 @@
       heightCm,
       selectedMeta ? selectedMeta.title : ""
     );
+    if (pricingResult.requiresProductCalculator) return pricingResult;
     const deliveryHost = findPriceSummaryHost();
     ensureDeliverySelectorUi(
       deliveryHost ? deliveryHost.host : null,
@@ -2214,6 +2265,11 @@
       applyBackendPricingBridge(widthCm, heightCm, variant, finish) ||
       lastBackendPricingResult;
     const selectedCheckoutProduct = resolveCheckoutSelectedProduct(variant);
+    if (backendPricing && backendPricing.requiresProductCalculator) {
+      const productUrl = quoteProductCalculatorUrl(backendPricing);
+      if (productUrl) window.top.location.href = productUrl;
+      return;
+    }
     const selectedFinishes = collectSelectedFinishes(finish);
     const productOnlyPrice = backendPricing
       ? Math.round(

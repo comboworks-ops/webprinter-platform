@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { readProductInfoV2 } from "./productInfoV2.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -128,51 +129,6 @@ function isPlatformRoot(hostname: string): boolean {
 
 function isUuid(value: string | null | undefined): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ""));
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function readProductInfoV2(technicalSpecs: unknown) {
-  if (!isObjectRecord(technicalSpecs)) {
-    return { useSections: false, imagePosition: "above", blocks: [] };
-  }
-
-  const raw = technicalSpecs.product_page_info_v2;
-  if (!isObjectRecord(raw)) {
-    return { useSections: false, imagePosition: "above", blocks: [] };
-  }
-
-  const rawBlocks = Array.isArray(raw.blocks) ? raw.blocks : [];
-  const blocks = rawBlocks
-    .map((item, index) => {
-      if (!isObjectRecord(item)) return null;
-      const type = item.type;
-      if (type !== "text" && type !== "image" && type !== "gallery") return null;
-      return {
-        id: typeof item.id === "string" && item.id ? item.id : `block-${index + 1}`,
-        type,
-        title: typeof item.title === "string" ? item.title : "",
-        text: typeof item.text === "string" ? item.text : "",
-        imageUrl: typeof item.imageUrl === "string" ? item.imageUrl : "",
-        caption: typeof item.caption === "string" ? item.caption : "",
-        images: Array.isArray(item.images)
-          ? item.images.filter((url): url is string => typeof url === "string" && url.length > 0)
-          : [],
-        effect: item.effect === "fade-zoom" || item.effect === "fade-up" ? item.effect : "fade",
-        intervalMs: typeof item.intervalMs === "number" && Number.isFinite(item.intervalMs)
-          ? Math.max(2000, Math.min(12000, Math.round(item.intervalMs)))
-          : 4500,
-      };
-    })
-    .filter(Boolean);
-
-  return {
-    useSections: raw.useSections === true,
-    imagePosition: raw.imagePosition === "below" ? "below" : "above",
-    blocks,
-  };
 }
 
 function pickRequestInput(req: Request, url: URL, body: RequestInput): Required<RequestInput> {

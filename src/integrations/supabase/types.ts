@@ -567,10 +567,12 @@ export type Database = {
           image_url: string | null
           is_published: boolean
           name: string
+          pricing_structure: Json | null
           pricing_type: string
           slug: string
           technical_specs: Json | null
           template_files: Json | null
+          tenant_id: string
           tooltip_price: string | null
           tooltip_product: string | null
           tooltip_quick_tilbud: string | null
@@ -593,10 +595,12 @@ export type Database = {
           image_url?: string | null
           is_published?: boolean
           name: string
+          pricing_structure?: Json | null
           pricing_type: string
           slug: string
           technical_specs?: Json | null
           template_files?: Json | null
+          tenant_id: string
           tooltip_price?: string | null
           tooltip_product?: string | null
           tooltip_quick_tilbud?: string | null
@@ -619,10 +623,12 @@ export type Database = {
           image_url?: string | null
           is_published?: boolean
           name?: string
+          pricing_structure?: Json | null
           pricing_type?: string
           slug?: string
           technical_specs?: Json | null
           template_files?: Json | null
+          tenant_id?: string
           tooltip_price?: string | null
           tooltip_product?: string | null
           tooltip_quick_tilbud?: string | null

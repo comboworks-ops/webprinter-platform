@@ -392,7 +392,7 @@ export default function IconStudioPage() {
       });
 
       toast.success("Icon Studio job oprettet.");
-      setActiveTab("jobs");
+      setActiveTab("generate");
       await refreshData();
     } catch (error: any) {
       console.error(error);
@@ -449,6 +449,99 @@ export default function IconStudioPage() {
     }
   };
 
+  const currentJob = jobs.find((job) => job.product_key === productKey && job.style_key === styleKey && job.variant_key === variantKey);
+  const renderJob = (job: IconStudioJobWithOutputs) => (
+
+            <Card key={job.id}>
+              <CardHeader>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <CardTitle>{getIconStudioProductLabel(job.product_key)}</CardTitle>
+                    <CardDescription>
+                      {getIconStudioStyleLabel(job.style_key)} • {getIconStudioVariantLabel(job.variant_key)} • oprettet {formatDate(job.created_at)}
+                    </CardDescription>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant={job.status === "approved" ? "default" : "secondary"}>{getJobStatusLabel(job.status)}</Badge>
+                    <Badge variant="outline">{job.provider_key}</Badge>
+                    <Badge variant="outline">{job.resolved_reference_asset_ids.length} referencer</Badge>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {job.error_message && (
+                  <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+                    {job.error_message}
+                  </div>
+                )}
+
+                <div className="workspace-shelf">
+                  {job.outputs.map((output) => (
+                    <Card key={output.id} className={job.approved_output_id === output.id ? "border-emerald-300" : undefined}>
+                      <CardContent className="p-4 space-y-4">
+                        <div className="aspect-square overflow-hidden rounded-lg border bg-muted/30">
+                          {output.preview_url ? (
+                            <img src={output.preview_url} alt={output.label} className="h-full w-full object-contain" />
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Ingen preview</div>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <p className="font-medium">{output.label}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {output.kind} • {output.mime_type}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {job.approved_output_id === output.id && (
+                            <Badge className="bg-emerald-600 hover:bg-emerald-600">
+                              <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                              Godkendt
+                            </Badge>
+                          )}
+                          <Badge variant="outline">{output.width_px}x{output.height_px}</Badge>
+                        </div>
+                        <Button
+                          className="w-full"
+                          onClick={() => void handleApproveOutput(job.id, output.id)}
+                          disabled={job.approved_output_id === output.id || approvingOutputId === output.id}
+                        >
+                          {approvingOutputId === output.id ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="mr-2 h-4 w-4" />
+                          )}
+                          Godkend billede
+                        </Button>
+                        {job.approved_output_id === output.id && tenantId && (
+                          <IconStudioOutputActions
+                            tenantId={tenantId}
+                            output={output}
+                            products={productTargets}
+                            onProductImageApplied={(productId, imageUrl) => {
+                              setProductTargets((current) => current.map((product) => (
+                                product.id === productId ? { ...product, image_url: imageUrl } : product
+                              )));
+                            }}
+                          />
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                <details className="rounded-lg border bg-muted/20 p-4">
+                  <summary className="cursor-pointer text-sm font-medium">Vis tekniske detaljer</summary>
+                  <Textarea
+                    value={JSON.stringify(job.payload, null, 2)}
+                    readOnly
+                    className="mt-3 min-h-[220px] font-mono text-xs"
+                  />
+                </details>
+              </CardContent>
+            </Card>
+  );
+
   if (access.isLoading) {
     return (
       <div className="flex items-center justify-center p-10">
@@ -485,7 +578,7 @@ export default function IconStudioPage() {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="workspace-icon-metrics">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Stilreferencer</CardTitle>
@@ -540,20 +633,10 @@ export default function IconStudioPage() {
         </TabsList>
 
         <TabsContent value="generate" className="space-y-6">
-          <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                  Opret produktbilleder
-                </CardTitle>
-                <CardDescription>
-                  Vælg produkt, visuel stil og vinkel. Du får tre forslag, som kan godkendes og bruges på et produkt.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid gap-4 md:grid-cols-4">
-                  <div className="space-y-2">
+          <div className="workspace-icon-studio-grid">
+            <section className="workspace-icon-inputs" aria-labelledby="icon-reference-title">
+              <h2 id="icon-reference-title">1. Reference og produkt</h2>
+              <div className="space-y-2">
                     <LabelWithInfo
                       label="Produkt"
                       info="Det trykprodukt der skal vises som ikon, for eksempel præsentationsmappe, flyer, plakat eller konvolut."
@@ -571,6 +654,69 @@ export default function IconStudioPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                              <div className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/40 p-4">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                    <p className="text-sm font-medium">Valgte stilreferencer</p>
+                    <InfoTooltip content="Dette er de stilreferencer, som bruges til de næste billedforslag." />
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Stilen <span className="font-medium">{getIconStudioStyleLabel(styleKey)}</span> bruger op til fem referencebilleder.
+                    Fælles standarder bruges kun, når stilen ikke har egne referencer.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge variant="secondary">
+                      {selectedBankSummary?.assets.length || 0}/5 referencer
+                    </Badge>
+                    {selectedBankSummary?.assets.length ? (
+                      <Badge variant="outline">Stilen har egne referencer</Badge>
+                    ) : (
+                      <Badge variant="outline">Bruger fælles standard</Badge>
+                    )}
+                  </div>
+                  {providerPreference !== "mock" && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Billedmotorerne opretter tre PNG-forslag. Hvis <span className="font-medium">Automatisk</span> ikke finder
+                      en konfigureret billedmotor, bruges testmotoren.
+                    </p>
+                  )}
+                  <div className="workspace-icon-reference-images">
+                    {matchingReferenceAssets.length > 0 ? (
+                      matchingReferenceAssets.map((asset) => (
+                        <figure key={asset.id}>
+                          {asset.preview_url && <img src={asset.preview_url} alt={asset.name} />}
+                          <figcaption>{asset.name}</figcaption>
+                        </figure>
+                      ))
+                    ) : (
+                      <Badge variant="outline">Ingen stilreferencer matcher endnu</Badge>
+                    )}
+                  </div>
+                </div>
+              <Button variant="outline" onClick={() => setActiveTab("references")}><ImagePlus className="mr-2 h-4 w-4" />Upload stilreference</Button>
+              <div className="workspace-icon-targets">
+                <h3>Produkter uden billede</h3>
+                <p className="text-xs text-muted-foreground">Vælg produkt, når du anvender et godkendt billede.</p>
+                {productTargets.filter((product) => !product.image_url).slice(0, 10).map((product) => (
+                  <div key={product.id}><PackageOpen className="h-4 w-4" aria-hidden="true" /><span>{product.name}</span></div>
+                ))}
+                {missingProductImageCount === 0 && <p className="text-sm text-muted-foreground">Ingen produkter mangler et billede.</p>}
+                {missingProductImageCount > 10 && <p className="text-xs text-muted-foreground">Viser 10 af {missingProductImageCount} produkter.</p>}
+              </div>
+            </section>
+            <Card className="workspace-icon-settings">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                  2. Stil og indstillinger
+                </CardTitle>
+                <CardDescription>
+                  Vælg produkt, visuel stil og vinkel. Du får tre forslag, som kan godkendes og bruges på et produkt.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-4">
+
 
                   <div className="space-y-2">
                     <LabelWithInfo
@@ -768,52 +914,28 @@ export default function IconStudioPage() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/40 p-4">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                    <p className="text-sm font-medium">Valgte stilreferencer</p>
-                    <InfoTooltip content="Dette er de stilreferencer, som bruges til de næste billedforslag." />
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Stilen <span className="font-medium">{getIconStudioStyleLabel(styleKey)}</span> bruger op til fem referencebilleder.
-                    Fælles standarder bruges kun, når stilen ikke har egne referencer.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Badge variant="secondary">
-                      {selectedBankSummary?.assets.length || 0}/5 referencer
-                    </Badge>
-                    {selectedBankSummary?.assets.length ? (
-                      <Badge variant="outline">Stilen har egne referencer</Badge>
-                    ) : (
-                      <Badge variant="outline">Bruger fælles standard</Badge>
-                    )}
-                  </div>
-                  {providerPreference !== "mock" && (
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      Billedmotorerne opretter tre PNG-forslag. Hvis <span className="font-medium">Automatisk</span> ikke finder
-                      en konfigureret billedmotor, bruges testmotoren.
-                    </p>
-                  )}
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {matchingReferenceAssets.length > 0 ? (
-                      matchingReferenceAssets.map((asset) => (
-                        <Badge key={asset.id} variant="secondary">
-                          {asset.name}
-                        </Badge>
-                      ))
-                    ) : (
-                      <Badge variant="outline">Ingen stilreferencer matcher endnu</Badge>
-                    )}
-                  </div>
-                </div>
 
+
+
+              </CardContent>
+            </Card>
+
+            <section className="workspace-icon-results" aria-labelledby="icon-results-title">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 id="icon-results-title">3. Genererede forslag</h2>
                 <Button onClick={() => void handleCreateJob()} disabled={submittingJob || !payloadPreview}>
                   {submittingJob ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
                   Opret 3 billedforslag
                 </Button>
-              </CardContent>
-            </Card>
-
+                <Button variant="ghost" onClick={() => setActiveTab("jobs")}>Se historik</Button>
+              </div>
+              {currentJob ? renderJob(currentJob) : (
+                <div className="workspace-icon-empty">
+                  <Sparkles className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
+                  <p>Ingen forslag til det valgte produkt og den valgte stil endnu.</p>
+                  <p className="text-xs text-muted-foreground">Opret tre billedforslag med indstillingerne til venstre.</p>
+                </div>
+              )}
             <Card>
               <CardHeader>
                 <CardTitle>Fra forslag til produkt</CardTitle>
@@ -822,7 +944,7 @@ export default function IconStudioPage() {
               <CardContent className="space-y-4">
                 <ol className="space-y-3 text-sm text-muted-foreground">
                   <li><span className="font-medium text-foreground">1.</span> Opret tre forslag.</li>
-                  <li><span className="font-medium text-foreground">2.</span> Godkend det bedste i Historik.</li>
+                  <li><span className="font-medium text-foreground">2.</span> Godkend det bedste forslag.</li>
                   <li><span className="font-medium text-foreground">3.</span> Download det eller brug det direkte som produktbillede.</li>
                 </ol>
                 <details className="rounded-md border p-3">
@@ -845,6 +967,7 @@ export default function IconStudioPage() {
                 </details>
               </CardContent>
             </Card>
+            </section>
           </div>
         </TabsContent>
 
@@ -1023,7 +1146,7 @@ export default function IconStudioPage() {
                     <Badge variant="outline">{bank.assets.length} assets</Badge>
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="workspace-shelf">
                     {bank.assets.map((asset) => (
                       <Card key={asset.id}>
                         <CardContent className="space-y-4 p-4">
@@ -1141,7 +1264,7 @@ export default function IconStudioPage() {
             </CardContent>
           </Card>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="workspace-shelf">
             {brandAssets.map((asset) => (
               <Card key={asset.id}>
                 <CardContent className="p-4 space-y-4">
@@ -1185,96 +1308,7 @@ export default function IconStudioPage() {
         </TabsContent>
 
         <TabsContent value="jobs" className="space-y-6">
-          {jobs.map((job) => (
-            <Card key={job.id}>
-              <CardHeader>
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <CardTitle>{getIconStudioProductLabel(job.product_key)}</CardTitle>
-                    <CardDescription>
-                      {getIconStudioStyleLabel(job.style_key)} • {getIconStudioVariantLabel(job.variant_key)} • oprettet {formatDate(job.created_at)}
-                    </CardDescription>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant={job.status === "approved" ? "default" : "secondary"}>{getJobStatusLabel(job.status)}</Badge>
-                    <Badge variant="outline">{job.provider_key}</Badge>
-                    <Badge variant="outline">{job.resolved_reference_asset_ids.length} referencer</Badge>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {job.error_message && (
-                  <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
-                    {job.error_message}
-                  </div>
-                )}
-
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {job.outputs.map((output) => (
-                    <Card key={output.id} className={job.approved_output_id === output.id ? "border-emerald-300" : undefined}>
-                      <CardContent className="p-4 space-y-4">
-                        <div className="aspect-square overflow-hidden rounded-lg border bg-muted/30">
-                          {output.preview_url ? (
-                            <img src={output.preview_url} alt={output.label} className="h-full w-full object-contain" />
-                          ) : (
-                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Ingen preview</div>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <p className="font-medium">{output.label}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {output.kind} • {output.mime_type}
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {job.approved_output_id === output.id && (
-                            <Badge className="bg-emerald-600 hover:bg-emerald-600">
-                              <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                              Godkendt
-                            </Badge>
-                          )}
-                          <Badge variant="outline">{output.width_px}x{output.height_px}</Badge>
-                        </div>
-                        <Button
-                          className="w-full"
-                          onClick={() => void handleApproveOutput(job.id, output.id)}
-                          disabled={job.approved_output_id === output.id || approvingOutputId === output.id}
-                        >
-                          {approvingOutputId === output.id ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <CheckCircle2 className="mr-2 h-4 w-4" />
-                          )}
-                          Godkend billede
-                        </Button>
-                        {job.approved_output_id === output.id && tenantId && (
-                          <IconStudioOutputActions
-                            tenantId={tenantId}
-                            output={output}
-                            products={productTargets}
-                            onProductImageApplied={(productId, imageUrl) => {
-                              setProductTargets((current) => current.map((product) => (
-                                product.id === productId ? { ...product, image_url: imageUrl } : product
-                              )));
-                            }}
-                          />
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-
-                <details className="rounded-lg border bg-muted/20 p-4">
-                  <summary className="cursor-pointer text-sm font-medium">Vis tekniske detaljer</summary>
-                  <Textarea
-                    value={JSON.stringify(job.payload, null, 2)}
-                    readOnly
-                    className="mt-3 min-h-[220px] font-mono text-xs"
-                  />
-                </details>
-              </CardContent>
-            </Card>
-          ))}
+          {jobs.map(renderJob)}
 
           {jobs.length === 0 && (
             <Card>

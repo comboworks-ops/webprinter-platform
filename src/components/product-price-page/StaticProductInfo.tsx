@@ -7,11 +7,21 @@ import { cn } from "@/lib/utils";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import {
-  getSalgsmapperFallbackTemplates,
-  mergeProductTemplates,
-  templateMatchesSelectedFormat,
+  templateMatchesSelectedConfiguration,
   type ProductTemplateFile,
 } from "@/lib/designer/productTemplateLinks";
+import {
+  ProductFormatGuideGraphic,
+  type ProductFormatGuideData,
+} from "@/components/product-price-page/ProductFormatGuide";
+import {
+  normalizeProductInfoGalleryLayout,
+  normalizeProductInfoShowWhen,
+  productInfoBlockMatchesSelection,
+  type ProductInfoGalleryLayout,
+  type ProductInfoSelectedSectionValues,
+  type ProductInfoShowWhenCondition,
+} from "@/lib/storefront/productInfoVisibility";
 
 type TemplateFile = ProductTemplateFile;
 
@@ -19,13 +29,32 @@ type StaticProductInfoProps = {
   productId: string;
   selectedFormat?: string;
   selectedFormatLabel?: string;
+  selectedOptionLabels?: string[];
+  selectedSectionValues?: ProductInfoSelectedSectionValues;
+  showTemplateDownloads?: boolean;
+  formatGuide?: ProductFormatGuideData | null;
+  productData?: {
+    name?: string | null;
+    slug?: string | null;
+    about_title?: string | null;
+    about_description?: string | null;
+    about_image_url?: string | null;
+    template_files?: ProductTemplateFile[] | null;
+    technical_specs?: unknown;
+  } | null;
 };
 
 type GalleryEffect = "fade" | "fade-zoom" | "fade-up";
+type ProductInfoGallerySize = "compact" | "standard" | "large" | "full";
+
+const normalizeProductInfoGallerySize = (value: unknown): ProductInfoGallerySize => {
+  if (value === "compact" || value === "large" || value === "full") return value;
+  return "standard";
+};
 
 type ProductInfoBlock = {
   id: string;
-  type: "text" | "image" | "gallery";
+  type: "text" | "image" | "gallery" | "guide";
   title?: string;
   text?: string;
   imageUrl?: string;
@@ -33,6 +62,12 @@ type ProductInfoBlock = {
   images?: string[];
   effect?: GalleryEffect;
   intervalMs?: number;
+  format?: string;
+  configuration?: string;
+  placement?: "left" | "right";
+  galleryLayout?: ProductInfoGalleryLayout;
+  gallerySize?: ProductInfoGallerySize;
+  showWhen?: ProductInfoShowWhenCondition[];
 };
 
 type ProductInfoV2Config = {
@@ -60,7 +95,7 @@ const readProductInfoV2 = (technicalSpecs: unknown): ProductInfoV2Config => {
     .map((item, index) => {
       if (!isObjectRecord(item)) return null;
       const type = item.type;
-      if (type !== "text" && type !== "image" && type !== "gallery") return null;
+      if (type !== "text" && type !== "image" && type !== "gallery" && type !== "guide") return null;
       return {
         id: typeof item.id === "string" && item.id ? item.id : `block-${index + 1}`,
         type,
@@ -75,6 +110,12 @@ const readProductInfoV2 = (technicalSpecs: unknown): ProductInfoV2Config => {
         intervalMs: typeof item.intervalMs === "number" && Number.isFinite(item.intervalMs)
           ? Math.max(2000, Math.min(12000, Math.round(item.intervalMs)))
           : 4500,
+        format: typeof item.format === "string" ? item.format : "",
+        configuration: typeof item.configuration === "string" ? item.configuration : "",
+        placement: item.placement === "right" ? "right" : "left",
+        galleryLayout: normalizeProductInfoGalleryLayout(item.galleryLayout),
+        gallerySize: normalizeProductInfoGallerySize(item.gallerySize),
+        showWhen: normalizeProductInfoShowWhen(item.showWhen),
       } as ProductInfoBlock;
     })
     .filter(Boolean) as ProductInfoBlock[];
@@ -90,10 +131,14 @@ function ProductInfoGallery({
   images,
   effect,
   intervalMs,
+  title,
+  size,
 }: {
   images: string[];
   effect: GalleryEffect;
   intervalMs: number;
+  title: string;
+  size: ProductInfoGallerySize;
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -111,18 +156,33 @@ function ProductInfoGallery({
 
   if (images.length === 0) return null;
 
+  const containerClassName = {
+    compact: "max-w-2xl",
+    standard: "max-w-3xl",
+    large: "max-w-5xl",
+    full: "max-w-none",
+  }[size];
+  const frameClassName = {
+    compact: "h-52 md:h-64",
+    standard: "h-64 md:h-80",
+    large: "h-72 md:h-96",
+    full: "h-80 md:h-[30rem]",
+  }[size];
+
   return (
-    <div className="w-full max-w-3xl">
-      <div className="relative h-64 md:h-80 overflow-hidden bg-muted/10">
+    <div className={cn("mx-auto w-full min-w-0", containerClassName)} aria-label={title} role="region">
+      <div className={cn("relative overflow-hidden bg-white", frameClassName)}>
         {images.map((url, index) => {
           const active = index === activeIndex;
           return (
             <img
               key={`${url}-${index}`}
               src={url}
-              alt={`Galleri ${index + 1}`}
+              alt={`${title} – billede ${index + 1}`}
+              aria-hidden={!active}
+              loading={index === 0 ? "eager" : "lazy"}
               className={cn(
-                "absolute inset-0 h-full w-full object-contain transition-all duration-700 ease-out",
+                "absolute inset-0 h-full w-full object-contain transition-all duration-700 ease-out motion-reduce:transition-none",
                 active ? "opacity-100" : "opacity-0",
                 effect === "fade-zoom" && (active ? "scale-100" : "scale-105"),
                 effect === "fade-up" && (active ? "translate-y-0" : "translate-y-3")
@@ -148,7 +208,67 @@ function ProductInfoGallery({
   );
 }
 
-export function StaticProductInfo({ productId, selectedFormat, selectedFormatLabel }: StaticProductInfoProps) {
+function ProductInfoGalleryGrid({
+  images,
+  title,
+  size,
+}: {
+  images: string[];
+  title: string;
+  size: ProductInfoGallerySize;
+}) {
+  if (images.length === 0) return null;
+
+  const containerClassName = {
+    compact: "max-w-3xl gap-2",
+    standard: "max-w-5xl gap-3",
+    large: "max-w-6xl gap-4",
+    full: "max-w-none gap-5",
+  }[size];
+  const figurePaddingClassName = size === "compact" ? "p-1.5" : size === "full" ? "p-3" : "p-2";
+
+  return (
+    <div
+      className={cn(
+        "mx-auto grid w-full min-w-0 grid-cols-1 overflow-hidden sm:grid-cols-3",
+        containerClassName,
+      )}
+      role="list"
+      aria-label={title}
+    >
+      {images.map((url, index) => (
+        <figure
+          key={`${url}-${index}`}
+          className={cn(
+            "min-w-0 overflow-hidden rounded-md border border-border/60 bg-white",
+            figurePaddingClassName,
+          )}
+          role="listitem"
+        >
+          <img
+            src={url}
+            alt={`${title} – eksempel ${index + 1}`}
+            width={720}
+            height={720}
+            loading="lazy"
+            className="aspect-square h-auto w-full bg-white object-contain"
+          />
+        </figure>
+      ))}
+    </div>
+  );
+}
+
+export function StaticProductInfo({
+  productId,
+  selectedFormat,
+  selectedFormatLabel,
+  selectedOptionLabels = [],
+  selectedSectionValues = {},
+  showTemplateDownloads = true,
+  formatGuide = null,
+  productData = null,
+}: StaticProductInfoProps) {
   const shopSettings = useShopSettings();
   const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
   const activeBranding = (isPreviewMode && previewBranding) ? previewBranding : shopSettings.data?.branding;
@@ -197,6 +317,20 @@ export function StaticProductInfo({ productId, selectedFormat, selectedFormatLab
 
   useEffect(() => {
     async function fetchAboutData() {
+      if (productData) {
+        setAboutData({
+          title: productData.about_title || null,
+          description: productData.about_description || null,
+          imageUrl: productData.about_image_url || null,
+          productName: productData.name || null,
+          slug: productData.slug || null,
+          templates: Array.isArray(productData.template_files) ? productData.template_files : [],
+          infoV2: readProductInfoV2(productData.technical_specs),
+        });
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       try {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
@@ -238,34 +372,64 @@ export function StaticProductInfo({ productId, selectedFormat, selectedFormatLab
     if (productId) {
       fetchAboutData();
     }
-  }, [productId]);
+  }, [productData, productId]);
 
-  const salgsmapperFallbackTemplates = useMemo<TemplateFile[]>(() => {
-    return getSalgsmapperFallbackTemplates({
-      productId,
-      productName: aboutData?.productName,
-      productSlug: aboutData?.slug,
-    });
-  }, [aboutData?.productName, aboutData?.slug, productId]);
-
-  const availableTemplates = useMemo(() => {
-    return mergeProductTemplates(aboutData?.templates, salgsmapperFallbackTemplates);
-  }, [aboutData?.templates, salgsmapperFallbackTemplates]);
+  const availableTemplates = aboutData?.templates || [];
 
   // Filter templates by format if selectedFormat is provided
   const filteredTemplates = availableTemplates.filter(template => {
-    return templateMatchesSelectedFormat(template.format, selectedFormat, selectedFormatLabel);
+    return templateMatchesSelectedConfiguration(
+      template,
+      selectedFormat,
+      selectedFormatLabel,
+      selectedOptionLabels,
+    );
   });
+
+  const visibleInfoBlocks = useMemo(() => {
+    const blocks = aboutData?.infoV2?.blocks || [];
+    const selectionMatchedBlocks = blocks.filter((block) => (
+      productInfoBlockMatchesSelection(block.showWhen, selectedSectionValues)
+    ));
+    const matchingGuides = selectionMatchedBlocks.filter((block) => {
+      if (block.type !== "guide") return false;
+      return templateMatchesSelectedConfiguration(
+        {
+          name: block.title || "Filguide",
+          url: block.imageUrl || "generated-guide",
+          format: block.format || null,
+          configuration: block.configuration || null,
+        },
+        selectedFormat,
+        selectedFormatLabel,
+        selectedOptionLabels,
+      );
+    });
+    const hasSpecificGuide = matchingGuides.some((block) => Boolean(block.format || block.configuration));
+
+    return selectionMatchedBlocks.filter((block) => {
+      if (block.type !== "guide") return true;
+      if (!matchingGuides.some((guide) => guide.id === block.id)) return false;
+      return !hasSpecificGuide || Boolean(block.format || block.configuration);
+    });
+  }, [
+    aboutData?.infoV2?.blocks,
+    selectedFormat,
+    selectedFormatLabel,
+    selectedOptionLabels,
+    selectedSectionValues,
+  ]);
 
   const hasRenderableBlocks = useMemo(() => {
     if (!aboutData?.infoV2?.useSections) return false;
-    return aboutData.infoV2.blocks.some((block) => {
+    return visibleInfoBlocks.some((block) => {
       if (block.type === "text") return !!(block.title || block.text);
       if (block.type === "image") return !!block.imageUrl;
       if (block.type === "gallery") return (block.images || []).length > 0;
+      if (block.type === "guide") return !!(block.imageUrl || formatGuide);
       return false;
     });
-  }, [aboutData?.infoV2]);
+  }, [aboutData?.infoV2?.useSections, formatGuide, visibleInfoBlocks]);
 
   // Don't render if no about data exists
   if (loading) {
@@ -393,23 +557,35 @@ export function StaticProductInfo({ productId, selectedFormat, selectedFormatLab
   // Gallery element renderer - returns just the gallery component
   const renderGalleryElement = () => {
     // Use block gallery if available, otherwise use branding gallery images
-    const galleryBlock = aboutData?.infoV2?.blocks?.find((b: ProductInfoBlock) => b.type === "gallery");
+    const galleryBlock = visibleInfoBlocks.find((block) => block.type === "gallery");
     const images = galleryBlock?.images?.length ? galleryBlock.images : galleryImages;
     if (!images?.length) return null;
+    const galleryTitle = galleryBlock?.title || "Produktgalleri";
+    const isGrid = galleryBlock?.galleryLayout === "grid";
 
     return (
       <div 
-        className="w-full overflow-hidden"
+        className={cn("w-full", !isGrid && "overflow-hidden")}
         style={{ 
-          height: `${galleryHeightPx}px`,
+          height: isGrid ? undefined : `${galleryHeightPx}px`,
           borderRadius: `${galleryBorderRadiusPx}px`,
         }}
       >
-        <ProductInfoGallery
-          images={images}
-          effect={galleryBlock?.effect || "fade"}
-          intervalMs={galleryBlock?.intervalMs || galleryIntervalMs}
-        />
+        {isGrid ? (
+          <ProductInfoGalleryGrid
+            images={images}
+            title={galleryTitle}
+            size={galleryBlock?.gallerySize || "standard"}
+          />
+        ) : (
+          <ProductInfoGallery
+            images={images}
+            effect={galleryBlock?.effect || "fade"}
+            intervalMs={galleryBlock?.intervalMs || galleryIntervalMs}
+            title={galleryTitle}
+            size={galleryBlock?.gallerySize || "standard"}
+          />
+        )}
       </div>
     );
   };
@@ -439,7 +615,7 @@ export function StaticProductInfo({ productId, selectedFormat, selectedFormatLab
         
         {aboutData?.infoV2?.useSections && hasRenderableBlocks ? (
           <div className="space-y-8">
-            {aboutData.infoV2.blocks.map((block) => {
+            {visibleInfoBlocks.map((block) => {
               if (block.type === "text" && (block.title || block.text)) {
                 return (
                   <section key={block.id} className="space-y-2">
@@ -460,15 +636,71 @@ export function StaticProductInfo({ productId, selectedFormat, selectedFormatLab
                 );
               }
 
+              if (block.type === "guide" && (block.imageUrl || formatGuide)) {
+                const guideAlt = block.title
+                  || (formatGuide ? `Filguide til ${formatGuide.formatLabel}` : "Filguide til produktet");
+                return (
+                  <section
+                    key={block.id}
+                    className={cn(
+                      "flex flex-col gap-2",
+                      block.placement === "right" ? "items-end" : "items-start",
+                    )}
+                  >
+                    {block.title && (
+                      <h3
+                        className="font-semibold"
+                        style={{ ...titleStyle, fontSize: titleStyle.fontSize || "1.125rem" }}
+                      >
+                        {block.title}
+                      </h3>
+                    )}
+                    <figure className="w-full max-w-[360px] overflow-hidden rounded-md bg-muted/20 p-2">
+                      {block.imageUrl ? (
+                        <img
+                          src={block.imageUrl}
+                          alt={guideAlt}
+                          width={720}
+                          height={480}
+                          loading="lazy"
+                          className="h-auto max-h-[280px] w-full object-contain"
+                        />
+                      ) : formatGuide ? (
+                        <ProductFormatGuideGraphic data={formatGuide} />
+                      ) : null}
+                    </figure>
+                    {block.caption && (
+                      <p
+                        className="max-w-[360px] whitespace-pre-wrap text-sm"
+                        style={{ color: resolvedTextColor || "var(--muted-foreground)" }}
+                      >
+                        {block.caption}
+                      </p>
+                    )}
+                  </section>
+                );
+              }
+
               if (block.type === "gallery" && (block.images || []).length > 0) {
+                const galleryTitle = block.title || "Produktgalleri";
                 return (
                   <section key={block.id} className="space-y-3">
                     {block.title && <h3 className="font-semibold" style={{ ...titleStyle, fontSize: titleStyle.fontSize || "1.125rem" }}>{block.title}</h3>}
-                    <ProductInfoGallery
-                      images={block.images || []}
-                      effect={block.effect || "fade"}
-                      intervalMs={block.intervalMs || 4500}
-                    />
+                    {block.galleryLayout === "grid" ? (
+                      <ProductInfoGalleryGrid
+                        images={block.images || []}
+                        title={galleryTitle}
+                        size={block.gallerySize || "standard"}
+                      />
+                    ) : (
+                      <ProductInfoGallery
+                        images={block.images || []}
+                        effect={block.effect || "fade"}
+                        intervalMs={block.intervalMs || 4500}
+                        title={galleryTitle}
+                        size={block.gallerySize || "standard"}
+                      />
+                    )}
                   </section>
                 );
               }
@@ -487,7 +719,7 @@ export function StaticProductInfo({ productId, selectedFormat, selectedFormatLab
         )}
 
         {/* Template Downloads */}
-        {filteredTemplates.length > 0 && (
+        {showTemplateDownloads && filteredTemplates.length > 0 && (
           <div className="space-y-3">
             <h3 className="font-semibold text-lg">Download skabeloner</h3>
             <p className="text-sm text-muted-foreground">

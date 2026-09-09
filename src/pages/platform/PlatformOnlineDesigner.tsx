@@ -30,7 +30,7 @@ const PlatformOnlineDesigner = () => {
     ];
 
     return (
-        <div className="min-h-screen flex flex-col font-sans">
+        <div className="platform-page min-h-screen flex flex-col font-sans">
             <SEO
                 title="Online Designer | Webprinter Platform"
                 description="Professionel online designer til print. Soft proof, preflight og PDF eksport."

@@ -7,6 +7,8 @@
  * Works on both production (via hostname) and localhost dev (via ?force_domain=webprinter.dk).
  */
 
+import { IS_TEST_DEPLOYMENT } from '../testDeployment';
+
 const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
 
 const MARKETING_DOMAINS = [
@@ -28,6 +30,11 @@ function isLocalhostEnv(): boolean {
 export function isPlatformContext(): boolean {
     if (typeof window === "undefined") return false;
     const hostname = window.location.hostname;
+
+    if (IS_TEST_DEPLOYMENT) {
+        const params = new URLSearchParams(window.location.search);
+        return !['tenantId', 'tenant_id', 'force_domain', 'tenant_subdomain'].some(key => params.has(key));
+    }
 
     // On the real production domain
     if (MARKETING_DOMAINS.includes(hostname)) return true;

@@ -24,6 +24,8 @@ import MyOrders from "./pages/MyOrders";
 import MyAccount from "./pages/MyAccount";
 import MyAddresses from "./pages/MyAddresses";
 import MySettings from "./pages/MySettings";
+import MyDesigns from "./pages/MyDesigns";
+import { CustomerAccountProvider } from "./components/account/CustomerAccountContext";
 import TenantSignup from "./pages/TenantSignup";
 import PreviewStorefront from "./pages/PreviewStorefront";
 import PreviewShop from "./pages/PreviewShop";
@@ -50,6 +52,7 @@ import { CookieConsentProvider, CookieBanner, CookieSettingsDialog } from "@/com
 import { PlatformSeoHead } from "@/components/platform-seo/PlatformSeoHead";
 import { SupabaseDataSyncBridge } from "@/components/system/SupabaseDataSyncBridge";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { IS_TEST_DEPLOYMENT } from "@/lib/testDeployment";
 
 const queryClient = new QueryClient();
 
@@ -161,11 +164,14 @@ const AnimatedRoutes = () => {
           <Route path="/opret-shop" element={<TenantSignup />} />
           <Route path="/profil" element={<Profile />} />
           <Route path="/company" element={<CompanyHub />} />
-          <Route path="/mine-ordrer" element={<MyOrders />} />
-          <Route path="/min-konto" element={<MyAccount />} />
-          <Route path="/min-konto/ordrer" element={<MyOrders />} />
-          <Route path="/min-konto/adresser" element={<MyAddresses />} />
-          <Route path="/min-konto/indstillinger" element={<MySettings />} />
+          <Route element={<CustomerAccountProvider />}>
+            <Route path="/mine-ordrer" element={<MyOrders />} />
+            <Route path="/min-konto" element={<MyAccount />} />
+            <Route path="/min-konto/ordrer" element={<MyOrders />} />
+            <Route path="/min-konto/designs" element={<MyDesigns />} />
+            <Route path="/min-konto/adresser" element={<MyAddresses />} />
+            <Route path="/min-konto/indstillinger" element={<MySettings />} />
+          </Route>
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin/*" element={<Admin />} />
           <Route path="/sitemap.xml" element={<Sitemap />} />
@@ -193,6 +199,11 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            {IS_TEST_DEPLOYMENT && (
+              <aside aria-label="Testversion" className="border-b border-amber-200 bg-amber-50 py-2 text-center text-sm leading-relaxed text-amber-950" style={{ paddingInline: 'var(--ui-page-gutter, 1rem)' }}>
+                <strong>Testversion</strong> · Betaling og leverandørbestilling er slået fra. Login og gemte ændringer bruger den eksisterende shop.
+              </aside>
+            )}
             <CookieBanner />
             <CookieSettingsDialog />
             <PageTracker />

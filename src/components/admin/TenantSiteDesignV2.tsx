@@ -1,7 +1,6 @@
-import { useMemo, useRef, useEffect, useState } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { SiteDesignEditorV2 } from "@/components/admin/SiteDesignEditorV2";
-import { useSidebar } from "@/components/ui/sidebar";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveAdminTenant } from "@/lib/adminTenant";
 import {
@@ -12,18 +11,6 @@ import {
 export function TenantSiteDesignV2() {
     const [tenant, setTenant] = useState<{ id: string; tenant_name: string } | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const { setOpen } = useSidebar();
-    const hasOpenedSidebarRef = useRef(false);
-
-    // Keep admin sidebar visible in the site designer.
-    useEffect(() => {
-        if (hasOpenedSidebarRef.current) {
-            return;
-        }
-        setOpen(true);
-        hasOpenedSidebarRef.current = true;
-    }, [setOpen]);
-
     useEffect(() => {
         let active = true;
 

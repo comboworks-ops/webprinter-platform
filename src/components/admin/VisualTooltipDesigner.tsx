@@ -58,11 +58,11 @@ export function VisualTooltipDesigner({
         : null;
 
     return (
-        <div className="space-y-4">
+        <div className="admin-tooltips-workspace space-y-4">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h3 className="text-lg font-semibold">Visual Tooltip Designer</h3>
+                    <h3 className="text-lg font-semibold">Rediger hjælpetekster</h3>
                     <p className="text-sm text-muted-foreground">
                         Klik på et område i preview'et for at tilføje en tooltip
                     </p>
@@ -74,9 +74,9 @@ export function VisualTooltipDesigner({
             </div>
 
             {/* Main Layout */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="admin-tooltips-columns grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Left: Product Preview */}
-                <div className="space-y-2">
+                <div className="admin-tooltips-preview space-y-2">
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <MousePointer2 className="w-3 h-3" />
                         Hover over områder for at se anchor-punkter
@@ -96,10 +96,10 @@ export function VisualTooltipDesigner({
                 </div>
 
                 {/* Right: Tooltip Editor */}
-                <div>
+                <div className="admin-tooltips-editor">
                     <Card className="h-full">
                         <CardHeader className="pb-2">
-                            <CardTitle className="text-sm font-medium">Tooltip Editor</CardTitle>
+                            <CardTitle className="text-sm font-medium">Rediger tooltip</CardTitle>
                         </CardHeader>
                         <CardContent className="pt-0">
                             <TooltipEditor

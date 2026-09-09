@@ -16,9 +16,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
-import { CloudUpload, Image as ImageIcon, Loader2, MousePointer2, Save, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, CloudUpload, Image as ImageIcon, Loader2, MousePointer2, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { collectProductStylingPatches, mergeProductStylingChange, persistProductStylingPatches, type ProductStylingChange, type ProductStylingPreview } from "@/lib/preview/productStylingSave";
 import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FontSelector } from "@/components/admin/FontSelector";
@@ -30,6 +31,7 @@ import {
     THUMBNAIL_CUSTOM_PX_MIN,
     THUMBNAIL_CUSTOM_PX_STEP,
     THUMBNAIL_SIZE_OPTIONS,
+    clearPerValueThumbnailSizeOverrides,
     normalizeThumbnailCustomPx,
     normalizeThumbnailSize,
     resolveThumbnailSizePx,
@@ -112,8 +114,9 @@ interface ProduktvalgknapperSectionProps {
     onSaveSwatch: (color: string) => void;
     onRemoveSwatch: (color: string) => void;
     onPreviewProductChange?: (product: { id: string; slug: string; path: string }) => void;
-    onPreviewPricingStructureChange?: (preview: { productId: string; pricingStructure: MatrixLayoutV1 | Record<string, unknown>; isDirty: boolean } | null) => void;
-    persistedPricingStructure?: { productId: string; pricingStructure: MatrixLayoutV1 | Record<string, unknown> } | null;
+    onPreviewPricingStructureChange?: (preview: ProductStylingChange | null) => void;
+    pricingPreview?: ProductStylingPreview | null;
+    persistedPricingStructure?: ProductStylingPreview | null;
     focusedProductId?: string | null;
     focusedSectionId?: string | null;
     focusedValueId?: string | null;
@@ -130,6 +133,13 @@ const UI_MODE_OPTIONS: Array<{ value: SelectorUiMode; label: string }> = [
     { value: "xl", label: "Billeder XL + tekst" },
     { value: "xl_notext", label: "Billeder XL kun foto" },
 ];
+
+const PICTURE_BUTTON_SIZE_PX: Record<PictureButtonStyling["size"], number> = {
+    small: 64,
+    medium: 80,
+    large: 96,
+    xl: 120,
+};
 
 const DISPLAY_MODE_OPTIONS: Array<{
     value: NonNullable<PictureButtonStyling["displayMode"]>;
@@ -187,6 +197,7 @@ export function ProduktvalgknapperSection({
     onRemoveSwatch,
     onPreviewProductChange,
     onPreviewPricingStructureChange,
+    pricingPreview,
     persistedPricingStructure,
     focusedProductId,
     focusedSectionId,
@@ -243,6 +254,12 @@ export function ProduktvalgknapperSection({
         return next;
     }, [productAttrs.groups]);
 
+    const pricingPreviewRef = useRef(pricingPreview);
+    pricingPreviewRef.current = pricingPreview;
+    const localPreviewRef = useRef<ProductStylingPreview | null>(null);
+    const hydratingStylingRef = useRef(false);
+    const lastEmittedStructureRef = useRef<{ productId: string; structure: Record<string, unknown> } | null>(null);
+
     // Load products on mount
     useEffect(() => {
         async function loadProducts() {
@@ -259,7 +276,7 @@ export function ProduktvalgknapperSection({
                 console.error('Error loading products:', error);
                 toast.error('Kunne ikke indlæse produkter');
             } else {
-                setProducts((data || []) as Product[]);
+                setProducts((data || []) as unknown as Product[]);
             }
             setLoading(false);
         }
@@ -306,6 +323,7 @@ export function ProduktvalgknapperSection({
                     title: section.title,
                     ui_mode: section.uiMode,
                     selection_mode: section.selectionMode,
+                    valueIds: [...section.valueIds],
                     valueSettings: section.valueSettings,
                     selectorStyling: section.selectorStyling,
                     thumbnail_size: section.thumbnailSize,
@@ -332,6 +350,7 @@ export function ProduktvalgknapperSection({
                         title: section.title,
                         ui_mode: section.uiMode,
                         selection_mode: section.selectionMode,
+                        valueIds: [...section.valueIds],
                         valueSettings: section.valueSettings,
                         selectorStyling: section.selectorStyling,
                         thumbnail_size: section.thumbnailSize,
@@ -354,7 +373,12 @@ export function ProduktvalgknapperSection({
         }
 
         const product = products.find(p => p.id === selectedProductId);
-        const structure = product?.pricing_structure;
+        hydratingStylingRef.current = true;
+        const pending = localPreviewRef.current?.productId === selectedProductId
+            ? localPreviewRef.current : pricingPreviewRef.current?.productId === selectedProductId ? pricingPreviewRef.current : null;
+        const structure = (pending?.pricingStructure || product?.pricing_structure) as Product['pricing_structure'];
+        localPreviewRef.current = pending || (product ? { productId: selectedProductId, pricingStructure: (structure || {}) as Record<string, unknown>, patches: [], isDirty: false } : null);
+        lastEmittedStructureRef.current = null;
 
         // Load button styling
         if (structure?.buttonStyling) {
@@ -428,44 +452,39 @@ export function ProduktvalgknapperSection({
 
         setSections(loadedSections);
         setHydratedProductId(selectedProductId);
-        setHasUnsavedProductChanges(false);
+        setHasUnsavedProductChanges(Boolean(localPreviewRef.current?.isDirty));
     }, [selectedProductId, products, groupsById]);
 
     useEffect(() => {
-        if (!onPreviewPricingStructureChange) return;
-
-        if (!selectedProductId) {
-            onPreviewPricingStructureChange(null);
-            return;
-        }
-        if (hydratedProductId !== selectedProductId) return;
-
-        const product = products.find((candidate) => candidate.id === selectedProductId);
+        if (hydratingStylingRef.current) { hydratingStylingRef.current = false; return; }
+        if (!selectedProductId || hydratedProductId !== selectedProductId) return;
+        const product = products.find(candidate => candidate.id === selectedProductId);
         if (!product) return;
-
-        onPreviewPricingStructureChange({
-            productId: selectedProductId,
-            pricingStructure: buildUpdatedStructure(product),
-            isDirty: hasUnsavedProductChanges,
-        });
+        const pricingStructure = buildUpdatedStructure(product) as Record<string, unknown>;
+        const previous = lastEmittedStructureRef.current;
+        // The first hydrated rendering establishes defaults, without marking them as edits.
+        const patches = previous?.productId === selectedProductId
+            ? collectProductStylingPatches(previous.structure, pricingStructure) : [];
+        lastEmittedStructureRef.current = { productId: selectedProductId, structure: pricingStructure };
+        const change = { productId: selectedProductId, pricingStructure, patches, isDirty: hasUnsavedProductChanges };
+        localPreviewRef.current = mergeProductStylingChange(localPreviewRef.current, change);
+        if (patches.length || !hasUnsavedProductChanges) onPreviewPricingStructureChange?.(change);
     }, [buildUpdatedStructure, hasUnsavedProductChanges, hydratedProductId, onPreviewPricingStructureChange, products, selectedProductId]);
 
+    const acknowledgeSavedStyling = useCallback((saved: ProductStylingChange) => {
+        if (localPreviewRef.current?.productId !== saved.productId) return;
+        const reconciled = mergeProductStylingChange(localPreviewRef.current, saved);
+        localPreviewRef.current = reconciled;
+        lastEmittedStructureRef.current = null;
+        setProducts(previous => previous.map(product => product.id === saved.productId
+            ? { ...product, pricing_structure: reconciled.pricingStructure as unknown as Product['pricing_structure'] }
+            : product));
+        setHasUnsavedProductChanges(reconciled.isDirty);
+    }, []);
+
     useEffect(() => {
-        if (!persistedPricingStructure?.productId) return;
-
-        setProducts((prev) => prev.map((product) => (
-            product.id === persistedPricingStructure.productId
-                ? {
-                    ...product,
-                    pricing_structure: persistedPricingStructure.pricingStructure as Product["pricing_structure"],
-                }
-                : product
-        )));
-
-        if (persistedPricingStructure.productId === selectedProductId) {
-            setHasUnsavedProductChanges(false);
-        }
-    }, [persistedPricingStructure, selectedProductId]);
+        if (persistedPricingStructure) acknowledgeSavedStyling(persistedPricingStructure);
+    }, [acknowledgeSavedStyling, persistedPricingStructure]);
 
     useEffect(() => {
         if ((!focusedSectionId && !focusedValueId) || activeTab !== "sections" || hydratedProductId !== selectedProductId) return;
@@ -491,37 +510,23 @@ export function ProduktvalgknapperSection({
     }, [activeTab, focusedSectionId, focusedValueId, hydratedProductId, selectedProductId]);
 
     const handleSave = useCallback(async () => {
-        if (!selectedProductId) {
+        const submitted = localPreviewRef.current;
+        if (!submitted || submitted.productId !== selectedProductId) {
             toast.error('Vælg et produkt først');
             return;
         }
-
         setSaving(true);
-
-        const product = products.find(p => p.id === selectedProductId);
-        const updatedStructure = buildUpdatedStructure(product);
-
-        const { error } = await supabase
-            .from('products')
-            .update({ pricing_structure: updatedStructure })
-            .eq('id', selectedProductId);
-
-        if (error) {
-            console.error('Error saving button styling:', error);
-            toast.error('Kunne ikke gemme indstillinger');
-        } else {
+        try {
+            const pricingStructure = await persistProductStylingPatches(supabase, tenantId, selectedProductId, submitted.patches);
+            const saved = { ...submitted, pricingStructure, isDirty: false };
+            acknowledgeSavedStyling(saved);
+            onPreviewPricingStructureChange?.(saved);
             toast.success('Indstillinger gemt');
-            // Update local state
-            setProducts(prev => prev.map(p => 
-                p.id === selectedProductId 
-                    ? { ...p, pricing_structure: updatedStructure }
-                    : p
-            ));
-            setHasUnsavedProductChanges(false);
-        }
-
-        setSaving(false);
-    }, [buildUpdatedStructure, selectedProductId, products]);
+        } catch (error) {
+            console.error('Error saving tenant-owned button styling:', error);
+            toast.error('Kunne ikke gemme indstillinger');
+        } finally { setSaving(false); }
+    }, [acknowledgeSavedStyling, onPreviewPricingStructureChange, selectedProductId, tenantId]);
 
     const updateTextButton = (key: keyof TextButtonStyling, value: string | number) => {
         setHasUnsavedProductChanges(true);
@@ -531,22 +536,55 @@ export function ProduktvalgknapperSection({
     const updatePictureButton = (key: keyof PictureButtonStyling, value: string | number | boolean) => {
         setHasUnsavedProductChanges(true);
         setPictureButtons(prev => ({ ...prev, [key]: value }));
+
+        if (key !== "size") return;
+
+        const thumbnailSize = normalizeThumbnailSize(String(value));
+        const thumbnailCustomPx = PICTURE_BUTTON_SIZE_PX[thumbnailSize];
+        setSections((prev) => prev.map((section) => {
+            const usesPictureThumbnails = isPictureUiMode(section.uiMode)
+                || section.valueIds.some((valueId) => {
+                    const setting = section.valueSettings[valueId];
+                    return Boolean(setting?.showThumbnail || getOptionImageUrl(setting));
+                });
+
+            if (!usesPictureThumbnails) return section;
+
+            return {
+                ...section,
+                thumbnailSize,
+                thumbnailCustomPx,
+                valueSettings: clearPerValueThumbnailSizeOverrides(section.valueSettings),
+            };
+        }));
     };
 
     const updateSectionConfig = (sectionId: string, updates: Partial<SectionConfig>) => {
         setHasUnsavedProductChanges(true);
-        setSections(prev => prev.map(s => 
-            s.id === sectionId
-                ? {
-                    ...s,
-                    ...updates,
-                    thumbnailSize: updates.uiMode
-                        ? (isPictureUiMode(updates.uiMode) ? getThumbnailSizeFromUiMode(updates.uiMode) : s.thumbnailSize)
-                        : (updates.thumbnailSize || s.thumbnailSize),
-                    thumbnailCustomPx: updates.uiMode ? undefined : updates.thumbnailCustomPx ?? s.thumbnailCustomPx,
-                }
-                : s
-        ));
+        setSections(prev => prev.map((section) => {
+            if (section.id !== sectionId) return section;
+
+            const hasThumbnailSizeUpdate = Object.prototype.hasOwnProperty.call(updates, "thumbnailSize");
+            const hasThumbnailCustomPxUpdate = Object.prototype.hasOwnProperty.call(updates, "thumbnailCustomPx");
+            const pictureUiModeTakesSizeControl = Boolean(updates.uiMode && isPictureUiMode(updates.uiMode));
+            const sectionSizeTakesControl = hasThumbnailSizeUpdate
+                || hasThumbnailCustomPxUpdate
+                || pictureUiModeTakesSizeControl;
+
+            return {
+                ...section,
+                ...updates,
+                thumbnailSize: updates.uiMode
+                    ? (isPictureUiMode(updates.uiMode) ? getThumbnailSizeFromUiMode(updates.uiMode) : section.thumbnailSize)
+                    : (updates.thumbnailSize ?? section.thumbnailSize),
+                thumbnailCustomPx: updates.uiMode
+                    ? undefined
+                    : (hasThumbnailCustomPxUpdate ? updates.thumbnailCustomPx : section.thumbnailCustomPx),
+                valueSettings: sectionSizeTakesControl
+                    ? clearPerValueThumbnailSizeOverrides(section.valueSettings)
+                    : section.valueSettings,
+            };
+        }));
     };
 
     const updateSectionSelectorStyling = (sectionId: string, selectorStyling: SelectorStyling) => {
@@ -574,6 +612,39 @@ export function ProduktvalgknapperSection({
                     },
                 },
             };
+        }));
+    };
+
+    const moveSectionValue = (
+        sectionId: string,
+        valueId: string,
+        direction: "up" | "down",
+    ) => {
+        const section = sections.find((candidate) => candidate.id === sectionId);
+        const currentIndex = section?.valueIds.indexOf(valueId) ?? -1;
+        const nextIndex = currentIndex + (direction === "up" ? -1 : 1);
+
+        if (!section || currentIndex < 0 || nextIndex < 0 || nextIndex >= section.valueIds.length) {
+            return;
+        }
+
+        setHasUnsavedProductChanges(true);
+        setSections((prev) => prev.map((candidate) => {
+            if (candidate.id !== sectionId) return candidate;
+
+            const candidateIndex = candidate.valueIds.indexOf(valueId);
+            const candidateNextIndex = candidateIndex + (direction === "up" ? -1 : 1);
+            if (candidateIndex < 0 || candidateNextIndex < 0 || candidateNextIndex >= candidate.valueIds.length) {
+                return candidate;
+            }
+
+            const valueIds = [...candidate.valueIds];
+            [valueIds[candidateIndex], valueIds[candidateNextIndex]] = [
+                valueIds[candidateNextIndex],
+                valueIds[candidateIndex],
+            ];
+
+            return { ...candidate, valueIds };
         }));
     };
 
@@ -1484,7 +1555,7 @@ export function ProduktvalgknapperSection({
                             <CardHeader className="space-y-1 p-3 pb-0">
                                 <CardTitle className="text-sm">Sektions-konfiguration</CardTitle>
                                 <CardDescription className="text-xs text-muted-foreground">
-                                    Denne visning er koblet direkte til produktets rigtige selector-opsætning. Her kan du styre dropdown, billedknapper, størrelse og de enkelte thumbnails.
+                                    Denne visning er koblet direkte til produktets rigtige selector-opsætning. Her kan du styre dropdown, billedknapper, rækkefølge, størrelse og de enkelte thumbnails.
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-3 p-3 pt-3">
@@ -1505,8 +1576,7 @@ export function ProduktvalgknapperSection({
                                                 imageUrl: getOptionImageUrl(section.valueSettings[valueId]),
                                                 showThumbnail: section.valueSettings[valueId]?.showThumbnail,
                                             }))
-                                            .filter((value) => value.name)
-                                            .slice(0, 8);
+                                            .filter((value) => value.name);
                                         const thumbnailPx = resolveThumbnailSizePx(section.thumbnailSize, section.thumbnailCustomPx);
                                         const sectionTextButtonsConfig = resolveTextButtonsConfig({
                                             productConfig: textButtons,
@@ -1668,7 +1738,7 @@ export function ProduktvalgknapperSection({
                                                         </span>
                                                     </div>
                                                     <div className="max-h-72 space-y-2 overflow-y-auto overscroll-contain pr-1">
-                                                        {previewValues.map((value) => {
+                                                        {previewValues.map((value, valueIndex) => {
                                                             const isFocusedValue = focusedSectionId === section.id && focusedValueId === value.id;
 
                                                             return (
@@ -1702,11 +1772,35 @@ export function ProduktvalgknapperSection({
                                                                             )}
                                                                         </div>
                                                                         <p className="text-[11px] text-muted-foreground">
-                                                                            {value.showThumbnail ? "Vises med billede" : "Vises uden billede"}
+                                                                            Placering {valueIndex + 1} af {previewValues.length} · {value.showThumbnail ? "Vises med billede" : "Vises uden billede"}
                                                                         </p>
                                                                     </div>
                                                                 </div>
                                                                 <div className="flex flex-wrap items-center gap-1">
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="h-7 px-2"
+                                                                        onClick={() => moveSectionValue(section.id, value.id, "up")}
+                                                                        disabled={valueIndex === 0}
+                                                                        aria-label={`Flyt ${value.name} op`}
+                                                                        title={`Flyt ${value.name} op`}
+                                                                    >
+                                                                        <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
+                                                                    </Button>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="h-7 px-2"
+                                                                        onClick={() => moveSectionValue(section.id, value.id, "down")}
+                                                                        disabled={valueIndex === previewValues.length - 1}
+                                                                        aria-label={`Flyt ${value.name} ned`}
+                                                                        title={`Flyt ${value.name} ned`}
+                                                                    >
+                                                                        <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
+                                                                    </Button>
                                                                     <Button
                                                                         type="button"
                                                                         variant={value.showThumbnail ? "default" : "outline"}

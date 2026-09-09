@@ -23,7 +23,7 @@ export function PlatformSeoAdmin() {
     const [activeTab, setActiveTab] = useState('defaults');
 
     return (
-        <div className="space-y-6">
+        <div className="workspace-platform-seo space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
@@ -53,7 +53,7 @@ export function PlatformSeoAdmin() {
             </div>
 
             {/* Info Card */}
-            <Card className="bg-blue-50 border-blue-200">
+            <Card className="workspace-priority-strip bg-blue-50 border-blue-200">
                 <CardContent className="py-4">
                     <div className="flex items-start gap-3">
                         <Info className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
@@ -73,7 +73,7 @@ export function PlatformSeoAdmin() {
             </Card>
 
             {/* Quick Guide */}
-            <Card>
+            <Card className="workspace-platform-guide">
                 <CardContent className="py-4">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
                         <div className="flex items-start gap-2">
@@ -117,7 +117,7 @@ export function PlatformSeoAdmin() {
             </Card>
 
             {/* Tabs */}
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="workspace-platform-main space-y-4">
                 <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="defaults" className="flex items-center gap-2">
                         <Globe className="h-4 w-4" />

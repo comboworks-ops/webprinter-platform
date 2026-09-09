@@ -17,6 +17,10 @@ import { Menu, X, LogOut, User, Shield, ChevronDown } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { platformNavLink } from "@/lib/platform/context";
+import { useHeaderFit } from "@/hooks/useHeaderFit";
+import "@/styles/responsiveHeader.css";
+import "@/styles/platformPages.css";
+import { customerLink } from "@/lib/account/navigation";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -40,12 +44,29 @@ const FUNKTIONER_PAGES = [
 const PlatformHeader = () => {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [mobileFeaturesOpen, setMobileFeaturesOpen] = useState(true);
+    const [featuresOpen, setFeaturesOpen] = useState(false);
+    const [userMenuOpen, setUserMenuOpen] = useState(false);
     const [user, setUser] = useState<SupabaseUser | null>(null);
     const location = useLocation();
     const { toast } = useToast();
     const { isAdmin } = useUserRole();
     const shouldReduceMotion = useReducedMotion();
     const headerRef = useRef<HTMLElement>(null);
+    const menuToggleRef = useRef<HTMLButtonElement>(null);
+    const headerFit = useHeaderFit();
+
+    useEffect(() => {
+        if (!headerFit.compact) setMobileMenuOpen(false);
+        else { setFeaturesOpen(false); setUserMenuOpen(false); }
+    }, [headerFit.compact]);
+    useEffect(() => {
+        if (!mobileMenuOpen) return;
+        const close = (event: KeyboardEvent) => {
+            if (event.key === "Escape") { setMobileMenuOpen(false); menuToggleRef.current?.focus(); }
+        };
+        document.addEventListener("keydown", close);
+        return () => document.removeEventListener("keydown", close);
+    }, [mobileMenuOpen]);
 
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
@@ -96,23 +117,24 @@ const PlatformHeader = () => {
     return (
         <header
             ref={headerRef}
+            data-header-mode={headerFit.compact ? "compact" : "desktop"}
             className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-100"
             style={{
                 height: '72px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
             }}
         >
-            <div className="container mx-auto px-4 h-full">
-                <div className="flex items-center justify-between h-full">
+            <div className="container mx-auto responsive-header-container h-full">
+                <div ref={headerFit.rowRef} className="responsive-header-row h-full">
                     {/* Brand Name - Static "Webprinter.dk", NOT clickable */}
                     {/* Uses font-heading (Poppins) to match the main title */}
-                    <span className="text-2xl md:text-3xl font-heading font-bold tracking-tight select-none">
+                    <span ref={headerFit.logoRef} className="responsive-header-logo text-2xl md:text-3xl font-heading font-bold tracking-tight select-none">
                         <span className="text-gray-900">Web</span>
                         <span style={{ color: DK_BLUE }}>printer.dk</span>
                     </span>
 
                     {/* Desktop Navigation */}
-                    <nav className="hidden lg:flex items-center gap-8">
+                    <nav ref={headerFit.navigationRef} className="responsive-header-desktop responsive-header-navigation" aria-label="Hovednavigation" aria-hidden={headerFit.compact || undefined}>
                         <Link
                             to={platformNavLink("/platform")}
                             className={`text-sm font-medium transition-colors duration-200 ${isActive('/platform') ? 'text-primary' : 'text-gray-700 hover:text-primary'
@@ -122,14 +144,14 @@ const PlatformHeader = () => {
                         </Link>
 
                         {/* Funktioner Dropdown */}
-                        <DropdownMenu>
+                        <DropdownMenu open={!headerFit.compact && featuresOpen} onOpenChange={setFeaturesOpen}>
                             <DropdownMenuTrigger asChild>
                                 <button className="text-sm font-medium text-gray-700 hover:text-primary transition-colors duration-200 inline-flex items-center gap-1">
                                     Funktioner
                                     <ChevronDown className="h-4 w-4" />
                                 </button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start" className="w-56">
+                            <DropdownMenuContent onCloseAutoFocus={event => { if (headerFit.compact) { event.preventDefault(); menuToggleRef.current?.focus(); } }} align="start" className="w-56">
                                 {FUNKTIONER_PAGES.map((page) => (
                                     <DropdownMenuItem key={page.path} asChild>
                                         <Link to={platformNavLink(page.path)} className="cursor-pointer">
@@ -158,27 +180,27 @@ const PlatformHeader = () => {
                     </nav>
 
                     {/* Right Side Actions */}
-                    <div className="flex items-center gap-3">
+                    <div ref={headerFit.actionsRef} className="responsive-header-desktop responsive-header-actions" aria-hidden={headerFit.compact || undefined}>
                         {/* CTA Button */}
                         <Link to={platformNavLink("/opret-shop")}>
-                            <Button size="sm" className="hidden md:flex">
+                            <Button size="sm" className="flex">
                                 Start gratis
                             </Button>
                         </Link>
 
                         {/* User Menu */}
                         {user ? (
-                            <DropdownMenu>
+                            <DropdownMenu open={!headerFit.compact && userMenuOpen} onOpenChange={setUserMenuOpen}>
                                 <DropdownMenuTrigger asChild>
                                     <Button variant="ghost" size="icon" className="text-gray-700">
                                         <User className="h-5 w-5" />
                                     </Button>
                                 </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuContent onCloseAutoFocus={event => { if (headerFit.compact) { event.preventDefault(); menuToggleRef.current?.focus(); } }} align="end" className="w-48">
                                     <DropdownMenuItem asChild>
-                                        <Link to="/profil" className="cursor-pointer">
+                                        <Link to={customerLink("/min-konto", location.search)} className="cursor-pointer">
                                             <User className="mr-2 h-4 w-4" />
-                                            Min profil
+                                            Min konto
                                         </Link>
                                     </DropdownMenuItem>
                                     {isAdmin && (
@@ -201,17 +223,24 @@ const PlatformHeader = () => {
                             </DropdownMenu>
                         ) : (
                             <Link to="/admin/login">
-                                <Button size="sm" className="hidden border-transparent bg-slate-900 text-white shadow-none hover:bg-slate-800 hover:text-white md:flex">
+                                <Button size="sm" className="flex border-transparent bg-slate-900 text-white shadow-none hover:bg-slate-800 hover:text-white">
                                     Log ind
                                 </Button>
                             </Link>
                         )}
 
-                        {/* Mobile Menu Toggle */}
+                    </div>
+                    <div className="responsive-header-compact">
+                        {/* Compact Menu Toggle */}
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="lg:hidden text-gray-700"
+                            ref={menuToggleRef}
+                            data-header-toggle
+                            aria-label={mobileMenuOpen ? "Luk menu" : "Åbn menu"}
+                            aria-controls="platform-compact-navigation"
+                            aria-expanded={mobileMenuOpen}
+                            className="text-gray-700"
                             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                         >
                             {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
@@ -222,12 +251,12 @@ const PlatformHeader = () => {
 
             {/* Mobile Menu */}
             <AnimatePresence>
-                {mobileMenuOpen && (
+                {mobileMenuOpen && headerFit.compact && (
                     <>
                         <motion.button
                             type="button"
                             aria-label="Luk menu"
-                            className="fixed inset-0 z-[49] bg-slate-950/20 backdrop-blur-[2px] lg:hidden"
+                            className="fixed inset-0 z-[49] bg-slate-950/20 backdrop-blur-[2px]"
                             initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={shouldReduceMotion ? { opacity: 1 } : { opacity: 0 }}
@@ -235,7 +264,9 @@ const PlatformHeader = () => {
                             onClick={() => setMobileMenuOpen(false)}
                         />
                         <motion.nav
-                            className="fixed left-3 right-3 top-20 z-[60] max-h-[calc(100dvh-5.75rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-2xl backdrop-blur-xl lg:hidden"
+                            id="platform-compact-navigation"
+                            aria-label="Hovednavigation"
+                            className="fixed left-3 right-3 top-20 z-[60] max-h-[calc(100dvh-5.75rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-2xl backdrop-blur-xl"
                             initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: -8, scale: 0.98 }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: -8, scale: 0.98 }}
@@ -307,6 +338,10 @@ const PlatformHeader = () => {
                                     </Link>
                                 </div>
 
+                                {user && <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                    <Link to={customerLink("/min-konto", location.search)} onClick={() => setMobileMenuOpen(false)}><Button variant="outline" className="min-h-12 w-full"><User className="mr-2 h-4 w-4" />Min konto</Button></Link>
+                                    {isAdmin && <Link to={platformNavLink("/admin")} onClick={() => setMobileMenuOpen(false)}><Button variant="outline" className="min-h-12 w-full"><Shield className="mr-2 h-4 w-4" />Admin</Button></Link>}
+                                </div>}
                                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                                     <Link to={platformNavLink("/opret-shop")} onClick={() => setMobileMenuOpen(false)}>
                                         <Button className="min-h-12 w-full">Start gratis</Button>

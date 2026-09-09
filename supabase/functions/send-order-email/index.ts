@@ -1,274 +1,49 @@
-// Supabase Edge Function for sending order status emails
-// Deploy with: supabase functions deploy send-order-email
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.78.0';
+import { checkRateLimit } from '../_shared/rateLimit.ts';
+import { handleStorefrontStatusEmail, statusEmailHeaders, type StatusEmailRepository } from '../_shared/storefrontStatusEmail.ts';
+import type { StorefrontEmailConfig } from '../_shared/storefrontOrderEmail.ts';
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const DEFAULT_FROM_EMAIL = Deno.env.get("CONTACT_EMAIL_FROM") ?? "info@webprinter.dk";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-interface OrderEmailPayload {
-  type: "status_change" | "order_confirmation" | "problem_notification" | "admin_new_order";
-  order: {
-    order_number: string;
-    product_name: string;
-    quantity: number;
-    total_price: number;
-    status: string;
-    tracking_number?: string;
-    estimated_delivery?: string;
-    problem_description?: string;
-    customer_phone?: string;
-    delivery_type?: string;
-    delivery_summary?: string;
-    billing_summary?: string;
-    blind_shipping?: boolean;
-    sender_summary?: string;
-  };
-  customer: {
-    email: string;
-    name: string;
-  }
-  recipient?: {
-    email: string;
-    name?: string;
-  };
-  shop?: {
-    name?: string;
-    supportEmail?: string;
-    orderUrl?: string;
-    adminOrderUrl?: string;
-    homepageUrl?: string;
-  };
+function serviceKey() {
+  try { const key = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}').default; if (typeof key === 'string' && key) return key; } catch { /* Legacy project fallback. */ }
+  return Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 }
 
-const statusLabels: Record<string, string> = {
-  pending: "Modtaget",
-  processing: "Behandles",
-  production: "Under produktion",
-  shipped: "Afsendt",
-  delivered: "Leveret",
-  cancelled: "Annulleret",
-  problem: "Problem med ordre",
-};
-
-function getEmailSubject(payload: OrderEmailPayload): string {
-  switch (payload.type) {
-    case "order_confirmation":
-      return `Ordrebekræftelse - ${payload.order.order_number}`;
-    case "status_change":
-      return `Ordre ${payload.order.order_number} - ${statusLabels[payload.order.status] || payload.order.status}`;
-    case "problem_notification":
-      return `Handling påkrævet - Ordre ${payload.order.order_number}`;
-    case "admin_new_order":
-      return `Ny ordre modtaget - ${payload.order.order_number}`;
-    default:
-      return `Opdatering - Ordre ${payload.order.order_number}`;
-  }
-}
-
-function getEmailHtml(payload: OrderEmailPayload): string {
-  const { order, customer, type } = payload;
-  const recipientName = payload.recipient?.name || customer.name;
-  const shopName = payload.shop?.name || "Webprinter";
-  const supportEmail = payload.shop?.supportEmail || "info@webprinter.dk";
-  const orderUrl = payload.shop?.orderUrl || "https://webprinter.dk/mine-ordrer";
-  const adminOrderUrl = payload.shop?.adminOrderUrl || `${payload.shop?.homepageUrl || "https://webprinter.dk"}/admin/ordrer`;
-
-  const baseStyles = `
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    line-height: 1.6;
-    color: #333;
-  `;
-
-  const buttonStyle = `
-    display: inline-block;
-    padding: 12px 24px;
-    background-color: #2563eb;
-    color: white;
-    text-decoration: none;
-    border-radius: 6px;
-    font-weight: 600;
-  `;
-
-  let content = "";
-
-  if (type === "order_confirmation") {
-    content = `
-      <h1 style="color: #16a34a;">✓ Tak for din ordre!</h1>
-      <p>Hej ${customer.name},</p>
-      <p>Vi har modtaget din ordre og går straks i gang med at behandle den.</p>
-      ${order.delivery_summary ? `<p><strong>Levering til:</strong> ${order.delivery_summary}</p>` : ""}
-      ${order.billing_summary ? `<p><strong>Fakturering:</strong> ${order.billing_summary}</p>` : ""}
-      ${order.delivery_type ? `<p><strong>Leveringsmetode:</strong> ${order.delivery_type}</p>` : ""}
-      ${order.customer_phone ? `<p><strong>Telefon:</strong> ${order.customer_phone}</p>` : ""}
-      ${order.blind_shipping ? `<p><strong>Blind forsendelse:</strong> Ja</p>` : ""}
-      ${order.sender_summary ? `<p><strong>Afsender på pakken:</strong> ${order.sender_summary}</p>` : ""}
-    `;
-  } else if (type === "status_change") {
-    const statusEmoji = {
-      processing: "⚙️",
-      production: "🏭",
-      shipped: "📦",
-      delivered: "✅",
-      cancelled: "❌",
-    }[order.status] || "📋";
-
-    content = `
-      <h1>${statusEmoji} Ordre opdateret</h1>
-      <p>Hej ${customer.name},</p>
-      <p>Status på din ordre er nu: <strong>${statusLabels[order.status] || order.status}</strong></p>
-      ${order.status === "shipped" && order.tracking_number ? `
-        <p><strong>Tracking nummer:</strong> ${order.tracking_number}</p>
-        ${order.estimated_delivery ? `<p><strong>Forventet levering:</strong> ${order.estimated_delivery}</p>` : ""}
-      ` : ""}
-    `;
-  } else if (type === "problem_notification") {
-    content = `
-      <h1 style="color: #dc2626;">⚠️ Handling påkrævet</h1>
-      <p>Hej ${customer.name},</p>
-      <p>Der er desværre opstået et problem med din ordre.</p>
-      ${order.problem_description ? `<p><strong>Beskrivelse:</strong> ${order.problem_description}</p>` : ""}
-      <p>Log ind på din konto for at se detaljer og uploade eventuelle nye filer.</p>
-      <p style="margin-top: 20px;">
-        <a href="${orderUrl}" style="${buttonStyle}">Se din ordre</a>
-      </p>
-    `;
-  } else if (type === "admin_new_order") {
-    content = `
-      <h1 style="color: #2563eb;">Ny ordre modtaget</h1>
-      <p>Hej ${recipientName || shopName},</p>
-      <p>Der er kommet en ny ordre ind i shoppen.</p>
-      <p><strong>Kunde:</strong> ${customer.name}</p>
-      <p><strong>Kunde-email:</strong> ${customer.email}</p>
-      ${order.customer_phone ? `<p><strong>Kundetelefon:</strong> ${order.customer_phone}</p>` : ""}
-      ${order.delivery_summary ? `<p><strong>Levering til:</strong> ${order.delivery_summary}</p>` : ""}
-      ${order.billing_summary ? `<p><strong>Fakturering:</strong> ${order.billing_summary}</p>` : ""}
-      ${order.delivery_type ? `<p><strong>Leveringsmetode:</strong> ${order.delivery_type}</p>` : ""}
-      ${order.blind_shipping ? `<p><strong>Blind forsendelse:</strong> Ja</p>` : ""}
-      ${order.sender_summary ? `<p><strong>Afsender på pakken:</strong> ${order.sender_summary}</p>` : ""}
-      <p style="margin-top: 20px;">
-        <a href="${adminOrderUrl}" style="${buttonStyle}">Åbn ordreoversigt</a>
-      </p>
-    `;
-  }
-
-  return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    </head>
-    <body style="${baseStyles} background-color: #f5f5f5; padding: 20px;">
-      <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-        <!-- Header -->
-        <div style="background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%); padding: 30px; text-align: center;">
-          <h2 style="color: white; margin: 0;">${shopName}</h2>
-        </div>
-        
-        <!-- Content -->
-        <div style="padding: 30px;">
-          ${content}
-          
-          <!-- Order Summary -->
-          <div style="background: #f8f9fa; border-radius: 8px; padding: 20px; margin: 20px 0;">
-            <h3 style="margin-top: 0; color: #666;">Ordredetaljer</h3>
-            <table style="width: 100%; border-collapse: collapse;">
-              <tr>
-                <td style="padding: 8px 0; border-bottom: 1px solid #eee;"><strong>Ordrenummer:</strong></td>
-                <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">${order.order_number}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; border-bottom: 1px solid #eee;"><strong>Produkt:</strong></td>
-                <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">${order.product_name}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; border-bottom: 1px solid #eee;"><strong>Antal:</strong></td>
-                <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">${order.quantity}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0;"><strong>Total:</strong></td>
-                <td style="padding: 8px 0; text-align: right; font-size: 18px; color: #2563eb;"><strong>${order.total_price.toLocaleString('da-DK')} DKK</strong></td>
-              </tr>
-            </table>
-          </div>
-          
-          <p style="margin-top: 30px;">
-            <a href="${type === "admin_new_order" ? adminOrderUrl : orderUrl}" style="${buttonStyle}">
-              ${type === "admin_new_order" ? "Åbn ordreoversigt" : "Se din ordre"}
-            </a>
-          </p>
-        </div>
-        
-        <!-- Footer -->
-        <div style="background: #f8f9fa; padding: 20px; text-align: center; border-top: 1px solid #eee;">
-          <p style="margin: 0; color: #666; font-size: 14px;">
-            Har du spørgsmål? Kontakt os på <a href="mailto:${supportEmail}">${supportEmail}</a>
-          </p>
-          <p style="margin: 10px 0 0; color: #999; font-size: 12px;">
-            © ${new Date().getFullYear()} ${shopName}. Alle rettigheder forbeholdes.
-          </p>
-        </div>
-      </div>
-    </body>
-    </html>
-  `;
-}
-
-serve(async (req) => {
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
-
-  try {
-    const payload: OrderEmailPayload = await req.json();
-    const shopName = payload.shop?.name || "Webprinter";
-    const supportEmail = payload.shop?.supportEmail || "info@webprinter.dk";
-    const recipientEmail = payload.recipient?.email || payload.customer.email;
-    const fromAddress = DEFAULT_FROM_EMAIL.includes("<")
-      ? DEFAULT_FROM_EMAIL
-      : `${shopName} <${DEFAULT_FROM_EMAIL}>`;
-
-    if (!RESEND_API_KEY) {
-      throw new Error("RESEND_API_KEY not configured");
-    }
-
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${RESEND_API_KEY}`,
-      },
-      body: JSON.stringify({
-        from: fromAddress,
-        reply_to: supportEmail,
-        to: [recipientEmail],
-        subject: getEmailSubject(payload),
-        html: getEmailHtml(payload),
-      }),
-    });
-
-    if (!res.ok) {
-      const error = await res.text();
-      throw new Error(`Resend API error: ${error}`);
-    }
-
-    const data = await res.json();
-
-    return new Response(JSON.stringify({ success: true, id: data.id }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (error) {
-    console.error("Email error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+Deno.serve(async req => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: statusEmailHeaders });
+  const limited = checkRateLimit(req, { keyPrefix: 'send-order-email', limit: 10, windowMs: 60_000 });
+  if (limited) return new Response(limited.body, { status: limited.status, headers: { ...statusEmailHeaders } });
+  const url = Deno.env.get('SUPABASE_URL'), key = serviceKey();
+  if (!url || !key) return new Response(JSON.stringify({ error: 'email_dispatch_not_configured' }), { status: 503, headers: statusEmailHeaders });
+  const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const repository: StatusEmailRepository = {
+    async getUser(token) { const { data, error } = await client.auth.getUser(token); return error ? null : data.user; },
+    async getTenant(id) {
+      const { data, error } = await client.from('tenants').select('id,owner_id,name,settings').eq('id', id).maybeSingle();
+      if (error) throw new Error('tenant_lookup_failed'); return data;
+    },
+    async getRoles(userId) {
+      const { data, error } = await client.from('user_roles').select('role,tenant_id').eq('user_id', userId);
+      if (error || !Array.isArray(data)) throw new Error('role_lookup_failed'); return data;
+    },
+    async getOrder(orderId, tenantId) {
+      const { data, error } = await client.from('orders')
+        .select('id,tenant_id,checkout_attempt_id,order_number,product_name,quantity,total_price,currency,status,customer_email,customer_name,tracking_number,estimated_delivery,has_problem,problem_description,user_id')
+        .eq('id', orderId).eq('tenant_id', tenantId).maybeSingle();
+      if (error) throw new Error('order_lookup_failed'); return data;
+    },
+    async getAttempt(attemptId, orderId, tenantId) {
+      const { data, error } = await client.from('storefront_checkout_attempts').select('id,order_id,tenant_id,state,livemode')
+        .eq('id', attemptId).eq('order_id', orderId).eq('tenant_id', tenantId).maybeSingle();
+      if (error) throw new Error('attempt_lookup_failed'); return data;
+    },
+  };
+  const mode = Deno.env.get('STOREFRONT_ORDER_EMAIL_MODE') || 'disabled';
+  const rawAllowlist = Deno.env.get('STOREFRONT_ORDER_EMAIL_RECIPIENT_ALLOWLIST') || '';
+  const config: StorefrontEmailConfig = {
+    mode: mode === 'test' || mode === 'live' ? mode : 'disabled',
+    apiKey: Deno.env.get('RESEND_API_KEY') || '', from: Deno.env.get('CONTACT_EMAIL_FROM') || '',
+    siteUrl: Deno.env.get('STOREFRONT_ORDER_EMAIL_SITE_URL') || '',
+    allowlist: rawAllowlist.trim() ? [...new Set(rawAllowlist.split(',').map(email => email.trim().toLowerCase()).filter(Boolean))] : null,
+  };
+  return handleStorefrontStatusEmail(req, repository, config);
 });

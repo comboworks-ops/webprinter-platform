@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { readTransientString, removeTransientKey, writeTransientString } from "@/lib/storage/transientStorage";
+import { DEFAULT_PRINT_DESIGN_ID, inheritSystemPrintDesign } from "@/lib/branding/printDesignPresets";
+import { DEFAULT_DROPDOWN_PRESET, resolveDropdownPreset } from "@/lib/branding/dropdownPresets";
+import type { HeaderDropdownPreset } from "@/lib/branding/dropdownPresets";
 import {
     DEFAULT_STOREFRONT_LAYOUT,
     type StorefrontLayoutSettings,
@@ -308,7 +311,7 @@ export interface HeaderCtaSettings {
 export type HeaderStyleType = 'auto' | 'solid' | 'glass';
 export type HeaderHeightType = 'sm' | 'md' | 'lg';
 export type HeaderAlignmentType = 'left' | 'center' | 'right';
-export type HeaderDropdownPreset = 'classic' | 'showcase-bar' | 'split-preview' | 'compact-columns' | 'gallery-cards';
+export type { HeaderDropdownPreset } from "@/lib/branding/dropdownPresets";
 export type HeaderSplitPreviewSource = 'featured-product' | 'featured-side-panel';
 
 // Complete header settings
@@ -418,7 +421,7 @@ const DEFAULT_HEADER: HeaderSettings = {
     logoLink: '/',
     navItems: DEFAULT_NAV_ITEMS,
     dropdownMode: 'IMAGE_AND_TEXT',
-    dropdownPreset: 'classic',
+    dropdownPreset: DEFAULT_DROPDOWN_PRESET,
     dropdownSplitPreviewSource: 'featured-product',
     menuFontSizePx: 14,
     fontId: 'Inter',
@@ -1815,7 +1818,7 @@ const DEFAULT_BRANDING = {
         saturate: 100,
     },
     // Theme selection (Site Designer V2)
-    themeId: 'classic',
+    themeId: DEFAULT_PRINT_DESIGN_ID,
     themeSettings: {} as Record<string, unknown>,
     selectedIconPackId: "classic",
     // Favicon (browser tab icon)
@@ -1852,7 +1855,7 @@ export {
 
 // Helper to deep merge branding with defaults
 export function mergeBrandingWithDefaults(data?: any): BrandingData {
-    if (!data) return DEFAULT_BRANDING;
+    if (!data) return inheritSystemPrintDesign(DEFAULT_BRANDING, DEFAULT_BRANDING);
 
     // Start with defaults
     const merged = { ...DEFAULT_BRANDING, ...data };
@@ -1862,6 +1865,7 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
         merged.header = {
             ...DEFAULT_BRANDING.header,
             ...data.header,
+            dropdownPreset: resolveDropdownPreset(data.header.dropdownPreset),
             scroll: { ...DEFAULT_BRANDING.header.scroll, ...(data.header.scroll || {}) },
             cta: { ...DEFAULT_BRANDING.header.cta, ...(data.header.cta || {}) },
             // Keep arrays from data if present, otherwise use default
@@ -2055,7 +2059,7 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
     }
     if (data.navigation) merged.navigation = { ...DEFAULT_BRANDING.navigation, ...data.navigation };
 
-    return merged;
+    return inheritSystemPrintDesign(merged, DEFAULT_BRANDING);
 }
 
 interface UseBrandingDraftReturn {

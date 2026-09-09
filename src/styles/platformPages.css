@@ -1,0 +1,14 @@
+/* Shared rhythm for existing platform feature, contact and legal pages.
+   The pages retain their own container limits, fonts, colours and content. */
+.platform-page .container { padding-inline:var(--ui-page-gutter,24px); }
+.platform-page h1 {
+  font-size:var(--ui-title-page,clamp(2rem,3.25vw,3rem));
+  line-height:var(--ui-heading-leading,1.15);
+  overflow-wrap:anywhere;
+  text-wrap:balance;
+}
+.platform-page :is(main,section) p {
+  line-height:var(--ui-body-leading,1.6);
+  overflow-wrap:anywhere;
+}
+.platform-page :is(main,section) .grid > * { min-width:0; }

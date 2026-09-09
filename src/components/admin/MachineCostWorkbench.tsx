@@ -18,11 +18,14 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
+import "@/styles/machinePricing.css";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { IMPOSITION_PRESETS, ImpositionPreview } from "@/components/admin/ImpositionPreview";
 import {
   simulateMachineCost,
   type MachineCostInkSet,
@@ -147,15 +150,15 @@ function NumericField({
     <div className="space-y-1.5">
       <Label htmlFor={id} className="text-xs font-medium text-slate-600">{label}</Label>
       <div className="relative">
-        <Input
+        <NumberInput
           id={id}
-          type="number"
           min={min}
           max={max}
           step={step}
           value={value}
-          onChange={(event) => onChange(Number(event.target.value) || 0)}
-          className="h-10 rounded-lg pr-14"
+          onValueChange={onChange}
+          emptyValue={min}
+          className="h-10 rounded-md pr-14"
         />
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">{unit}</span>
       </div>
@@ -212,6 +215,10 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
     () => machine && material && inkSet ? simulateMachineCost(machine, material, inkSet, job) : null,
     [inkSet, job, machine, material],
   );
+  const previewRows = result?.mode === "SHEET" ? result.rows : Math.min(result?.rows ?? 0, 3);
+  const rollPreviewHeight = Math.max(1, previewRows) * (
+    (result?.orientation === 90 ? job.widthMm : job.heightMm) + Math.max(0, job.bleedMm) * 2
+  ) + Math.max(0, previewRows - 1) * Math.max(0, job.gapMm);
 
   const filteredProfiles = useMemo(() => {
     const query = librarySearch.trim().toLowerCase();
@@ -276,7 +283,7 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="machine-pricing-surface space-y-6">
       <section className="border-b border-slate-200 pb-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -289,14 +296,14 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
               Test oplægning, medie, blæk, maskintid og avance. Resultatet ændrer ikke priser i shoppen.
             </p>
           </div>
-          <Button variant="outline" className="gap-2 rounded-lg" onClick={() => setLibraryOpen(true)}>
+          <Button variant="outline" className="gap-2 rounded-md" onClick={() => setLibraryOpen(true)}>
             <Library className="h-4 w-4" />
             Maskinbibliotek
           </Button>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           {readiness.map((item) => (
-            <Badge key={item.label} variant="outline" className={item.ready ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-800"}>
+            <Badge key={item.label} variant="outline" className={item.ready ? "border-emerald-200 bg-slate-50 text-slate-700" : "border-amber-200 bg-amber-50 text-amber-800"}>
               {item.ready ? <CheckCircle2 className="mr-1 h-3 w-3" /> : <AlertTriangle className="mr-1 h-3 w-3" />}
               {item.label}
             </Badge>
@@ -304,7 +311,16 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
         </div>
       </section>
 
-      <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(340px,0.72fr)]">
+      <div className="workspace-cost-inspector">
+        <aside className="workspace-cost-context">
+          <h3 className="text-base font-semibold">Aktuelt job</h3>
+          <dl className="mt-5 space-y-5 text-sm">
+            <div><dt className="text-muted-foreground text-xs mb-1">Format</dt><dd>{job.widthMm} × {job.heightMm} mm</dd></div>
+            <div><dt className="text-muted-foreground text-xs mb-1">Antal</dt><dd>{job.quantity} stk.</dd></div>
+            <div><dt className="text-muted-foreground text-xs mb-1">Maskine</dt><dd>{machine?.name || 'Vælg maskine'}</dd></div>
+            <div><dt className="text-muted-foreground text-xs mb-1">Materiale</dt><dd>{material?.name || 'Vælg materiale'}</dd></div>
+          </dl>
+        </aside>
         <div className="space-y-6">
           <section>
             <h3 className="text-sm font-semibold text-slate-950">1. Produktion</h3>
@@ -312,29 +328,29 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-slate-600">Maskine</Label>
                 <Select value={machineId} onValueChange={setMachineId}>
-                  <SelectTrigger className="h-10 rounded-lg"><SelectValue placeholder="Vælg maskine" /></SelectTrigger>
-                  <SelectContent>{machines.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
+                  <SelectTrigger className="h-10 rounded-md"><SelectValue placeholder="Vælg maskine" /></SelectTrigger>
+                  <SelectContent className="machine-pricing-menu">{machines.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-slate-600">Materiale</Label>
                 <Select value={materialId} onValueChange={setMaterialId}>
-                  <SelectTrigger className="h-10 rounded-lg"><SelectValue placeholder="Vælg materiale" /></SelectTrigger>
-                  <SelectContent>{materials.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
+                  <SelectTrigger className="h-10 rounded-md"><SelectValue placeholder="Vælg materiale" /></SelectTrigger>
+                  <SelectContent className="machine-pricing-menu">{materials.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-slate-600">Blæksæt</Label>
                 <Select value={inkSetId} onValueChange={setInkSetId}>
-                  <SelectTrigger className="h-10 rounded-lg"><SelectValue placeholder="Vælg blæk" /></SelectTrigger>
-                  <SelectContent>{inkSets.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
+                  <SelectTrigger className="h-10 rounded-md"><SelectValue placeholder="Vælg blæk" /></SelectTrigger>
+                  <SelectContent className="machine-pricing-menu">{inkSets.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-slate-600">Kostmodel</Label>
                 <Select value={job.costModel} onValueChange={(value) => updateJob("costModel", value as MachineCostJob["costModel"])}>
-                  <SelectTrigger className="h-10 rounded-lg"><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectTrigger className="h-10 rounded-md"><SelectValue /></SelectTrigger>
+                  <SelectContent className="machine-pricing-menu">
                     <SelectItem value="INKJET">Blæk pr. m²</SelectItem>
                     <SelectItem value="DIGITAL_CLICK">Digital klikpris</SelectItem>
                     <SelectItem value="OFFSET">Offset med plader</SelectItem>
@@ -346,17 +362,31 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
 
           <section className="border-t border-slate-200 pt-5">
             <h3 className="text-sm font-semibold text-slate-950">2. Job og oplægning</h3>
+            <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Vælg jobformat">
+              {IMPOSITION_PRESETS.map((preset) => (
+                <Button
+                  key={preset.id}
+                  type="button"
+                  size="sm"
+                  variant={job.widthMm === preset.widthMm && job.heightMm === preset.heightMm ? "default" : "outline"}
+                  aria-pressed={job.widthMm === preset.widthMm && job.heightMm === preset.heightMm}
+                  onClick={() => setJob((current) => ({ ...current, widthMm: preset.widthMm, heightMm: preset.heightMm }))}
+                >
+                  {preset.shortLabel}
+                </Button>
+              ))}
+            </div>
             <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <NumericField id="cost-quantity" label="Antal" value={job.quantity} unit="stk." min={1} onChange={(value) => updateJob("quantity", Math.max(1, Math.floor(value)))} />
               <NumericField id="cost-width" label="Bredde" value={job.widthMm} unit="mm" onChange={(value) => updateJob("widthMm", value)} />
               <NumericField id="cost-height" label="Højde" value={job.heightMm} unit="mm" onChange={(value) => updateJob("heightMm", value)} />
-              <NumericField id="cost-bleed" label="Beskæring" value={job.bleedMm} unit="mm" step={0.5} onChange={(value) => updateJob("bleedMm", value)} />
+              <NumericField id="cost-bleed" label="Bleed" value={job.bleedMm} unit="mm" step={0.5} onChange={(value) => updateJob("bleedMm", value)} />
               <NumericField id="cost-gap" label="Mellemrum" value={job.gapMm} unit="mm" step={0.5} onChange={(value) => updateJob("gapMm", value)} />
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-slate-600">Tryksider</Label>
                 <Select value={String(job.sides)} onValueChange={(value) => updateJob("sides", value === "2" ? 2 : 1)}>
-                  <SelectTrigger className="h-10 rounded-lg"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="1">1 side</SelectItem><SelectItem value="2">2 sider</SelectItem></SelectContent>
+                  <SelectTrigger className="h-10 rounded-md"><SelectValue /></SelectTrigger>
+                  <SelectContent className="machine-pricing-menu"><SelectItem value="1">1 side</SelectItem><SelectItem value="2">2 sider</SelectItem></SelectContent>
                 </Select>
               </div>
               <NumericField id="cost-coverage" label="Farvedækning" value={job.coveragePct} unit="%" max={100} onChange={(value) => updateJob("coveragePct", Math.min(100, value))} />
@@ -387,16 +417,22 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
                 </div>
                 <Badge variant="secondary">{result.orientation === 90 ? "Roteret 90°" : "Normal retning"}</Badge>
               </div>
-              <div className="mt-4 h-52 overflow-hidden rounded-lg border border-slate-300 bg-slate-100 p-3">
-                <div
-                  className="grid h-full gap-1 overflow-hidden rounded border border-dashed border-slate-400 bg-white p-2"
-                  style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.min(result.columns, 10))}, minmax(0, 1fr))` }}
-                >
-                  {Array.from({ length: Math.max(1, Math.min(result.mode === "SHEET" ? result.itemsPerSheet : result.columns * 3, 60)) }).map((_, index) => (
-                    <div key={index} className="min-h-4 rounded-sm border border-cyan-500 bg-cyan-50" />
-                  ))}
-                </div>
-              </div>
+              <ImpositionPreview
+                className="mt-4"
+                sheetWidthMm={Number(result.mode === "SHEET" ? machine?.sheet_width_mm ?? 0 : machine?.roll_width_mm ?? 0)}
+                sheetHeightMm={result.mode === "SHEET" ? Number(machine?.sheet_height_mm ?? 0) : rollPreviewHeight}
+                marginLeftMm={Number(machine?.margin_left_mm ?? 0)}
+                marginRightMm={Number(machine?.margin_right_mm ?? 0)}
+                marginTopMm={result.mode === "SHEET" ? Number(machine?.margin_top_mm ?? 0) : 0}
+                marginBottomMm={result.mode === "SHEET" ? Number(machine?.margin_bottom_mm ?? 0) : 0}
+                itemWidthMm={job.widthMm}
+                itemHeightMm={job.heightMm}
+                bleedMm={job.bleedMm}
+                gapMm={job.gapMm}
+                layout={{ orientation: result.orientation, columns: result.columns, rows: previewRows }}
+                sheetLabel={result.mode === "SHEET" ? "Råark" : `Udsnit af rulle · op til ${previewRows} rækker`}
+                countLabel={result.mode === "SHEET" ? "emner pr. ark" : "emner i det viste udsnit"}
+              />
             </section>
           ) : null}
         </div>
@@ -420,7 +456,7 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
                   <ResultLine label={`Maskine · ${number.format(result.totalTimeMin)} min.`} value={kr.format(result.machineCost)} />
                   <ResultLine label="Samlet kostpris" value={kr.format(result.baseCost)} strong />
                 </div>
-                <div className="mt-5 rounded-lg bg-slate-950 p-5 text-white">
+                <div className="mt-5 rounded-md bg-slate-950 p-5 text-white">
                   <div className="text-xs uppercase text-slate-400">Foreslået salgspris ekskl. moms</div>
                   <div className="mt-2 text-3xl font-semibold tabular-nums">{kr.format(result.sellPrice)}</div>
                   <div className="mt-3 flex justify-between text-sm text-slate-300">
@@ -445,7 +481,7 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
                     </AlertDescription>
                   </Alert>
                 ) : (
-                  <Alert className="mt-5 border-emerald-200 bg-emerald-50 text-emerald-950">
+                  <Alert className="mt-5 border-emerald-200 bg-slate-50 text-emerald-950">
                     <ShieldCheck className="h-4 w-4" />
                     <AlertTitle>Grunddata er udfyldt</AlertTitle>
                     <AlertDescription>Gem en kontrolleret prisprofil før produktet tilknyttes.</AlertDescription>
@@ -458,7 +494,7 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
       </div>
 
       <Sheet open={libraryOpen} onOpenChange={setLibraryOpen}>
-        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-3xl">
+        <SheetContent side="right" className="machine-pricing-dialog w-full overflow-y-auto sm:max-w-3xl">
           <SheetHeader className="text-left">
             <SheetTitle>Maskinbibliotek</SheetTitle>
             <SheetDescription>
@@ -467,17 +503,17 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
           </SheetHeader>
 
           <Tabs defaultValue="catalog" className="mt-6">
-            <TabsList className="grid h-10 w-full grid-cols-2 rounded-lg">
+            <TabsList className="grid h-10 w-full grid-cols-2 rounded-md">
               <TabsTrigger value="catalog" className="rounded-md"><BookOpen className="mr-2 h-4 w-4" />Bibliotek</TabsTrigger>
               <TabsTrigger value="brochure" className="rounded-md"><FileSearch className="mr-2 h-4 w-4" />Læs brochure</TabsTrigger>
             </TabsList>
 
             <TabsContent value="catalog" className="mt-5 space-y-4">
               <div className="flex flex-col gap-3 sm:flex-row">
-                <Input value={librarySearch} onChange={(event) => setLibrarySearch(event.target.value)} placeholder="Søg producent eller model" className="h-10 rounded-lg" />
+                <Input value={librarySearch} onChange={(event) => setLibrarySearch(event.target.value)} placeholder="Søg producent eller model" className="h-10 rounded-md" />
                 <Select value={libraryCategory} onValueChange={(value) => setLibraryCategory(value as typeof libraryCategory)}>
-                  <SelectTrigger className="h-10 rounded-lg sm:w-44"><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectTrigger className="h-10 rounded-md sm:w-44"><SelectValue /></SelectTrigger>
+                  <SelectContent className="machine-pricing-menu">
                     <SelectItem value="all">Alle typer</SelectItem>
                     {Object.entries(MACHINE_PROFILE_CATEGORY_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
                   </SelectContent>
@@ -500,11 +536,11 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
                         <ul className="mt-2 space-y-1 text-xs text-slate-500">
                           {profile.verifiedFacts.map((fact) => <li key={fact}>• {fact}</li>)}
                         </ul>
-                        <a href={profile.sourceUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-cyan-700 hover:underline">
+                        <a href={profile.sourceUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:underline">
                           {profile.sourceLabel}<ExternalLink className="h-3 w-3" />
                         </a>
                       </div>
-                      <Button size="sm" className="shrink-0 rounded-lg" onClick={() => selectProfile(profile)}>Brug som kladde</Button>
+                      <Button size="sm" className="shrink-0 rounded-md" onClick={() => selectProfile(profile)}>Brug som kladde</Button>
                     </div>
                   </div>
                 ))}
@@ -517,9 +553,9 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
                 type="button"
                 onClick={() => brochureInputRef.current?.click()}
                 disabled={brochureBusy}
-                className="flex min-h-40 w-full flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center transition-colors hover:border-cyan-500 hover:bg-cyan-50 disabled:opacity-60"
+                className="flex min-h-40 w-full flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 p-6 text-center transition-colors hover:border-cyan-500 hover:bg-slate-50 disabled:opacity-60"
               >
-                {brochureBusy ? <Loader2 className="h-7 w-7 animate-spin text-cyan-700" /> : <FileUp className="h-7 w-7 text-cyan-700" />}
+                {brochureBusy ? <Loader2 className="h-7 w-7 animate-spin text-slate-700" /> : <FileUp className="h-7 w-7 text-slate-700" />}
                 <span className="mt-3 font-medium text-slate-950">{brochureBusy ? "Læser brochure..." : "Vælg producentens PDF-brochure"}</span>
                 <span className="mt-1 text-sm text-slate-500">PDF’en analyseres lokalt og gemmes ikke automatisk.</span>
               </button>
@@ -546,7 +582,7 @@ export function MachineCostWorkbench({ machines, materials, inkSets, onUseMachin
                     <AlertTitle>Kontrollér manuelt</AlertTitle>
                     <AlertDescription><ul className="mt-2 space-y-1">{brochureAnalysis.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></AlertDescription>
                   </Alert>
-                  <Button className="w-full rounded-lg" onClick={() => { onUseMachineDraft(brochureAnalysis.draft); setLibraryOpen(false); }}>
+                  <Button className="w-full rounded-md" onClick={() => { onUseMachineDraft(brochureAnalysis.draft); setLibraryOpen(false); }}>
                     <Ruler className="mr-2 h-4 w-4" />Brug forslag som maskinkladde
                   </Button>
                 </div>

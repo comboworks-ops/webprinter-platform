@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { BrandingSettingsWriteError } from './settings-persistence';
 import {
     type BrandingData,
     type BrandingStorageAdapter,
@@ -218,7 +219,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             toast.success('Kladde gemt (ikke live endnu)');
         } catch (error) {
             console.error('Error saving draft:', error);
-            toast.error('Kunne ikke gemme kladde');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke gemme kladde');
             throw error;
         } finally {
             setIsSaving(false);
@@ -236,7 +237,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             toast.success('Ændringer kasseret');
         } catch (error) {
             console.error('Error discarding draft:', error);
-            toast.error('Kunne ikke kassere ændringer');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke kassere ændringer');
             throw error;
         } finally {
             setIsSaving(false);
@@ -254,7 +255,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             toast.success('Branding publiceret (live opdateret)');
         } catch (error) {
             console.error('Error publishing:', error);
-            toast.error('Kunne ikke publicere');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke publicere');
             throw error;
         } finally {
             setIsSaving(false);
@@ -273,7 +274,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             toast.success('Nulstillet til standard');
         } catch (error) {
             console.error('Error resetting:', error);
-            toast.error('Kunne ikke nulstille');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke nulstille');
             throw error;
         } finally {
             setIsSaving(false);
@@ -301,7 +302,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             toast.success('Version gendannet');
         } catch (error) {
             console.error('Error restoring version:', error);
-            toast.error('Kunne ikke gendanne version');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke gendanne version');
             throw error;
         } finally {
             setIsSaving(false);
@@ -335,7 +336,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             }
         } catch (error) {
             console.error('Error saving design:', error);
-            toast.error('Kunne ikke gemme');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke gemme');
             throw error;
         } finally {
             setIsSaving(false);
@@ -369,7 +370,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             toast.success('Design slettet');
         } catch (error) {
             console.error('Error deleting design:', error);
-            toast.error('Kunne ikke slette design');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke slette design');
             throw error;
         } finally {
             setIsSaving(false);

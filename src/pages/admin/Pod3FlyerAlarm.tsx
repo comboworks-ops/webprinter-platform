@@ -1,11 +1,14 @@
+import { Link, useLocation } from "react-router-dom";
+import { withAdminWorkspaceContext } from "@/lib/admin/workspaceNavigation";
 import { ArrowRight, ExternalLink, Package, PauseCircle, ShieldCheck, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function Pod3FlyerAlarm() {
+  const location = useLocation();
   return (
-    <div className="container mx-auto max-w-6xl space-y-6 px-4 py-8">
+    <div className="workspace-pod3 space-y-6">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="secondary" className="gap-1">
@@ -27,8 +30,8 @@ export default function Pod3FlyerAlarm() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+      <div className="workspace-summary-grid">
+        <Card>
           <CardHeader>
             <CardTitle>Aktuel status</CardTitle>
             <CardDescription>
@@ -66,16 +69,16 @@ export default function Pod3FlyerAlarm() {
           </CardHeader>
           <CardContent className="space-y-3">
             <Button asChild className="w-full justify-between">
-              <a href="/admin/pod">
+              <Link to={withAdminWorkspaceContext("/admin/pod", location.search)}>
                 POD oversigt
                 <ArrowRight className="h-4 w-4" />
-              </a>
+              </Link>
             </Button>
             <Button asChild variant="outline" className="w-full justify-between">
-              <a href="/admin/pod2">
+              <Link to={withAdminWorkspaceContext("/admin/pod2", location.search)}>
                 POD v2
                 <ArrowRight className="h-4 w-4" />
-              </a>
+              </Link>
             </Button>
             <Button asChild variant="outline" className="w-full justify-between">
               <a href="https://rest.flyeralarm-esolutions.com/docs/" target="_blank" rel="noreferrer">

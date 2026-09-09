@@ -216,7 +216,7 @@ export function Pod2Betaling() {
     }
 
     return (
-        <div className="max-w-2xl space-y-6">
+        <div className="workspace-pod-billing workspace-pod-billing-v2">
             <div>
                 <h1 className="text-3xl font-bold">POD v2 Betaling</h1>
                 <p className="text-muted-foreground">Gem et kort til automatisk afregning, når POD v2 jobs godkendes i tenant-shoppen.</p>
@@ -228,7 +228,7 @@ export function Pod2Betaling() {
                         <CreditCard className="h-5 w-5" />
                         Betalingsstatus
                     </CardTitle>
-                    <CardDescription>Dette kort bruges kun til POD v2 leverandøromkostninger efter kundebetalingen er modtaget.</CardDescription>
+                    <CardDescription>Dette kort bruges kun til Webprinter-prisen for POD v2-produkter efter kundebetalingen er modtaget.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     {isReady ? (
@@ -254,7 +254,7 @@ export function Pod2Betaling() {
                 <CardHeader>
                     <CardTitle>{clientSecret ? "Tilføj eller opdater kort" : "Klargør betalingsmetode"}</CardTitle>
                     <CardDescription>
-                        Når du godkender et POD v2 job, trækkes tenantens leverandøromkostning automatisk. Kortet gemmes sikkert hos Stripe.
+                        Når du godkender et POD v2 job, trækkes Webprinter-prisen for butikkens produkter automatisk. Kortet gemmes sikkert hos Stripe.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -299,7 +299,7 @@ export function Pod2Betaling() {
                         <p className="font-medium">Workflow</p>
                         <ul className="mt-2 space-y-1 text-blue-800">
                             <li>• Kunden betaler i tenant-shoppen.</li>
-                            <li>• Tenant godkender POD v2 job og betaler leverandøromkostningen.</li>
+                            <li>• Tenant godkender POD v2 job og betaler Webprinter-prisen.</li>
                             <li>• Master videresender derefter jobbet til print-huset.</li>
                         </ul>
                     </div>

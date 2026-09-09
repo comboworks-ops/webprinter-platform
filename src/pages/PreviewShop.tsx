@@ -53,6 +53,14 @@ const BLOCKED_ROUTE_PREFIXES = [
     '/preview-storefront',
 ];
 
+function resolvePreviewPageQuery(rawPath?: unknown): string {
+    const normalizedPath = normalizeSiteDesignPreviewPath(rawPath);
+    const pathname = getSiteDesignPreviewPathname(normalizedPath);
+    const isBlocked = BLOCKED_ROUTE_PREFIXES.some(prefix => pathname.startsWith(prefix));
+
+    return isBlocked ? '/' : normalizedPath;
+}
+
 const USP_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
     truck: Truck,
     award: Award,
@@ -402,7 +410,8 @@ export default function PreviewShop() {
     const [initialBranding, setInitialBranding] = useState<BrandingData | null>(null);
     const [tenantName, setTenantName] = useState("Dit Trykkeri");
     const [isLoading, setIsLoading] = useState(true);
-    const [currentPage, setCurrentPage] = useState('/');
+    const previewPageParam = searchParams.get("page");
+    const [currentPage, setCurrentPage] = useState(() => resolvePreviewPageQuery(previewPageParam));
     const [firstProductSlug, setFirstProductSlug] = useState<string | null>(null);
 
     const isDraft = searchParams.get("draft") === "1";
@@ -410,6 +419,11 @@ export default function PreviewShop() {
     const siteIdParam = searchParams.get("siteId") || searchParams.get("site_id");
     const isSitePreview = searchParams.get("sitePreview") === "1" && !!siteIdParam;
     const isPreviewContext = isDraft || searchParams.get("preview_mode") === "1" || window.self !== window.top;
+
+    useEffect(() => {
+        const nextPage = resolvePreviewPageQuery(previewPageParam);
+        setCurrentPage(previousPage => previousPage === nextPage ? previousPage : nextPage);
+    }, [previewPageParam]);
 
     useEffect(() => {
         if (!isPreviewContext) return;

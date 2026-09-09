@@ -15,6 +15,8 @@ import {
   isSiteExclusiveProduct,
   isProductAssignedToSite,
 } from "@/lib/sites/productSiteFrontends";
+import { resolveActiveSiteCatalogId } from "@/lib/storefront/activeSiteCatalog";
+import { resolveCatalogTenantId, storefrontCatalogContextKey } from "@/lib/storefront/tenantContext";
 
 export interface StorefrontProduct {
   id: string;
@@ -55,6 +57,7 @@ type UseStorefrontCatalogOptions = {
 
 const PRODUCT_CACHE_KEY_PREFIX = "storefront-catalog-cache-v5";
 const PRODUCT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "webprinter.dk";
 
 const isMissingProductOverviewsTable = (error: unknown) => {
   const anyError = error as any;
@@ -182,7 +185,16 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
   const [loading, setLoading] = useState(enabled);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
+  const [loadedContextKey, setLoadedContextKey] = useState<string | null>(null);
   const settings = useShopSettings();
+  const activeSiteId = resolveActiveSiteCatalogId({
+    activeSiteId: settings.data?.site_frontends?.activeSiteId,
+    hostname: typeof window !== "undefined" ? window.location.hostname : null,
+    rootDomain: ROOT_DOMAIN,
+  });
+  const tenantId = resolveCatalogTenantId(settings);
+  const requestedContextKey = storefrontCatalogContextKey(tenantId, activeSiteId);
+  const hasMatchingCatalog = Boolean(requestedContextKey && loadedContextKey === requestedContextKey);
 
   useEffect(() => {
     if (!enabled) {
@@ -192,8 +204,25 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
 
     let cancelled = false;
 
+    const clearCatalog = () => {
+      setProducts([]);
+      setCategories([]);
+      setCategoryRecords([]);
+      setOverviews([]);
+      setLoadedContextKey(null);
+      setWarningMessage(null);
+    };
+
+    if (!tenantId || !requestedContextKey) {
+      clearCatalog();
+      setLoading(settings.isLoading);
+      setErrorMessage(settings.isError ? "Kunne ikke hente den valgte shop. Prøv at genindlæse siden." : null);
+      return;
+    }
+
     const applyCatalog = (payload: ProductCachePayload, options?: { warningMessage?: string | null }) => {
-      if (cancelled) return;
+      if (cancelled || payload.tenantId !== tenantId) return;
+      setLoadedContextKey(requestedContextKey);
       setProducts(payload.products);
       setCategories(payload.categories);
       setCategoryRecords(payload.categoryRecords || []);
@@ -204,19 +233,14 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
     };
 
     const fetchCatalog = async () => {
-      if (settings.isLoading) return;
-
-      const tenantId = settings.data?.id || "00000000-0000-0000-0000-000000000000";
-      const activeSiteId = typeof settings.data?.site_frontends?.activeSiteId === "string"
-        ? settings.data.site_frontends.activeSiteId
-        : null;
       const tenantCacheKey = `${cacheKeyForTenant(tenantId)}:site:${activeSiteId || "default"}`;
       const cachedCatalog = readProductCache(tenantCacheKey);
-      const hasCachedCatalog = Boolean(cachedCatalog?.products?.length);
+      const hasCachedCatalog = cachedCatalog?.tenantId === tenantId;
 
       if (hasCachedCatalog && cachedCatalog) {
         applyCatalog(cachedCatalog);
       } else {
+        clearCatalog();
         setLoading(true);
       }
 
@@ -380,7 +404,7 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
         console.error("Error fetching storefront catalog:", error);
         if (isTransportError(error)) {
           const tenantCache = readProductCache(tenantCacheKey);
-          if (tenantCache) {
+          if (tenantCache?.tenantId === tenantId) {
             const isFresh = (Date.now() - tenantCache.at) <= PRODUCT_CACHE_TTL_MS;
             applyCatalog(tenantCache, {
               warningMessage: isFresh
@@ -417,15 +441,15 @@ export function useStorefrontCatalog(options: UseStorefrontCatalogOptions = {}) 
     return () => {
       cancelled = true;
     };
-  }, [enabled, settings.data?.id, settings.data?.site_frontends?.activeSiteId, settings.isLoading]);
+  }, [activeSiteId, enabled, tenantId, requestedContextKey, settings.isLoading, settings.isError]);
 
   return {
-    products,
-    categories,
-    categoryRecords,
-    overviews,
-    loading,
+    products: hasMatchingCatalog ? products : [],
+    categories: hasMatchingCatalog ? categories : [],
+    categoryRecords: hasMatchingCatalog ? categoryRecords : [],
+    overviews: hasMatchingCatalog ? overviews : [],
+    loading: enabled && (loading || settings.isLoading || Boolean(requestedContextKey && !hasMatchingCatalog && !errorMessage)),
     errorMessage,
-    warningMessage,
+    warningMessage: hasMatchingCatalog ? warningMessage : null,
   };
 }

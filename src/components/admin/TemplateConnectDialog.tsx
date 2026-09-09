@@ -112,10 +112,10 @@ export function TemplateConnectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Template Connect</DialogTitle>
+          <DialogTitle>Tilknyt skabelon til valgmulighed</DialogTitle>
           <DialogDescription>
             Knyt en bestemt designer-template til hver værdi i sektionen{sectionTitle ? ` "${sectionTitle}"` : ""}.
-            Når kunden klikker på Design online, bruges den valgte template automatisk.
+            Når kunden klikker på Design, bruges den valgte skabelon automatisk. Hvis skabelonen afhænger af flere valg, f.eks. både format og mapperyg, skal den præcise produktkombination også angives under Produktskabeloner.
           </DialogDescription>
         </DialogHeader>
 
@@ -129,7 +129,7 @@ export function TemplateConnectDialog({
 
           {!loading && templates.length === 0 ? (
             <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-              Ingen aktive templates fundet for denne tenant endnu.
+              Ingen aktive skabeloner fundet for denne shop endnu.
             </div>
           ) : null}
 
@@ -163,16 +163,16 @@ export function TemplateConnectDialog({
                   </div>
 
                   <div className="space-y-1">
-                    <Label className="text-[11px] text-muted-foreground">Designer-template</Label>
+                    <Label className="text-[11px] text-muted-foreground">Designer-skabelon</Label>
                     <Select
                       value={templateId || NONE_TEMPLATE_VALUE}
                       onValueChange={(nextValue) => onTemplateChange(value.id, nextValue === NONE_TEMPLATE_VALUE ? null : nextValue)}
                     >
                       <SelectTrigger className="h-9 text-sm">
-                        <SelectValue placeholder="Vælg template" />
+                        <SelectValue placeholder="Vælg skabelon" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE_TEMPLATE_VALUE}>Ingen template</SelectItem>
+                        <SelectItem value={NONE_TEMPLATE_VALUE}>Ingen skabelon</SelectItem>
                         {templates.map((template) => (
                           <SelectItem key={template.id} value={template.id}>
                             {template.name}

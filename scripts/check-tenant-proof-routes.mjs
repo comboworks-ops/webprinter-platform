@@ -56,10 +56,9 @@ const htmlRoutes = [
       orderButtonPattern: "Bestil nu|Upload fil og bestil|Upload eller bestil",
       checkoutUrlIncludes: ["/checkout/konfigurer", "force_domain=webprinter.dk"],
       checkoutTextIncludes: [
-        "Storformat fil-tjek",
-        "Valgt konfiguration",
+        "Din bestilling",
         "Aluminium Skilte",
-        "Upload",
+        "Vælg fil",
       ],
       session: {
         productSlug: "aluminium",
@@ -98,11 +97,13 @@ const htmlRoutes = [
     name: "Salgsmapper category landing",
     path: "/produkter?force_domain=www.salgsmapper.dk",
     titleIncludes: ["Webprinter"],
-    textIncludes: ["Alle produkter", "Salgsmapper", "4 produkter i Salgsmapper"],
+    textIncludes: ["Alle produkter", "Salgsmapper"],
     categoryWorkflow: {
+      categoryLabel: "Salgsmapper",
+      productHrefIncludes: "/produkt/standard-sales-mapper-kopi-2",
       linkHrefIncludes: "category=salgsmapper",
       targetUrlIncludes: ["/produkter", "category=salgsmapper", "force_domain=www.salgsmapper.dk"],
-      targetTextIncludes: ["Standard", "Salgsmapper", "Flere priser & bestil"],
+      targetTextIncludes: ["Standard", "Salgsmapper"],
     },
   },
   {
@@ -140,8 +141,10 @@ const htmlRoutes = [
     name: "Onlinetryksager category landing",
     path: "/produkter?force_domain=www.onlinetryksager.dk",
     titleIncludes: ["Tryksager"],
-    textIncludes: ["Alle produkter", "Tryksager", "Plakater", "produkter i Tryksager"],
+    textIncludes: ["Alle produkter", "Tryksager", "Plakater"],
     categoryWorkflow: {
+      categoryLabel: "Tryksager",
+      productHrefIncludes: "/produkt/flyer-demand",
       linkHrefIncludes: "category=tryksager",
       targetUrlIncludes: ["/produkter", "category=tryksager", "force_domain=www.onlinetryksager.dk"],
       targetTextIncludes: ["Flyers", "Priser"],
@@ -156,10 +159,9 @@ const htmlRoutes = [
       orderButtonPattern: "Bestil nu|Upload fil og bestil|Upload eller bestil",
       checkoutUrlIncludes: ["/checkout/konfigurer", "force_domain=www.onlinetryksager.dk"],
       checkoutTextIncludes: [
-        "Konfigurer dit design",
-        "Valgt konfiguration",
+        "Din bestilling",
         "Flyers",
-        "Upload",
+        "Vælg fil",
       ],
       session: {
         productSlug: "flyer-demand",
@@ -478,7 +480,8 @@ async function checkSitePreviewWorkflow(page, workflow, issues) {
 
 async function checkCategoryWorkflow(page, workflow, issues) {
   const evidence = [];
-  const categoryLink = page.locator(`a[href*="${workflow.linkHrefIncludes}"]`).last();
+  const categoryNavigation = page.getByRole("navigation", { name: "Vælg produktkategori" });
+  const categoryLink = categoryNavigation.locator(`a[href*="${workflow.linkHrefIncludes}"]`);
   const categoryLinkCount = await categoryLink.count().catch(() => 0);
 
   if (categoryLinkCount < 1) {
@@ -507,6 +510,22 @@ async function checkCategoryWorkflow(page, workflow, issues) {
     if (!normalizedBodyText.includes(expectedText.toLowerCase())) {
       issues.push(`category body missing ${expectedText}`);
     }
+  }
+
+  const currentCategory = categoryNavigation.locator('a[aria-current="page"]');
+  if ((await currentCategory.innerText().catch(() => "")).trim() !== workflow.categoryLabel) {
+    issues.push(`category navigation does not mark ${workflow.categoryLabel} as current`);
+  }
+  const catalog = page.getByRole("region", { name: workflow.categoryLabel, exact: true });
+  const productCards = catalog.locator(".storefront-product-card");
+  const cardCount = await productCards.count().catch(() => 0);
+  const countText = await catalog.getByRole("status").innerText().catch(() => "");
+  const displayedCount = Number(countText.match(/^(\d+)\s+produkt(?:er)?\b/)?.[1]);
+  if (cardCount < 1 || displayedCount !== cardCount) {
+    issues.push(`category product count does not match rendered cards (${countText || "missing"}; ${cardCount} cards)`);
+  }
+  if (!(await productCards.locator(`a[href*="${workflow.productHrefIncludes}"]`).first().isVisible().catch(() => false))) {
+    issues.push(`category missing visible product link ${workflow.productHrefIncludes}`);
   }
 
   evidence.push("category landing drilldown");
@@ -731,6 +750,26 @@ async function checkOrderWorkflow(page, workflow, issues) {
   }
 
   const expectedSession = workflow.session || {};
+  const orderSteps = page.getByRole("navigation", { name: "Bestillingens trin" });
+  if (!(await orderSteps.locator('li[aria-current="step"]').innerText().catch(() => "")).includes("Fil og levering")) {
+    issues.push("checkout does not mark Fil og levering as the current step");
+  }
+  const orderSummary = page.getByRole("complementary", { name: "Din bestilling" });
+  const summaryText = await orderSummary.innerText().catch(() => "");
+  if (!(await orderSummary.isVisible().catch(() => false)) || !summaryText.includes(expectedSession.productName)) {
+    issues.push("checkout missing visible selected-product summary");
+  }
+  const selectedSummary = String(checkoutSession.summary || "").replace(/\s+/g, " ").trim();
+  if (!selectedSummary || !summaryText.replace(/\s+/g, " ").includes(selectedSummary)) {
+    issues.push("checkout summary does not show the selected configuration");
+  }
+  const chooseFile = page.getByRole("button", { name: "Vælg fil", exact: true });
+  if (!(await chooseFile.isVisible().catch(() => false)) || !(await chooseFile.isEnabled().catch(() => false))) {
+    issues.push("checkout missing enabled file picker");
+  }
+  if (await page.locator('input[type="file"][accept*=".pdf"]:not(:disabled)').count() < 1) {
+    issues.push("checkout missing PDF upload input");
+  }
   if (expectedSession.productSlug && checkoutSession.productSlug !== expectedSession.productSlug) {
     issues.push(`checkout session productSlug ${checkoutSession.productSlug || "missing"}`);
   }

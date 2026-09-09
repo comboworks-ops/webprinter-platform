@@ -13,6 +13,7 @@ import { Check, Palette, Sparkles, Layout } from 'lucide-react';
 import '@/themes/classic';
 import '@/themes/glassmorphism';
 import '@/themes/taste-style-themes';
+import '@/themes/print';
 
 const THEME_PREVIEW_STYLES: Record<string, React.CSSProperties> = {
     classic: {
@@ -154,7 +155,7 @@ export function ThemeSelector({
     onThemeSettingsChange,
     compact = false,
 }: ThemeSelectorProps) {
-    const themes = getThemeList();
+    const themes = getThemeList().filter(theme => !theme.id.startsWith("print-"));
     const selectedTheme = getTheme(selectedThemeId);
 
     return (

@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 // POD Catalog - Tenant view of published POD products for import
 
 import { useState, useEffect } from "react";
@@ -252,7 +253,7 @@ export function PodKatalog() {
                     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
             ) : filteredCatalog && filteredCatalog.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <WorkspaceCollection label="Katalogprodukter" items={filteredCatalog.map(product => ({ id: product.id, title: product.public_title?.da || product.public_title?.en || "Ukendt produkt", image: product.public_images?.[0], subtitle: product.public_description?.da || product.public_description?.en }))}>
                     {filteredCatalog.map((product) => {
                         const isImported = importedIds.has(product.id);
                         const importRow = importByCatalogId.get(product.id);
@@ -323,7 +324,7 @@ export function PodKatalog() {
                             </Card>
                         );
                     })}
-                </div>
+                </WorkspaceCollection>
             ) : (
                 <Card>
                     <CardContent className="py-12 text-center">

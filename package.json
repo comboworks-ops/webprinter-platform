@@ -144,13 +144,16 @@
     "fetch:premium-rollups:import": "node scripts/fetch-premium-rollups-import.js import",
     "fetch:komplet-color-rollup:import": "node scripts/fetch-komplet-color-rollup-import.js import",
     "log:push-ready": "node scripts/log-push-ready.mjs",
-    "notify:merge-main": "node scripts/log-push-ready.mjs --to-main"
+    "notify:merge-main": "node scripts/log-push-ready.mjs --to-main",
+    "build:test": "WEBPRINTER_TEST_DEPLOYMENT=1 vite build",
+    "test:domain-preview": "node --experimental-strip-types --test src/lib/testDeployment.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@hookform/resolvers": "^3.10.0",
+    "@pdf-lib/fontkit": "1.1.1",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-aspect-ratio": "^1.1.7",
@@ -199,6 +202,7 @@
     "jspdf": "^3.0.4",
     "lcms-wasm": "^1.0.5",
     "lucide-react": "^0.462.0",
+    "maxrects-packer": "2.7.3",
     "motion": "^11.18.2",
     "next-themes": "^0.3.0",
     "pdf-lib": "^1.17.1",
@@ -212,6 +216,7 @@
     "react-router-dom": "^6.30.1",
     "recharts": "^2.15.4",
     "sonner": "^1.7.4",
+    "svg2pdf.js": "2.8.1",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.9",
@@ -238,5 +243,6 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",
     "vite": "^5.4.19"
-  }
+  },
+  "packageManager": "pnpm@11.19.0"
 }

@@ -8,6 +8,9 @@ import {
   RefreshCw,
   Send,
   ShieldAlert,
+  Search,
+  ArrowDown,
+  ArrowUp,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -23,7 +26,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { usePodSubmitToPrintcom, usePodSyncPrintcomStatus } from "@/lib/pod2/hooks";
-import type { PodFulfillmentJob } from "@/lib/pod2/types";
+import { POD_JOB_STATUS_LABELS, type PodFulfillmentJob } from "@/lib/pod2/types";
+import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   buildSubmissionFingerprint,
   buildValidationRequest,
@@ -32,7 +37,6 @@ import {
   createSubmissionSessionState,
   getProductionOrderPresentation,
   getValidationOutcomeState,
-  groupProductionJobs,
   interpretDryRunResult,
   isReconciliationBlocked,
   markSubmissionReconciliationRefreshed,
@@ -89,6 +93,14 @@ export function PrintProductionOrders({
   const submitToPrintcom = usePodSubmitToPrintcom();
   const syncPrintcomStatus = usePodSyncPrintcomStatus();
   const [paymentMethod, setPaymentMethod] = useState<PrintcomPaymentMethod>("invoice");
+  const [inspectedJobId, setInspectedJobId] = useState<string | null>(selectedJobId);
+  const [search, setSearch] = useState("");
+  const [productionFilter, setProductionFilter] = useState("all");
+  const [fileFilter, setFileFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [newestFirst, setNewestFirst] = useState(true);
+
+  useEffect(() => setInspectedJobId(selectedJobId), [selectedJobId]);
   const [validation, setValidation] = useState<ValidationRecord | null>(null);
   const [pendingValidation, setPendingValidation] = useState<PendingValidationBinding | null>(null);
   const [sessionState, setSessionState] = useState<SubmissionSessionState>(createSubmissionSessionState);
@@ -106,7 +118,21 @@ export function PrintProductionOrders({
     reconciliationBlocked: isReconciliationBlocked(sessionState, job.id),
   });
   const getPresentation = (job: PodFulfillmentJob) => getProductionOrderPresentation(job, getOrderContext(job));
-  const groupedJobs = groupProductionJobs(snapshot.jobs, Object.fromEntries(snapshot.jobs.map((job) => [job.id, getOrderContext(job)])));
+  const fileStates = Array.from(new Set(snapshot.jobs.map(getFileState)));
+  const jobStatuses = Array.from(new Set(snapshot.jobs.map((job) => job.status)));
+  const filteredJobs = snapshot.jobs.filter((job) => {
+    const matchesSearch = [job.id, job.order_id, job.product_name, job.recipient_name, job.customer_email, getTenantLabel(snapshot, job.tenant_id)]
+      .filter(Boolean).join(" ").toLocaleLowerCase("da-DK").includes(search.trim().toLocaleLowerCase("da-DK"));
+    return matchesSearch && (productionFilter === "all" || getPresentation(job).group === productionFilter)
+      && (fileFilter === "all" || getFileState(job) === fileFilter)
+      && (statusFilter === "all" || job.status === statusFilter);
+  }).sort((a, b) => {
+    const aTime = Date.parse(a.created_at) || 0;
+    const bTime = Date.parse(b.created_at) || 0;
+    return newestFirst ? bTime - aTime : aTime - bTime;
+  });
+  const inspectedJob = filteredJobs.find((job) => job.id === inspectedJobId) || filteredJobs[0] || null;
+  const inspectedPresentation = inspectedJob ? getPresentation(inspectedJob) : null;
   const confirmationJob = getCurrentJob(confirmingJobId);
   const confirmationCanSubmit = Boolean(confirmationJob && canSubmitCurrentJob(confirmationJob, validation, paymentMethod, sessionState, getPresentation(confirmationJob)));
   const reconciliationJob = getCurrentJob(reconcilingJobId);
@@ -378,6 +404,14 @@ export function PrintProductionOrders({
         </div>
       </div>
 
+      <div className="workspace-production-filters">
+        <label><span>Status (produktion)</span><select value={productionFilter} onChange={(event) => setProductionFilter(event.target.value)}><option value="all">Alle</option>{GROUPS.map((group) => <option key={group.key} value={group.key}>{group.title}</option>)}</select></label>
+        <label><span>Filstatus</span><select value={fileFilter} onChange={(event) => setFileFilter(event.target.value)}><option value="all">Alle</option>{fileStates.map((state) => <option key={state} value={state}>{state}</option>)}</select></label>
+        <label><span>Jobstatus</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Alle</option>{jobStatuses.map((status) => <option key={status} value={status}>{POD_JOB_STATUS_LABELS[status]}</option>)}</select></label>
+        <label className="workspace-production-search"><span>Søg i produktionsordrer</span><div><Search className="h-4 w-4" aria-hidden="true" /><Input aria-label="Søg efter ordre, produkt, kunde eller butik" placeholder="Søg ordre, produkt eller kunde …" value={search} onChange={(event) => setSearch(event.target.value)} /></div></label>
+        <Button variant="outline" onClick={() => { setSearch(""); setProductionFilter("all"); setFileFilter("all"); setStatusFilter("all"); }}>Ryd filtre</Button>
+      </div>
+
       {snapshot.jobs.length === 0 ? (
         <div className="border-y py-10 text-center">
           <ClipboardCheck className="mx-auto h-5 w-5 text-muted-foreground" aria-hidden="true" />
@@ -385,41 +419,57 @@ export function PrintProductionOrders({
           <p className="mt-1 text-sm text-muted-foreground">Nye jobs vises her, når en butik har oprettet dem.</p>
         </div>
       ) : (
-        <div className="space-y-7">
-          {GROUPS.map(({ key, title }) => {
-            const jobs = groupedJobs[key];
-            if (!jobs.length) return null;
-            return (
-              <section key={key} aria-labelledby={`production-order-group-${key}`}>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <h3 id={`production-order-group-${key}`} className="text-sm font-semibold">{title}</h3>
-                  <span className="text-xs tabular-nums text-muted-foreground">{jobs.length}</span>
-                </div>
-                <div className="divide-y border-y">
-                  {jobs.map((job) => {
-                    const presentation = getPresentation(job);
-                    return (
-                      <OrderRow
-                        key={job.id}
-                        job={job}
-                        tenantLabel={getTenantLabel(snapshot, job.tenant_id)}
-                        presentation={presentation}
-                        isSelected={selectedJobId === job.id}
-                        isBusy={Boolean(activeOperationJobId)}
-                        isCurrentOperation={activeOperationJobId === job.id}
-                        validation={validation?.jobId === job.id ? validation : null}
-                        paymentMethod={paymentMethod}
-                        reconciliationBlocked={isReconciliationBlocked(sessionState, job.id)}
-                        onValidate={() => handleValidate(job.id)}
-                        onConfirm={() => handleOpenConfirmation(job.id)}
-                        onOpenReconciliation={() => setReconcilingJobId(job.id)}
-                      />
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })}
+        <div className="workspace-production-register">
+          <div className="min-w-0">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>Ordre</TableHead><TableHead>Produkt / kunde</TableHead><TableHead>Filstatus</TableHead><TableHead>Jobstatus</TableHead><TableHead>Produktion</TableHead>
+                <TableHead aria-sort={newestFirst ? "descending" : "ascending"}><button type="button" className="inline-flex items-center gap-1" onClick={() => setNewestFirst((current) => !current)}>Oprettet{newestFirst ? <ArrowDown className="h-3 w-3" aria-hidden="true" /> : <ArrowUp className="h-3 w-3" aria-hidden="true" />}</button></TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {filteredJobs.map((job) => {
+                  const presentation = getPresentation(job);
+                  return <TableRow key={job.id} className={inspectedJob?.id === job.id ? "workspace-selected-row" : undefined}>
+                    <TableCell><button type="button" className="workspace-row-title" aria-current={inspectedJob?.id === job.id ? "true" : undefined} onClick={() => setInspectedJobId(job.id)} disabled={Boolean(activeOperationJobId)}>{job.order_id.slice(0, 8)}</button><p className="mt-1 text-xs text-muted-foreground">Job {job.id.slice(0, 8)}</p></TableCell>
+                    <TableCell><p className="font-medium">{job.product_name || "Printordre"}</p><p className="mt-1 text-xs text-muted-foreground">{job.qty} stk. · {job.recipient_name || "Kunde mangler"}</p><p className="mt-1 text-xs text-muted-foreground">{getTenantLabel(snapshot, job.tenant_id)}</p></TableCell>
+                    <TableCell>{getFileState(job)}</TableCell>
+                    <TableCell>{POD_JOB_STATUS_LABELS[job.status]}</TableCell>
+                    <TableCell><Badge variant={presentation.group === "attention" ? "destructive" : "outline"}>{presentation.label}</Badge></TableCell>
+                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatJobDate(job.created_at)}</TableCell>
+                  </TableRow>;
+                })}
+                {filteredJobs.length === 0 && <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Ingen produktionsordrer matcher filtrene.</TableCell></TableRow>}
+              </TableBody>
+            </Table>
+            <p className="mt-4 text-xs text-muted-foreground">Viser {filteredJobs.length} af {snapshot.jobs.length} produktionsjobs</p>
+          </div>
+          <aside className="workspace-production-inspector" aria-label="Valgt produktionsordre">
+            {inspectedJob && inspectedPresentation ? <>
+              <div className="border-b pb-4">
+                <h3 className="text-xl font-semibold">Produktionsordre {inspectedJob.order_id.slice(0, 8)}</h3>
+                <p className="mt-1 text-xs text-muted-foreground">{formatJobDate(inspectedJob.created_at)} · Print.com</p>
+              </div>
+              <div className="workspace-priority-strip my-5">
+                <h4 className="text-sm font-semibold">Næste skridt</h4>
+                <p className="mt-2 text-sm text-muted-foreground">{inspectedPresentation.nextAction}</p>
+              </div>
+              <OrderRow
+                key={inspectedJob.id}
+                job={inspectedJob}
+                tenantLabel={getTenantLabel(snapshot, inspectedJob.tenant_id)}
+                presentation={inspectedPresentation}
+                isSelected={false}
+                isBusy={Boolean(activeOperationJobId)}
+                isCurrentOperation={activeOperationJobId === inspectedJob.id}
+                validation={validation?.jobId === inspectedJob.id ? validation : null}
+                paymentMethod={paymentMethod}
+                reconciliationBlocked={isReconciliationBlocked(sessionState, inspectedJob.id)}
+                onValidate={() => handleValidate(inspectedJob.id)}
+                onConfirm={() => handleOpenConfirmation(inspectedJob.id)}
+                onOpenReconciliation={() => setReconcilingJobId(inspectedJob.id)}
+              />
+            </> : <p className="text-sm text-muted-foreground">Vælg et job i produktionsoversigten.</p>}
+          </aside>
         </div>
       )}
 
@@ -635,7 +685,7 @@ function SubmissionConfirmation({
             <ConfirmationFact label="Leverandør" value="Print.com" />
             <ConfirmationFact label="Butik" value={tenantLabel} />
             <ConfirmationFact label="Modtager" value={job.recipient_name || "Ikke angivet"} />
-            <ConfirmationFact label="Forventet leverandørpris" value={formatCurrency(job.tenant_cost, job.currency)} />
+            <ConfirmationFact label="Webprinter-pris til butik" value={formatCurrency(job.tenant_cost, job.currency)} />
             <ConfirmationFact label="Betaling" value={paymentMethod === "invoice" ? "Faktura" : "PSP"} />
           </dl>
         )}
@@ -825,4 +875,9 @@ function getTechnicalError(error: unknown): {
     response: record.response,
     uncertain: typeof record.uncertain === "boolean" ? record.uncertain : undefined,
   };
+}
+
+function formatJobDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Dato ikke oplyst" : date.toLocaleString("da-DK", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }

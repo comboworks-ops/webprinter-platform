@@ -1,3 +1,4 @@
+import { WorkspaceJobSummary } from "@/components/admin/WorkspaceJobSummary";
 import { useEffect, useMemo, useState } from "react";
 import { resolveAdminTenant, MASTER_TENANT_ID } from "@/lib/adminTenant";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,6 +17,7 @@ import { toast } from "sonner";
 
 export function Pod2Ordrer() {
     const [tenantId, setTenantId] = useState<string | null>(null);
+    const [inspectedJobId, setInspectedJobId] = useState<string | null>(null);
     const [isMasterContext, setIsMasterContext] = useState(false);
     const [tenantLabels, setTenantLabels] = useState<Record<string, string>>({});
     const [createJobDialogOpen, setCreateJobDialogOpen] = useState(false);
@@ -160,6 +162,8 @@ export function Pod2Ordrer() {
         }
     };
 
+    const inspectedJob = jobs?.find((job) => job.id === inspectedJobId) || jobs?.[0] || null;
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -214,6 +218,8 @@ export function Pod2Ordrer() {
                 </Card>
             )}
 
+            <div className="workspace-production-selection">
+            <div className="workspace-production-groups">
             {isLoading ? (
                 <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -228,7 +234,7 @@ export function Pod2Ordrer() {
                                     Afventer tenant-godkendelse
                                     {pendingApproval.length > 0 && <Badge variant="secondary">{pendingApproval.length}</Badge>}
                                 </CardTitle>
-                                <CardDescription>Jobs der er oprettet fra ordrer og skal betales af tenant, før master kan overtage.</CardDescription>
+                                <CardDescription>Ordrer hvor butikken skal betale Webprinter-prisen, før Webprinter kan sende dem til produktion.</CardDescription>
                             </CardHeader>
                             <CardContent>
                                 {pendingApproval.length === 0 ? (
@@ -240,14 +246,14 @@ export function Pod2Ordrer() {
                                                 <TableHead>Job</TableHead>
                                                 <TableHead>Produkt</TableHead>
                                                 <TableHead>Modtager</TableHead>
-                                                <TableHead>Pris</TableHead>
+                                                <TableHead>Webprinter-pris</TableHead>
                                                 <TableHead className="text-right">Handling</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
                                             {pendingApproval.map((job) => (
-                                                <TableRow key={job.id}>
-                                                    <TableCell className="font-mono text-xs tabular-nums">{job.id.slice(0, 8)}</TableCell>
+                                                <TableRow key={job.id} className={inspectedJob?.id === job.id ? "workspace-selected-row" : undefined}>
+                                                    <TableCell className="font-mono text-xs tabular-nums"><button type="button" className="workspace-row-title" onClick={() => setInspectedJobId(job.id)}>{job.id.slice(0, 8)}</button></TableCell>
                                                     <TableCell>
                                                         <div className="font-medium">{job.product_name || "-"} × {job.qty}</div>
                                                         <div className="text-xs text-muted-foreground">Ordre {job.order_id.slice(0, 8)}</div>
@@ -307,8 +313,8 @@ export function Pod2Ordrer() {
                                     </TableHeader>
                                     <TableBody>
                                         {awaitingMaster.map((job) => (
-                                            <TableRow key={job.id}>
-                                                <TableCell className="font-mono text-xs tabular-nums">{job.id.slice(0, 8)}</TableCell>
+                                            <TableRow key={job.id} className={inspectedJob?.id === job.id ? "workspace-selected-row" : undefined}>
+                                                <TableCell className="font-mono text-xs tabular-nums"><button type="button" className="workspace-row-title" onClick={() => setInspectedJobId(job.id)}>{job.id.slice(0, 8)}</button></TableCell>
                                                 {isMasterContext && <TableCell className="text-sm">{tenantLabels[job.tenant_id] || job.tenant_id.slice(0, 8)}</TableCell>}
                                                 <TableCell>
                                                     <div className="font-medium">{job.product_name || "-"} × {job.qty}</div>
@@ -380,8 +386,8 @@ export function Pod2Ordrer() {
                                     </TableHeader>
                                     <TableBody>
                                         {[...processingJobs, ...finishedJobs].slice(0, 25).map((job) => (
-                                            <TableRow key={job.id}>
-                                                <TableCell className="font-mono text-xs tabular-nums">{job.id.slice(0, 8)}</TableCell>
+                                            <TableRow key={job.id} className={inspectedJob?.id === job.id ? "workspace-selected-row" : undefined}>
+                                                <TableCell className="font-mono text-xs tabular-nums"><button type="button" className="workspace-row-title" onClick={() => setInspectedJobId(job.id)}>{job.id.slice(0, 8)}</button></TableCell>
                                                 {isMasterContext && <TableCell className="text-sm">{tenantLabels[job.tenant_id] || job.tenant_id.slice(0, 8)}</TableCell>}
                                                 <TableCell className="text-sm">{job.product_name || "-"}</TableCell>
                                                 <TableCell>
@@ -398,6 +404,10 @@ export function Pod2Ordrer() {
                     )}
                 </>
             )}
+
+            </div>
+            <WorkspaceJobSummary job={inspectedJob} statusLabel={inspectedJob ? POD_JOB_STATUS_LABELS[inspectedJob.status] : undefined} />
+            </div>
 
             <Dialog open={createJobDialogOpen} onOpenChange={setCreateJobDialogOpen}>
                 <DialogContent>
@@ -424,9 +434,9 @@ export function Pod2Ordrer() {
             <Dialog open={Boolean(approveDialog)} onOpenChange={(open) => !open && setApproveDialog(null)}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Godkend og betal tenant-omkostning</DialogTitle>
+                        <DialogTitle>Godkend og betal Webprinter-pris</DialogTitle>
                         <DialogDescription>
-                            Jobbet bliver debiteret tenantens gemte kort og overgår derefter til master-forwarding.
+                            Butikkens gemte betalingskort debiteres med Webprinter-prisen. Derefter kan ordren sendes til produktion.
                         </DialogDescription>
                     </DialogHeader>
                     {approveDialog && (

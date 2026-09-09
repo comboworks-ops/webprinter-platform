@@ -27,9 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
-  getSalgsmapperFallbackTemplates,
-  mergeProductTemplates,
-  resolveSelectedDesignerTemplateLaunch,
+  templateFileToDesignerLaunch,
   type ProductTemplateFile,
 } from "@/lib/designer/productTemplateLinks";
 import {
@@ -2014,15 +2012,9 @@ async function loadTenantSignal(pilot: TenantPilot): Promise<TenantSignal> {
     const rawProductTemplates = Array.isArray(firstProduct?.template_files)
       ? firstProduct.template_files as ProductTemplateFile[]
       : [];
-    const fallbackTemplates = firstProduct
-      ? getSalgsmapperFallbackTemplates({
-        productId: firstProduct.id,
-        productName: firstProduct.name,
-        productSlug: firstProduct.slug,
-      })
-      : [];
-    const mergedTemplates = mergeProductTemplates(rawProductTemplates, fallbackTemplates);
-    const firstProductDesignerLaunch = resolveSelectedDesignerTemplateLaunch({ templates: mergedTemplates });
+    const firstProductDesignerLaunch = rawProductTemplates
+      .map(templateFileToDesignerLaunch)
+      .find(Boolean) || null;
     const firstProductDeliverySummary = readFirstProductDeliverySummary(firstProduct);
     const legalComplianceSummary = loadLegalComplianceSummary((tenantRow as any)?.settings, (tenantRow as any)?.name || null);
 
@@ -2036,7 +2028,7 @@ async function loadTenantSignal(pilot: TenantPilot): Promise<TenantSignal> {
       firstProductPricingType: firstProduct?.pricing_type || null,
       firstProductPriceRows,
       firstProductStorformatRows,
-      firstProductTemplateCount: firstProduct ? mergedTemplates.length : null,
+      firstProductTemplateCount: firstProduct ? rawProductTemplates.length : null,
       firstProductDesignerLaunchReady: Boolean(firstProductDesignerLaunch),
       firstProductOrderCount,
       activeTemplateCount,
@@ -7858,7 +7850,7 @@ export default function CommercialReadiness() {
   const decisionOptionReadyCount = commercialDecisionOptionCards.filter((item) => item.status === "klar" || item.status === "qa").length;
 
   return (
-    <div className="space-y-6">
+    <div className="workspace-readiness space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-3xl space-y-2">
           <Badge variant="outline" className="w-fit border-sky-200 bg-sky-50 text-sky-800">
@@ -7894,6 +7886,38 @@ export default function CommercialReadiness() {
           </Button>
         </div>
       </div>
+
+      <section id="next-safe-action" className="workspace-readiness-priority scroll-mt-24 space-y-4">
+        <div className="flex items-center gap-2">
+          <ClipboardCheck className="h-5 w-5 text-slate-600" />
+          <h2 className="text-xl font-semibold">Næste sikre handling</h2>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {commercialFocusItems.map((item) => (
+            <Card key={item.title}>
+              <CardContent className="flex h-full flex-col gap-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <Badge variant="secondary">{item.label}</Badge>
+                    <h3 className="font-semibold">{item.title}</h3>
+                  </div>
+                  <StatusBadge status={item.status} />
+                </div>
+                <p className="text-sm leading-6 text-muted-foreground">{item.summary}</p>
+                <p className="text-xs font-medium leading-5 text-slate-700 dark:text-slate-300">
+                  Næste: {item.next}
+                </p>
+                <Button asChild variant="ghost" size="sm" className="mt-auto h-8 justify-between px-0">
+                  <Link to={item.href}>
+                    {item.cta}
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
@@ -7945,38 +7969,6 @@ export default function CommercialReadiness() {
           </CardContent>
         </Card>
       </div>
-
-      <section id="next-safe-action" className="scroll-mt-24 space-y-4">
-        <div className="flex items-center gap-2">
-          <ClipboardCheck className="h-5 w-5 text-slate-600" />
-          <h2 className="text-xl font-semibold">Næste sikre handling</h2>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-3">
-          {commercialFocusItems.map((item) => (
-            <Card key={item.title}>
-              <CardContent className="flex h-full flex-col gap-3 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
-                    <Badge variant="secondary">{item.label}</Badge>
-                    <h3 className="font-semibold">{item.title}</h3>
-                  </div>
-                  <StatusBadge status={item.status} />
-                </div>
-                <p className="text-sm leading-6 text-muted-foreground">{item.summary}</p>
-                <p className="text-xs font-medium leading-5 text-slate-700 dark:text-slate-300">
-                  Næste: {item.next}
-                </p>
-                <Button asChild variant="ghost" size="sm" className="mt-auto h-8 justify-between px-0">
-                  <Link to={item.href}>
-                    {item.cta}
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </section>
 
       <section id="goal-execution" className="scroll-mt-24 space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

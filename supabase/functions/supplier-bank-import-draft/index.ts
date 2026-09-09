@@ -255,6 +255,12 @@ const getPriceReviewGate = (
 };
 
 const getMatrixDraftImportUnsupportedReason = (bankProduct: any) => {
+  if (bankProduct?.metadata?.operation === "append_to_existing_product") {
+    const targetName = normalizeText(bankProduct.metadata.targetProductSlug || bankProduct.metadata.targetProductId);
+    return targetName
+      ? `Denne bankpakke er en fortsættelse til ${targetName} og kan ikke importeres som et selvstændigt produkt.`
+      : "Denne bankpakke er en fortsættelse til et eksisterende produkt og kan ikke importeres som et selvstændigt produkt.";
+  }
   if (bankProduct?.supplier_product_key === PIXART_FLAT_BANK_PRODUCT_KEY) {
     return "Pixart flat-surface rows require the storformat conversion path before draft import.";
   }
@@ -734,7 +740,7 @@ serve(async (req) => {
 
     const { data: bankProduct, error: productError } = await serviceClient
       .from("supplier_bank_products")
-      .select("id,supplier_id,supplier_product_key,product_family,name_da,name_original,description_da,description_original,status,normalized_attributes,normalized_pricing_summary,raw_snapshot_path")
+      .select("id,supplier_id,supplier_product_key,product_family,name_da,name_original,description_da,description_original,status,normalized_attributes,normalized_pricing_summary,raw_snapshot_path,metadata")
       .eq("id", bankProductId)
       .single();
 

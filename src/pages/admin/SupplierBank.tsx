@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -5160,7 +5161,7 @@ export default function SupplierBank() {
               </p>
             </div>
           ) : (
-            <div className="grid gap-3 2xl:grid-cols-2">
+            <WorkspaceCollection label="Produkter i leverandørbanken" items={filteredProducts.map(product => ({ id: product.id, title: product.name_da, subtitle: product.name_original }))}>
               {filteredProducts.map((product) => {
                 const supplier = supplierById.get(product.supplier_id);
                 const pricing = resolveProductPricingSummary(
@@ -5446,7 +5447,7 @@ export default function SupplierBank() {
                   </div>
                 );
               })}
-            </div>
+            </WorkspaceCollection>
           )}
         </CardContent>
         </Card>

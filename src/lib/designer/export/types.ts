@@ -20,6 +20,7 @@ export interface ExportOptions {
     includeBleed: boolean;
     includeTrimMarks?: boolean;  // Future feature
     preserveVector?: boolean;    // For vector PDF background preservation
+    colorMode?: 'convert_cmyk' | 'preserve_rgb';
 }
 
 export interface DocumentSpec {
@@ -44,4 +45,5 @@ export interface ExportResult {
     success: boolean;
     filename: string;
     error?: string;
+    warnings?: string[];
 }

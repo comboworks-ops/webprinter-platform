@@ -14,8 +14,16 @@ export type UiMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden' | 'small' 
 export interface LayoutValueSetting {
     showThumbnail?: boolean;
     customImage?: string;
+    /** Opt in when an explicit backend image should replace a built-in option image. */
+    preferCustomImage?: boolean;
+    /** Legacy/import-friendly alias for preferCustomImage. */
+    prefer_custom_image?: boolean;
     hoverImage?: string;
     imageSizePx?: number;
+    brandBadgeImage?: string;
+    brandBadgeAlt?: string;
+    brandBadgeLabel?: string;
+    brandBadgeBackgroundColor?: string;
     displayName?: string;
     linkedTemplateId?: string;
     backgroundColor?: string;
@@ -160,6 +168,13 @@ export interface SelectorStyling {
     selectorBox?: Partial<SelectorBoxStyling>;
 }
 
+/** Presentation-only grouping for selector values. Value UUIDs remain authoritative. */
+export interface SelectorValueGroup {
+    id: string;
+    label: string;
+    valueIds: string[];
+}
+
 // ============ Vertical Axis Config ============
 export interface VerticalAxisConfig {
     sectionId: string;
@@ -186,12 +201,40 @@ export interface LayoutColumn {
     selection_mode?: SelectionMode;
     valueSettings?: Record<string, LayoutValueSetting>;
     selectorStyling?: SelectorStyling;
+    /** Visually group the configured values without changing pricing selections. */
+    valueGroups?: SelectorValueGroup[];
+    /** Legacy/import-friendly alias for valueGroups. */
+    value_groups?: SelectorValueGroup[];
     ui_mode: UiMode;
     title?: string;
     description?: string;
     labelOverride?: string;
     thumbnail_size?: 'small' | 'medium' | 'large' | 'xl';
     thumbnail_custom_px?: number;
+    /** Hide values that have no price row for the selections made above this column. */
+    hideUnavailableValues?: boolean;
+    /** Legacy/import-friendly alias for hideUnavailableValues. */
+    hide_unavailable_values?: boolean;
+    /** Let explicit backend option images replace built-in artwork in this column. */
+    preferCustomImage?: boolean;
+    /** Legacy/import-friendly alias for preferCustomImage. */
+    prefer_custom_image?: boolean;
+    /** After an explicit choice, replace the option grid with a selected-value detail card. */
+    focusSelectedValue?: boolean;
+    /** Legacy/import-friendly alias for focusSelectedValue. */
+    focus_selected_value?: boolean;
+    /** Present option artwork on a neutral white surface, regardless of tenant card colors. */
+    neutralWhiteSurface?: boolean;
+    /** Legacy/import-friendly alias for neutralWhiteSurface. */
+    neutral_white_surface?: boolean;
+    /** Prefer compact image choices when the currently available values have visual assets. */
+    adaptiveImageSelector?: boolean;
+    /** Legacy/import-friendly alias for adaptiveImageSelector. */
+    adaptive_image_selector?: boolean;
+    /** Hide a required dependent selector when only one compatible value is available. */
+    hideSingleAvailableValue?: boolean;
+    /** Legacy/import-friendly alias for hideSingleAvailableValue. */
+    hide_single_available_value?: boolean;
 }
 
 // ============ Layout Row ============
@@ -209,6 +252,24 @@ export interface MatrixLayoutV1 {
     vertical_axis: VerticalAxisConfig;
     layout_rows: LayoutRow[];
     quantities?: number[];
+    /**
+     * Opt in to resolving an unavailable choice to the closest existing exact
+     * price-row combination. No interpolated or synthetic combination is used.
+     */
+    autoResolveExactCombination?: boolean;
+    /** Legacy/import-friendly alias for autoResolveExactCombination. */
+    auto_resolve_exact_combination?: boolean;
+    /** Supplier/customer axis order used when choosing which selections to preserve. */
+    customerSelectionOrder?: string[];
+    /** Maps supplier axis keys to their Matrix Layout section IDs. */
+    templateBinding?: {
+        profile?: string;
+        axisSections?: Record<string, string>;
+    };
+    /** Omit quantity columns that have no price for the active option combination. */
+    hideUnavailableQuantities?: boolean;
+    /** Legacy/import-friendly alias for hideUnavailableQuantities. */
+    hide_unavailable_quantities?: boolean;
     // Per-product button styling (overrides global branding)
     buttonStyling?: {
         textButtons?: TextButtonStyling;

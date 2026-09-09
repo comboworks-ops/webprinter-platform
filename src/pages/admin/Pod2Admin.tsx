@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 // POD v2 Admin - Master Tenant Print on Demand Management
 // Includes Explorer, Browse, Curate, Pricing, and Publish tabs
 
@@ -2610,7 +2611,7 @@ function BrowseTab({
                                 <p>Ingen produkter matcher din søgning.</p>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <WorkspaceCollection label="Vælg leverandørprodukt" className="workspace-supplier-selector" items={filteredProducts.map((product: any, index: number) => ({ id: String(product?.sku || product?.id || product?.productId || product?.product_id || index), title: String(product?.titleSingle || product?.title || product?.name || product?.titlePlural || `Produkt ${index + 1}`), subtitle: String(product?.sku || product?.id || product?.category || "") }))}>
                                 {filteredProducts.map((product: any, idx: number) => {
                                     const sku = String(product?.sku || product?.id || product?.productId || product?.product_id || "");
                                     const isImported = sku ? importedSkus.has(sku) : false;
@@ -2660,7 +2661,7 @@ function BrowseTab({
                                         </Card>
                                     );
                                 })}
-                            </div>
+                            </WorkspaceCollection>
                         )}
                     </div>
                 )}
@@ -2966,7 +2967,7 @@ function BrowseTab({
                                                     const options = Array.isArray(property.options) ? property.options : [];
 
                                                     return (
-                                                        <div key={property.slug} className="space-y-2 border rounded-lg p-3">
+                                                        <div key={property.slug} className="workspace-pod2-variant-row space-y-2 border rounded-lg p-3">
                                                             <div className="flex flex-col gap-1">
                                                                 <Label className="text-sm">{property.title || property.slug}</Label>
                                                                 <Input

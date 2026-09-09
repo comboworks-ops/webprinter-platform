@@ -4,7 +4,7 @@
  * Modal for choosing export mode (Print PDF, Proof PDF, Vector PDF, Original PDF)
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -31,6 +31,7 @@ interface ExportDialogProps {
     pdfSourceMeta?: { originalUrl: string; originalFilename: string; uploadedAt: string } | null;
     hasChanges: boolean;
     hasPdfBackground?: boolean;  // True if a PDF was imported as background
+    defaultColorMode?: 'convert_cmyk' | 'preserve_rgb';
 }
 
 export function ExportDialog({
@@ -41,10 +42,13 @@ export function ExportDialog({
     hasBleed,
     pdfSourceMeta,
     hasChanges,
-    hasPdfBackground = false
+    hasPdfBackground = false,
+    defaultColorMode = 'convert_cmyk',
 }: ExportDialogProps) {
     const [mode, setMode] = useState<ExportMode>('print_pdf');
     const [includeBleed, setIncludeBleed] = useState(true);
+    const [colorMode, setColorMode] = useState(defaultColorMode);
+    useEffect(() => { if (open) setColorMode(defaultColorMode); }, [open, defaultColorMode]);
 
     const showOriginalPdf = isOriginalPdfAvailable(pdfSourceMeta, hasChanges);
 
@@ -52,13 +56,13 @@ export function ExportDialog({
         {
             id: 'print_pdf',
             label: 'Print PDF',
-            description: 'Produktions-PDF med korrekt størrelse og beskæring. Til trykkerier.',
+            description: 'Produktions-PDF med skarp tekst og vektorer, hvor understøttet. Bevarer importerede PDF-farver.',
             recommended: !hasPdfBackground,  // Recommend if no PDF background
         },
         {
             id: 'vector_pdf',
             label: 'Vektor PDF',
-            description: 'Bevar importeret PDF som vektor (tekst forbliver skarp ved zoom). Anbefalet til uploadede PDF-filer.',
+            description: 'Bevar importeret PDF og nye understøttede objekter som vektorer. Originale PDF-farver genkonverteres ikke.',
             recommended: hasPdfBackground,  // Recommend if PDF background present
             hidden: !hasPdfBackground,
         },
@@ -81,6 +85,7 @@ export function ExportDialog({
         await onExport({
             mode,
             includeBleed: mode === 'original_pdf' ? false : includeBleed,
+            colorMode,
         });
     };
 
@@ -148,6 +153,19 @@ export function ExportDialog({
                             </div>
                         ))}
                     </RadioGroup>
+
+                    {(mode === 'print_pdf' || mode === 'vector_pdf') && (
+                        <div className="space-y-2 border-t pt-3">
+                            <Label htmlFor="production-color-mode">Farver til produktion</Label>
+                            <select id="production-color-mode" value={colorMode}
+                                onChange={event => setColorMode(event.target.value as typeof colorMode)}
+                                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                                <option value="convert_cmyk">CMYK – konvertér nye objekter til den valgte profil</option>
+                                <option value="preserve_rgb">sRGB – trykkeriet håndterer farvekonverteringen</option>
+                            </select>
+                            <p className="text-xs text-muted-foreground">Importerede PDF-farver bevares. Skrifter uden tilgængelige skriftdata og særlige effekter rasteriseres enkeltvis og vises som en eksportbemærkning.</p>
+                        </div>
+                    )}
 
                     {/* Bleed option - only show for print_pdf and proof_pdf, and if document has bleed */}
                     {hasBleed && mode !== 'original_pdf' && mode !== 'vector_pdf' && (

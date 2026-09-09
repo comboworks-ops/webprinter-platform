@@ -13,6 +13,7 @@ export interface PlatformSlide {
     label: string;
     alt: string;
     src: string;
+    webpSrc?: string;
 }
 
 /**
@@ -44,6 +45,7 @@ export const PLATFORM_SLIDES: PlatformSlide[] = [
     label: name,
     alt: name,
     src: `/platform/slider/${name}.png`,
+    webpSrc: `/platform/slider/${name}.webp`,
 }));
 
 /**
@@ -54,10 +56,10 @@ export function getSlideLabel(slide: PlatformSlide): string {
 }
 
 /**
- * Legacy helper - kept for compatibility but PNG slides don't use WebP.
+ * Whether an optimized WebP derivative is available; PNGs remain the fallback.
  */
-export function hasWebpSource(_slide: PlatformSlide): boolean {
-    return false;
+export function hasWebpSource(slide: PlatformSlide): boolean {
+    return Boolean(slide.webpSrc);
 }
 
 /**

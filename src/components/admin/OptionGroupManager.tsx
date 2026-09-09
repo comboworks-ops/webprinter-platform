@@ -46,6 +46,9 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
   const [editingOptionData, setEditingOptionData] = useState<Partial<ProductOption>>({});
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editingGroupDescription, setEditingGroupDescription] = useState("");
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [previewOptionId, setPreviewOptionId] = useState<string | null>(null);
+  const selectedGroup = groups.find(group => group.id === selectedGroupId) || groups[0];
 
   useEffect(() => {
     fetchData();
@@ -560,8 +563,15 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
         </Card>
       )}
 
-      <div className="space-y-4">
-        {groups.map(group => (
+      <div className="admin-options-workspace">
+        <nav className="admin-options-groups" aria-label="Valggrupper">
+          <h3 className="mb-4 font-semibold">Grupper</h3>
+          {groups.map(group => <button key={group.id} type="button" className="admin-options-group" aria-pressed={selectedGroup?.id === group.id} onClick={() => { setSelectedGroupId(group.id); setPreviewOptionId(null); }}>
+            <span>{group.label}</span><span className="text-xs text-muted-foreground">{options[group.id]?.length || 0} valg</span>
+          </button>)}
+        </nav>
+      <div className="admin-options-editor space-y-4">
+        {groups.filter(group => group.id === selectedGroup?.id).map(group => (
           <Card key={group.id} className="border-primary">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
@@ -720,10 +730,10 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
                           placeholder="Beskrivelse (valgfri)"
                           className="w-48"
                         />
-                        <Button size="icon" variant="ghost" onClick={handleSaveOption}>
+                        <Button aria-label={`Gem ændringer til ${option.label}`} size="icon" variant="ghost" onClick={handleSaveOption}>
                           <Save className="w-4 h-4" />
                         </Button>
-                        <Button size="icon" variant="ghost" onClick={() => setEditingOption(null)}>
+                        <Button aria-label={`Annuller redigering af ${option.label}`} size="icon" variant="ghost" onClick={() => setEditingOption(null)}>
                           <X className="w-4 h-4" />
                         </Button>
                       </>
@@ -742,6 +752,7 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
                           </span>
                         )}
                         <Button
+                          aria-label={`Rediger ${option.label}`}
                           size="icon"
                           variant="ghost"
                           onClick={() => {
@@ -760,6 +771,7 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
                           <Copy className="w-4 h-4" />
                         </Button>
                         <Button
+                          aria-label={`Slet ${option.label}`}
                           size="icon"
                           variant="ghost"
                           onClick={() => handleDeleteOption(option.id, group.id)}
@@ -783,6 +795,22 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
             </CardContent>
           </Card>
         ))}
+      </div>
+        <aside className="admin-options-preview">
+          <h3 className="font-semibold">Valgvisning</h3>
+          <p className="mt-2 text-sm text-muted-foreground">Afprøv gruppens indhold. Valg her ændrer ikke produktet.</p>
+          {selectedGroup && <div className="mt-6 space-y-3">
+            <h4 className="font-medium">{selectedGroup.label}</h4>
+            {selectedGroup.description && <p className="text-sm text-muted-foreground">{selectedGroup.description}</p>}
+            {(options[selectedGroup.id] || []).map(option => {
+              const preview = editingOption === option.id ? { ...option, ...editingOptionData } : option;
+              return <button type="button" key={option.id} className="admin-option-preview" aria-pressed={previewOptionId === option.id} onClick={() => setPreviewOptionId(option.id)}>
+                {preview.icon_url && <img src={preview.icon_url} alt="" className="h-16 w-16 shrink-0 rounded object-contain" />}
+                <span className="min-w-0"><strong className="block text-sm">{preview.label}</strong>{preview.description && <span className="mt-1 block text-xs text-muted-foreground">{preview.description}</span>}{preview.extra_price > 0 && <span className="mt-2 block text-xs">+{preview.extra_price} kr{preview.price_mode === 'per_quantity' ? '/stk' : preview.price_mode === 'per_area' ? '/m²' : ''}</span>}</span>
+              </button>;
+            })}
+          </div>}
+        </aside>
       </div>
     </div>
   );

@@ -100,7 +100,7 @@ export function PodBetaling() {
                     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
             ) : (
-                <div className="max-w-2xl space-y-6">
+                <div className="workspace-pod-billing workspace-pod-billing-v1">
                     {/* Current Status */}
                     <Card>
                         <CardHeader>
@@ -116,9 +116,9 @@ export function PodBetaling() {
                             <div className="flex items-center gap-4">
                                 {isReady ? (
                                     <>
-                                        <div className="flex items-center gap-2 text-green-600">
+                                        <div className={`flex items-center gap-2 ${billing?.default_payment_method_id?.startsWith("pm_demo_") ? "text-amber-700" : "text-green-600"}`}>
                                             <CheckCircle className="h-5 w-5" />
-                                            <span className="font-medium">Betalingsmetode aktiv</span>
+                                            <span className="font-medium">{billing?.default_payment_method_id?.startsWith("pm_demo_") ? "Demobetalingsmetode — kort er ikke bekræftet" : "Betalingsmetode aktiv"}</span>
                                         </div>
                                         <Badge variant="outline">
                                             {billing?.default_payment_method_id?.slice(0, 12)}...
@@ -199,7 +199,7 @@ export function PodBetaling() {
                         </CardHeader>
                         <CardContent>
                             <p className="text-center py-8 text-muted-foreground">
-                                Ingen transaktioner endnu
+                                Transaktionshistorik er endnu ikke tilsluttet
                             </p>
                         </CardContent>
                     </Card>

@@ -382,7 +382,7 @@ export function UnifiedBrandingEditor({ adapter, capabilities }: UnifiedBranding
             </AlertDialog>
 
             {/* Main Content: Editor + Preview */}
-            <div className="space-y-8">
+            <div className="workspace-classic-branding">
                 {/* Editor Tabs */}
                 <div className="space-y-6">
                     <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -532,8 +532,8 @@ export function UnifiedBrandingEditor({ adapter, capabilities }: UnifiedBranding
                     </Tabs>
                 </div>
 
-                {/* Preview Panel - Full Width at Bottom */}
-                <Card>
+                {/* Live preview alongside the classic settings. */}
+                <Card className="workspace-classic-preview">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <div className="space-y-1">
                             <CardTitle>Forhåndsvisning</CardTitle>

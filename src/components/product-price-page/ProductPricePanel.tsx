@@ -23,14 +23,24 @@ import {
 } from "@/lib/designer/apparelDesigner";
 import type { DesignerTemplateLaunch } from "@/lib/designer/productTemplateLinks";
 import {
+  buildCurrentInternalPath,
+  buildDesignerCheckoutPath,
+  copyStorefrontContextParams,
+} from "@/lib/designer/orderFlowNavigation";
+import {
   resolveStorefrontProductFlow,
   type StorefrontProductFlow,
 } from "@/lib/sites/storefrontProductFlow";
 import { prepareCompanyCheckout } from "@/lib/company-hub";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import {
+  ProductFormatGuideDialog,
+  type ProductFormatGuideData,
+} from "@/components/product-price-page/ProductFormatGuide";
 
 type ProductPricePanelProps = {
+  presentation?: "order-flow";
   productId: string;
   quantity: number;
   productPrice: number;
@@ -79,6 +89,7 @@ type ProductPricePanelProps = {
     buttonLabel?: string | null;
     helperText?: string | null;
   } | null;
+  formatGuide?: ProductFormatGuideData | null;
   companyContext?: Pick<
     SiteCheckoutState,
     | "companyId"
@@ -147,22 +158,6 @@ const DEFAULT_DELIVERY_METHODS: DeliveryMethod[] = [
   }
 ];
 
-const TENANT_CONTEXT_QUERY_KEYS = ["force_domain", "tenantId", "siteId", "sitePreview", "preview_mode"];
-
-const copyTenantContextParams = (target: URLSearchParams, source: URLSearchParams) => {
-  TENANT_CONTEXT_QUERY_KEYS.forEach((key) => {
-    const value = source.get(key);
-    if (value) target.set(key, value);
-  });
-};
-
-const buildDesignerReturnTo = (source: URLSearchParams) => {
-  const checkoutParams = new URLSearchParams();
-  copyTenantContextParams(checkoutParams, source);
-  const checkoutQuery = checkoutParams.toString();
-  return `/checkout/konfigurer${checkoutQuery ? `?${checkoutQuery}` : ""}`;
-};
-
 const MotionButton = motion(Button);
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -225,6 +220,7 @@ const ensureReadableTextColor = (background: string, preferred: string, dark = "
 };
 
 export function ProductPricePanel({
+  presentation,
   productId,
   quantity,
   productPrice,
@@ -254,6 +250,7 @@ export function ProductPricePanel({
   externalDeliveryError,
   externalDeliveryConfig,
   canvaOffer,
+  formatGuide,
   companyContext,
 }: ProductPricePanelProps) {
   const navigate = useNavigate();
@@ -267,6 +264,7 @@ export function ProductPricePanel({
     () => productFlow || resolveStorefrontProductFlow({ name: productName }),
     [productFlow, productName],
   );
+  const professionalPdfUploadOnly = designerTemplateLaunch?.artworkMode === "professional_pdf_upload_only";
   const templateDownloadName = useMemo(() => {
     if (!designerTemplateLaunch?.name) return "produkt-skabelon.pdf";
     return designerTemplateLaunch.name.toLowerCase().endsWith(".pdf")
@@ -990,6 +988,9 @@ export function ProductPricePanel({
       selectedVariant,
       productName,
       productSlug,
+      productReturnPath: typeof window !== "undefined"
+        ? buildCurrentInternalPath(window.location.pathname, window.location.search)
+        : null,
       designerMode: activeProductFlow.designerMode,
       pricingModel: activeProductFlow.pricingModel,
       productFlowLabel: activeProductFlow.badgeLabel,
@@ -1002,6 +1003,9 @@ export function ProductPricePanel({
       linkedTemplateId: linkedTemplateId ?? null,
       templatePdfName: designerTemplateLaunch?.name || null,
       templatePdfUrl: designerTemplateLaunch?.pdfUrl || null,
+      templatePdfSha256: designerTemplateLaunch?.templatePdfSha256 || null,
+      templateArtworkMode: designerTemplateLaunch?.artworkMode || null,
+      templateArtworkModeReasonDa: designerTemplateLaunch?.artworkModeReasonDa || null,
       templateDownloadedAt: (() => {
         const existingSession = readSiteCheckoutSession();
         if (!existingSession || !designerTemplateLaunch?.pdfUrl) return null;
@@ -1009,10 +1013,10 @@ export function ProductPricePanel({
           ? existingSession.templateDownloadedAt || null
           : null;
       })(),
-      designWidthMm: designWidthMm ?? null,
-      designHeightMm: designHeightMm ?? null,
-      designBleedMm: designBleedMm ?? null,
-      designSafeAreaMm: designSafeAreaMm ?? null,
+      designWidthMm: designerTemplateLaunch?.widthMm ?? designWidthMm ?? null,
+      designHeightMm: designerTemplateLaunch?.heightMm ?? designHeightMm ?? null,
+      designBleedMm: designerTemplateLaunch?.bleedMm ?? designBleedMm ?? null,
+      designSafeAreaMm: designerTemplateLaunch?.safeMm ?? designSafeAreaMm ?? null,
       apparelConfig: activeProductFlow.designerMode === "apparel"
         ? (() => {
           const optionText = readApparelOptionText({
@@ -1121,6 +1125,9 @@ export function ProductPricePanel({
     linkedTemplateId,
     designerTemplateLaunch?.name,
     designerTemplateLaunch?.pdfUrl,
+    designerTemplateLaunch?.templatePdfSha256,
+    designerTemplateLaunch?.artworkMode,
+    designerTemplateLaunch?.artworkModeReasonDa,
     designWidthMm,
     designHeightMm,
     designBleedMm,
@@ -1136,6 +1143,364 @@ export function ProductPricePanel({
     activeProductFlow.designerMode,
     activeProductFlow.pricingModel,
   ]);
+
+  if (presentation === 'order-flow') return <div className="order-compact-price-panel" data-storefront-order-panel="price">
+    <details className="order-price-details"><summary>Din valgte konfiguration</summary><p>{summary}</p>
+      {optionSelections && Object.values(optionSelections).map((option, idx) => <p key={idx}>{option.name}</p>)}
+      <p>{activeProductFlow.customerHelpText}</p>{formatGuide && <ProductFormatGuideDialog data={formatGuide} />}
+    </details>
+    <div className="order-compact-subtotal"><span>Produkt, ex. moms</span><strong>{baseTotal > 0 ? `${baseTotal} kr` : 'Vælg antal'}</strong></div>
+      {/* Delivery options - Always Visible */}
+      {hasStableSelection && (
+        <div className="space-y-3 pt-4">
+          <Label data-branding-id="productPage.pricePanel.text" className="price-panel-title text-base font-semibold">Levering</Label>
+          {externalMode && externalDeliveryLoading && (
+            <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-xs">Henter leveringsmuligheder...</p>
+          )}
+          {externalMode && externalDeliveryError && (
+            <p className="text-xs text-destructive">{externalDeliveryError}</p>
+          )}
+          {activeDeliveryMethods.length === 0 && (
+            <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-xs">Ingen leveringsmuligheder endnu.</p>
+          )}
+          <RadioGroup value={shippingSelected} onValueChange={setShippingSelected} className="space-y-2">
+            {activeDeliveryMethods.map((method) => {
+              const isSelected = shippingSelected === method.id;
+              const productionDays = method.production_days ?? 0;
+              const shippingDays = method.shipping_days ?? 0;
+              const baseDays = productionDays + shippingDays;
+              const minDays = baseDays > 0 ? baseDays : (typeof method.lead_time_days === "number" ? method.lead_time_days : 0);
+              const windowDays = method.delivery_window_days ?? 0;
+              const maxDays = minDays + Math.max(0, windowDays);
+              // Fast production can pull the estimate forward, but never below the shipping leg itself.
+              const adjustedMinDays = Math.max(Math.max(0, shippingDays), minDays - Math.max(0, deliveryBusinessDayOffset));
+              const adjustedMaxDays = Math.max(adjustedMinDays, maxDays - Math.max(0, deliveryBusinessDayOffset));
+              const hasFixedDeliveryDate = !!method.delivery_date;
+              const cutoffDate = hasFixedDeliveryDate ? null : getNextCutoffDate(method);
+              const countdownLabel = cutoffDate ? formatCountdown(cutoffDate.getTime() - now.getTime()) : null;
+              const cutoffLabelText = method.cutoff_label === "latest" ? "Senest bestilling" : "Deadline";
+              const descriptionLine = method.description?.trim();
+              const descriptionShort = descriptionLine ? truncateText(descriptionLine, 25) : "";
+              const cutoffTimeLabel = !hasFixedDeliveryDate && method.cutoff_time
+                ? (cutoffDate && isSameDay(cutoffDate, now)
+                  ? `${cutoffLabelText} i dag kl. ${method.cutoff_time}`
+                  : cutoffDate && isTomorrow(cutoffDate, now)
+                    ? `${cutoffLabelText} i morgen kl. ${method.cutoff_time}`
+                    : `${cutoffLabelText} kl. ${method.cutoff_time}`)
+                : null;
+              const showDeadline = externalMode ? (externalDeliveryConfig?.show_deadline ?? false) : true;
+              const submissionLabel = showDeadline ? formatDeadlineDate(method.submission) : null;
+              const effectiveCountdown = showDeadline ? countdownLabel : null;
+              const orderDate = cutoffDate ? new Date(cutoffDate) : new Date(now);
+              const fixedDeliveryDate = method.delivery_date ? new Date(method.delivery_date) : null;
+              const earliestDelivery = fixedDeliveryDate
+                ? fixedDeliveryDate
+                : (adjustedMinDays > 0 ? addBusinessDays(orderDate, adjustedMinDays) : orderDate);
+              const latestDelivery = fixedDeliveryDate
+                ? fixedDeliveryDate
+                : (adjustedMaxDays > 0 ? addBusinessDays(orderDate, adjustedMaxDays) : orderDate);
+              const deliveryDateLabel = earliestDelivery && latestDelivery
+                ? earliestDelivery.toDateString() === latestDelivery.toDateString()
+                  ? `Levering: ${formatDeliveryDateShort(earliestDelivery)}`
+                  : `Levering: ${formatDeliveryDateShort(earliestDelivery)} - ${formatDeliveryDateShort(latestDelivery)}`
+                : null;
+              const cost = computeShippingCost(method);
+              const showCarrierLogo = externalMode && (externalDeliveryConfig?.show_carrier ?? false);
+              const carrierLogo = showCarrierLogo ? getCarrierLogo(method.carrier, method.method) : null;
+              const nameLabel = externalMode
+                ? method.name
+                : `${method.name}${!/levering/i.test(method.name) ? " levering" : ""}`;
+
+              return (
+                <div
+                  key={method.id}
+                  data-branding-id="productPage.pricePanel.optionCard"
+                  className={cn(
+                    "price-panel-option flex min-h-11 items-start space-x-2 rounded-md border p-3 transition-colors",
+                    isSelected && "price-panel-option--selected"
+                  )}
+                >
+                  <RadioGroupItem
+                    value={method.id}
+                    id={`delivery-${method.id}`}
+                    style={{
+                      color: pricePanelStyles.config.priceColor,
+                      borderColor: isSelected
+                        ? pricePanelStyles.config.optionSelectedBorderColor
+                        : pricePanelStyles.config.optionBorderColor,
+                    }}
+                  />
+                  <Label htmlFor={`delivery-${method.id}`} className="cursor-pointer flex-1">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          {carrierLogo && (
+                            <span className="inline-flex items-center justify-center rounded border bg-background px-1.5 py-1">
+                              <img
+                                src={carrierLogo}
+                                alt={method.carrier || method.method || "Carrier"}
+                                className="h-4 w-auto object-contain"
+                                loading="lazy"
+                              />
+                            </span>
+                          )}
+                          <span data-branding-id="productPage.pricePanel.text" className="price-panel-text text-sm font-medium">
+                            {nameLabel}
+                          </span>
+                          {descriptionShort && (
+                            <span data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-[11px]">
+                              {descriptionShort}
+                            </span>
+                          )}
+                        </div>
+                        {(effectiveCountdown || cutoffTimeLabel) && (
+                          <div data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted mt-1 flex items-center gap-2 text-xs">
+                            {effectiveCountdown && (
+                              <span data-branding-id="productPage.pricePanel.badge" className="price-panel-badge inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-[11px] font-semibold">
+                                {effectiveCountdown}
+                              </span>
+                            )}
+                            {showDeadline && cutoffTimeLabel && <span>{cutoffTimeLabel}</span>}
+                          </div>
+                        )}
+                        {showDeadline && submissionLabel && (
+                          <div data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted mt-1 text-xs">Bestil senest: {submissionLabel}</div>
+                        )}
+                        {deliveryDateLabel && (
+                          <div data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted mt-1 text-xs">{deliveryDateLabel}</div>
+                        )}
+                      </div>
+                      <span data-branding-id="productPage.pricePanel.price" className="price-panel-price text-left text-sm font-semibold tabular-nums sm:min-w-[88px] sm:text-right">{cost} kr</span>
+                    </div>
+                  </Label>
+                </div>
+              );
+            })}
+          </RadioGroup>
+
+          <div className="price-panel-divider flex flex-col gap-1 border-t pt-4 sm:flex-row sm:items-end sm:justify-between">
+            <span data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-sm">Samlet pris ex. moms:</span>
+            <span
+              data-branding-id="productPage.pricePanel.price"
+              className="price-panel-price min-w-0 text-left text-3xl font-heading font-bold tabular-nums sm:min-w-[170px] sm:text-right sm:text-4xl"
+            >
+              {totalPrice} kr
+            </span>
+          </div>
+        </div>
+      )}
+
+    {hasStableSelection && <div className="order-compact-actions">            <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto">
+              {activeProductFlow.showDesignerButton && !professionalPdfUploadOnly && (
+                <MotionButton
+                  {...orderButtonMotionProps}
+                  data-surface={orderButtonMotion.surfaceStyle}
+                  data-branding-id={designReady ? "productPage.orderButtons.selected" : "productPage.orderButtons.secondary"}
+                  variant="outline"
+                  size="lg"
+                  className={cn(
+                    "min-h-12 w-full touch-manipulation gap-2 py-5 border-2",
+                    designReady
+                      ? "order-selected-button"
+                      : "order-secondary-button border-dashed border-2"
+                  )}
+                  style={designReady ? selectedButtonCssVars : secondaryButtonCssVars}
+                  onClick={() => {
+                    const checkoutState = persistCheckoutState({ crossTab: true });
+                    const currentSearchParams = new URLSearchParams(
+                      typeof window !== "undefined" ? window.location.search : ""
+                    );
+                    const params = new URLSearchParams();
+                    copyStorefrontContextParams(params, currentSearchParams);
+                    params.set('productId', productId);
+                    if (activeProductFlow.designerMode) params.set('designerMode', activeProductFlow.designerMode);
+                    if (activeProductFlow.pricingModel) params.set('pricingModel', activeProductFlow.pricingModel);
+                    if (activeProductFlow.requiresCutContour) params.set('requiresCutContour', '1');
+                    if (selectedFormat) params.set('format', selectedFormat);
+                    if (linkedTemplateId) params.set('templateId', linkedTemplateId);
+                    if (selectedVariant) params.set('variant', selectedVariant);
+                    const launchWidthMm = designerTemplateLaunch?.widthMm;
+                    const launchHeightMm = designerTemplateLaunch?.heightMm;
+                    const launchBleedMm = designerTemplateLaunch?.bleedMm;
+                    const launchSafeMm = designerTemplateLaunch?.safeMm;
+
+                    const resolvedWidthMm = typeof launchWidthMm === "number" && launchWidthMm > 0 ? launchWidthMm : designWidthMm;
+                    const resolvedHeightMm = typeof launchHeightMm === "number" && launchHeightMm > 0 ? launchHeightMm : designHeightMm;
+                    const resolvedBleedMm = typeof launchBleedMm === "number" && launchBleedMm >= 0 ? launchBleedMm : designBleedMm;
+                    const resolvedSafeMm = typeof launchSafeMm === "number" && launchSafeMm >= 0 ? launchSafeMm : designSafeAreaMm;
+                    const apparelConfig = checkoutState.apparelConfig;
+
+                    if (designerTemplateLaunch?.pdfUrl) {
+                      params.set('templatePdfUrl', designerTemplateLaunch.pdfUrl);
+                      params.set('templatePdfName', designerTemplateLaunch.name);
+                      if (designerTemplateLaunch.templatePdfSha256) {
+                        params.set('templatePdfSha256', designerTemplateLaunch.templatePdfSha256);
+                      }
+                    }
+                    if (typeof launchWidthMm === "number" && launchWidthMm > 0) {
+                      params.set('templateWidthMm', String(launchWidthMm));
+                    }
+                    if (typeof launchHeightMm === "number" && launchHeightMm > 0) {
+                      params.set('templateHeightMm', String(launchHeightMm));
+                    }
+                    if (typeof launchBleedMm === "number" && launchBleedMm >= 0) {
+                      params.set('templateBleedMm', String(launchBleedMm));
+                    }
+                    if (typeof launchSafeMm === "number" && launchSafeMm >= 0) {
+                      params.set('templateSafeMm', String(launchSafeMm));
+                    }
+                    if (checkoutState.companyWorkingDesignId) {
+                      params.set('designId', checkoutState.companyWorkingDesignId);
+                      params.set('companyControlled', '1');
+                    }
+                    if (activeProductFlow.designerMode === "apparel" && apparelConfig) {
+                      params.set('apparel', '1');
+                      if (apparelConfig.productName) params.set('apparelProduct', apparelConfig.productName);
+                      if (apparelConfig.garmentColor) params.set('apparelColor', apparelConfig.garmentColor);
+                      if (apparelConfig.printMethod) params.set('apparelMethod', apparelConfig.printMethod);
+                      if (apparelConfig.printPositionId) params.set('apparelPosition', apparelConfig.printPositionId);
+                      if (apparelConfig.activeSide) params.set('apparelSide', apparelConfig.activeSide);
+                      if (apparelConfig.sides?.length) params.set('apparelSides', apparelConfig.sides.join(','));
+                    }
+
+                    const finalWidthMm = activeProductFlow.designerMode === "apparel"
+                      ? apparelConfig?.printWidthMm
+                      : resolvedWidthMm;
+                    const finalHeightMm = activeProductFlow.designerMode === "apparel"
+                      ? apparelConfig?.printHeightMm
+                      : resolvedHeightMm;
+                    const finalBleedMm = activeProductFlow.designerMode === "apparel"
+                      ? apparelConfig?.bleedMm
+                      : resolvedBleedMm;
+                    const finalSafeMm = activeProductFlow.designerMode === "apparel"
+                      ? apparelConfig?.safeAreaMm
+                      : resolvedSafeMm;
+
+                    if (typeof finalWidthMm === "number" && finalWidthMm > 0 && typeof finalHeightMm === "number" && finalHeightMm > 0) {
+                      params.set('widthMm', String(finalWidthMm));
+                      params.set('heightMm', String(finalHeightMm));
+                    }
+                    if (typeof finalBleedMm === "number" && finalBleedMm >= 0) {
+                      params.set('bleedMm', String(finalBleedMm));
+                    }
+                    if (typeof finalSafeMm === "number" && finalSafeMm >= 0) {
+                      params.set('safeMm', String(finalSafeMm));
+                    }
+                    params.set('order', '1');
+                    params.set('returnTo', buildDesignerCheckoutPath(currentSearchParams));
+                    if (checkoutState.productReturnPath) {
+                      params.set('backTo', checkoutState.productReturnPath);
+                    }
+                    navigate(`/designer?${params.toString()}`);
+                  }}
+                >
+                  {designReady ? (
+                    <CheckCircle2 className="h-5 w-5" />
+                  ) : (
+                    <PenTool className="h-5 w-5" />
+                  )}
+                  {designReady ? "Design klar" : activeProductFlow.designerCtaLabel}
+                </MotionButton>
+              )}
+              {activeProductFlow.showDesignerButton && professionalPdfUploadOnly ? (
+                <div className="max-w-[300px] rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-relaxed text-slate-700">
+                  <p className="font-semibold text-slate-900">Professionel PDF kræves</p>
+                  <p>
+                    {designerTemplateLaunch?.artworkModeReasonDa
+                      || "Denne efterbehandling kræver en separat staffagefarve, som Webprinter Designer ikke kan oprette sikkert endnu. Download skabelonen og upload en færdig tryk-PDF."}
+                  </p>
+                </div>
+              ) : null}
+              {designerTemplateLaunch?.pdfUrl && activeProductFlow.showTemplateDownload && (
+                <Button
+                  asChild
+                  variant="outline"
+                  size="lg"
+                  className="min-h-12 w-full touch-manipulation gap-2 border-dashed py-5"
+                  style={secondaryButtonCssVars}
+                >
+                  <a
+                    href={designerTemplateLaunch.pdfUrl}
+                    download={templateDownloadName}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      const checkoutState = {
+                        ...buildCheckoutState(),
+                        templateDownloadedAt: new Date().toISOString(),
+                      };
+                      writeSiteCheckoutSession(checkoutState);
+                      stageSiteCheckoutTransfer(checkoutState);
+                    }}
+                  >
+                    <Download className="h-5 w-5" />
+                    Download skabelon
+                  </a>
+                </Button>
+              )}
+              {canvaOffer?.enabled && canvaOffer.launchUrl ? (
+                <>
+                  <MotionButton
+                    {...orderButtonMotionProps}
+                    data-surface={orderButtonMotion.surfaceStyle}
+                    variant="outline"
+                    size="lg"
+                    className="min-h-12 w-full touch-manipulation gap-2 border-dashed py-5"
+                    style={secondaryButtonCssVars}
+                    onClick={() => {
+                      persistCheckoutState({ crossTab: true });
+                      window.open(canvaOffer.launchUrl as string, "_blank", "noopener,noreferrer");
+                    }}
+                  >
+                    <Sparkles className="h-5 w-5" />
+                    {canvaOffer.buttonLabel || "Design i Canva"}
+                    <ExternalLink className="h-4 w-4" />
+                  </MotionButton>
+                  {canvaOffer.helperText ? (
+                    <p data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted max-w-[260px] text-xs">
+                      {canvaOffer.helperText}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+              <MotionButton
+                {...orderButtonMotionProps}
+                data-surface={orderButtonMotion.surfaceStyle}
+                data-branding-id="productPage.orderButtons.primary"
+                size="lg"
+                className="order-primary-button min-h-12 w-full touch-manipulation px-6 py-6 text-base font-semibold sm:text-lg"
+                style={primaryButtonCssVars}
+                onClick={handleOrderClick}
+                disabled={!canOrder || preparingCompanyOrder}
+              >
+                {preparingCompanyOrder ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+                {preparingCompanyOrder ? "Klargør firmaordre..." : activeProductFlow.orderCtaLabel}
+              </MotionButton>
+              {!canOrder && orderValidationError && (
+                <p className="text-xs text-destructive max-w-[260px]">
+                  {orderValidationError}
+                </p>
+              )}
+            </div></div>}
+    {hasStableSelection && <div className="order-compact-offer">          <span
+            data-site-design-target="productPage.pricePanel.downloadButton"
+            className="inline-flex"
+          >
+            <Button
+              data-branding-id="productPage.pricePanel.downloadButton"
+              data-surface={pricePanelStyles.config.downloadButtonSurfaceStyle}
+              variant="outline"
+              size="sm"
+              onClick={generatePDF}
+              className="price-panel-download-button min-h-11 w-full touch-manipulation gap-2 sm:w-auto"
+              disabled={!canDownloadOffer}
+            >
+              <Download className="h-4 w-4" />
+              Download tilbud
+            </Button>
+          </span></div>}
+    {baseTotal === 0 && <p className="text-sm text-muted-foreground">Vælg en pris i matrixen for at se beregning.</p>}
+  </div>;
 
   return (
     <div
@@ -1350,13 +1715,16 @@ export function ProductPricePanel({
       )}
 
       <div className="price-panel-option rounded-md border px-3 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="price-panel-badge rounded-sm border px-2 py-0.5 text-[11px] font-semibold">
-            {activeProductFlow.badgeLabel}
-          </span>
-          <span className="price-panel-muted text-xs">
-            {activeProductFlow.customerHelpText}
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="price-panel-badge rounded-sm border px-2 py-0.5 text-[11px] font-semibold">
+              {activeProductFlow.badgeLabel}
+            </span>
+            <span className="price-panel-muted text-xs">
+              {activeProductFlow.customerHelpText}
+            </span>
+          </div>
+          {formatGuide ? <ProductFormatGuideDialog data={formatGuide} /> : null}
         </div>
       </div>
 
@@ -1374,7 +1742,7 @@ export function ProductPricePanel({
           </div>
           {hasStableSelection && (
             <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto">
-              {activeProductFlow.showDesignerButton && (
+              {activeProductFlow.showDesignerButton && !professionalPdfUploadOnly && (
                 <MotionButton
                   {...orderButtonMotionProps}
                   data-surface={orderButtonMotion.surfaceStyle}
@@ -1394,7 +1762,7 @@ export function ProductPricePanel({
                       typeof window !== "undefined" ? window.location.search : ""
                     );
                     const params = new URLSearchParams();
-                    copyTenantContextParams(params, currentSearchParams);
+                    copyStorefrontContextParams(params, currentSearchParams);
                     params.set('productId', productId);
                     if (activeProductFlow.designerMode) params.set('designerMode', activeProductFlow.designerMode);
                     if (activeProductFlow.pricingModel) params.set('pricingModel', activeProductFlow.pricingModel);
@@ -1416,6 +1784,21 @@ export function ProductPricePanel({
                     if (designerTemplateLaunch?.pdfUrl) {
                       params.set('templatePdfUrl', designerTemplateLaunch.pdfUrl);
                       params.set('templatePdfName', designerTemplateLaunch.name);
+                      if (designerTemplateLaunch.templatePdfSha256) {
+                        params.set('templatePdfSha256', designerTemplateLaunch.templatePdfSha256);
+                      }
+                    }
+                    if (typeof launchWidthMm === "number" && launchWidthMm > 0) {
+                      params.set('templateWidthMm', String(launchWidthMm));
+                    }
+                    if (typeof launchHeightMm === "number" && launchHeightMm > 0) {
+                      params.set('templateHeightMm', String(launchHeightMm));
+                    }
+                    if (typeof launchBleedMm === "number" && launchBleedMm >= 0) {
+                      params.set('templateBleedMm', String(launchBleedMm));
+                    }
+                    if (typeof launchSafeMm === "number" && launchSafeMm >= 0) {
+                      params.set('templateSafeMm', String(launchSafeMm));
                     }
                     if (checkoutState.companyWorkingDesignId) {
                       params.set('designId', checkoutState.companyWorkingDesignId);
@@ -1455,7 +1838,10 @@ export function ProductPricePanel({
                       params.set('safeMm', String(finalSafeMm));
                     }
                     params.set('order', '1');
-                    params.set('returnTo', buildDesignerReturnTo(currentSearchParams));
+                    params.set('returnTo', buildDesignerCheckoutPath(currentSearchParams));
+                    if (checkoutState.productReturnPath) {
+                      params.set('backTo', checkoutState.productReturnPath);
+                    }
                     navigate(`/designer?${params.toString()}`);
                   }}
                 >
@@ -1467,6 +1853,15 @@ export function ProductPricePanel({
                   {designReady ? "Design klar" : activeProductFlow.designerCtaLabel}
                 </MotionButton>
               )}
+              {activeProductFlow.showDesignerButton && professionalPdfUploadOnly ? (
+                <div className="max-w-[300px] rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-relaxed text-slate-700">
+                  <p className="font-semibold text-slate-900">Professionel PDF kræves</p>
+                  <p>
+                    {designerTemplateLaunch?.artworkModeReasonDa
+                      || "Denne efterbehandling kræver en separat staffagefarve, som Webprinter Designer ikke kan oprette sikkert endnu. Download skabelonen og upload en færdig tryk-PDF."}
+                  </p>
+                </div>
+              ) : null}
               {designerTemplateLaunch?.pdfUrl && activeProductFlow.showTemplateDownload && (
                 <Button
                   asChild

@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -111,7 +112,7 @@ export function TenantUpdates() {
     }
 
     return (
-        <div className="space-y-6 max-w-4xl mx-auto">
+        <div className="space-y-6 workspace-surface">
             <div>
                 <h1 className="text-3xl font-bold">Indbakke</h1>
                 <p className="text-muted-foreground">Beskeder og opdateringer fra Webprinter</p>
@@ -126,7 +127,8 @@ export function TenantUpdates() {
                         </div>
                     </Card>
                 ) : (
-                    notifications.map((notification) => {
+                    <WorkspaceCollection label="Indbakke" items={notifications.map(notification => ({ id: notification.id, title: notification.title, subtitle: `${notification.is_read ? '' : 'Ny · '}${format(new Date(notification.created_at), 'd. MMM yyyy HH:mm', { locale: da })}`, icon: <Bell aria-hidden="true" /> }))}>
+                    {notifications.map((notification) => {
                         const deliveryModeLabel = notification.data?.delivery_mode === 'pod_price_list' ? 'Webprinter-styret produkt' : 'Standard pris';
                         const showDeliveryMode = notification.type === 'product_update' && notification.data?.delivery_mode;
                         return (
@@ -193,7 +195,7 @@ export function TenantUpdates() {
                                 )}
                             </Card>
                         );
-                    })
+                    })}</WorkspaceCollection>
                 )}
             </div>
         </div>

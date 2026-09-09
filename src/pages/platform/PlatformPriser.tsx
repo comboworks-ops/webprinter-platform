@@ -21,7 +21,7 @@ const PlatformPriser = () => {
     const [isYearly, setIsYearly] = useState(false);
 
     return (
-        <div className="min-h-screen flex flex-col font-sans">
+        <div className="platform-page min-h-screen flex flex-col font-sans">
             <SEO
                 title="Priser | Webprinter Platform"
                 description="Se vores abonnementspriser og find den plan der passer til din virksomhed."
@@ -63,7 +63,7 @@ const PlatformPriser = () => {
                             <Card
                                 key={tier.id}
                                 className={`relative flex flex-col ${tier.highlighted
-                                        ? 'border-primary shadow-lg scale-105'
+                                        ? 'border-primary shadow-lg'
                                         : 'border-gray-200'
                                     }`}
                             >

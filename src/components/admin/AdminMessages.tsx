@@ -1,16 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Loader2, MessageCircle, Send, User, Clock, CheckCheck, Search, Package, LifeBuoy } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2, MessageCircle, Send, User, Clock, CheckCheck, Search, Package, LifeBuoy, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Users, Globe, ChevronDown, ChevronRight } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { resolveAdminTenant } from '@/lib/adminTenant';
+import { OrderStatus, WorkspaceDate, orderDate, useOrderWorkspaceLink } from './workspace/orderPresentation';
+import { markSupportConversationRead } from './workspace/supportReadReceipts';
+import { loadSupportMessages, loadSupportTenants, resolveSupportWorkspace, sendSupportConversationMessage, supportConversationTarget } from './workspace/supportWorkspace';
+import './workspace/orderWorkspace.css';
+import { Plus, Users, Globe, ChevronRight } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { da } from 'date-fns/locale';
@@ -34,6 +38,11 @@ interface OrderWithMessages {
     product_name: string;
     customer_email: string;
     customer_name: string;
+    status: string;
+    quantity: number;
+    created_at: string;
+    estimated_delivery: string | null;
+    product_configuration: string | null;
     messages: Message[];
     unread_count: number;
     last_message_at: string;
@@ -84,6 +93,12 @@ const parsePlatformLeadMessage = (msg: any): ParsedPlatformLead => {
 };
 
 export default function AdminMessages() {
+    const [searchParams] = useSearchParams();
+    // A workspace change clears its data, selection and drafts before the next render.
+    return <AdminMessagesWorkspace key={searchParams.get('force_domain') || ''} />;
+}
+
+function AdminMessagesWorkspace() {
     const [orders, setOrders] = useState<OrderWithMessages[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
@@ -93,309 +108,221 @@ export default function AdminMessages() {
     const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
     const [platformMessages, setPlatformMessages] = useState<any[]>([]);
     const [allTenants, setAllTenants] = useState<any[]>([]);
-    const [sectionsOpen, setSectionsOpen] = useState({ orders: true, support: true });
+    const workspaceLink = useOrderWorkspaceLink();
+    const [inboxSection, setInboxSection] = useState<'customers' | 'support'>('customers');
+    const [conversationFilter, setConversationFilter] = useState('all');
+    const [loadError, setLoadError] = useState(false);
+    const [supportError, setSupportError] = useState(false);
+    const [roleReady, setRoleReady] = useState(false);
     const [searchParams] = useSearchParams();
     const [supportInput, setSupportInput] = useState('');
     const [isMaster, setIsMaster] = useState(false);
     const [myTenantId, setMyTenantId] = useState<string | null>(null);
+    const [contextError, setContextError] = useState(false);
+    const activeWorkspace = useRef(true);
+    const supportFetchVersion = useRef(0);
+    const ordersFetchVersion = useRef(0);
     const orderMessagesEndRef = useRef<HTMLDivElement | null>(null);
     const supportMessagesEndRef = useRef<HTMLDivElement | null>(null);
+    const orderComposer = useRef({ orderId: selectedOrderId, text: newMessage });
+    const supportComposer = useRef({ tenantId: isMaster ? selectedTenantId : myTenantId, text: supportInput });
+    orderComposer.current = { orderId: selectedOrderId, text: newMessage };
+    supportComposer.current = { tenantId: isMaster ? selectedTenantId : myTenantId, text: supportInput };
+
+    useLayoutEffect(() => {
+        activeWorkspace.current = true;
+        return () => { activeWorkspace.current = false; };
+    }, []);
 
     useEffect(() => {
         const orderId = searchParams.get('orderId');
         const tenantId = searchParams.get('tenantId');
 
         if (orderId) {
+            setInboxSection('customers');
             setSelectedOrderId(orderId);
             setSelectedTenantId(null);
         }
         if (tenantId) {
-            setSelectedTenantId(tenantId);
+            setInboxSection('support');
+            setSelectedTenantId(isMaster ? tenantId : null);
             setSelectedOrderId(null);
         }
-    }, [searchParams]);
+    }, [searchParams, isMaster]);
 
+    useEffect(() => { void checkRole(); }, [searchParams.get('force_domain')]);
     useEffect(() => {
-        checkRole();
-        fetchOrdersWithMessages();
-        if (isMaster) {
-            fetchAllTenants();
-        }
-    }, [isMaster]);
+        void fetchOrdersWithMessages();
+    }, [searchParams.get('force_domain'), searchParams.get('orderId')]);
+    useEffect(() => { if (roleReady && isMaster) void fetchAllTenants(); }, [roleReady, isMaster]);
 
     const fetchAllTenants = async () => {
         try {
-            const { data, error } = await supabase
-                .from('tenants' as any)
-                .select('id, name')
-                .order('name');
-            if (error) throw error;
-            setAllTenants(data || []);
+            const data = await loadSupportTenants(supabase as any, { roleReady, isMaster, myTenantId }, () => activeWorkspace.current);
+            if (data) setAllTenants(data);
         } catch (e) {
             console.error('Error fetching all tenants:', e);
         }
     };
 
     useEffect(() => {
-        let interval: NodeJS.Timeout;
-
-        fetchPlatformMessages();
-        markSupportMessagesAsRead();
-
-        interval = setInterval(() => {
-            fetchPlatformMessages();
-            markSupportMessagesAsRead();
+        if (!roleReady) return;
+        void fetchPlatformMessages();
+        if (inboxSection === 'support') void markSupportMessagesAsRead();
+        const interval = setInterval(() => {
+            void fetchPlatformMessages();
+            if (inboxSection === 'support') void markSupportMessagesAsRead();
         }, 5000);
-
         return () => clearInterval(interval);
-    }, [selectedTenantId, isMaster, myTenantId]);
+    }, [selectedTenantId, isMaster, myTenantId, roleReady, inboxSection]);
 
     const markSupportMessagesAsRead = async () => {
+        if (!activeWorkspace.current) return;
         try {
-            const targetSenderRole = isMaster ? 'tenant' : 'master';
-
-            // Platform leads are a read-only intake log; opening the thread must not clear lead evidence.
-            if (isMaster && selectedTenantId === MASTER_TENANT_ID) {
-                return;
-            }
-
-            // Update all unread messages sent BY the other party
-            let query = supabase
-                .from('platform_messages' as any)
-                .update({ is_read: true })
-                .eq('sender_role', targetSenderRole)
-                .eq('is_read', false);
-
-            if (isMaster && selectedTenantId) {
-                query = query.eq('tenant_id', selectedTenantId);
-            } else if (!isMaster && myTenantId) {
-                query = query.eq('tenant_id', myTenantId);
-            } else if (isMaster && !selectedTenantId) {
-                // If master but no tenant selected, don't mark anything as read
-                return;
-            }
-
-            await query;
+            await markSupportConversationRead(supabase as any, { roleReady, isMaster, selectedTenantId, myTenantId });
         } catch (e) {
             console.error("Failed to mark support messages as read", e);
         }
     };
 
     const checkRole = async () => {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        // Check if I am master
-        const { data: masterTenant } = await supabase
-            .from('tenants' as any)
-            .select('id')
-            .eq('id', '00000000-0000-0000-0000-000000000000')
-            .eq('owner_id', user.id)
-            .maybeSingle();
-
-        setIsMaster(!!masterTenant);
-
-        if (!masterTenant) {
-            // First check user_roles (works for both owners and staff)
-            const { data: roleData } = await supabase
-                .from('user_roles' as any)
-                .select('tenant_id')
-                .eq('user_id', user.id)
-                .maybeSingle();
-
-            if (roleData && (roleData as any).tenant_id) {
-                setMyTenantId((roleData as any).tenant_id);
-            } else {
-                // Fallback: Check if owner directly (if user_roles missing for some reason)
-                const { data: myTenant } = await supabase
-                    .from('tenants' as any)
-                    .select('id')
-                    .eq('owner_id', user.id)
-                    .maybeSingle();
-
-                if (myTenant) setMyTenantId((myTenant as any).id);
-            }
+        setRoleReady(false);
+        setContextError(false);
+        try {
+            const context = resolveSupportWorkspace(await resolveAdminTenant());
+            if (!activeWorkspace.current) return;
+            setIsMaster(context.isMaster);
+            setMyTenantId(context.myTenantId);
+            setRoleReady(context.roleReady);
+            setContextError(!context.roleReady);
+        } catch (error) {
+            if (!activeWorkspace.current) return;
+            console.error('Could not resolve message workspace:', error);
+            setContextError(true);
         }
     };
 
     const fetchPlatformMessages = async () => {
+        const version = ++supportFetchVersion.current;
+        const isCurrent = () => activeWorkspace.current && supportFetchVersion.current === version;
         try {
-            console.log("Fetching platform messages... Is Master?", isMaster);
-            let query = supabase
-                .from('platform_messages' as any)
-                .select(`
-                    *,
-                    tenants (name)
-                `)
-                .order('created_at', { ascending: true });
-
-            if (!isMaster && myTenantId) {
-                query = query.eq('tenant_id', myTenantId);
-            }
-
-            const { data, error } = await query;
-            console.log("Platform Messages Data:", data);
-
-            if (error) {
-                console.error("Fetch Error:", error);
-                throw error;
-            }
-            setPlatformMessages(data || []);
+            const messages = await loadSupportMessages(supabase as any, { roleReady, isMaster, myTenantId }, isCurrent);
+            if (!messages || !isCurrent()) return;
+            setPlatformMessages(messages);
+            setSupportError(false);
         } catch (e) {
+            if (!isCurrent()) return;
             console.error(e);
+            setSupportError(true);
         }
     };
 
     const sendSupportMessage = async () => {
-        if (!supportInput.trim()) return;
+        const context = { roleReady, isMaster, myTenantId, selectedTenantId };
+        const targetTenantId = supportConversationTarget(context);
+        if (!targetTenantId || !supportInput.trim() || sending || !activeWorkspace.current) return;
+        const sentDraft = supportInput;
         setSending(true);
-        console.log("Attempting to send support message...");
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            // Determine tenant_id target
-            let targetTenantId = isMaster ? selectedTenantId : myTenantId;
-
-            if (!targetTenantId && isMaster && platformMessages.length > 0) {
-                // Fallback: Find last message from a tenant (not master)
-                const lastTenantMsg = [...platformMessages].reverse().find(m => m.sender_role === 'tenant');
-                if (lastTenantMsg) {
-                    targetTenantId = lastTenantMsg.tenant_id;
-                }
-            }
-
-            console.log("User:", user?.id);
-            console.log("Target Tenant ID:", targetTenantId);
-            console.log("Is Master:", isMaster);
-
-            if (!targetTenantId) {
-                if (isMaster) {
-                    toast.error("Fejl: Ingen aktiv samtale valgt at svare på.");
-                } else {
-                    toast.error("Fejl: Kunne ikke identificere din shop.");
-                }
-                setSending(false);
-                return;
-            }
-
-            // If master, we need to know WHICH tenant we are replying to. 
-            // Ideally we select a conversation first. 
-            // For MVP simplification: If Tenant -> Send to self. If Master -> This logic needs a 'selectedThread'.
-            // Let's assume Master selects a tenant from the list.
-
-            // Refined Logic for Master:
-            // We need to group platform messages by Tenant ID just like orders.
-
-            const { error } = await supabase.from('platform_messages' as any).insert({
-                tenant_id: targetTenantId, // TODO: Fix for master reply
-                content: supportInput,
-                sender_role: isMaster ? 'master' : 'tenant',
-                sender_user_id: user?.id
-            });
-
-            if (error) {
-                console.error("Supabase Insert Error:", error);
-                throw error;
-            }
-
+            const result = await sendSupportConversationMessage(supabase as any, context, sentDraft,
+                platformMessages.some(isPlatformLeadMessage), () => activeWorkspace.current);
+            if (result !== 'sent' || !activeWorkspace.current) return;
             toast.success('Besked sendt til support!');
-            setSupportInput('');
+            if (supportComposer.current.tenantId === targetTenantId && supportComposer.current.text === sentDraft) {
+                setSupportInput('');
+            }
             fetchPlatformMessages();
         } catch (e: any) {
+            if (!activeWorkspace.current) return;
             console.error("Catch Error:", e);
             toast.error(`Kunne ikke sende besked: ${e.message || 'Ukendt fejl'}`);
         } finally {
-            setSending(false);
+            if (activeWorkspace.current) setSending(false);
         }
     };
 
     const fetchOrdersWithMessages = async () => {
+        const version = ++ordersFetchVersion.current;
+        const isCurrent = () => activeWorkspace.current && ordersFetchVersion.current === version;
+        setLoadError(false);
         try {
-            // First get all messages grouped by order
-            // First get all messages grouped by order
-            const { data: messagesData, error: messagesError } = await supabase
-                .from('order_messages' as any)
-                .select('*')
-                .order('created_at', { ascending: false });
-
-            if (messagesError) throw messagesError;
-
-            const messages = messagesData as any[];
-
-            // Get unique order IDs
-            const orderIds = [...new Set(messages.map((m: any) => m.order_id))];
-
-            if (orderIds.length === 0) {
-                setOrders([]);
-                setLoading(false);
-                return;
+            const { tenantId } = await resolveAdminTenant();
+            if (!isCurrent()) return;
+            if (!tenantId) throw new Error('Ingen aktiv shop');
+            const tenantOrders: any[] = [];
+            for (let offset = 0; ; offset += 500) {
+                const { data, error } = await supabase.from('orders' as any)
+                    .select('id, order_number, product_name, product_configuration, customer_name, customer_email, status, quantity, created_at, estimated_delivery')
+                    .eq('tenant_id', tenantId).order('created_at', { ascending: false }).order('id', { ascending: false })
+                    .range(offset, offset + 499);
+                if (!isCurrent()) return;
+                if (error) throw error;
+                const page = (data || []) as any[];
+                tenantOrders.push(...page);
+                if (page.length < 500) break;
             }
-
-            // Fetch order details
-            const { data: ordersData, error: ordersError } = await supabase
-                .from('orders' as any)
-                .select('id, order_number, product_name, user_id')
-                .in('id', orderIds);
-
-            if (ordersError) throw ordersError;
-
-            // Fetch customer profiles
-            const userIds = [...new Set((ordersData as any[])?.map(o => o.user_id) || [])];
-            const { data: profiles } = await (supabase as any)
-                .from('profiles')
-                .select('id, first_name, last_name')
-                .in('id', userIds);
-
-            // Get user emails from auth
-            const { data: authData } = await supabase.auth.admin?.listUsers?.() || { data: null };
-
-            // Group messages by order
-            const ordersWithMessages: OrderWithMessages[] = (ordersData as any[])?.map(order => {
-                const orderMessages = (messages as Message[])?.filter(m => m.order_id === order.id) || [];
-                const profile = (profiles as any[])?.find(p => p.id === order.user_id);
-                const customerName = profile ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() : 'Ukendt';
-
-                return {
-                    order_id: order.id,
-                    order_number: order.order_number,
-                    product_name: order.product_name,
-                    customer_email: '', // Will be filled if needed
-                    customer_name: customerName || 'Kunde',
-                    messages: orderMessages.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
-                    unread_count: orderMessages.filter(m => m.sender_type === 'customer' && !m.is_read).length,
-                    last_message_at: orderMessages[0]?.created_at || order.created_at,
-                };
-            }).sort((a, b) => {
-                // Sort by unread count first, then by last message date
-                if (a.unread_count !== b.unread_count) {
-                    return b.unread_count - a.unread_count;
+            const messages: Message[] = [];
+            // Query only IDs from the active tenant; batch to keep request URLs bounded.
+            for (let index = 0; index < tenantOrders.length; index += 100) {
+                const orderIds = tenantOrders.slice(index, index + 100).map(order => order.id);
+                for (let offset = 0; ; offset += 500) {
+                    const { data, error } = await supabase.from('order_messages' as any).select('*')
+                        .in('order_id', orderIds).order('created_at', { ascending: false }).order('id', { ascending: false })
+                        .range(offset, offset + 499);
+                    if (!isCurrent()) return;
+                    if (error) throw error;
+                    const page = (data || []) as unknown as Message[];
+                    messages.push(...page);
+                    if (page.length < 500) break;
                 }
-                return new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime();
-            }) || [];
-
-            setOrders(ordersWithMessages);
+            }
+            const byOrder = new Map<string, Message[]>();
+            for (const message of messages) {
+                const list = byOrder.get(message.order_id) || [];
+                list.push(message);
+                byOrder.set(message.order_id, list);
+            }
+            const requestedOrderId = searchParams.get('orderId');
+            const grouped: OrderWithMessages[] = tenantOrders.map(order => {
+                const orderMessages = (byOrder.get(order.id) || [])
+                    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+                return {
+                    ...order, order_id: order.id,
+                    customer_name: order.customer_name || order.customer_email || 'Kunde',
+                    customer_email: order.customer_email || '',
+                    messages: orderMessages,
+                    unread_count: orderMessages.filter(message => message.sender_type === 'customer' && !message.is_read).length,
+                    last_message_at: orderMessages[orderMessages.length - 1]?.created_at || order.created_at,
+                };
+            }).filter(order => order.messages.length > 0 || order.order_id === requestedOrderId)
+                .sort((a, b) => b.unread_count - a.unread_count || new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
+            setOrders(grouped);
         } catch (error) {
+            if (!isCurrent()) return;
             console.error('Error fetching messages:', error);
-            toast.error('Kunne ikke hente beskeder');
+            setLoadError(true);
         } finally {
-            setLoading(false);
+            if (isCurrent()) setLoading(false);
         }
     };
 
     const handleSelectOrder = async (orderId: string) => {
+        if (!roleReady || !activeWorkspace.current || !orders.some(order => order.order_id === orderId)) return;
         setSelectedOrderId(orderId);
 
         // Mark messages as read
         try {
-            await supabase
+            const { error } = await supabase
                 .from('order_messages' as any)
                 .update({ is_read: true })
                 .eq('order_id', orderId)
                 .eq('sender_type', 'customer');
+            if (error) throw error;
 
             // Update local state
             setOrders(prev => prev.map(o =>
                 o.order_id === orderId
-                    ? { ...o, unread_count: 0, messages: o.messages.map(m => ({ ...m, is_read: true })) }
+                    ? { ...o, unread_count: 0, messages: o.messages.map(m => m.sender_type === 'customer' ? { ...m, is_read: true } : m) }
                     : o
             ));
         } catch (e) {
@@ -404,37 +331,47 @@ export default function AdminMessages() {
     };
 
     const handleSendMessage = async () => {
-        if (!selectedOrderId || !newMessage.trim()) return;
+        if (!roleReady || !selectedOrderId || !orders.some(order => order.order_id === selectedOrderId) || !newMessage.trim() || sending || !activeWorkspace.current) return;
 
+        const sentOrderId = selectedOrderId;
+        const sentDraft = newMessage;
         setSending(true);
         try {
             const { data: { user } } = await supabase.auth.getUser();
+            if (!activeWorkspace.current) return;
 
             const { error } = await supabase.from('order_messages' as any).insert({
-                order_id: selectedOrderId,
+                order_id: sentOrderId,
                 sender_id: user?.id,
                 sender_type: 'admin',
-                content: newMessage.trim(),
+                content: sentDraft.trim(),
                 is_read: false,
             });
 
             if (error) throw error;
 
+            if (!activeWorkspace.current) return;
+
             toast.success('Besked sendt!');
-            setNewMessage('');
+            // Preserve a newer draft, including one started in a different conversation.
+            if (orderComposer.current.orderId === sentOrderId && orderComposer.current.text === sentDraft) {
+                setNewMessage('');
+            }
 
             // Refresh messages
             fetchOrdersWithMessages();
         } catch (error) {
+            if (!activeWorkspace.current) return;
             console.error('Error sending message:', error);
             toast.error('Kunne ikke sende besked');
         } finally {
-            setSending(false);
+            if (activeWorkspace.current) setSending(false);
         }
     };
 
     const formatMessageTime = (dateString: string) => {
         const date = new Date(dateString);
+        if (!Number.isFinite(date.getTime())) return 'Ukendt tidspunkt';
         const now = new Date();
         const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -450,30 +387,30 @@ export default function AdminMessages() {
 
     const selectedOrder = orders.find(o => o.order_id === selectedOrderId);
 
-    const filteredOrders = orders.filter(order =>
-        order.order_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.product_name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-
-    const toggleSection = (section: 'orders' | 'support') => {
-        setSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }));
-    };
+    const filteredOrders = orders.filter(order => {
+        const search = searchTerm.trim().toLowerCase();
+        return (conversationFilter === 'all' || order.unread_count > 0) &&
+            [order.order_number, order.customer_name, order.customer_email, order.product_name, ...order.messages.map(message => message.content)]
+                .some(value => String(value || '').toLowerCase().includes(search));
+    });
 
     const handleSelectTenant = (id: string) => {
+        if (!roleReady || (!isMaster && id !== myTenantId)) return;
         setSelectedTenantId(id);
         setSelectedOrderId(null);
+        setInboxSection('support');
+        setSupportInput('');
     };
 
     const handleSelectOrderLocal = (id: string) => {
         handleSelectOrder(id);
         setSelectedTenantId(null);
+        setInboxSection('customers');
+        setNewMessage('');
     };
 
-    const activeView = selectedOrderId ? 'order' : (selectedTenantId ? 'support' : 'selection');
-    const platformThreadMessages = isMaster
-        ? platformMessages.filter(m => m.tenant_id === selectedTenantId)
-        : platformMessages;
+    const activeView = inboxSection === 'customers' ? (selectedOrderId ? 'order' : 'selection') : ((selectedTenantId || !isMaster) ? 'support' : 'selection');
+    const platformThreadMessages = platformMessages.filter(m => m.tenant_id === (isMaster ? selectedTenantId : myTenantId));
     const selectedPlatformThreadHasLeads = platformThreadMessages.some((msg: any) =>
         isPlatformLeadMessage(msg)
     );
@@ -537,180 +474,36 @@ export default function AdminMessages() {
     const filteredSupportThreads = (supportThreads as any[]).filter((thread: any) =>
         String(thread.tenant_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         String(thread.last_message || '').toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    ).filter((thread: any) => conversationFilter === 'all' || thread.unread_count > 0);
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
+    if (contextError) return <div className="ow-state" role="alert"><LifeBuoy /><p>Den aktive shop kunne ikke findes. Vælg en shop eller prøv igen.</p><Button onClick={() => { void checkRole(); void fetchOrdersWithMessages(); }}>Prøv igen</Button></div>;
+    if (loading || !roleReady) return <div className="ow-state" role="status"><Loader2 className="animate-spin" /><p>Henter samtaler…</p></div>;
 
     return (
-        <div className="h-[calc(100vh-140px)] flex flex-col gap-6">
-            <div>
-                <h1 className="text-3xl font-bold">Beskeder</h1>
-                <p className="text-muted-foreground">Kommuniker med kunder og support</p>
+        <div className="ow-messages">
+            <header className="ow-page-heading"><div><h1>Beskeder</h1><p>Hold styr på kundedialog og support.</p></div><WorkspaceDate /></header>
+            <div className="ow-inbox-tabs" aria-label="Beskedområde">
+                <button aria-pressed={inboxSection === 'customers'} aria-controls="workspace-inbox" onClick={() => setInboxSection('customers')}>Kunder{orders.some(order => order.unread_count > 0) && <span>{orders.reduce((sum, order) => sum + order.unread_count, 0)}</span>}</button>
+                <button aria-pressed={inboxSection === 'support'} aria-controls="workspace-inbox" onClick={() => setInboxSection('support')}>Support</button>
             </div>
-
-            <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-4 gap-6">
-                {/* Sidebar */}
-                <Card className="lg:col-span-1 flex flex-col min-h-0 overflow-hidden">
-                    <CardHeader className="pb-3 border-b">
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                placeholder="Søg i beskeder..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="pl-9"
-                            />
-                        </div>
-                    </CardHeader>
-                    <CardContent className="flex-1 overflow-y-auto p-2 space-y-4">
-                        {/* Support Section */}
-                        <div className="space-y-1">
-                            <button
-                                onClick={() => toggleSection('support')}
-                                className="w-full flex items-center justify-between px-2 py-1.5 text-xs font-bold text-muted-foreground uppercase tracking-wider hover:bg-muted/50 rounded-md transition-colors"
-                            >
-                                <span className="flex items-center gap-2">
-                                    <LifeBuoy className="h-3.5 w-3.5" />
-                                    {isMaster ? 'Shop support og platformhenvendelser' : 'Support'}
-                                </span>
-                                {sectionsOpen.support ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                            </button>
-
-                            {sectionsOpen.support && (
-                                <div className="space-y-1 mt-1">
-                                    {isMaster ? (
-                                        filteredSupportThreads.length === 0 ? (
-                                            <p className="text-[10px] text-center py-4 text-muted-foreground opacity-50">Ingen aktive samtaler</p>
-                                        ) : (
-                                            filteredSupportThreads.map((thread: any) => (
-                                                <button
-                                                    key={thread.tenant_id}
-                                                    onClick={() => handleSelectTenant(thread.tenant_id)}
-                                                    className={cn(
-                                                        "w-full text-left p-2.5 rounded-lg transition-all border border-transparent",
-                                                        selectedTenantId === thread.tenant_id
-                                                            ? "bg-primary text-primary-foreground shadow-md"
-                                                            : "hover:bg-muted"
-                                                    )}
-                                                >
-                                                    <div className="flex items-center justify-between mb-0.5">
-                                                        <span className="font-semibold text-sm truncate">{thread.tenant_name}</span>
-                                                        <div className="flex items-center gap-1">
-                                                            {thread.is_platform_lead_thread && (
-                                                                <Badge variant="secondary" className="h-4 px-1 text-[10px]">
-                                                                    {thread.lead_count} henv.
-                                                                </Badge>
-                                                            )}
-                                                            {thread.unread_count > 0 && (
-                                                                <Badge className="bg-red-500 text-white h-4 min-w-[16px] px-1 flex items-center justify-center text-[10px]">
-                                                                    {thread.unread_count}
-                                                                </Badge>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    {thread.is_platform_lead_thread && (
-                                                        <p className={cn(
-                                                            "mb-1 text-[10px]",
-                                                            selectedTenantId === thread.tenant_id ? "text-primary-foreground/80" : "text-amber-700"
-                                                        )}>
-                                                            {thread.unread_lead_count} ulæste platformhenvendelser
-                                                        </p>
-                                                    )}
-                                                    <p className={cn(
-                                                        "text-[10px] truncate opacity-80",
-                                                        selectedTenantId === thread.tenant_id ? "text-primary-foreground" : "text-muted-foreground"
-                                                    )}>
-                                                        {thread.last_message}
-                                                    </p>
-                                                </button>
-                                            ))
-                                        )
-                                    ) : (
-                                        <button
-                                            onClick={() => handleSelectTenant(myTenantId || '')}
-                                            className={cn(
-                                                "w-full text-left p-2.5 rounded-lg transition-all border border-transparent",
-                                                selectedTenantId === myTenantId
-                                                    ? "bg-primary text-primary-foreground shadow-md"
-                                                    : "hover:bg-muted"
-                                            )}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <LifeBuoy className="h-4 w-4" />
-                                                <span className="font-semibold text-sm">Kontakt Support</span>
-                                            </div>
-                                        </button>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Orders Section */}
-                        <div className="space-y-1">
-                            <button
-                                onClick={() => toggleSection('orders')}
-                                className="w-full flex items-center justify-between px-2 py-1.5 text-xs font-bold text-muted-foreground uppercase tracking-wider hover:bg-muted/50 rounded-md transition-colors"
-                            >
-                                <span className="flex items-center gap-2">
-                                    <Package className="h-3.5 w-3.5" />
-                                    Kunder & Ordrer
-                                </span>
-                                {sectionsOpen.orders ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                            </button>
-
-                            {sectionsOpen.orders && (
-                                <div className="space-y-1 mt-1">
-                                    {filteredOrders.length === 0 ? (
-                                        <p className="text-[10px] text-center py-4 text-muted-foreground opacity-50">Ingen beskeder endnu</p>
-                                    ) : (
-                                        filteredOrders.map((order) => (
-                                            <button
-                                                key={order.order_id}
-                                                onClick={() => handleSelectOrderLocal(order.order_id)}
-                                                className={cn(
-                                                    "w-full text-left p-2.5 rounded-lg transition-all border border-transparent",
-                                                    selectedOrderId === order.order_id
-                                                        ? "bg-primary text-primary-foreground shadow-md"
-                                                        : "hover:bg-muted"
-                                                )}
-                                            >
-                                                <div className="flex items-start justify-between">
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2">
-                                                            <p className="font-semibold text-sm truncate">
-                                                                {order.customer_name}
-                                                            </p>
-                                                            {order.unread_count > 0 && (
-                                                                <Badge className="bg-red-500 text-white h-4 min-w-[16px] px-1 flex items-center justify-center text-[10px]">
-                                                                    {order.unread_count}
-                                                                </Badge>
-                                                            )}
-                                                        </div>
-                                                        <p className={cn(
-                                                            "text-[10px] truncate",
-                                                            selectedOrderId === order.order_id ? "text-primary-foreground/70" : "text-muted-foreground"
-                                                        )}>
-                                                            #{order.order_number} - {order.product_name}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            </button>
-                                        ))
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    </CardContent>
-                </Card>
+            <div className="ow-inbox-filterbar"><div className="ow-search"><Search aria-hidden="true" /><Input aria-label="Søg i beskeder" placeholder="Søg i beskeder" value={searchTerm} onChange={event => setSearchTerm(event.target.value)} /></div><Select value={conversationFilter} onValueChange={setConversationFilter}><SelectTrigger aria-label="Filtrér samtaler"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Alle samtaler</SelectItem><SelectItem value="unread">Ulæste samtaler</SelectItem></SelectContent></Select></div>
+            {(inboxSection === 'customers' ? loadError : supportError) && <div className="ow-inline-notice" role="alert">Beskederne kunne ikke opdateres.<button onClick={() => inboxSection === 'customers' ? fetchOrdersWithMessages() : fetchPlatformMessages()}>Prøv igen</button></div>}
+            {selectedOrderId && !selectedOrder && !loadError && inboxSection === 'customers' && <div className="ow-inline-notice" role="status">Ordren blev ikke fundet i den valgte shop.<button onClick={() => setSelectedOrderId(null)}>Vis samtaler</button></div>}
+            <div id="workspace-inbox" className={`ow-inbox-grid ${selectedOrder && activeView === 'order' ? 'ow-inbox-has-context' : ''} ${activeView !== 'selection' ? 'ow-inbox-selected' : ''}`}>
+                <aside className="ow-conversations" aria-label="Samtaler">
+                    {inboxSection === 'customers' ? <>
+                        {filteredOrders.map(order => <button className={`ow-conversation ${selectedOrderId === order.order_id ? 'is-selected' : ''}`} key={order.order_id} aria-pressed={selectedOrderId === order.order_id} onClick={() => handleSelectOrderLocal(order.order_id)}>
+                            <span className={`ow-conversation-dot ${order.unread_count ? 'is-unread' : ''}`} aria-label={order.unread_count ? `${order.unread_count} ulæste` : 'Læst'} /><span className="ow-conversation-content"><span className="ow-conversation-top"><strong>{order.customer_name}</strong><time>{formatMessageTime(order.last_message_at)}</time></span><span className="ow-conversation-order">{order.order_number} · {order.product_name}</span><span className="ow-conversation-snippet">{order.messages[order.messages.length - 1]?.content || 'Start en samtale om ordren'}</span></span>
+                        </button>)}
+                        {!filteredOrders.length && <div className="ow-empty ow-empty-compact"><MessageCircle /><h3>{searchTerm || conversationFilter !== 'all' ? 'Ingen samtaler matcher' : 'Ingen kundebeskeder endnu'}</h3><p>{searchTerm || conversationFilter !== 'all' ? 'Prøv en anden søgning eller vælg alle samtaler.' : 'Kundernes ordrebeskeder vises her.'}</p></div>}
+                    </> : <>
+                        {isMaster ? <>{filteredSupportThreads.map((thread: any) => <button key={thread.tenant_id} onClick={() => handleSelectTenant(thread.tenant_id)} className={`ow-conversation ${selectedTenantId === thread.tenant_id ? 'is-selected' : ''}`} aria-pressed={selectedTenantId === thread.tenant_id}><span className={`ow-conversation-dot ${thread.unread_count ? 'is-unread' : ''}`} /><span className="ow-conversation-content"><span className="ow-conversation-top"><strong>{thread.tenant_name}</strong><time>{formatMessageTime(thread.last_message_at)}</time></span>{thread.is_platform_lead_thread && <span className="ow-conversation-order">{thread.lead_count} henvendelser · {thread.unread_lead_count} ulæste</span>}<span className="ow-conversation-snippet">{thread.last_message}</span></span></button>)}<Button variant="ghost" className="ow-new-support" onClick={() => { setSelectedTenantId(null); setSelectedOrderId(null); }}><Plus className="h-4 w-4 mr-2" />Kontakt en shop</Button></> : <button className="ow-conversation" onClick={() => handleSelectTenant(myTenantId || '')} disabled={!myTenantId}><LifeBuoy className="h-5 w-5" /><span className="ow-conversation-content"><strong>Webprinter support</strong><span className="ow-conversation-snippet">Hjælp til din webshop</span></span></button>}
+                    </>}
+                </aside>
 
                 {/* Main View Area */}
-                <Card className="lg:col-span-3 flex flex-col min-h-0 overflow-hidden">
+                <Card className="ow-chat-panel flex flex-col min-h-0 overflow-hidden">
+                    <Button className="ow-inbox-back" variant="ghost" onClick={() => { setSelectedOrderId(null); setSelectedTenantId(null); }}><ArrowLeft className="h-4 w-4 mr-2" />Alle samtaler</Button>
                     {activeView === 'order' && selectedOrder ? (
                         <>
                             <CardHeader className="border-b px-6 py-4">
@@ -723,30 +516,31 @@ export default function AdminMessages() {
                                             <CardTitle className="text-xl">{selectedOrder.customer_name}</CardTitle>
                                             <CardDescription className="flex items-center gap-2">
                                                 <Package className="h-3.5 w-3.5" />
-                                                Ordre #{selectedOrder.order_number} - {selectedOrder.product_name}
+                                                Ordre {selectedOrder.order_number} - {selectedOrder.product_name}
                                             </CardDescription>
                                         </div>
                                     </div>
                                     <Button variant="outline" size="sm" asChild>
-                                        <a href={`/admin/kunder`}>Se ordre</a>
+                                        <Link to={workspaceLink(`/admin/kunder?orderId=${selectedOrder.order_id}`)}>Se ordre</Link>
                                     </Button>
                                 </div>
                             </CardHeader>
-                            <CardContent className="flex-1 overflow-y-auto p-6 space-y-4 bg-muted/5">
+                            <CardContent className="ow-chat-messages flex-1 overflow-y-auto p-6 space-y-4">
+                                {selectedOrder.messages.length === 0 && <div className="ow-empty"><MessageCircle /><h3>Start en samtale om ordren</h3><p>Din besked bliver tilgængelig for kunden på ordren.</p></div>}
                                 {selectedOrder.messages.map((msg) => (
                                     <div
                                         key={msg.id}
                                         className={cn(
-                                            "max-w-[75%] p-4 rounded-2xl shadow-sm",
+                                            "ow-chat-bubble",
                                             msg.sender_type === 'admin'
-                                                ? "bg-primary text-primary-foreground ml-auto rounded-tr-none"
-                                                : "bg-card border mr-auto rounded-tl-none"
+                                                ? "ow-chat-sent ml-auto"
+                                                : "ow-chat-received mr-auto"
                                         )}
                                     >
                                         <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                                         <div className={cn(
                                             "flex items-center gap-1 mt-2 text-[10px]",
-                                            msg.sender_type === 'admin' ? "text-primary-foreground/60 justify-end" : "text-muted-foreground"
+                                            msg.sender_type === 'admin' ? "text-muted-foreground justify-end" : "text-muted-foreground"
                                         )}>
                                             <Clock className="h-3 w-3" />
                                             {formatMessageTime(msg.created_at)}
@@ -761,15 +555,15 @@ export default function AdminMessages() {
                                 ))}
                                 <div ref={orderMessagesEndRef} className="h-1" />
                             </CardContent>
-                            <div className="p-4 border-t bg-card">
+                            <div className="ow-chat-composer p-4 border-t bg-card">
                                 <div className="flex items-end gap-3 max-w-4xl mx-auto">
                                     <Textarea
-                                        placeholder="Skriv dit svar her..."
+                                        aria-label="Skriv din besked til kunden" placeholder="Skriv din besked…"
                                         value={newMessage}
                                         onChange={(e) => setNewMessage(e.target.value)}
                                         className="flex-1 min-h-[44px] max-h-[200px] resize-none border-none bg-muted/40 focus-visible:ring-1"
                                         onKeyDown={(e) => {
-                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
                                                 e.preventDefault();
                                                 handleSendMessage();
                                             }
@@ -778,10 +572,9 @@ export default function AdminMessages() {
                                     <Button
                                         onClick={handleSendMessage}
                                         disabled={sending || !newMessage.trim()}
-                                        size="icon"
-                                        className="h-11 w-11 shrink-0 rounded-full"
+                                        className="ow-send-message"
                                     >
-                                        {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                                        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}<span>Send besked</span>
                                     </Button>
                                 </div>
                             </div>
@@ -823,7 +616,7 @@ export default function AdminMessages() {
                                     )}
                                 </div>
                             </CardHeader>
-                            <CardContent className="flex-1 overflow-y-auto p-6 space-y-4 bg-muted/5">
+                            <CardContent className="ow-chat-messages flex-1 overflow-y-auto p-6 space-y-4">
                                 {isMaster && selectedPlatformThreadHasLeads && (
                                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950 shadow-sm">
                                         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -867,10 +660,10 @@ export default function AdminMessages() {
                                 )}
                                 {platformThreadMessages.map(msg => (
                                     <div key={msg.id} className={cn(
-                                        "max-w-[75%] p-4 rounded-2xl shadow-sm",
+                                        "ow-chat-bubble",
                                         (msg.sender_role === 'tenant' && !isMaster) || (msg.sender_role === 'master' && isMaster)
-                                            ? "bg-primary text-primary-foreground ml-auto rounded-tr-none"
-                                            : "bg-card border mr-auto rounded-tl-none"
+                                            ? "ow-chat-sent ml-auto"
+                                            : "ow-chat-received mr-auto"
                                     )}>
                                         <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                                         <div className={cn(
@@ -894,21 +687,20 @@ export default function AdminMessages() {
                                 )}
                                 <div ref={supportMessagesEndRef} className="h-1" />
                             </CardContent>
-                            <div className="p-4 border-t bg-card">
+                            <div className="ow-chat-composer p-4 border-t bg-card">
                                 {isMaster && selectedPlatformThreadHasLeads ? (
                                     <div className="mx-auto max-w-4xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-                                        Platformhenvendelser er en read-only log fra kontaktsiden. Svar kunden via e-mail
-                                        eller det kommende leadflow, så du ikke tror denne interne note sender en ekstern mail.
+                                        Platformhenvendelser vises som en log fra kontaktsiden. Svar kunden via e-mail med knappen ovenfor.
                                     </div>
                                 ) : (
                                     <div className="flex items-end gap-3 max-w-4xl mx-auto">
                                         <Textarea
                                             value={supportInput}
                                             onChange={e => setSupportInput(e.target.value)}
-                                            placeholder={isMaster ? "Skriv svar til tenant..." : "Skriv til support..."}
+                                            aria-label="Skriv en supportbesked" placeholder={isMaster ? "Skriv svar til shoppen…" : "Skriv til support…"}
                                             className="flex-1 min-h-[44px] max-h-[200px] resize-none border-none bg-muted/40 focus-visible:ring-1"
                                             onKeyDown={(e) => {
-                                                if (e.key === 'Enter' && !e.shiftKey) {
+                                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
                                                     e.preventDefault();
                                                     sendSupportMessage();
                                                 }
@@ -917,10 +709,9 @@ export default function AdminMessages() {
                                         <Button
                                             onClick={sendSupportMessage}
                                             disabled={sending || !supportInput.trim()}
-                                            size="icon"
-                                            className="h-11 w-11 shrink-0 rounded-full"
+                                            className="ow-send-message"
                                         >
-                                            {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                                            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}<span>Send besked</span>
                                         </Button>
                                     </div>
                                 )}
@@ -928,7 +719,7 @@ export default function AdminMessages() {
                         </>
                     ) : (
                         <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-muted/5">
-                            {isMaster && activeView === 'selection' ? (
+                            {isMaster && inboxSection === 'support' && activeView === 'selection' ? (
                                 <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
                                     <div className="mb-10 text-center">
                                         <div className="bg-primary/10 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-sm">
@@ -975,6 +766,12 @@ export default function AdminMessages() {
                         </div>
                     )}
                 </Card>
+                {selectedOrder && activeView === 'order' && <aside className="ow-conversation-context" aria-label="Ordre- og samtaledetaljer">
+                    <Link className="ow-context-order-link" to={workspaceLink(`/admin/kunder?orderId=${selectedOrder.order_id}`)}>Ordre {selectedOrder.order_number}</Link><OrderStatus status={selectedOrder.status} />
+                    <section><h3>Kunde</h3><p>{selectedOrder.customer_name}</p>{selectedOrder.customer_email && <a href={`mailto:${selectedOrder.customer_email}`}>{selectedOrder.customer_email}</a>}</section>
+                    <section><h3>Ordredetaljer</h3><dl><div><dt>Produkt</dt><dd>{selectedOrder.product_name}</dd></div>{selectedOrder.product_configuration && <div><dt>Valg</dt><dd>{selectedOrder.product_configuration}</dd></div>}<div><dt>Antal</dt><dd>{selectedOrder.quantity} stk.</dd></div>{selectedOrder.estimated_delivery && <div><dt>Forventet levering</dt><dd>{orderDate(selectedOrder.estimated_delivery)}</dd></div>}</dl><Link to={workspaceLink(`/admin/kunder?orderId=${selectedOrder.order_id}`)}>Se ordre<ChevronRight className="h-4 w-4" /></Link></section>
+                    <section><h3>Samtaledetaljer</h3><dl><div><dt>Beskeder</dt><dd>{selectedOrder.messages.length}</dd></div><div><dt>Seneste besked</dt><dd>{selectedOrder.messages.length ? orderDate(selectedOrder.last_message_at, true) : 'Ingen beskeder endnu'}</dd></div></dl></section>
+                </aside>}
             </div>
         </div>
     );

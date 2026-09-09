@@ -13,6 +13,7 @@ import { OUTPUT_PROFILES, ProofingSettings } from "@/lib/color/iccProofing";
 import { Palette, AlertCircle, Loader2, Info, Eye, Sparkles, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { PRINT_PROCESS_GUIDANCE } from "@/lib/color/profileGuidance";
 
 interface TenantProfile {
     id: string;
@@ -31,6 +32,9 @@ interface ColorProofingPanelProps {
     productProfileId?: string;
     productProfileName?: string;
     tenantId?: string;
+    resolvedProfileName?: string;
+    previewResolutionLimited?: boolean;
+    isPreviewVisible?: boolean;
 }
 
 export function ColorProofingPanel({
@@ -45,14 +49,21 @@ export function ColorProofingPanel({
     productProfileId,
     productProfileName,
     tenantId,
+    resolvedProfileName,
+    previewResolutionLimited = false,
+    isPreviewVisible = false,
 }: ColorProofingPanelProps) {
     const [tenantProfiles, setTenantProfiles] = useState<TenantProfile[]>([]);
     const [loadingProfiles, setLoadingProfiles] = useState(false);
+    const [profileListError, setProfileListError] = useState<string | null>(null);
 
     // Fetch tenant's uploaded profiles
     useEffect(() => {
+        let cancelled = false;
+        setTenantProfiles([]);
+        setProfileListError(null);
         async function fetchTenantProfiles() {
-            if (!tenantId) return;
+            if (!tenantId) { setLoadingProfiles(false); return; }
 
             setLoadingProfiles(true);
             try {
@@ -63,17 +74,20 @@ export function ColorProofingPanel({
                     .eq('kind', 'cmyk_output')
                     .order('name');
 
-                if (!error && data) {
-                    setTenantProfiles(data as TenantProfile[]);
+                if (cancelled) return;
+                if (error) throw error;
+                if (data) {
+                    setTenantProfiles(data as unknown as TenantProfile[]);
                 }
             } catch (err) {
-                console.error('Failed to fetch tenant profiles:', err);
+                if (!cancelled) setProfileListError('Dine egne profiler kunne ikke indlæses. Standardprofilerne er stadig tilgængelige.');
             } finally {
-                setLoadingProfiles(false);
+                if (!cancelled) setLoadingProfiles(false);
             }
         }
 
         fetchTenantProfiles();
+        return () => { cancelled = true; };
     }, [tenantId]);
 
     // Check if user has switched away from product's profile
@@ -84,6 +98,7 @@ export function ColorProofingPanel({
 
     // Build the current profile display name
     const getCurrentProfileName = () => {
+        if (isReady && resolvedProfileName) return resolvedProfileName;
         if (settings.outputProfileId === 'product' || settings.outputProfileId === productProfileId) {
             return productProfileName || 'Produkt profil';
         }
@@ -98,6 +113,7 @@ export function ColorProofingPanel({
 
         return settings.outputProfileId;
     };
+    const selectedStandardProfile = OUTPUT_PROFILES.find(profile => profile.id === settings.outputProfileId);
 
     return (
         <div className="p-4 space-y-4">
@@ -150,8 +166,8 @@ export function ColorProofingPanel({
                 <div className="p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
                     <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                     <div>
-                        <strong>Fejl:</strong> {error}
-                        <p className="mt-1">Soft proof er deaktiveret.</p>
+                        <strong>Farvevisning er ikke tilgængelig:</strong> {error}
+                        <p className="mt-1">Originale farver vises, indtil profilen er klar.</p>
                     </div>
                 </div>
             )}
@@ -165,7 +181,7 @@ export function ColorProofingPanel({
                     {isReady ? (
                         <>
                             <Eye className="h-4 w-4" />
-                            <span>CMYK preview aktiv - {getCurrentProfileName()}</span>
+                            <span>{isPreviewVisible ? `CMYK preview aktiv - ${getCurrentProfileName()}` : 'Originale farver vises under redigering eller opdatering.'}</span>
                         </>
                     ) : (
                         <>
@@ -232,21 +248,35 @@ export function ColorProofingPanel({
                         ))}
                     </SelectContent>
                 </Select>
+                {profileListError && <p className="text-xs text-amber-700">{profileListError}</p>}
+                {selectedStandardProfile && <div className="space-y-1 text-xs text-muted-foreground">
+                    <p>{selectedStandardProfile.description}</p>
+                    <p>{selectedStandardProfile.usageNote}</p>
+                </div>}
             </div>
+
+            <details className="rounded-lg border p-3 text-xs">
+                <summary className="cursor-pointer font-medium">Hvilken profil passer til opgaven?</summary>
+                <div className="mt-3 space-y-3 text-muted-foreground">
+                    {PRINT_PROCESS_GUIDANCE.filter(process => process.id !== 'unspecified').map(process => (
+                        <div key={process.id}><p className="font-medium text-foreground">{process.label}</p><p className="mt-1">{process.guidance}</p></div>
+                    ))}
+                </div>
+            </details>
 
             {/* Gamut warning toggle */}
             <div className="flex items-center justify-between pt-2">
                 <div className="space-y-0.5">
-                    <Label className="text-xs font-medium">Gamut advarsel</Label>
+                    <Label className="text-xs font-medium">Vis tydelige farveskift</Label>
                     <p className="text-xs text-muted-foreground">
-                        Marker farver uden for CMYK
+                        Vejledende markering ved konvertering
                     </p>
                 </div>
                 <Switch
                     checked={settings.showGamutWarning}
                     onCheckedChange={onSetShowGamutWarning}
                     disabled={!settings.enabled || !isReady}
-                    aria-label="Vis gamut advarsel"
+                    aria-label="Vis tydelige farveskift"
                 />
             </div>
 
@@ -260,16 +290,21 @@ export function ColorProofingPanel({
                             Soft proof simulerer hvordan farver vil se ud ved print på valgt profil.
                             Faktisk print kan variere afhængigt af papir, blæk og maskinkalibrering.
                         </p>
+                        <p className="mt-2">Brug trykkeriets profil. Til storformat og tekstil afhænger den af maskine, blæk, materiale og printindstilling.</p>
                     </div>
                 </div>
             </div>
+
+            {settings.enabled && previewResolutionLimited && (
+                <p className="text-xs text-amber-700">Visningen er meget stor, så previewets opløsning er begrænset. Eksportens opløsning påvirkes ikke.</p>
+            )}
 
             {/* Legend when gamut warning is on */}
             {settings.enabled && settings.showGamutWarning && isReady && (
                 <div className="flex items-center gap-2 text-xs">
                     <div className="w-4 h-4 bg-green-500 rounded opacity-70"></div>
                     <span className="text-muted-foreground">
-                        Farver markeret grønt er uden for CMYK gamut
+                        Grøn viser større farveskift. Det er en tilnærmelse, ikke en præcis gamutmåling.
                     </span>
                 </div>
             )}

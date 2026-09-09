@@ -1,7 +1,6 @@
-import { useRef, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { BrandingEditorV2 } from "@/components/admin/BrandingEditorV2";
-import { useSidebar } from "@/components/ui/sidebar";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveAdminTenant } from "@/lib/adminTenant";
 import {
@@ -12,18 +11,6 @@ import {
 export function TenantBrandingSettingsV2() {
     const [tenant, setTenant] = useState<{ id: string; tenant_name: string } | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const { setOpen } = useSidebar();
-    const hasOpenedSidebarRef = useRef(false);
-
-    // Keep admin sidebar visible in the site designer.
-    useEffect(() => {
-        if (hasOpenedSidebarRef.current) {
-            return;
-        }
-        setOpen(true);
-        hasOpenedSidebarRef.current = true;
-    }, [setOpen]);
-
     useEffect(() => {
         let active = true;
 
@@ -88,10 +75,13 @@ export function TenantBrandingSettingsV2() {
     const adapter = createTenantAdapter(tenant.id, tenant.tenant_name || 'Min Shop');
 
     return (
+        <section>
+        <header className="mb-6"><h1>Branding</h1><p className="mt-2 text-muted-foreground">Tilpas udseendet af {tenant.tenant_name}.</p></header>
         <BrandingEditorV2
             adapter={adapter}
             capabilities={TENANT_CAPABILITIES}
         />
+        </section>
     );
 }
 

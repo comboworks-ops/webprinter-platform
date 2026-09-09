@@ -24,21 +24,15 @@ let inputProfile: any = null;
 let outputProfile: any = null;
 let proofTransform: any = null;
 
-let isInitializingLcms = false;
+let lcmsInitialization: Promise<void> | null = null;
+let latestProfileRevision = 0;
+let currentProfileRevision = 0;
 
 // Initialize lcms-wasm module
 async function initLcms(): Promise<void> {
     if (lcmsModule) return;
-    if (isInitializingLcms) {
-        // Wait for existing initialization
-        while (isInitializingLcms) {
-            await new Promise(r => setTimeout(r, 50));
-        }
-        return;
-    }
-
-    isInitializingLcms = true;
-    try {
+    if (lcmsInitialization) return lcmsInitialization;
+    lcmsInitialization = (async () => {
         console.log('[Worker] Initializing LCMS WASM...');
         // @ts-ignore - lcms-wasm's types might not show the Emscripten options
         lcmsModule = await lcms({
@@ -50,21 +44,20 @@ async function initLcms(): Promise<void> {
             }
         });
         console.log('[Worker] LCMS WASM initialized successfully');
-    } catch (err) {
-        console.error('Failed to initialize LCMS in worker:', err);
-        throw err;
-    } finally {
-        isInitializingLcms = false;
-    }
+    })();
+    try { await lcmsInitialization; }
+    finally { lcmsInitialization = null; }
 }
 
 // Create profiles and transform from ArrayBuffers
 async function createTransform(
     inputProfileData: ArrayBuffer,
-    outputProfileData: ArrayBuffer
-): Promise<void> {
+    outputProfileData: ArrayBuffer,
+    profileRevision: number,
+): Promise<boolean> {
     await initLcms();
     if (!lcmsModule) throw new Error('LCMS module not initialized');
+    if (profileRevision !== latestProfileRevision) return false;
 
     console.log('[Worker] Creating transform...');
 
@@ -72,6 +65,7 @@ async function createTransform(
     if (proofTransform) { try { lcmsModule.cmsDeleteTransform(proofTransform); } catch (e) { /* ignore */ } }
     if (inputProfile) { try { lcmsModule.cmsCloseProfile(inputProfile); } catch (e) { /* ignore */ } }
     if (outputProfile) { try { lcmsModule.cmsCloseProfile(outputProfile); } catch (e) { /* ignore */ } }
+    proofTransform = inputProfile = outputProfile = null;
 
     // Create profiles from data
     const inputBytes = new Uint8Array(inputProfileData);
@@ -103,6 +97,7 @@ async function createTransform(
 
     const INTENT_RELATIVE_COLORIMETRIC = 1;
     const cmsFLAGS_SOFTPROOFING = 0x4000;
+    const cmsFLAGS_BLACKPOINTCOMPENSATION = 0x2000;
 
     console.log('[Worker] Creating proofing transform with TYPE_RGB_8:', TYPE_RGB_8);
 
@@ -115,7 +110,7 @@ async function createTransform(
         outputProfile,    // Proofing profile: CMYK (FOGRA39)
         INTENT_RELATIVE_COLORIMETRIC,
         INTENT_RELATIVE_COLORIMETRIC,
-        cmsFLAGS_SOFTPROOFING
+        cmsFLAGS_SOFTPROOFING | cmsFLAGS_BLACKPOINTCOMPENSATION
     );
 
     if (!proofTransform) {
@@ -124,6 +119,8 @@ async function createTransform(
     }
 
     console.log('[Worker] Transform ready (soft proof mode)');
+    currentProfileRevision = profileRevision;
+    return true;
 }
 
 // Transform image data using CORRECT lcms-wasm API
@@ -230,11 +227,15 @@ self.onmessage = async (e: MessageEvent) => {
         switch (message.type) {
             case 'init':
                 const { inputProfileData, outputProfileData } = message;
-                await createTransform(inputProfileData, outputProfileData);
-                self.postMessage({ type: 'ready', id: message.id });
+                latestProfileRevision = message.profileRevision;
+                currentProfileRevision = 0;
+                if (await createTransform(inputProfileData, outputProfileData, message.profileRevision)) {
+                    self.postMessage({ type: 'ready', id: message.id, profileRevision: message.profileRevision });
+                }
                 break;
 
             case 'transform':
+                if (message.profileRevision !== currentProfileRevision) break;
                 if (!proofTransform) {
                     throw new Error('Transform not initialized');
                 }
@@ -249,6 +250,7 @@ self.onmessage = async (e: MessageEvent) => {
                     {
                         type: 'transformed',
                         id: message.id,
+                        profileRevision: message.profileRevision,
                         imageData: result.proofed,
                         gamutMask: result.gamutMask
                     },
@@ -259,9 +261,9 @@ self.onmessage = async (e: MessageEvent) => {
 
             case 'transform-to-cmyk':
                 // For export, create a CMYK transform
-                if (!lcmsModule || !inputProfile || !outputProfile) {
-                    throw new Error('Profiles not initialized');
-                }
+                // Export has explicit profiles and also works when soft proof is disabled.
+                await initLcms();
+                if (!lcmsModule) throw new Error('LCMS module not initialized');
 
                 // Load profiles for export
                 const inputBytes = new Uint8Array(message.inputProfileData);
@@ -269,7 +271,9 @@ self.onmessage = async (e: MessageEvent) => {
 
                 const inProf = lcmsModule.cmsOpenProfileFromMem(inputBytes, inputBytes.length);
                 const outProf = lcmsModule.cmsOpenProfileFromMem(outputBytes, outputBytes.length);
-
+                let exportTransform: any = null;
+                let proofEmbedTransform: any = null;
+                try {
                 if (!inProf || !outProf) throw new Error('Failed to load export profiles');
 
                 const PT_RGB = 4;
@@ -278,21 +282,22 @@ self.onmessage = async (e: MessageEvent) => {
                 const TYPE_CMYK_8 = (PT_CMYK << 16) | (4 << 3) | 1;
                 const INTENT_RELATIVE_COLORIMETRIC = 1;
                 const cmsFLAGS_SOFTPROOFING = 0x4000;
+                const cmsFLAGS_BLACKPOINTCOMPENSATION = 0x2000;
 
                 // RGB -> CMYK transform for actual CMYK data
-                const exportTransform = lcmsModule.cmsCreateTransform(
+                exportTransform = lcmsModule.cmsCreateTransform(
                     inProf, TYPE_RGB_8,
                     outProf, TYPE_CMYK_8,
-                    INTENT_RELATIVE_COLORIMETRIC, 0
+                    INTENT_RELATIVE_COLORIMETRIC, cmsFLAGS_BLACKPOINTCOMPENSATION
                 );
 
                 // RGB -> RGB (soft proofed) for preview
-                const proofEmbedTransform = lcmsModule.cmsCreateProofingTransform(
+                proofEmbedTransform = lcmsModule.cmsCreateProofingTransform(
                     inProf, TYPE_RGB_8,
                     inProf, TYPE_RGB_8,
                     outProf,
                     INTENT_RELATIVE_COLORIMETRIC, INTENT_RELATIVE_COLORIMETRIC,
-                    cmsFLAGS_SOFTPROOFING
+                    cmsFLAGS_SOFTPROOFING | cmsFLAGS_BLACKPOINTCOMPENSATION
                 );
 
                 if (!exportTransform || !proofEmbedTransform) throw new Error('Failed to create export transforms');
@@ -334,11 +339,6 @@ self.onmessage = async (e: MessageEvent) => {
                     }
                 }
 
-                lcmsModule.cmsDeleteTransform(exportTransform);
-                lcmsModule.cmsDeleteTransform(proofEmbedTransform);
-                lcmsModule.cmsCloseProfile(inProf);
-                lcmsModule.cmsCloseProfile(outProf);
-
                 const proofedImageData = new ImageData(rgbBuffer, w, h);
 
                 self.postMessage({
@@ -348,7 +348,13 @@ self.onmessage = async (e: MessageEvent) => {
                     proofedImageData,
                     width: w,
                     height: h
-                }, [cmykBuffer.buffer, proofedImageData.data.buffer]);
+                }, { transfer: [cmykBuffer.buffer, proofedImageData.data.buffer] });
+                } finally {
+                    if (exportTransform) lcmsModule.cmsDeleteTransform(exportTransform);
+                    if (proofEmbedTransform) lcmsModule.cmsDeleteTransform(proofEmbedTransform);
+                    if (inProf) lcmsModule.cmsCloseProfile(inProf);
+                    if (outProf) lcmsModule.cmsCloseProfile(outProf);
+                }
                 break;
 
             case 'dispose':
@@ -365,6 +371,7 @@ self.onmessage = async (e: MessageEvent) => {
                     outputProfile = null;
                 }
                 self.postMessage({ type: 'disposed', id: message.id });
+                currentProfileRevision = 0;
                 break;
         }
     } catch (error) {
@@ -372,6 +379,7 @@ self.onmessage = async (e: MessageEvent) => {
         self.postMessage({
             type: 'error',
             id: message.id,
+            profileRevision: message.profileRevision,
             error: error instanceof Error ? error.message : 'Unknown error'
         });
     }

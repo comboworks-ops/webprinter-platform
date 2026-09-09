@@ -4825,7 +4825,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
 
     return (
         <BrandingPaletteProvider colors={editor.draft.colors || {}}>
-        <div className="flex flex-col h-[calc(100vh-4rem)] -m-6">
+        <div className="workspace-branding-editor flex flex-col">
             {/* Main Content Area */}
             <div className="flex-1 flex overflow-hidden relative min-h-0">
                 {/* Left Sidebar - Collapsible */}
@@ -4955,7 +4955,7 @@ export function BrandingEditorV2({ adapter, capabilities, onSwitchVersion }: Bra
                 </div>
 
                 {/* Main Preview Area */}
-                <div className="flex-1 bg-muted/10 relative flex flex-col">
+                <div className="workspace-editor-preview flex-1 bg-muted/10 relative flex flex-col">
                     {/* Toggle Sidebar Button (visible when closed on mobile) */}
                     {!sidebarOpen && (
                         <Button

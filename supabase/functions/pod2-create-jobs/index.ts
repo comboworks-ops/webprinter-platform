@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import { normalizeJobIds } from "../_shared/pod2PrintcomSafety.ts";
+import { resolvePod2PriceSnapshot } from "../_shared/pod2Pricing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,29 +24,6 @@ const parseSenderMode = (note: string | null | undefined) => {
     return "custom" as const;
   }
   return "standard" as const;
-};
-
-const resolveTenantCost = (
-  quantities: number[] = [],
-  baseCosts: number[] = [],
-  qty: number,
-) => {
-  let resolved = 0;
-  for (let i = quantities.length - 1; i >= 0; i -= 1) {
-    const tierQty = Number(quantities[i]);
-    const tierCost = Number(baseCosts[i]);
-    if (
-      Number.isFinite(tierQty) && Number.isFinite(tierCost) && qty >= tierQty
-    ) {
-      resolved = tierCost;
-      break;
-    }
-  }
-  if (!resolved && baseCosts.length > 0) {
-    const fallback = Number(baseCosts[0]);
-    if (Number.isFinite(fallback)) resolved = fallback;
-  }
-  return resolved;
 };
 
 serve(async (req) => {
@@ -184,7 +162,7 @@ serve(async (req) => {
     let { data: priceMatrix } = await serviceClient
       .from("pod2_catalog_price_matrix")
       .select(
-        "variant_signature, quantities, base_costs, currency, needs_quote",
+        "variant_signature, quantities, base_costs, recommended_retail, currency, needs_quote",
       )
       .eq("catalog_product_id", catalogProductId)
       .eq("variant_signature", requestedVariant)
@@ -195,7 +173,7 @@ serve(async (req) => {
       const { data: fallbackMatrix } = await serviceClient
         .from("pod2_catalog_price_matrix")
         .select(
-          "variant_signature, quantities, base_costs, currency, needs_quote",
+          "variant_signature, quantities, base_costs, recommended_retail, currency, needs_quote",
         )
         .eq("catalog_product_id", catalogProductId)
         .eq("needs_quote", false)
@@ -215,18 +193,21 @@ serve(async (req) => {
     }
 
     const qty = Number(order.quantity || 1);
-    const tenantCost = resolveTenantCost(
-      priceMatrix.quantities,
-      priceMatrix.base_costs,
-      qty,
-    );
+    const priceSnapshot = resolvePod2PriceSnapshot({
+      quantities: priceMatrix.quantities,
+      supplierCosts: priceMatrix.base_costs,
+      webprinterPrices: priceMatrix.recommended_retail,
+      orderedQuantity: qty,
+    });
+    const tenantCost = priceSnapshot?.webprinterPrice ?? 0;
     if (
       !Number.isInteger(qty) || qty <= 0 || !Number.isFinite(tenantCost) ||
       tenantCost <= 0
     ) {
       return new Response(
         JSON.stringify({
-          error: "POD v2 quantity or supplier cost is invalid",
+          error:
+            "POD v2 quantity, supplier cost, or Webprinter price is invalid",
         }),
         {
           status: 409,

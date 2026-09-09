@@ -3,20 +3,25 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { OrderStatus, WorkspaceDate, useOrderWorkspaceLink } from "./workspace/orderPresentation";
+import "./workspace/orderWorkspace.css";
 import {
-    ShoppingBag,
-    Users,
-    TrendingUp,
-    CreditCard,
     ArrowRight,
     Package,
-    ExternalLink,
     ChevronLeft,
-    ChevronRight
+    ChevronRight,
+    FileText,
+    Mail,
+    Loader2,
+    AlertCircle,
+    Plus,
+    Store
 } from "lucide-react";
-import { useShopSettings } from "@/hooks/useShopSettings";
-import { useUserRole } from "@/hooks/useUserRole";
+import { resolveAdminTenant } from "@/lib/adminTenant";
+import { dashboardContextQueryOptions } from "./workspace/dashboardContext";
+
 import {
     Area,
     AreaChart,
@@ -45,28 +50,64 @@ import {
 } from "date-fns";
 import { da } from "date-fns/locale";
 
+const EMPTY_ORDERS: any[] = [];
+
 export function Dashboard() {
-    const navigate = useNavigate();
-    const settings = useShopSettings();
-    const [rawOrders, setRawOrders] = useState<any[]>([]);
+    const location = useLocation();
+    const contextKey = new URLSearchParams(location.search).get("force_domain") || "default";
+    const shopQuery = useQuery(dashboardContextQueryOptions(contextKey, {
+        resolveTenant: resolveAdminTenant,
+        readTenant: async (tenantId) => {
+            const { data, error } = await (supabase as any).from('tenants')
+                .select('id, name, settings')
+                .eq('id', tenantId)
+                .maybeSingle();
+            return { data, error };
+        },
+    }));
+    const workspaceLink = useOrderWorkspaceLink();
+    const shop = shopQuery.isSuccess ? shopQuery.data : null;
+    const tenantId = shop?.tenantId;
+    const ordersQuery = useQuery({
+        queryKey: ['workspace-dashboard-orders', tenantId],
+        enabled: Boolean(tenantId),
+        queryFn: async () => {
+            const allOrders: any[] = [];
+            // Read every page so the summary cannot silently stop at the API row limit.
+            for (let offset = 0; ; offset += 500) {
+                const { data, error } = await supabase.from('orders' as any)
+                    .select('id, order_number, product_name, customer_name, customer_email, created_at, total_price, status, has_problem, requires_file_reupload')
+                    .eq('tenant_id', tenantId)
+                    .order('created_at', { ascending: false }).order('id', { ascending: false })
+                    .range(offset, offset + 499);
+                if (error) throw error;
+                const page = (data || []) as any[];
+                allOrders.push(...page);
+                if (page.length < 500) return allOrders;
+            }
+        },
+    });
+    const rawOrders = ordersQuery.data || EMPTY_ORDERS;
+    const loading = shopQuery.isPending || (Boolean(tenantId) && ordersQuery.isPending);
+    const loadError = shopQuery.error || (tenantId ? ordersQuery.error : null);
+    const stats = {
+        revenue: rawOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0),
+        ordersCount: rawOrders.length,
+        customersCount: new Set(rawOrders.map(order => order.customer_email?.trim().toLowerCase()).filter(Boolean)).size,
+        pendingOrders: rawOrders.filter(order => order.status === 'pending').length,
+    };
+    const problemOrders = rawOrders.filter(order => order.has_problem || order.status === 'problem');
+    const attentionOrder = problemOrders[0] || rawOrders.find(order => order.status === 'pending');
+    const attentionCount = problemOrders.length || stats.pendingOrders;
+    const shopName = shop?.name || 'Din webshop';
+    const logoUrl = shop?.logoUrl;
+    const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Copenhagen', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
+    const greeting = hour < 10 ? 'Godmorgen.' : hour < 18 ? 'Goddag.' : 'Godaften.';
+    const [analyticsOpen, setAnalyticsOpen] = useState(false);
     const [timeRange, setTimeRange] = useState<'week' | 'month' | 'year'>('week');
     const [currentDate, setCurrentDate] = useState(new Date()); // Anchor date for view
-    const [stats, setStats] = useState({
-        revenue: 0,
-        ordersCount: 0,
-        customersCount: 0,
-        pendingOrders: 0
-    });
-    const { isMasterAdmin } = useUserRole();
-
     const [chartData, setChartData] = useState<{ name: string, total: number }[]>([]);
-    const cardClassName = "rounded-xl border-slate-200/80 bg-white shadow-sm transition-shadow duration-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/70";
-    const quickActionClassName = "h-auto w-full justify-start rounded-xl border-slate-200 bg-white py-4 text-left transition-colors hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900";
-
-    useEffect(() => {
-        const tenantId = settings.data?.id;
-        if (tenantId) fetchStats(tenantId);
-    }, [settings.data?.id]);
+    const cardClassName = "rounded-none border-0 bg-white shadow-none";
 
     useEffect(() => {
         // if (!rawOrders.length) return; 
@@ -163,117 +204,62 @@ export function Dashboard() {
         if (timeRange === 'year') return format(currentDate, 'yyyy', { locale: da });
     };
 
-    const fetchStats = async (tenantId: string) => {
-        try {
-            // 1. Pending Orders
-            const { count: pending } = await supabase
-                .from('orders' as any)
-                .select('*', { count: 'exact', head: true })
-                .eq('tenant_id', tenantId)
-                .eq('status', 'pending');
-
-            // 2. Fetch all orders for revenue and count
-            const { data: orders } = await supabase
-                .from('orders' as any)
-                .select('created_at, total_price, customer_email') // Added created_at
-                .eq('tenant_id', tenantId);
-
-            const realOrders = (orders || []) as any[];
-            setRawOrders(realOrders); // Store raw data
-
-            const totalRevenue = realOrders.reduce((sum, order) => sum + (order.total_price || 0), 0);
-
-            // Distinct Customers
-            const uniqueCustomers = new Set(realOrders.map(o => o.customer_email)).size;
-
-            setStats({
-                revenue: totalRevenue,
-                ordersCount: realOrders.length,
-                customersCount: uniqueCustomers,
-                pendingOrders: pending || 0
-            });
-
-            // Initial chart data logic moved to useEffect
-        } catch (e) {
-            console.error("Error fetching stats", e);
-        }
-    };
-
     return (
-        <div className="space-y-8 animate-in fade-in duration-500">
-            {/* Header Section */}
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">
-                        Dashboard
-                    </h1>
-                    <p className="text-muted-foreground mt-1">
-                        Overblik for {settings.data?.tenant_name || "din shop"} med ordrer, omsætning og hurtige handlinger.
-                    </p>
-                </div>
-            </div>
+        <div className="ow-dashboard">
+            <header className="ow-page-heading">
+                <div><h1>{greeting}</h1><p>Dit overblik over {shopName}.</p></div>
+                <WorkspaceDate />
+            </header>
 
-            {/* Stats Cards */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Card className={cardClassName}>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Omsætning</CardTitle>
-                        <CreditCard className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">
-                            {new Intl.NumberFormat('da-DK', { style: 'currency', currency: 'DKK' }).format(stats.revenue)}
+            {loadError ? (
+                <div className="ow-state ow-error" role="alert"><AlertCircle /><div><h2>Overblikket kunne ikke hentes</h2><p>Prøv igen for at se shoppens aktuelle ordrer.</p></div><Button variant="outline" onClick={() => { if (shopQuery.isError) void shopQuery.refetch(); else if (tenantId) void ordersQuery.refetch(); }}>Prøv igen</Button></div>
+            ) : loading ? (
+                <div className="ow-state" role="status"><Loader2 className="animate-spin" /><p>Henter dit ordreoverblik…</p></div>
+            ) : !tenantId ? (
+                <div className="ow-state" role="status"><Store /><p>Vælg en shop for at se ordrer.</p></div>
+            ) : <>
+                <section className="ow-task-banner" aria-labelledby="daily-task-heading">
+                    <span className="ow-task-icon"><FileText aria-hidden="true" /></span>
+                    <div><h2 id="daily-task-heading">{attentionCount > 0 ? `${attentionCount} ${attentionCount === 1 ? 'ordre' : 'ordrer'} ${problemOrders.length ? 'har brug for din opmærksomhed' : 'afventer behandling'}` : 'Du er ajour med ventende ordrer'}</h2><p>{attentionCount > 0 ? 'Gennemgå ordren og filerne, så arbejdet kan komme videre.' : 'Se de seneste ordrer, eller arbejd videre med din webshop.'}</p></div>
+                    <Button asChild><Link to={workspaceLink(attentionOrder ? `/admin/kunder?orderId=${attentionOrder.id}` : '/admin/kunder')}>{attentionOrder ? 'Gennemgå ordre' : 'Se ordrer'}<ArrowRight className="h-4 w-4 ml-2" /></Link></Button>
+                </section>
+
+                <div className="ow-dashboard-columns">
+                    <section className="ow-recent-orders">
+                        <div className="ow-section-heading"><h2>Seneste ordrer</h2><Link to={workspaceLink('/admin/kunder')}>Se alle ordrer</Link></div>
+                        <div className="ow-table-scroll"><table className="ow-table"><thead><tr><th>Ordre / Produkt</th><th>Kunde</th><th>Status</th></tr></thead><tbody>
+                            {rawOrders.slice(0, 5).map(order => <tr key={order.id}><td><Link to={workspaceLink(`/admin/kunder?orderId=${order.id}`)}>{order.order_number.startsWith('#') ? order.order_number : `#${order.order_number}`}</Link><span className="ow-table-subline">{order.product_name}</span></td><td>{order.customer_name || order.customer_email || 'Kunde'}</td><td><OrderStatus status={order.status} /></td></tr>)}
+                            {rawOrders.length === 0 && <tr><td colSpan={3}><div className="ow-empty"><Package /><h3>Ingen ordrer endnu</h3><p>Nye ordrer vises her, når kunderne bestiller.</p></div></td></tr>}
+                        </tbody></table></div>
+                    </section>
+                    <aside className="ow-shop-panel">
+                        <h2>Din webshop</h2>
+                        <div className="ow-shop-identity">{logoUrl ? <img src={logoUrl} alt={shopName} onError={event => { event.currentTarget.style.display = 'none'; }} /> : <Store aria-hidden="true" />}<span>{shopName}</span></div>
+                        <div className="ow-shop-links">
+                            <Link to={workspaceLink('/admin/site-design-v2')}>Redigér Site Design<ChevronRight /></Link>
+                            <Link to={workspaceLink('/admin/products')}>Administrér produkter<ChevronRight /></Link>
+                            <Link to={workspaceLink('/admin/ressourcer/designs')}>Design Bibliotek<ChevronRight /></Link>
+                            <Link to={workspaceLink('/admin/create-product')}>Opret produkt<Plus /></Link>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                            Total omsætning i shoppen
-                        </p>
-                    </CardContent>
-                </Card>
-                <Card className={cardClassName}>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Nye Ordrer</CardTitle>
-                        <ShoppingBag className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{stats.ordersCount}</div>
-                        <p className="text-xs text-muted-foreground">
-                            Ordrer totalt
-                        </p>
-                    </CardContent>
-                </Card>
-                <Card className={cardClassName}>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Aktive Kunder</CardTitle>
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{stats.customersCount}</div>
-                        <p className="text-xs text-muted-foreground">
-                            Unikke kunder
-                        </p>
-                    </CardContent>
-                </Card>
-                <Card className={cardClassName}>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Afventer Handling</CardTitle>
-                        <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-orange-600">{stats.pendingOrders}</div>
-                        <p className="text-xs text-muted-foreground">
-                            Ordrer der skal behandles
-                        </p>
-                    </CardContent>
-                </Card>
-            </div>
+                        <Link className="ow-message-shortcut" to={workspaceLink('/admin/beskeder')}><span className="ow-task-icon"><Mail /></span><span>Kundedialog<span className="ow-table-subline">Åbn beskeder</span></span><ChevronRight /></Link>
+                    </aside>
+                </div>
 
+                <details className="ow-analytics" onToggle={event => setAnalyticsOpen(event.currentTarget.open)}><summary>Ordrestatistik <span>{stats.ordersCount} ordrer i alt</span><ChevronRight /></summary>
+                    {analyticsOpen && <>
+                    <div className="ow-metric-strip">
+                        <div><span>Samlet ordreværdi</span><strong>{new Intl.NumberFormat('da-DK', { style: 'currency', currency: 'DKK' }).format(stats.revenue)}</strong><small>Summen af registrerede ordrer, inklusive annullerede</small></div>
+                        <div><span>Ordrer i alt</span><strong>{stats.ordersCount}</strong></div>
+                        <div><span>Unikke kundemails</span><strong>{stats.customersCount}</strong></div>
+                        <div><span>Afventer behandling</span><strong>{stats.pendingOrders}</strong></div>
+                    </div>
             {/* Charts & Activity */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <Card className={`${cardClassName} md:col-span-2 lg:col-span-4`}>
+            <div className="grid gap-4">
+                <Card className={`${cardClassName} `}>
                     <CardHeader>
                         <div className="flex flex-col md:flex-row items-center justify-between gap-4">
                             <div>
-                                <CardTitle>Omsætning</CardTitle>
+                                <CardTitle>Ordreværdi</CardTitle>
                                 <CardDescription className="capitalize">
                                     {periodLabel()}
                                 </CardDescription>
@@ -281,13 +267,13 @@ export function Dashboard() {
 
                             <div className="flex items-center gap-2">
                                 <div className="flex items-center bg-muted/50 rounded-lg p-0.5">
-                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleNavigate('prev')}>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Forrige periode" onClick={() => handleNavigate('prev')}>
                                         <ChevronLeft className="h-4 w-4" />
                                     </Button>
                                     <div className="mx-2 text-xs font-medium min-w-[80px] text-center capitalize">
                                         {timeRange === 'week' ? `Uge ${format(currentDate, 'w', { weekStartsOn: 1 })}` : periodLabel()}
                                     </div>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleNavigate('next')}>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Næste periode" onClick={() => handleNavigate('next')}>
                                         <ChevronRight className="h-4 w-4" />
                                     </Button>
                                 </div>
@@ -328,8 +314,8 @@ export function Dashboard() {
                                     margin={{ top: 20, right: 20, left: 0, bottom: 40 }}>
                                     <defs>
                                         <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                                            <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                                            <stop offset="5%" stopColor="#087FC5" stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor="#087FC5" stopOpacity={0} />
                                         </linearGradient>
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
@@ -353,60 +339,21 @@ export function Dashboard() {
                                         allowDataOverflow={false}
                                     />
                                     <Tooltip
-                                        formatter={(value: number) => [`${value} kr`, 'Omsætning']}
+                                        formatter={(value: number) => [`${value} kr`, 'Ordreværdi']}
                                         labelStyle={{ color: '#000' }}
                                         contentStyle={{ borderRadius: '8px' }}
                                     />
-                                    <Area type="monotone" dataKey="total" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorTotal)" />
+                                    <Area type="monotone" dataKey="total" stroke="#087FC5" strokeWidth={2} fillOpacity={1} fill="url(#colorTotal)" />
                                 </AreaChart>
                             </ResponsiveContainer>
                         </div>
                     </CardContent>
                 </Card>
 
-                <Card className={`${cardClassName} md:col-span-2 lg:col-span-3`}>
-                    <CardHeader>
-                        <CardTitle>Hurtige Handlinger</CardTitle>
-                        <CardDescription>
-                            Kom godt i gang med dagens opgaver
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="grid gap-4">
-                        <Button variant="outline" className={quickActionClassName} onClick={() => navigate('/admin/create-product')}>
-                            <div className="bg-primary/10 dark:bg-primary/20 p-2 rounded-full mr-4">
-                                <Package className="h-5 w-5 text-primary" />
-                            </div>
-                            <div className="text-left">
-                                <div className="font-semibold">Opret Produkt</div>
-                                <div className="text-xs text-muted-foreground">Tilføj en ny vare til shoppen</div>
-                            </div>
-                            <ArrowRight className="ml-auto h-4 w-4" />
-                        </Button>
-
-                        <Button variant="outline" className={quickActionClassName} onClick={() => navigate('/admin/branding-v2')}>
-                            <div className="bg-blue-100 dark:bg-blue-900/30 p-2 rounded-full mr-4">
-                                <ExternalLink className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                            </div>
-                            <div className="text-left">
-                                <div className="font-semibold">Design Shop</div>
-                                <div className="text-xs text-muted-foreground">Ret logo og farver</div>
-                            </div>
-                            <ArrowRight className="ml-auto h-4 w-4" />
-                        </Button>
-
-                        <Button variant="outline" className={quickActionClassName} onClick={() => navigate('/admin/kunder')}>
-                            <div className="bg-orange-100 dark:bg-orange-900/30 p-2 rounded-full mr-4">
-                                <ShoppingBag className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-                            </div>
-                            <div className="text-left">
-                                <div className="font-semibold">Se Ordrer</div>
-                                <div className="text-xs text-muted-foreground">{stats.pendingOrders} ordrer venter</div>
-                            </div>
-                            <ArrowRight className="ml-auto h-4 w-4" />
-                        </Button>
-                    </CardContent>
-                </Card>
             </div>
+                </>}
+                </details>
+            </>}
         </div>
     );
 }

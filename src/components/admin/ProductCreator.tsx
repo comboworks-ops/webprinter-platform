@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,10 +9,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Plus, Loader2, ArrowLeft, Check, Globe, ChevronDown } from "lucide-react";
 import { resolveAdminTenant } from "@/lib/adminTenant";
-import { ProductPresetSelector, PresetKey } from "./ProductPresetSelector";
+import { PRODUCT_PRESETS, PresetKey } from "./ProductPresetSelector";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AdminInlineHelp } from "./AdminInlineHelp";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
+import "@/styles/adminProductsWorkspace.css";
 
 interface Category {
   id: string;
@@ -41,6 +43,11 @@ const DEFAULT_CATEGORIES: Omit<Category, 'id'>[] = [
 
 export function ProductCreator() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const withAdminContext = (path: string) => {
+    const domain = new URLSearchParams(location.search).get("force_domain");
+    return domain ? `${path}?force_domain=${encodeURIComponent(domain)}` : path;
+  };
   const [creating, setCreating] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
@@ -237,7 +244,7 @@ export function ProductCreator() {
       }
 
       toast.success("Produkt oprettet! Du kan nu konfigurere det.");
-      navigate(`/admin/product/${finalSlug}`);
+      navigate(withAdminContext(`/admin/product/${finalSlug}`));
     } catch (error: any) {
       console.error('Error creating product:', error);
       toast.error(error.message || 'Kunne ikke oprette produkt.');
@@ -262,11 +269,11 @@ export function ProductCreator() {
   const onlineCategories = categories.filter(c => c.is_published !== false);
 
   return (
-    <div className="space-y-6">
+    <div className="admin-product-create space-y-6" data-design-choice="create_parallel">
       {/* Breadcrumb */}
       <Button
         variant="ghost"
-        onClick={() => navigate('/admin/products')}
+        onClick={() => navigate(withAdminContext('/admin/products'))}
         className="mb-0"
       >
         <ArrowLeft className="mr-2 h-4 w-4" />
@@ -274,31 +281,35 @@ export function ProductCreator() {
       </Button>
 
       <div>
-        <h1 className="text-3xl font-bold">Opret Nyt Produkt</h1>
-        <p className="text-muted-foreground">Vælg produkttype og tilføj grundlæggende oplysninger</p>
+        <h1 className="text-3xl font-bold">Opret produkt</h1>
+        <p className="text-muted-foreground">Vælg produkttype, kategori og angiv produktets grundlæggende oplysninger.</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="admin-product-create-form">
         {/* Preset Selection with Category Expansion */}
-        <Card>
+        <Card className="admin-product-create-type">
           <CardHeader>
-            <CardTitle className="text-lg">Vælg Produkttype</CardTitle>
+            <CardTitle className="text-lg">Produkttype og kategori</CardTitle>
             <CardDescription>
               Vælg den type produkt der passer bedst. Ved manuel opsætning vælger du kategori nedenfor.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <ProductPresetSelector
-              value={formData.presetKey}
-              onChange={(key) => setFormData(prev => ({ ...prev, presetKey: key }))}
-            />
+            <div className="space-y-2">
+              <Label htmlFor="product-preset">Produkttype</Label>
+              <Select value={formData.presetKey} onValueChange={key => setFormData(prev => ({ ...prev, presetKey: key as PresetKey }))}>
+                <SelectTrigger id="product-preset" className="h-12"><SelectValue /></SelectTrigger>
+                <SelectContent>{PRODUCT_PRESETS.map(preset => <SelectItem key={preset.key} value={preset.key}>{preset.label}</SelectItem>)}</SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">{PRODUCT_PRESETS.find(preset => preset.key === formData.presetKey)?.description}</p>
+            </div>
 
             {/* Category Selection - Expands when "custom" is selected */}
             <div
               className={cn(
                 "overflow-hidden transition-all duration-300 ease-in-out",
                 formData.presetKey === "custom"
-                  ? "max-h-[500px] opacity-100"
+                  ? "max-h-none opacity-100"
                   : "max-h-0 opacity-0"
               )}
             >
@@ -442,7 +453,7 @@ export function ProductCreator() {
         </Card>
 
         {/* Basic Info */}
-        <Card>
+        <Card className="admin-product-create-details">
           <CardHeader>
             <CardTitle className="text-lg">Produktdetaljer</CardTitle>
           </CardHeader>
@@ -474,11 +485,15 @@ export function ProductCreator() {
         </Card>
 
         {/* Submit */}
-        <div className="flex justify-end gap-2">
+        <div className="admin-product-create-actions flex justify-end gap-2">
+          <p className="mr-auto self-center text-sm text-muted-foreground">
+            Valgt opsætning: <strong className="text-foreground">{formData.presetKey === 'custom' ? 'Manuel opsætning' : 'Produktskabelon'}</strong>
+            {formData.presetKey === 'custom' && <span className="ml-4">Kategori: {categories.find(category => category.slug === formData.category)?.name || formData.category}</span>}
+          </p>
           <Button
             type="button"
             variant="outline"
-            onClick={() => navigate('/admin/products')}
+            onClick={() => navigate(withAdminContext('/admin/products'))}
           >
             Annuller
           </Button>

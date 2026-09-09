@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Webprinter · Fra produkt til ordre</title>
+<script src="./gsap.min.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;overflow:hidden;background:#f4f7fa;font-family:Inter,Arial,sans-serif;color:#0b1933}#tour{position:relative;width:1440px;height:1000px;transform-origin:top left;overflow:hidden}.clip{position:absolute;inset:0;background:#f4f7fa}#designer-scene,#order-scene{opacity:0}.screen{display:block;width:1440px;height:1000px;object-fit:contain}.order{padding:100px;background:#fff;display:flex;flex-direction:column;justify-content:center}.eyebrow{color:#087fc5;font-size:25px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin:0 0 22px}.order h1{font-size:64px;letter-spacing:-2px;line-height:1.15;margin:0 0 50px}.receipt{border:1px solid #dce4ec;border-radius:14px;padding:38px}.receipt-head{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e3e8ee;padding-bottom:28px;margin-bottom:28px}.receipt-head strong{font-size:32px}.badge{font-size:23px;color:#076aa5;background:#eff6fc;padding:9px 18px;border-radius:6px}.receipt dl{display:grid;grid-template-columns:1fr 1fr;gap:26px;font-size:25px;margin:0}.receipt dt{color:#566478}.receipt dd{margin:0;text-align:right}.note{font-size:24px;color:#4b5565;line-height:1.65;margin:34px 0 0;max-width:1000px}
+</style>
+</head>
+<body>
+<div id="tour" data-composition-id="webprinter-order-flow" data-width="1440" data-height="1000" data-duration="18">
+  <section id="storefront-scene" class="clip" data-start="0" data-duration="6" data-track-index="1"><img class="screen" src="./storefront.webp" alt="Webshop med produktvalg og prisberegning" /></section>
+  <section id="designer-scene" class="clip" data-start="6" data-duration="6" data-track-index="2"><img class="screen" src="./designer.webp" alt="Illustration af Webprinters online designer" /></section>
+  <section id="order-scene" class="clip order" data-start="12" data-duration="6" data-track-index="3">
+    <p class="eyebrow">Modtag ordre</p><h1>En ny ordre på dit bord.</h1>
+    <div class="receipt"><div class="receipt-head"><strong>Ordreoversigt</strong><span class="badge">Modtaget</span></div><dl><dt>Bestilling</dt><dd>Kundens tryksag</dd><dt>Designfil</dt><dd>Vedhæftet</dd><dt>Næste skridt</dt><dd>Gennemgå ordren</dd></dl></div>
+    <p class="note">Ordreoplysninger og kundens design samlet til din videre behandling. Illustrativt eksempel.</p>
+  </section>
+</div>
+<script>
+window.__timelines = window.__timelines || {};
+const timeline = gsap.timeline({ paused: true });
+timeline.fromTo('#storefront-scene .screen', { scale: 1 }, { scale: 1.025, duration: 5.7, ease: 'none' }, 0);
+timeline.set('#designer-scene', { opacity: 1 }, 6);
+timeline.fromTo('#designer-scene .screen', { scale: 1 }, { scale: 1.025, duration: 5.7, ease: 'none' }, 6);
+timeline.set('#order-scene', { opacity: 1 }, 12);
+timeline.fromTo('.receipt', { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: .55, ease: 'power2.out' }, 12);
+window.__timelines['webprinter-order-flow'] = timeline;
+</script>
+<script src="./preview-bridge.js"></script>
+</body>
+</html>

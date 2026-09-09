@@ -1,16 +1,17 @@
+import { useOrderFlowDesign } from "@/hooks/useOrderFlowDesign";
+import { useShopSettings } from "@/hooks/useShopSettings";
+import { OrderDesignPreviewSwitch } from "@/components/checkout/OrderDesignPreviewSwitch";
+import "@/styles/orderFlowDesigns.css";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { ADMIN_WORKSPACE_EXIT_EVENT, requestAdminWorkspaceExit } from "@/lib/admin/workspaceExit";
 
 import Footer from "@/components/Footer";
 import { SEO } from "@/components/SEO";
 import { Button } from "@/components/ui/button";
-import jsPDF from "jspdf";
-import {
-    OUTPUT_PROFILES,
-    SRGB_PROFILE_URL
-} from "@/lib/color/iccProofing";
+import { PDFDocument } from "pdf-lib";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -43,10 +44,14 @@ import PdfToolsPanel, { SelectedPdfMeta } from "@/components/designer/PdfToolsPa
 import { DesignLibraryDrawer } from "@/components/designer/DesignLibraryDrawer";
 import { ExportDialog } from "@/components/designer/ExportDialog";
 import { PhotopeaEditorDialog } from "@/components/designer/PhotopeaEditorDialog";
-import { runDesignerExport } from "@/lib/designer/export/exportActions";
+import { runDesignerExport, buildProofPdfBytes } from "@/lib/designer/export/exportActions";
+import { createProductionPdf } from "@/lib/designer/export/createProductionPdf";
+import { addProductionOutputIntent } from "@/lib/designer/export/productionPdfObjects";
+import { computeExportRasterScale } from "@/lib/designer/export/exportRasterScale";
+import '@/styles/designerFonts.css';
 import { withHiddenGuides } from "@/lib/designer/export/hideExportGuides";
 import { withCanonicalExportViewport } from "@/lib/designer/export/withCanonicalExportViewport";
-import { buildVectorPdfBackgroundPdf, detectPdfBackground, hasOverlayObjects } from "@/lib/designer/export/exportVectorPdfBackground";
+import { detectPdfBackground, hasOverlayObjects } from "@/lib/designer/export/exportVectorPdfBackground";
 import type { ExportOptions } from "@/lib/designer/export/types";
 import {
     getPhotopeaOutputBuffer,
@@ -54,10 +59,15 @@ import {
     validatePhotopeaSource,
 } from "@/lib/designer/photopeaBridge";
 import { PHOTOPEA_PILOT_ENABLED } from "@/lib/api/featureFlags";
+import { getSafeInternalPath } from "@/lib/designer/orderFlowNavigation";
+import { customerAuthHref, customerLink } from "@/lib/account/navigation";
+import { assertDesignerDocumentSaveSupported, decodeDesignerSnapshot, encodeDesignerSnapshot, resolveDesignerSaveTenant, updateOwnedDesign } from "@/lib/designer/saveDesign";
+import { hashCheckoutArtifact } from "@/lib/checkout/checkoutArtifact";
 import { mmToPx } from "@/utils/unitConversions";
 import { runPreflightChecks, PreflightWarning } from "@/utils/preflightChecks";
 import { useColorProofing } from "@/hooks/useColorProofing";
 import { useProductColorProfile } from "@/hooks/useProductColorProfile";
+import { readSavedColorProfile, withSavedColorProfile, type SavedColorProfile } from "@/lib/color/savedColorProfile";
 import { getImageDpi } from "@/utils/imageMetadata";
 import { markSiteCheckoutDesignReady, readSiteCheckoutSession, writeSiteCheckoutSession } from "@/lib/checkout/siteCheckoutSession";
 import {
@@ -119,6 +129,7 @@ import {
     Shirt,
     LockKeyhole,
     ExternalLink,
+    Files,
     type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -135,6 +146,36 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const PHONE_DESIGNER_BREAKPOINT_PX = 700;
 
 type DesignerPanelTab = 'layers' | 'properties' | 'apparel' | 'pdf' | 'preflight' | 'proofing';
+
+type LinkedTemplatePdfPage = {
+    index: number;
+    label: string;
+    imageDataUrl: string;
+    templatePdfUrl: string;
+    templatePdfSha256: string;
+    templatePdfName: string | null;
+    designerTemplateId: string | null;
+};
+
+const sha256Hex = async (bytes: ArrayBuffer) => {
+    const digest = await crypto.subtle.digest("SHA-256", bytes.slice(0));
+    return Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("");
+};
+
+const normalizeSha256 = (value: string | null | undefined) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    return /^[a-f0-9]{64}$/.test(normalized) ? normalized : null;
+};
+
+const getLinkedTemplatePageLabel = (templateName: string | null, pageIndex: number, pageCount: number) => {
+    const isFoldedProduct = /folder|fals|fold|wickel|fl(?:ø|oe)jet/i.test(templateName || "");
+    if (pageCount === 2 && isFoldedProduct) {
+        return pageIndex === 0 ? "Yderside" : "Inderside";
+    }
+    return `Side ${pageIndex + 1}`;
+};
 
 const PHOTOPEA_FILE_EXTENSION_BY_MIME: Record<string, string> = {
     "application/pdf": "pdf",
@@ -193,7 +234,7 @@ const getDesignerOrderFlowNotice = (
     if (mode === "pdf_template") {
         return {
             title: "Designer med PDF-skabelon",
-            body: "Placer grafik i forhold til skabelonens fold, ryg, beskæring og sikkerhedszone.",
+            body: "Placer grafik i forhold til skabelonens fold, ryg, skærelinje, udfald og sikkerhedsafstand.",
             detail: "Skabelonlinjer er til kontrol og skal ikke bruges som trykbar grafik.",
             toneClassName: "border-sky-200 bg-sky-50 text-sky-950",
         };
@@ -202,7 +243,7 @@ const getDesignerOrderFlowNotice = (
     if (mode === "storformat" || mode === "signage") {
         return {
             title: mode === "signage" ? "Skilt/facade designer" : "Storformat designer",
-            body: "Canvas følger de valgte mål fra bestillingen, så motivet kan kontrolleres mod størrelse og bleed.",
+            body: "Canvas følger de valgte mål fra bestillingen, så motivet kan kontrolleres mod størrelse og udfald.",
             detail: hasCheckoutUpload ? "Den uploadede fil indsættes automatisk, når den kan hentes sikkert." : pricing,
             toneClassName: "border-emerald-200 bg-emerald-50 text-emerald-950",
         };
@@ -230,7 +271,7 @@ const getDesignerOrderFlowNotice = (
         title: label,
         body: hasCheckoutUpload
             ? "Den uploadede fil indsættes på canvas, så du kan kontrollere placering før bestilling."
-            : "Brug designeren til at placere grafik og kontrollere bleed, sikkerhedszone og eksport.",
+            : "Brug designeren til at placere grafik og kontrollere udfald, sikkerhedsafstand og eksport.",
         detail: pricing,
         toneClassName: "border-sky-200 bg-sky-50 text-sky-950",
     };
@@ -316,15 +357,23 @@ function useIsPhoneDesignerViewport() {
 function DesignerPhoneUnsupported() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
-    const returnTo = searchParams.get("returnTo");
-    const safeReturnTo = returnTo && returnTo.startsWith("/") ? returnTo : null;
+    const safeReturnTo = getSafeInternalPath(searchParams.get("returnTo"));
+    const safeBackTo = getSafeInternalPath(searchParams.get("backTo"));
+    const backDestination = safeBackTo || safeReturnTo;
+    const handlePhoneBack = () => {
+        if (backDestination) {
+            navigate(backDestination, { replace: true });
+            return;
+        }
+        navigate(-1);
+    };
 
     return (
         <div className="min-h-screen bg-slate-50 text-slate-950">
             <SEO title="Print Designer virker bedst på større skærme" />
             <main className="mx-auto flex min-h-screen w-full max-w-lg flex-col px-5 py-6">
                 <div className="flex items-center justify-between">
-                    <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
+                    <Button variant="ghost" size="sm" onClick={handlePhoneBack}>
                         <ArrowLeft className="mr-2 h-4 w-4" />
                         Tilbage
                     </Button>
@@ -342,7 +391,7 @@ function DesignerPhoneUnsupported() {
                             Designeren virker bedst på computer eller iPad
                         </h1>
                         <p className="mt-3 text-sm leading-6 text-slate-600">
-                            Printdesigneren bruger et præcist canvas med zoom, lag, preflight, bleed og filplacering.
+                            Printdesigneren bruger et præcist canvas med zoom, lag, preflight, udfald og filplacering.
                             På en telefon er skærmen for lille til at redigere tryksager sikkert.
                         </p>
 
@@ -364,15 +413,15 @@ function DesignerPhoneUnsupported() {
                         </div>
 
                         <div className="mt-6 flex flex-col gap-3">
-                            {safeReturnTo && (
-                                <Button className="min-h-12 w-full" onClick={() => navigate(safeReturnTo)}>
-                                    Tilbage til checkout
+                            {backDestination && (
+                                <Button className="min-h-12 w-full" onClick={handlePhoneBack}>
+                                    {safeBackTo ? "Tilbage til produktet" : "Tilbage til checkout"}
                                 </Button>
                             )}
                             <Button
-                                variant={safeReturnTo ? "outline" : "default"}
+                                variant={backDestination ? "outline" : "default"}
                                 className="min-h-12 w-full"
-                                onClick={() => navigate(-1)}
+                                onClick={handlePhoneBack}
                             >
                                 Gå tilbage
                             </Button>
@@ -603,16 +652,18 @@ function ApparelDesignerPanel({
     );
 }
 
-export function Designer() {
+export function Designer({ embedded = false }: { embedded?: boolean }) {
     const isPhoneViewport = useIsPhoneDesignerViewport();
     if (isPhoneViewport) {
         return <DesignerPhoneUnsupported />;
     }
 
-    return <DesignerWorkspace />;
+    return <DesignerWorkspace embedded={embedded} />;
 }
 
-function DesignerWorkspace() {
+function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
+    const designShopSettings = useShopSettings();
+    const orderDesign = useOrderFlowDesign('designer', designShopSettings.data?.branding);
     const queryClient = useQueryClient();
     const { variantId } = useParams<{ variantId?: string }>();
     const [searchParams, setSearchParams] = useSearchParams();
@@ -627,6 +678,8 @@ function DesignerWorkspace() {
     const canvasAreaRef = useRef<HTMLDivElement>(null);
     const apparelDraftLoadKeyRef = useRef<string | null>(null);
     const apparelSideChangeRef = useRef(false);
+    const templatePageChangeRef = useRef(false);
+    const templatePageDraftsRef = useRef<Map<number, object>>(new Map());
     const checkoutSession = useMemo(() => readSiteCheckoutSession(), []);
 
     const productId = searchParams.get("productId");
@@ -638,15 +691,31 @@ function DesignerWorkspace() {
     const format = searchParams.get("format");
     const variant = searchParams.get("variant");
     const orderMode = searchParams.get("order") === "1" || searchParams.get("mode") === "order";
-    const directTemplatePdfUrl = searchParams.get("templatePdfUrl") || searchParams.get("templatePdf") || (orderMode ? checkoutSession?.templatePdfUrl || null : null);
+    const directTemplatePdfUrl = searchParams.get("templatePdfUrl")
+        || searchParams.get("templatePdf")
+        || (orderMode ? checkoutSession?.templatePdfUrl || null : null);
     const directTemplatePdfName = searchParams.get("templatePdfName") || (orderMode ? checkoutSession?.templatePdfName || null : null);
+    const expectedTemplatePdfSha256 = normalizeSha256(
+        searchParams.get("templatePdfSha256")
+        || (orderMode ? checkoutSession?.templatePdfSha256 || null : null),
+    );
     const designerMode = searchParams.get("designerMode") || checkoutSession?.designerMode || null;
     const pricingModel = searchParams.get("pricingModel") || checkoutSession?.pricingModel || null;
     const productFlowLabel = checkoutSession?.productFlowLabel || null;
     const requiresCutContour = searchParams.get("requiresCutContour") === "1"
         || checkoutSession?.requiresCutContour === true;
-    const returnTo = searchParams.get("returnTo");
-    const safeReturnTo = returnTo && returnTo.startsWith("/") ? returnTo : null;
+    const safeReturnTo = getSafeInternalPath(searchParams.get("returnTo"));
+    const safeBackTo = getSafeInternalPath(searchParams.get("backTo"));
+    const adminDomain = searchParams.get("force_domain");
+    const adminHome = adminDomain ? `/admin?${new URLSearchParams({ force_domain: adminDomain })}` : '/admin';
+    const designerDocumentHref = (key: 'templateId' | 'designId', id: string) => {
+        const params = new URLSearchParams({ [key]: id });
+        if (embedded) {
+            if (queryTenantId) params.set('tenantId', queryTenantId);
+            if (adminDomain) params.set('force_domain', adminDomain);
+        }
+        return customerLink(`${embedded ? '/admin/print-designer' : '/designer'}?${params}`, searchParams.toString());
+    };
     const designerOrderFlowNotice = useMemo(
         () => getDesignerOrderFlowNotice(
             designerMode,
@@ -672,6 +741,9 @@ function DesignerWorkspace() {
     const customHeightMm = parseDimension(searchParams.get("heightMm"));
     const customBleedMm = parseNonNegative(searchParams.get("bleedMm"));
     const customSafeMm = parseNonNegative(searchParams.get("safeMm"));
+    const explicitTemplateWidthMm = parseDimension(searchParams.get("templateWidthMm"));
+    const explicitTemplateHeightMm = parseDimension(searchParams.get("templateHeightMm"));
+    const hasExplicitTemplateDimensions = explicitTemplateWidthMm !== null && explicitTemplateHeightMm !== null;
     const apparelConfig = useMemo(() => {
         if (designerMode !== "apparel" && searchParams.get("apparel") !== "1" && !checkoutSession?.apparelConfig) {
             return null;
@@ -723,6 +795,9 @@ function DesignerWorkspace() {
     const [pendingCutContour, setPendingCutContour] = useState<string | null>(null);
     const [pendingTemplatePdf, setPendingTemplatePdf] = useState<string | null>(directTemplatePdfUrl);
     const [pendingTemplateEditorJson, setPendingTemplateEditorJson] = useState<any | null>(null);
+    const [linkedTemplatePages, setLinkedTemplatePages] = useState<LinkedTemplatePdfPage[]>([]);
+    const [activeTemplatePageIndex, setActiveTemplatePageIndex] = useState(0);
+    const [switchingTemplatePage, setSwitchingTemplatePage] = useState(false);
     const [linkedTemplateFetchComplete, setLinkedTemplateFetchComplete] = useState(() => !templateId);
     const [checkoutUploadImported, setCheckoutUploadImported] = useState(false);
     const [returningToOrder, setReturningToOrder] = useState(false);
@@ -861,10 +936,21 @@ function DesignerWorkspace() {
     const [showSaveDialog, setShowSaveDialog] = useState(false);
     const [saveDesignName, setSaveDesignName] = useState("");
     const [savedDesignId, setSavedDesignId] = useState<string | null>(null);
+    type SaveDestination = 'stay' | 'back' | 'checkout';
+    const saveDestinationRef = useRef<SaveDestination>('stay');
+    const saveInFlightRef = useRef(false);
+    const [pendingLoginSave, setPendingLoginSave] = useState<{ name?: string; destination: SaveDestination } | null>(null);
     const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false);
 
     // Color Proofing & Profiles
-    const { profile: productProfile } = useProductColorProfile({ productId: productDbId });
+    const [preferredColorProfile, setPreferredColorProfile] = useState<SavedColorProfile | null>(null);
+    const preferredProfileDesignIdRef = useRef<string | null>(null);
+    const [productionColorChoice, setProductionColorChoice] = useState<{ context: string; mode: 'convert_cmyk' | 'preserve_rgb' } | null>(null);
+    const colorProductId = productDbId || (isUuid(documentSpec.product_id) ? documentSpec.product_id : null);
+    const { profile: productProfile } = useProductColorProfile({ productId: colorProductId });
+    const colorTenantId = productProfile.tenantId || documentSpec.tenant_id || queryTenantId || designShopSettings.data?.id || undefined;
+    const colorContextKey = designId || colorProductId || 'standalone';
+    const currentSavedColorProfile = preferredProfileDesignIdRef.current === designId ? preferredColorProfile : null;
 
     const [fabricCanvas, setFabricCanvas] = useState<fabric.Canvas | null>(null);
     const displayDpi = useMemo(() => {
@@ -1002,10 +1088,26 @@ function DesignerWorkspace() {
         docWidth: Math.round(docWidth),
         docHeight: Math.round(docHeight),
         pasteboardOffset: pasteboardPaddingPx,
+        pixelsPerMm: displayMmToPx,
+        maxTrimMm: Math.max(documentSpec.width_mm, documentSpec.height_mm),
         customProfileId: productProfile.id || undefined,
         customProfileName: productProfile.name || undefined,
         customProfileBytes: productProfile.profileBytes,
+        customProfileLoading: productProfile.loading,
+        customProfileError: productProfile.error,
+        tenantId: colorTenantId,
+        profileContextKey: colorContextKey,
+        preferredProfile: currentSavedColorProfile,
+        viewportScale: effectiveScale,
+        viewportWidth, viewportHeight, viewportOffsetX, viewportOffsetY,
     });
+    const latestColorProfileIdRef = useRef(colorProofing.settings.outputProfileId);
+    latestColorProfileIdRef.current = colorProofing.settings.outputProfileId;
+    const productionColorMode = (productionColorChoice?.context === colorContextKey ? productionColorChoice.mode : null)
+        || currentSavedColorProfile?.productionColorMode || productProfile.recipe?.productionColorMode
+        || (apparelConfig ? 'preserve_rgb' as const : 'convert_cmyk' as const);
+    const latestProductionColorModeRef = useRef(productionColorMode);
+    latestProductionColorModeRef.current = productionColorMode;
     const zoomPercent = Math.round(zoomScale * 100);
     const updateZoom = useCallback((nextZoom: number) => {
         const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, nextZoom));
@@ -1036,6 +1138,89 @@ function DesignerWorkspace() {
             objects: systemObjects,
         };
     }, [getCurrentCanvasSnapshot]);
+
+    const saveLinkedTemplatePageDraft = useCallback((pageIndex: number) => {
+        if (linkedTemplatePages.length <= 1) return;
+        const snapshot = getCurrentCanvasSnapshot();
+        if (!snapshot) return;
+        templatePageDraftsRef.current.set(pageIndex, snapshot);
+    }, [getCurrentCanvasSnapshot, linkedTemplatePages.length]);
+
+    const loadLinkedTemplatePageDraft = useCallback(async (pageIndex: number) => {
+        const page = linkedTemplatePages[pageIndex];
+        if (!page || !editorRef.current) return false;
+
+        templatePageChangeRef.current = true;
+        try {
+            const storedSnapshot = templatePageDraftsRef.current.get(pageIndex);
+            if (storedSnapshot) {
+                await editorRef.current.loadArtworkJSON(storedSnapshot);
+            } else {
+                await editorRef.current.loadArtworkJSON(buildEmptySideSnapshot());
+            }
+
+            // PDF template layers are deliberately excluded from serialized/exported canvas JSON.
+            // Reattach the correct non-printing page after every draft restore.
+            await editorRef.current.addPdfTemplate(
+                page.imageDataUrl,
+                documentSpec.width_mm + (documentSpec.bleed_mm * 2),
+                documentSpec.height_mm + (documentSpec.bleed_mm * 2),
+                {
+                    sourceUrl: page.templatePdfUrl,
+                    sha256: page.templatePdfSha256,
+                    fileName: page.templatePdfName,
+                    designerTemplateId: page.designerTemplateId,
+                    pageIndex: page.index,
+                },
+            );
+            if (!storedSnapshot) {
+                const initializedSnapshot = getCurrentCanvasSnapshot();
+                if (initializedSnapshot) {
+                    templatePageDraftsRef.current.set(pageIndex, initializedSnapshot);
+                }
+            }
+
+            setSelectedLayerId(null);
+            setSelectedProps(null);
+            setHasSelection(false);
+            setLayers(editorRef.current.getLayers());
+            return true;
+        } finally {
+            templatePageChangeRef.current = false;
+        }
+    }, [
+        buildEmptySideSnapshot,
+        documentSpec.bleed_mm,
+        documentSpec.height_mm,
+        documentSpec.width_mm,
+        getCurrentCanvasSnapshot,
+        linkedTemplatePages,
+    ]);
+
+    const handleLinkedTemplatePageChange = useCallback(async (pageIndex: number) => {
+        if (
+            pageIndex === activeTemplatePageIndex
+            || pageIndex < 0
+            || pageIndex >= linkedTemplatePages.length
+            || switchingTemplatePage
+        ) return;
+
+        setSwitchingTemplatePage(true);
+        saveLinkedTemplatePageDraft(activeTemplatePageIndex);
+        try {
+            if (await loadLinkedTemplatePageDraft(pageIndex)) {
+                setActiveTemplatePageIndex(pageIndex);
+            }
+        } finally {
+            setSwitchingTemplatePage(false);
+        }
+    }, [
+        activeTemplatePageIndex,
+        linkedTemplatePages.length,
+        loadLinkedTemplatePageDraft,
+        saveLinkedTemplatePageDraft,
+        switchingTemplatePage,
+    ]);
 
     const saveApparelSideDraft = useCallback((side: ApparelPrintSide) => {
         const draftKey = getApparelDraftKey(side);
@@ -1163,6 +1348,8 @@ function DesignerWorkspace() {
                         .single();
 
                     if (design && !error) {
+                        preferredProfileDesignIdRef.current = designId;
+                        setPreferredColorProfile(readSavedColorProfile((design as any).editor_json));
                         setDocumentSpec({
                             name: (design as any).name,
                             width_mm: (design as any).width_mm,
@@ -1179,7 +1366,7 @@ function DesignerWorkspace() {
                         });
                         setTimeout(() => {
                             if ((design as any).editor_json && editorRef.current) {
-                                editorRef.current.loadJSON((design as any).editor_json);
+                                void editorRef.current.loadJSON(decodeDesignerSnapshot((design as any).editor_json));
                             }
                         }, 100);
                         setLoading(false);
@@ -1380,13 +1567,17 @@ function DesignerWorkspace() {
                         .single();
 
                     if (template && !error) {
+                        const templateWidthMm = Number((template as any).width_mm);
+                        const templateHeightMm = Number((template as any).height_mm);
+                        const templateBleedMm = Number((template as any).bleed_mm);
+                        const templateSafeAreaMm = Number((template as any).safe_area_mm);
                         setDocumentSpec(prev => ({
                             ...prev,
                             name: `Design: ${(template as any).name}`,
-                            width_mm: (template as any).width_mm,
-                            height_mm: (template as any).height_mm,
-                            bleed_mm: (template as any).bleed_mm || 3,
-                            safe_area_mm: (template as any).safe_area_mm || 3,
+                            width_mm: Number.isFinite(templateWidthMm) && templateWidthMm > 0 ? templateWidthMm : prev.width_mm,
+                            height_mm: Number.isFinite(templateHeightMm) && templateHeightMm > 0 ? templateHeightMm : prev.height_mm,
+                            bleed_mm: Number.isFinite(templateBleedMm) && templateBleedMm >= 0 ? templateBleedMm : 3,
+                            safe_area_mm: Number.isFinite(templateSafeAreaMm) && templateSafeAreaMm >= 0 ? templateSafeAreaMm : 3,
                             dpi: (template as any).dpi_default || 300,
                             color_profile: (template as any).color_profile || "FOGRA39",
                             template_id: (template as any).id,
@@ -1428,7 +1619,7 @@ function DesignerWorkspace() {
         };
 
         loadSpec();
-    }, [variantId, productId, productDbId, variantDbId, templateId, designId, format, savedDesignId, customWidthMm, customHeightMm, customBleedMm, customSafeMm, directTemplatePdfName, productProfile.name, apparelConfig]);
+    }, [variantId, productId, productDbId, variantDbId, templateId, designId, format, savedDesignId, customWidthMm, customHeightMm, customBleedMm, customSafeMm, directTemplatePdfName, apparelConfig]);
 
     useEffect(() => {
         const hasBaseSpecContext = Boolean(
@@ -1456,20 +1647,38 @@ function DesignerWorkspace() {
                     return;
                 }
 
+                const templateWidthMm = Number((template as any).width_mm);
+                const templateHeightMm = Number((template as any).height_mm);
+                const templateBleedMm = Number((template as any).bleed_mm);
+                const templateSafeAreaMm = Number((template as any).safe_area_mm);
                 setDocumentSpec((prev) => ({
                     ...prev,
                     template_id: (template as any).id,
+                    width_mm: Number.isFinite(templateWidthMm) && templateWidthMm > 0
+                        ? templateWidthMm
+                        : prev.width_mm,
+                    height_mm: Number.isFinite(templateHeightMm) && templateHeightMm > 0
+                        ? templateHeightMm
+                        : prev.height_mm,
                     bleed_mm: typeof customBleedMm === "number"
                         ? customBleedMm
-                        : (template as any).bleed_mm || prev.bleed_mm || 3,
+                        : Number.isFinite(templateBleedMm) && templateBleedMm >= 0
+                            ? templateBleedMm
+                            : prev.bleed_mm || 3,
                     safe_area_mm: typeof customSafeMm === "number"
                         ? customSafeMm
-                        : (template as any).safe_area_mm || prev.safe_area_mm || 3,
+                        : Number.isFinite(templateSafeAreaMm) && templateSafeAreaMm >= 0
+                            ? templateSafeAreaMm
+                            : prev.safe_area_mm || 3,
                     color_profile: prev.color_profile || (template as any).color_profile || "FOGRA39",
                 }));
 
                 setPendingCutContour((template as any).cut_contour_path || null);
-                setPendingTemplatePdf((template as any).template_pdf_url || null);
+                setPendingTemplatePdf(
+                    (template as any).template_pdf_url
+                    || checkoutSession?.templatePdfUrl
+                    || null,
+                );
                 setPendingTemplateEditorJson((template as any).editor_json || null);
                 if (!(template as any).template_pdf_url && !(template as any).editor_json) {
                     setLinkedTemplateFetchComplete(true);
@@ -1485,7 +1694,7 @@ function DesignerWorkspace() {
         return () => {
             active = false;
         };
-    }, [templateId, productId, variantId, format, customWidthMm, customHeightMm, customBleedMm, customSafeMm]);
+    }, [checkoutSession?.templatePdfUrl, templateId, productId, variantId, format, customWidthMm, customHeightMm, customBleedMm, customSafeMm]);
 
     useEffect(() => {
         if (!templateId) {
@@ -1512,43 +1721,140 @@ function DesignerWorkspace() {
 
     // Apply pending template PDF once canvas is ready
     useEffect(() => {
-        if (!pendingTemplatePdf || !fabricCanvas || !editorRef.current) return;
+        if (
+            !pendingTemplatePdf
+            || !fabricCanvas
+            || !editorRef.current
+            || loading
+        ) return;
 
         const loadTemplatePdf = async () => {
             try {
                 // Dynamically import PDF.js
                 const pdfjs = await import('pdfjs-dist');
 
-                // Fetch and parse PDF
-                const loadingTask = pdfjs.getDocument(pendingTemplatePdf);
+                // Fetch once so the exact downloadable PDF can be hash-bound to
+                // the locked Designer overlay and later runtime evidence.
+                const templatePdfResponse = await fetch(pendingTemplatePdf);
+                if (!templatePdfResponse.ok) {
+                    throw new Error(`Kunne ikke hente PDF-skabelonen (${templatePdfResponse.status})`);
+                }
+                const templatePdfBytes = await templatePdfResponse.arrayBuffer();
+                const templatePdfSha256 = await sha256Hex(templatePdfBytes);
+                if (expectedTemplatePdfSha256 && templatePdfSha256 !== expectedTemplatePdfSha256) {
+                    throw new Error(
+                        "PDF-skabelonen matcher ikke den godkendte importfil. Skabelonen skal synkroniseres igen, før den kan bruges.",
+                    );
+                }
+                const loadingTask = pdfjs.getDocument({ data: templatePdfBytes.slice(0) });
                 const pdf = await loadingTask.promise;
                 const page = await pdf.getPage(1);
-                const viewport = page.getViewport({ scale: 3 }); // High res render
+                const pageViewport = page.getViewport({ scale: 1 });
+                const pdfWidthMm = (pageViewport.width * 25.4) / 72;
+                const pdfHeightMm = (pageViewport.height * 25.4) / 72;
+                const normalizePdfDimensionMm = (value: number) => {
+                    const roundedInteger = Math.round(value);
+                    return Math.abs(value - roundedInteger) < 0.05
+                        ? roundedInteger
+                        : Number(value.toFixed(2));
+                };
+                // Legacy product links may contain a private designer-template ID without
+                // denormalized dimensions. The linked product PDF remains customer-readable,
+                // so use its real page size rather than silently falling back to A4.
+                if (
+                    designerMode === "pdf_template"
+                    && templateId
+                    && !hasExplicitTemplateDimensions
+                    && Number.isFinite(pdfWidthMm)
+                    && Number.isFinite(pdfHeightMm)
+                    && pdfWidthMm > 0
+                    && pdfHeightMm > 0
+                    && (
+                        Math.abs(documentSpec.width_mm - pdfWidthMm) > 0.5
+                        || Math.abs(documentSpec.height_mm - pdfHeightMm) > 0.5
+                    )
+                ) {
+                    setDocumentSpec((prev) => ({
+                        ...prev,
+                        width_mm: normalizePdfDimensionMm(pdfWidthMm),
+                        height_mm: normalizePdfDimensionMm(pdfHeightMm),
+                        format: null,
+                    }));
+                    return;
+                }
+                const renderedPages: LinkedTemplatePdfPage[] = [];
+                for (let pageIndex = 0; pageIndex < pdf.numPages; pageIndex += 1) {
+                    const pdfPage = pageIndex === 0 ? page : await pdf.getPage(pageIndex + 1);
+                    const viewport = pdfPage.getViewport({ scale: 3 });
+                    const offscreenCanvas = document.createElement('canvas');
+                    offscreenCanvas.width = Math.round(viewport.width);
+                    offscreenCanvas.height = Math.round(viewport.height);
+                    const context = offscreenCanvas.getContext('2d');
+                    if (!context) continue;
 
-                // Render to offscreen canvas
-                const offscreenCanvas = document.createElement('canvas');
-                offscreenCanvas.width = Math.round(viewport.width);
-                offscreenCanvas.height = Math.round(viewport.height);
-                const context = offscreenCanvas.getContext('2d');
-                if (!context) return;
+                    await pdfPage.render({
+                        canvasContext: context,
+                        viewport,
+                    }).promise;
 
-                await page.render({
-                    canvasContext: context,
-                    viewport: viewport,
-                }).promise;
+                    renderedPages.push({
+                        index: pageIndex,
+                        label: getLinkedTemplatePageLabel(directTemplatePdfName, pageIndex, pdf.numPages),
+                        imageDataUrl: offscreenCanvas.toDataURL('image/png', 1.0),
+                        templatePdfUrl: pendingTemplatePdf,
+                        templatePdfSha256,
+                        templatePdfName: directTemplatePdfName,
+                        designerTemplateId: templateId,
+                    });
+                }
 
-                // Convert to image URL and add as template
-                const imageDataUrl = offscreenCanvas.toDataURL('image/png', 1.0);
+                if (renderedPages.length === 0) {
+                    throw new Error('PDF-skabelonen indeholder ingen sider, der kan vises.');
+                }
+
                 const widthMm = documentSpec.width_mm + (documentSpec.bleed_mm * 2);
                 const heightMm = documentSpec.height_mm + (documentSpec.bleed_mm * 2);
 
-                editorRef.current?.addPdfTemplate(imageDataUrl, widthMm, heightMm);
+                templatePageChangeRef.current = true;
+                await editorRef.current?.addPdfTemplate(
+                    renderedPages[0].imageDataUrl,
+                    widthMm,
+                    heightMm,
+                    {
+                        sourceUrl: renderedPages[0].templatePdfUrl,
+                        sha256: renderedPages[0].templatePdfSha256,
+                        fileName: renderedPages[0].templatePdfName,
+                        designerTemplateId: renderedPages[0].designerTemplateId,
+                        pageIndex: renderedPages[0].index,
+                    },
+                );
+                templatePageChangeRef.current = false;
+                templatePageDraftsRef.current.clear();
+                const initialSnapshot = editorRef.current?.getJSON();
+                if (initialSnapshot) templatePageDraftsRef.current.set(0, initialSnapshot);
+                setLinkedTemplatePages(renderedPages);
+                setActiveTemplatePageIndex(0);
                 setPendingTemplatePdf(null);
+
+                const hasUserArtwork = fabricCanvas.getObjects().some((object: any) => (
+                    !object.__isDocumentBackground
+                    && !object.__isGuide
+                    && !object.__isGuideLabel
+                    && !object.__isPdfTemplate
+                ));
+                if (!hasUserArtwork) setHasChanges(false);
 
                 toast.info('Format-skabelon indlæst - placer dit design inden for linjerne');
                 console.log('[Designer] Auto-loaded template PDF overlay');
             } catch (err) {
                 console.error('[Designer] Failed to load template PDF:', err);
+                toast.error(
+                    err instanceof Error
+                        ? err.message
+                        : 'PDF-skabelonen kunne ikke indlæses sikkert.',
+                );
+                templatePageChangeRef.current = false;
+                setLinkedTemplatePages([]);
                 setPendingTemplatePdf(null);
             }
         };
@@ -1556,7 +1862,19 @@ function DesignerWorkspace() {
         // Small delay to ensure canvas is ready
         const timer = setTimeout(loadTemplatePdf, 500);
         return () => clearTimeout(timer);
-    }, [pendingTemplatePdf, fabricCanvas, documentSpec.width_mm, documentSpec.height_mm, documentSpec.bleed_mm]);
+    }, [
+        designerMode,
+        directTemplatePdfName,
+        documentSpec.bleed_mm,
+        documentSpec.height_mm,
+        documentSpec.width_mm,
+        fabricCanvas,
+        hasExplicitTemplateDimensions,
+        loading,
+        expectedTemplatePdfSha256,
+        pendingTemplatePdf,
+        templateId,
+    ]);
 
     useEffect(() => {
         if (!pendingTemplateEditorJson || !fabricCanvas || !editorRef.current) return;
@@ -1586,11 +1904,38 @@ function DesignerWorkspace() {
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [hasChanges]);
 
+    // The embedded editor adds admin navigation around the existing canvas.
+    // Protect that new exit path using the same unsaved-change decision.
+    useEffect(() => {
+        if (!embedded || !hasChanges) return;
+        const guardShellExit = (event: Event) => {
+            if (!window.confirm('Du har ændringer, der ikke er gemt. Vil du forlade designeren?')) event.preventDefault();
+        };
+        const guardAdminLink = (event: MouseEvent) => {
+            if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null;
+            if (!anchor || anchor.target === '_blank' || anchor.hasAttribute('download')) return;
+            const destination = new URL(anchor.href, window.location.href);
+            if (destination.pathname === window.location.pathname && destination.search === window.location.search) return;
+            if (!requestAdminWorkspaceExit()) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
+        };
+        window.addEventListener(ADMIN_WORKSPACE_EXIT_EVENT, guardShellExit);
+        document.addEventListener('click', guardAdminLink, true);
+        return () => {
+            window.removeEventListener(ADMIN_WORKSPACE_EXIT_EVENT, guardShellExit);
+            document.removeEventListener('click', guardAdminLink, true);
+        };
+    }, [embedded, hasChanges]);
+
     // Navigate back helper - used after save or discard
     const navigateBack = useCallback(() => {
         if (orderMode) {
-            if (safeReturnTo) {
-                navigate(safeReturnTo);
+            const backDestination = safeBackTo || safeReturnTo;
+            if (backDestination) {
+                navigate(backDestination, { replace: true });
                 return;
             }
             if (window.history.length > 1) {
@@ -1600,9 +1945,8 @@ function DesignerWorkspace() {
             navigate('/');
             return;
         }
-        // Admin/backend designer: always return to dashboard
-        navigate('/admin');
-    }, [navigate, orderMode, safeReturnTo]);
+        navigate(embedded ? adminHome : customerLink('/min-konto/designs', searchParams.toString()));
+    }, [navigate, orderMode, safeBackTo, safeReturnTo, embedded, adminHome, searchParams]);
 
     // Handle back navigation with unsaved changes guard
     const handleBackClick = useCallback(() => {
@@ -1619,92 +1963,90 @@ function DesignerWorkspace() {
         markSiteCheckoutDesignReady(readyProductId, readSiteCheckoutSession());
     }, [checkoutSession?.productId, documentSpec.product_id, productId]);
 
-    const buildCanvasOrderArtworkDataUrl = useCallback(async (fabricCanvas: fabric.Canvas) => {
-        const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId)
-            || OUTPUT_PROFILES[0];
-        const bleedPx = (documentSpec.bleed_mm || 0) * displayMmToPx;
+    // Production PNGs retain the browser artwork's sRGB colors and transparency.
+    const buildCanvasOrderArtworkDataUrl = useCallback(async (canvas: fabric.Canvas) => {
+        const width = (documentSpec.width_mm + 2 * (documentSpec.bleed_mm || 0)) * displayMmToPx;
+        const height = (documentSpec.height_mm + 2 * (documentSpec.bleed_mm || 0)) * displayMmToPx;
+        const { multiplier } = computeExportRasterScale(width, height, displayMmToPx,
+            Math.max(documentSpec.width_mm, documentSpec.height_mm));
+        return withCanonicalExportViewport(canvas, () => withHiddenGuides(canvas, async () => canvas.toDataURL({
+            format: 'png', multiplier, left: pasteboardPaddingPx, top: pasteboardPaddingPx, width, height,
+        })));
+    }, [documentSpec.width_mm, documentSpec.height_mm, documentSpec.bleed_mm, displayMmToPx, pasteboardPaddingPx]);
 
-        return withCanonicalExportViewport(
-            fabricCanvas,
-            () => withHiddenGuides(fabricCanvas, async () => {
-                const result = await colorProofing.exportCMYK(
-                    SRGB_PROFILE_URL,
-                    profile.url,
-                    productProfile.profileBytes,
-                    {
-                        left: pasteboardPaddingPx,
-                        top: pasteboardPaddingPx,
-                        width: (documentSpec.width_mm * displayMmToPx) + (bleedPx * 2),
-                        height: (documentSpec.height_mm * displayMmToPx) + (bleedPx * 2),
-                    }
-                );
-
-                return result.proofedRgbDataUrl;
-            }),
-        );
-    }, [
-        colorProofing,
-        displayMmToPx,
-        documentSpec.bleed_mm,
-        documentSpec.height_mm,
-        documentSpec.width_mm,
-        pasteboardPaddingPx,
-        productProfile.profileBytes,
-    ]);
-
-    const buildCanvasOrderPdfBlob = useCallback(async (fabricCanvas: fabric.Canvas, nameOverride?: string) => {
-        const exportName = nameOverride || documentSpec.name;
-        const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId)
-            || OUTPUT_PROFILES[0];
-        const pdfWidth = documentSpec.width_mm + ((documentSpec.bleed_mm || 0) * 2);
-        const pdfHeight = documentSpec.height_mm + ((documentSpec.bleed_mm || 0) * 2);
-        const proofedRgbDataUrl = await buildCanvasOrderArtworkDataUrl(fabricCanvas);
-        const previewDataUrl = await createCheckoutPreviewDataUrl(proofedRgbDataUrl);
-
-        const doc = new jsPDF({
-            orientation: pdfWidth > pdfHeight ? 'landscape' : 'portrait',
-            unit: 'mm',
-            format: [pdfWidth, pdfHeight],
+    const buildCanvasOrderPdfBlob = useCallback(async (canvas: fabric.Canvas, nameOverride?: string) => {
+        const outputProfile = productionColorMode === 'convert_cmyk' ? await colorProofing.resolveOutputProfile() : undefined;
+        const result = await createProductionPdf({
+            documentSpec: { ...documentSpec, name: nameOverride || documentSpec.name },
+            fabricCanvas: canvas, includeBleed: true, outputProfile, colorMode: productionColorMode,
+            displayMetrics: { mmToPx: displayMmToPx, pasteboardPaddingPx },
         });
-
-        doc.addImage(proofedRgbDataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'SLOW');
-        doc.setProperties({
-            title: exportName,
-            subject: 'Trykklar PDF',
-            creator: 'Webprinter Designer',
-            keywords: `CMYK, ${profile.name}, Print`,
-        });
-
+        if (result.warnings.length) toast.warning(result.warnings.map(item => item.message).join(' '), { duration: 12000 });
         return {
-            blob: doc.output('blob') as Blob,
-            filename: `${exportName.replace(/[^a-z0-9_.-]/gi, '_')}.pdf`,
-            previewDataUrl,
+            blob: new Blob([result.bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' }),
+            filename: result.filename,
+            previewDataUrl: await createCheckoutPreviewDataUrl(await buildCanvasOrderArtworkDataUrl(canvas)),
         };
-    }, [
-        buildCanvasOrderArtworkDataUrl,
-        documentSpec,
-    ]);
+    }, [colorProofing, documentSpec, productionColorMode, displayMmToPx, pasteboardPaddingPx, buildCanvasOrderArtworkDataUrl]);
 
-    const buildCanvasOrderPngBlob = useCallback(async (fabricCanvas: fabric.Canvas, nameOverride?: string) => {
-        const exportName = nameOverride || documentSpec.name;
-        const proofedRgbDataUrl = await buildCanvasOrderArtworkDataUrl(fabricCanvas);
-        const previewDataUrl = await createCheckoutPreviewDataUrl(proofedRgbDataUrl);
-
+    const buildLinkedTemplateOrderPdfBlob = useCallback(async (options: ExportOptions = { mode: 'print_pdf', includeBleed: true }) => {
+        if (linkedTemplatePages.length <= 1 || !editorRef.current) return null;
+        const originalPageIndex = activeTemplatePageIndex;
+        saveLinkedTemplatePageDraft(originalPageIndex);
+        const isProof = options.mode === 'proof_pdf';
+        const colorMode = options.colorMode || productionColorMode;
+        const outputProfile = isProof || colorMode === 'convert_cmyk' ? await colorProofing.resolveOutputProfile() : undefined;
+        const combinedPdf = await PDFDocument.create();
+        const warnings = new Set<string>();
+        let previewDataUrl: string | null = null;
+        try {
+            for (let pageIndex = 0; pageIndex < linkedTemplatePages.length; pageIndex += 1) {
+                const pageLoaded = await loadLinkedTemplatePageDraft(pageIndex);
+                const pageCanvas = editorRef.current?.getCanvas();
+                if (!pageLoaded || !pageCanvas) throw new Error(`Skabelonside ${pageIndex + 1} kunne ikke indlæses.`);
+                const context = {
+                    documentSpec, fabricCanvas: pageCanvas, outputProfile, colorMode,
+                    displayMetrics: { mmToPx: displayMmToPx, pasteboardPaddingPx },
+                    colorProofing,
+                };
+                const result: { bytes: Uint8Array; warnings?: { message: string }[] } = isProof
+                    ? await buildProofPdfBytes(context, options.includeBleed)
+                    : await createProductionPdf({ ...context, includeBleed: options.includeBleed });
+                if (result.warnings) for (const warning of result.warnings) warnings.add(warning.message);
+                const sourcePdf = await PDFDocument.load(result.bytes);
+                for (const page of await combinedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices())) combinedPdf.addPage(page);
+                if (!previewDataUrl) previewDataUrl = await createCheckoutPreviewDataUrl(await buildCanvasOrderArtworkDataUrl(pageCanvas));
+            }
+        } finally {
+            await loadLinkedTemplatePageDraft(originalPageIndex);
+        }
+        if (!isProof && colorMode === 'convert_cmyk' && outputProfile) addProductionOutputIntent(combinedPdf, outputProfile);
+        combinedPdf.setTitle(documentSpec.name);
+        combinedPdf.setCreator('Webprinter Designer');
+        combinedPdf.setSubject(isProof ? 'Soft proof – RGB-simulation' : 'Produktionsfil');
+        if (warnings.size) toast.warning(Array.from(warnings).join(' '), { duration: 12000 });
+        const bytes = await combinedPdf.save();
         return {
-            blob: dataUrlToBlob(proofedRgbDataUrl),
-            filename: `${exportName.replace(/[^a-z0-9_.-]/gi, '_')}.png`,
-            previewDataUrl,
+            blob: new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' }),
+            filename: `${documentSpec.name.replace(/[^a-z0-9_.-]/gi, '_')}${isProof ? '_proof' : ''}.pdf`, previewDataUrl,
         };
-    }, [
-        buildCanvasOrderArtworkDataUrl,
-        documentSpec,
-    ]);
+    }, [activeTemplatePageIndex, buildCanvasOrderArtworkDataUrl, colorProofing, documentSpec, productionColorMode,
+        displayMmToPx, pasteboardPaddingPx, linkedTemplatePages.length, loadLinkedTemplatePageDraft, saveLinkedTemplatePageDraft]);
+
+    const buildCanvasOrderPngBlob = useCallback(async (canvas: fabric.Canvas, nameOverride?: string) => {
+        const artworkDataUrl = await buildCanvasOrderArtworkDataUrl(canvas);
+        return {
+            blob: dataUrlToBlob(artworkDataUrl),
+            filename: `${(nameOverride || documentSpec.name).replace(/[^a-z0-9_.-]/gi, '_')}.png`,
+            previewDataUrl: await createCheckoutPreviewDataUrl(artworkDataUrl),
+        };
+    }, [buildCanvasOrderArtworkDataUrl, documentSpec.name]);
 
     const handleReturnToOrder = useCallback(() => {
         const completeReturn = () => {
             markDesignReady();
             if (safeReturnTo) {
-                navigate(safeReturnTo);
+                navigate(safeReturnTo, { replace: true });
                 return;
             }
             if (window.history.length > 1) {
@@ -1720,7 +2062,15 @@ function DesignerWorkspace() {
             const fabricCanvas = editorRef.current?.getCanvas();
             const pdfBackgroundMeta = detectPdfBackground(fabricCanvas || null);
 
-            if (!fabricCanvas || (!apparelConfig && !pdfBackgroundMeta && !hasOverlayObjects(fabricCanvas))) {
+            if (
+                !fabricCanvas
+                || (
+                    !apparelConfig
+                    && linkedTemplatePages.length <= 1
+                    && !pdfBackgroundMeta
+                    && !hasOverlayObjects(fabricCanvas)
+                )
+            ) {
                 completeReturn();
                 return;
             }
@@ -1736,6 +2086,7 @@ function DesignerWorkspace() {
                     const safeFileName = file.filename.replace(/[^a-z0-9_.-]/gi, "_");
                     const filePath = `designer-production/${productRef}-${Date.now()}-${safeFileName}`;
 
+                    const sha256 = await hashCheckoutArtifact(file.blob);
                     const { error: uploadError } = await supabase.storage
                         .from("order-files")
                         .upload(filePath, file.blob, {
@@ -1755,6 +2106,7 @@ function DesignerWorkspace() {
                         fileUrl: publicUrl,
                         filePath,
                         sourceMode,
+                        sha256,
                     };
                 };
 
@@ -1770,6 +2122,7 @@ function DesignerWorkspace() {
                         mimeType?: string | null;
                         fileUrl?: string | null;
                         filePath?: string | null;
+                        sha256?: string | null;
                         sourceMode?: "vector_pdf" | "print_pdf" | "apparel_png" | null;
                     }> = [];
 
@@ -1812,29 +2165,10 @@ function DesignerWorkspace() {
                             ...pngUpload,
                         });
 
-                        const pdfFile = sidePdfBackgroundMeta
-                            ? await (async () => {
-                                const { pdfBytes, filename } = await buildVectorPdfBackgroundPdf({
-                                    documentSpec: { ...documentSpec, name: sideName },
-                                    fabricCanvas: sideCanvas,
-                                    pdfBackgroundMeta: sidePdfBackgroundMeta,
-                                    includeBleed: true,
-                                    displayMetrics: {
-                                        mmToPx: displayMmToPx,
-                                        pasteboardPaddingPx,
-                                    },
-                                });
-
-                                return {
-                                    blob: new Blob([pdfBytes], { type: "application/pdf" }),
-                                    filename,
-                                    sourceMode: "vector_pdf" as const,
-                                };
-                            })()
-                            : {
-                                ...(await buildCanvasOrderPdfBlob(sideCanvas, sideName)),
-                                sourceMode: "print_pdf" as const,
-                            };
+                        const pdfFile = {
+                            ...(await buildCanvasOrderPdfBlob(sideCanvas, sideName)),
+                            sourceMode: "print_pdf" as const,
+                        };
                         const pdfUpload = await uploadProductionFile(pdfFile, "application/pdf", pdfFile.sourceMode);
                         productionFiles.push({
                             format: "pdf",
@@ -1875,6 +2209,7 @@ function DesignerWorkspace() {
                         designerExport: {
                             name: primaryPngUpload.name,
                             mimeType: primaryPngUpload.mimeType,
+                            sha256: primaryPngUpload.sha256,
                             fileUrl: primaryPngUpload.fileUrl,
                             filePath: primaryPngUpload.filePath,
                             previewDataUrl: checkoutPreviewDataUrl,
@@ -1894,29 +2229,11 @@ function DesignerWorkspace() {
                     return;
                 }
 
-                const productionFile = pdfBackgroundMeta
-                    ? await (async () => {
-                        const { pdfBytes, filename } = await buildVectorPdfBackgroundPdf({
-                            documentSpec,
-                            fabricCanvas,
-                            pdfBackgroundMeta,
-                            includeBleed: true,
-                            displayMetrics: {
-                                mmToPx: displayMmToPx,
-                                pasteboardPaddingPx,
-                            },
-                        });
-
-                        return {
-                            blob: new Blob([pdfBytes], { type: "application/pdf" }),
-                            filename,
-                            sourceMode: "vector_pdf" as const,
-                        };
-                    })()
-                    : {
-                        ...(await buildCanvasOrderPdfBlob(fabricCanvas)),
-                        sourceMode: "print_pdf" as const,
-                    };
+                const linkedTemplateProductionFile = await buildLinkedTemplateOrderPdfBlob();
+                const productionFile = {
+                    ...(linkedTemplateProductionFile || await buildCanvasOrderPdfBlob(fabricCanvas)),
+                    sourceMode: "print_pdf" as const,
+                };
 
                 const pdfUpload = await uploadProductionFile(productionFile, "application/pdf", productionFile.sourceMode);
                 const productionPreviewDataUrl = "previewDataUrl" in productionFile
@@ -1952,23 +2269,19 @@ function DesignerWorkspace() {
         };
 
         void prepareDesignerOrderFile();
-    }, [apparelConfig, buildCanvasOrderArtworkDataUrl, buildCanvasOrderPdfBlob, buildCanvasOrderPngBlob, documentSpec, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo, saveApparelSideDraft]);
+    }, [apparelConfig, buildCanvasOrderArtworkDataUrl, buildCanvasOrderPdfBlob, buildCanvasOrderPngBlob, buildLinkedTemplateOrderPdfBlob, documentSpec, linkedTemplatePages.length, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo, saveApparelSideDraft]);
 
     // Save and then navigate back
-    const handleSaveAndLeave = useCallback(async () => {
+    const handleSaveAndLeave = async () => {
         setIsSavingAndLeaving(true);
         try {
-            await handleSave();
-            // After successful save, hasChanges will be false, navigate back
-            navigateBack();
-        } catch (err) {
-            // Save failed, stay on page
-            console.error('Save failed during exit:', err);
+            // A name/login dialog or a rejected write must keep the canvas open.
+            await handleSave('back');
         } finally {
             setIsSavingAndLeaving(false);
             setShowUnsavedDialog(false);
         }
-    }, [navigateBack]);
+    };
 
     // Discard changes and navigate back
     const handleDiscardAndLeave = useCallback(() => {
@@ -2694,49 +3007,55 @@ function DesignerWorkspace() {
     }, [effectiveScale, layers, rerenderPdfBackgroundForQuality]);
 
     // Prompt to save - shows dialog for new designs
-    const handleSave = async () => {
+    const handleSave = async (destination: SaveDestination = 'stay'): Promise<boolean> => {
+        saveDestinationRef.current = destination;
         // For new designs, show the save dialog to get a name
         if (!designId) {
             // Set default name based on format
             const defaultName = `${documentSpec.name || format || 'Design'} - ${new Date().toLocaleDateString('da-DK')}`;
             setSaveDesignName(defaultName);
             setShowSaveDialog(true);
-            return;
+            return false;
         }
 
         // For existing designs, save directly
-        await performSave();
+        return performSave(undefined, destination);
     };
 
     // Actually perform the save operation
-    const performSave = async (customName?: string) => {
+    const performSave = async (customName?: string, destination: SaveDestination = 'stay'): Promise<boolean> => {
+        if (saveInFlightRef.current) return false;
+        saveInFlightRef.current = true;
         try {
             setSaving(true);
 
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) {
-                toast.error("Du skal være logget ind for at gemme");
-                navigate('/auth?redirect=/designer');
-                return;
+                // Keep all canvas/vector/multi-page state mounted during login.
+                // The account page opens separately, so checkout upload import is not rerun.
+                setPendingLoginSave({ name: customName, destination });
+                return false;
             }
 
             const canvas = editorRef.current?.getCanvas();
-            const editorJson = editorRef.current?.getJSON() || {};
+            if (!canvas || loading) throw new Error('Designet er ikke klar endnu. Behold fanen åben, og prøv igen.');
+            assertDesignerDocumentSaveSupported(linkedTemplatePages.length, apparelConfig?.sides.length || 0);
+            const outputProfile = await colorProofing.resolveOutputProfile();
+            const artworkJson = encodeDesignerSnapshot(editorRef.current?.getJSON() || {});
+            const savedColor: SavedColorProfile = { version: 1, id: outputProfile.id, name: outputProfile.name, sha256: outputProfile.metadata.sha256, productionColorMode };
+            const editorJson = withSavedColorProfile(artworkJson, savedColor);
             const saveName = customName || documentSpec.name;
+            let confirmedDesignId = designId;
 
-            // Resolve tenant ID to ensure storage paths are correct
-            let tenantId = (documentSpec as any).tenant_id;
-
-            if (!tenantId) {
-                const { data: roleRow } = await supabase
-                    .from('user_roles')
-                    .select('tenant_id')
-                    .eq('user_id', user.id)
-                    .maybeSingle();
-                tenantId = (roleRow as any)?.tenant_id;
-            }
-
-            tenantId = tenantId || '00000000-0000-0000-0000-000000000000';
+            const tenantId = await resolveDesignerSaveTenant(supabase, {
+                embedded,
+                queryTenantId,
+                documentTenantId: (documentSpec as any).tenant_id || null,
+                productId: documentSpec.product_id,
+                hostname: window.location.hostname,
+                search: searchParams.toString(),
+                rootDomain: import.meta.env.VITE_ROOT_DOMAIN || 'webprinter.dk',
+            });
 
             // Generate thumbnail if possible
             let preview_thumbnail_url = (documentSpec as any).preview_thumbnail_url;
@@ -2790,7 +3109,7 @@ function DesignerWorkspace() {
                 bleed_mm: documentSpec.bleed_mm,
                 safe_area_mm: documentSpec.safe_area_mm,
                 dpi: documentSpec.dpi,
-                color_profile: documentSpec.color_profile,
+                color_profile: outputProfile.name,
                 template_id: documentSpec.template_id,
                 product_id: documentSpec.product_id,
                 editor_json: editorJson,
@@ -2804,14 +3123,8 @@ function DesignerWorkspace() {
             };
 
             if (designId) {
-                const { error } = await supabase
-                    .from('designer_saved_designs' as any)
-                    .update(designData)
-                    .eq('id', designId);
-
-                if (error) throw error;
+                await updateOwnedDesign(supabase, designId, user.id, tenantId, designData);
                 toast.success("Design opdateret!");
-                setHasChanges(false);
             } else {
                 const { data, error } = await supabase
                     .from('designer_saved_designs' as any)
@@ -2820,30 +3133,62 @@ function DesignerWorkspace() {
                     .single();
 
                 if (error) throw error;
+                if (!(data as any)?.id) throw new Error('Designet blev ikke gemt. Prøv igen.');
                 toast.success(`"${saveName}" gemt!`);
-                setHasChanges(false);
 
                 // Update documentSpec with new name and preview
-                setDocumentSpec(prev => ({ ...prev, name: saveName, preview_thumbnail_url }));
+                setDocumentSpec(prev => ({ ...prev, name: saveName, preview_thumbnail_url, tenant_id: tenantId }));
 
                 if (data) {
                     // Track that we just saved this design to skip reloading
                     const newId = (data as any).id;
+                    confirmedDesignId = newId;
                     setSavedDesignId(newId);
+                    // Preserve a new choice made while the save was in flight. It stays
+                    // unsaved, but moving to the new design URL must not reset it.
+                    preferredProfileDesignIdRef.current = newId;
+                    setPreferredColorProfile(latestColorProfileIdRef.current === outputProfile.id ? savedColor : {
+                        version: 1, id: latestColorProfileIdRef.current, name: latestColorProfileIdRef.current,
+                        productionColorMode: latestProductionColorModeRef.current,
+                    });
+                    setProductionColorChoice({ context: newId, mode: latestProductionColorModeRef.current });
 
                     // Update URL without causing a full reload
                     const nextParams = new URLSearchParams(searchParams);
                     nextParams.set('designId', newId);
+                    nextParams.set('tenantId', tenantId);
                     setSearchParams(nextParams, { replace: true });
                 }
             }
 
-            // Invalidate query to refresh library
+            // Changes made while the request was pending are still unsaved.
+            const currentJson = encodeDesignerSnapshot(editorRef.current?.getJSON() || {});
+            const savedCurrentArtwork = JSON.stringify(currentJson) === JSON.stringify(artworkJson)
+                && latestColorProfileIdRef.current === outputProfile.id
+                && latestProductionColorModeRef.current === savedColor.productionColorMode;
+            setHasChanges(!savedCurrentArtwork);
+            setPendingLoginSave(null);
             queryClient.invalidateQueries({ queryKey: ['design-library'] });
+            if (savedCurrentArtwork && destination === 'back') navigateBack();
+            if (savedCurrentArtwork && destination === 'checkout') {
+                if (documentSpec.product_id && confirmedDesignId) {
+                    const params = new URLSearchParams(searchParams);
+                    params.set('productId', documentSpec.product_id);
+                    params.set('designId', confirmedDesignId);
+                    params.set('tenantId', tenantId);
+                    navigate(`/checkout/konfigurer?${params.toString()}`);
+                } else toast.info('Vælg et produkt for at tilføje til kurv');
+            }
+            if (!savedCurrentArtwork && destination !== 'stay') {
+                toast.info('Du har ændret designet under gemning. Gem igen, før du forlader fanen.');
+            }
+            return true;
         } catch (err: any) {
             console.error("Save error:", err);
             toast.error("Kunne ikke gemme: " + err.message);
+            return false;
         } finally {
+            saveInFlightRef.current = false;
             setSaving(false);
             setShowSaveDialog(false);
         }
@@ -2855,94 +3200,11 @@ function DesignerWorkspace() {
             toast.error("Indtast venligst et navn til dit design");
             return;
         }
-        performSave(saveDesignName.trim());
+        void performSave(saveDesignName.trim(), saveDestinationRef.current);
     };
 
-    // Export print-ready PDF
-    const handleExport = async () => {
-        // Run preflight first
-        runPreflight();
-
-        if (preflightErrors.length > 0) {
-            toast.error("Ret venligst preflight-fejl før eksport");
-            setActiveTab('preflight');
-            return;
-        }
-
-        try {
-            setSaving(true);
-            toast.info("Forbereder trykklar PDF (CMYK)... Dette kan tage et øjeblik.");
-
-            // Find current profile URLs
-            const profile = OUTPUT_PROFILES.find(p => p.id === colorProofing.settings.outputProfileId)
-                || OUTPUT_PROFILES[0];
-
-            // Calculate crop rect to capture TRIM + BLEED area (excluding pasteboard)
-            // Note: pasteboard padding marks the start of the Bleed Box
-            const bleedPx = (documentSpec.bleed_mm || 0) * displayMmToPx;
-
-            // We want to capture the full bleed area, which starts at pasteboard padding
-            const cropOptions = {
-                left: pasteboardPaddingPx,
-                top: pasteboardPaddingPx,
-                width: (documentSpec.width_mm * displayMmToPx) + (bleedPx * 2),
-                height: (documentSpec.height_mm * displayMmToPx) + (bleedPx * 2)
-            };
-
-            // 1. Transform to CMYK and get proofed RGB (Cropped to Bleed Box).
-            // Template PDFs, fold guides, safe zones and document backgrounds are editor-only
-            // objects and must not be captured in the printable export.
-            const { cmykData, proofedRgbDataUrl, width, height } = await withCanonicalExportViewport(
-                fabricCanvas,
-                () => withHiddenGuides(
-                    fabricCanvas,
-                    () => colorProofing.exportCMYK(
-                    SRGB_PROFILE_URL,
-                    profile.url,
-                    productProfile.profileBytes,
-                    cropOptions
-                    ),
-                ),
-            );
-
-            if (cmykData.length === 0) {
-                toast.warning("ICC-profiler blev ikke fundet. Eksporterer optimeret RGB PDF i stedet.");
-            }
-
-            // 2. Create PDF with full BLEED dimensions
-            const bleedMm = documentSpec.bleed_mm || 0;
-            const pdfWidth = documentSpec.width_mm + (bleedMm * 2);
-            const pdfHeight = documentSpec.height_mm + (bleedMm * 2);
-
-            const doc = new jsPDF({
-                orientation: pdfWidth > pdfHeight ? 'landscape' : 'portrait',
-                unit: 'mm',
-                format: [pdfWidth, pdfHeight]
-            });
-
-            // 3. Add CMYK-simulated Image (Now full bleed size)
-            doc.addImage(proofedRgbDataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'SLOW');
-
-            // Set Output Intent (Metadata)
-            doc.setProperties({
-                title: documentSpec.name,
-                subject: 'Trykklar PDF',
-                creator: 'Webprinter Designer',
-                keywords: `CMYK, ${profile.name}, Print`
-            });
-
-            // Save
-            const fileName = `${documentSpec.name.replace(/[^a-z0-9]/gi, '_')}.pdf`;
-            doc.save(fileName);
-
-            toast.success("Trykklar PDF eksporteret!");
-        } catch (err: any) {
-            console.error("Export error:", err);
-            toast.error("Kunne ikke eksportere PDF: " + err.message);
-        } finally {
-            setSaving(false);
-        }
-    };
+    // All production downloads use the same builder as order artwork.
+    const handleExport = async () => handleExportWithDialog({ mode: 'print_pdf', includeBleed: true });
 
     // Export with dialog - uses runDesignerExport for mode selection
     const handleExportWithDialog = async (options: ExportOptions) => {
@@ -2957,6 +3219,10 @@ function DesignerWorkspace() {
 
         try {
             setSaving(true);
+            if ((options.mode === 'print_pdf' || options.mode === 'vector_pdf') && options.colorMode && options.colorMode !== productionColorMode) {
+                setProductionColorChoice({ context: colorContextKey, mode: options.colorMode });
+                setHasChanges(true);
+            }
             const modeLabels: Record<string, string> = {
                 print_pdf: 'Print PDF',
                 proof_pdf: 'Proof PDF',
@@ -2964,6 +3230,26 @@ function DesignerWorkspace() {
                 vector_pdf: 'Vektor PDF'
             };
             toast.info(`Forbereder ${modeLabels[options.mode] || options.mode}...`);
+
+            if (
+                linkedTemplatePages.length > 1
+                && (options.mode === 'print_pdf' || options.mode === 'proof_pdf' || options.mode === 'vector_pdf')
+            ) {
+                const multiPageFile = await buildLinkedTemplateOrderPdfBlob(options);
+                if (!multiPageFile) throw new Error('Den flersidede PDF kunne ikke oprettes.');
+
+                const downloadUrl = URL.createObjectURL(multiPageFile.blob);
+                const downloadLink = document.createElement('a');
+                downloadLink.href = downloadUrl;
+                downloadLink.download = multiPageFile.filename;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                downloadLink.remove();
+                URL.revokeObjectURL(downloadUrl);
+                toast.success(`${modeLabels[options.mode]} eksporteret med ${linkedTemplatePages.length} sider!`);
+                setIsExportDialogOpen(false);
+                return;
+            }
 
             // Detect PDF background for vector export
             let pdfBackgroundMeta = null;
@@ -2989,8 +3275,10 @@ function DesignerWorkspace() {
                 colorProofing: {
                     settings: colorProofing.settings,
                     exportCMYK: colorProofing.exportCMYK,
+                    resolveOutputProfile: colorProofing.resolveOutputProfile,
                 },
                 productProfileBytes: productProfile.profileBytes,
+                colorMode: options.colorMode || productionColorMode,
                 pdfSourceMeta: null, // No PDF source tracking yet
                 hasChanges,
                 pdfBackgroundMeta,
@@ -3002,6 +3290,7 @@ function DesignerWorkspace() {
 
             if (result.success) {
                 toast.success(`${modeLabels[options.mode] || options.mode} eksporteret!`);
+                if (result.warnings?.length) toast.warning(result.warnings.join(' '), { duration: 12000 });
                 setIsExportDialogOpen(false);
             } else {
                 toast.error(result.error || 'Eksport fejlede');
@@ -3019,7 +3308,7 @@ function DesignerWorkspace() {
         if (!editorRef.current) return;
 
         if (item.kind === 'fabric_json') {
-            editorRef.current.importJSON(item.fabric_json);
+            editorRef.current.importJSON(decodeDesignerSnapshot(item.fabric_json));
             toast.success("Design indsat!");
         } else if (item.kind === 'svg' && item.storage_path) {
             // Fetch SVG string from storage or URL
@@ -3059,17 +3348,17 @@ function DesignerWorkspace() {
                 setIsLibraryOpen(false);
                 return;
             }
-            navigate(`/designer?templateId=${item.id}`, { replace: true });
+            navigate(designerDocumentHref('templateId', item.id), { replace: true });
             setIsLibraryOpen(false);
             return;
         }
 
         if (item.kind === 'fabric_json' && item.fabric_json) {
-            editorRef.current?.loadJSON(item.fabric_json);
+            void editorRef.current?.loadJSON(decodeDesignerSnapshot(item.fabric_json));
 
             // If it's a saved design (from 'mine' tab), update the URL
             if (item.created_at) { // Simple check to see if it's from the hook's 'mine' mapping
-                navigate(`/designer?designId=${item.id}`, { replace: true });
+                navigate(designerDocumentHref('designId', item.id), { replace: true });
             }
 
             toast.success("Design åbnet!");
@@ -3094,18 +3383,8 @@ function DesignerWorkspace() {
         // Run preflight
         runPreflight();
 
-        // Save first
-        await handleSave();
-
-        // Navigate to checkout with design
-        if (documentSpec.product_id) {
-            const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
-            params.set('productId', documentSpec.product_id);
-            params.set('designId', designId);
-            navigate(`/checkout/konfigurer?${params.toString()}`);
-        } else {
-            toast.info('Vælg et produkt for at tilføje til kurv');
-        }
+        // Continue only after a checked save, including name/login dialogs.
+        await handleSave('checkout');
     };
 
     // Update props
@@ -3443,8 +3722,8 @@ function DesignerWorkspace() {
         { id: "rectangle", icon: Square, label: "Rektangel (R)" },
         { id: "circle", icon: Circle, label: "Cirkel (C)" },
         { id: "line", icon: Minus, label: "Linje (L)" },
-        { id: "guide-h", icon: GripHorizontal, label: "Horisontal guide (G) - Fold/beskæring" },
-        { id: "guide-v", icon: GripVertical, label: "Vertikal guide (Shift+G) - Fold/beskæring" },
+        { id: "guide-h", icon: GripHorizontal, label: "Horisontal foldelinje (G)" },
+        { id: "guide-v", icon: GripVertical, label: "Vertikal foldelinje (Shift+G)" },
     ].filter((tool) => !companyControlledMode || tool.id === "select");
 
     // Total warnings count
@@ -3456,6 +3735,34 @@ function DesignerWorkspace() {
         () => layers.some((layer) => Boolean((layer.object as any).__isPdfTemplate)),
         [layers]
     );
+    const designerTemplateVerification = useMemo(() => {
+        const templateObjects = layers
+            .map((layer) => layer.object as any)
+            .filter((object) => object.__isPdfTemplate === true);
+        const overlay = templateObjects[0] || null;
+        const loadedTemplatePdfSha256 = overlay?.data?.templatePdfSha256 || null;
+        const hashMatches = !expectedTemplatePdfSha256
+            || loadedTemplatePdfSha256 === expectedTemplatePdfSha256;
+        return {
+            loaded: templateObjects.length === 1 && hashMatches,
+            count: templateObjects.length,
+            marker: overlay ? "__isPdfTemplate" : null,
+            selectable: overlay?.selectable ?? null,
+            evented: overlay?.evented ?? null,
+            lockMovementX: overlay?.lockMovementX ?? null,
+            lockMovementY: overlay?.lockMovementY ?? null,
+            lockScalingX: overlay?.lockScalingX ?? null,
+            lockScalingY: overlay?.lockScalingY ?? null,
+            lockRotation: overlay?.lockRotation ?? null,
+            excludeFromExport: overlay?.excludeFromExport ?? null,
+            templatePdfSha256: loadedTemplatePdfSha256,
+            expectedTemplatePdfSha256,
+            hashMatches,
+            templatePdfUrl: overlay?.data?.templatePdfUrl || null,
+            designerTemplateId: overlay?.data?.designerTemplateId || null,
+            pageIndex: overlay?.data?.pageIndex ?? null,
+        };
+    }, [expectedTemplatePdfSha256, layers]);
     const hasCutContourOnCanvas = useMemo(
         () => layers.some((layer) => Boolean((layer.object as any).__isCutContour)),
         [layers]
@@ -3701,7 +4008,7 @@ function DesignerWorkspace() {
                         </h1>
                         <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
                             Vores professionelle designværktøj giver dig fuld kontrol over dit artwork
-                            med CMYK-farver, bleed-områder og høj opløsning – alt sammen uden at installere
+                            med CMYK-farver, udfaldsområder og høj opløsning – alt sammen uden at installere
                             noget software.
                         </p>
                         <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -3748,7 +4055,7 @@ function DesignerWorkspace() {
                                 </div>
                                 <h3 className="text-lg font-semibold mb-2">Professionelt Canvas</h3>
                                 <p className="text-muted-foreground text-sm">
-                                    Lag-baseret editor med bleed, trim og sikkerhedszoner.
+                                    Lagbaseret editor med udfald, skærelinjer og sikkerhedsafstande.
                                     Præcis placering af alle elementer.
                                 </p>
                             </div>
@@ -3838,7 +4145,8 @@ function DesignerWorkspace() {
 
     return (
         <div
-            className="flex h-screen flex-col"
+            className={embedded ? "order-designer admin-embedded-designer flex flex-col" : "order-designer flex h-screen flex-col"}
+            data-order-design={embedded ? undefined : orderDesign}
             onDragEnter={handleGlobalDragEnter}
             onDragOver={handleGlobalDragOver}
             onDragLeave={handleGlobalDragLeave}
@@ -3847,57 +4155,88 @@ function DesignerWorkspace() {
             <SEO title={documentSpec.name || "Design Editor"} />
 
             {/* Subheader / Toolbar */}
-            <div className="h-16 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex items-center px-4 justify-between gap-4">
-                <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="sm" onClick={handleBackClick}>
-                        <ArrowLeft className="h-4 w-4 mr-2" />
-                        Tilbage
+            <div
+                data-designer-toolbar
+                className="flex h-16 min-h-16 shrink-0 items-center justify-between gap-2 overflow-hidden border-b bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:px-3 lg:gap-4 lg:px-4"
+            >
+                <div className="flex min-w-0 flex-1 items-center gap-1.5 lg:gap-2">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleBackClick}
+                        className="h-9 w-9 shrink-0 px-0 lg:w-auto lg:px-3"
+                        aria-label="Tilbage"
+                        title="Tilbage"
+                    >
+                        <ArrowLeft className="h-4 w-4 lg:mr-2" />
+                        <span className="hidden lg:inline">Tilbage</span>
                     </Button>
-                    <div className="h-4 w-px bg-border mx-2" />
-                    <div>
-                        <h1 className="text-lg font-semibold">{documentSpec.name}</h1>
-                        <div className="flex items-center gap-2 text-base text-muted-foreground pt-0.5">
-                            <span>{documentSpec.width_mm}x{documentSpec.height_mm}mm</span>
-                            <span className="w-0.5 h-0.5 rounded-full bg-border" />
-                            <span>{documentSpec.bleed_mm}mm bleed</span>
-                            <span className="w-0.5 h-0.5 rounded-full bg-border" />
-                            <span>{documentSpec.safe_area_mm ?? 3}mm safe zone</span>
-                            <span className="w-0.5 h-0.5 rounded-full bg-border" />
-                            <span>{documentSpec.dpi} DPI</span>
-                            <span className="w-0.5 h-0.5 rounded-full bg-border" />
-                            <span>{documentSpec.color_profile}</span>
+                    <div className="mx-1 hidden h-4 w-px shrink-0 bg-border lg:block" />
+                    <div className="min-w-0 flex-1 overflow-hidden">
+                        <h1
+                            className="truncate whitespace-nowrap text-sm font-semibold lg:text-base xl:text-lg"
+                            title={documentSpec.name}
+                        >
+                            {documentSpec.name}
+                        </h1>
+                        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap pt-0.5 text-xs text-muted-foreground">
+                            <span className="shrink-0 tabular-nums">
+                                {documentSpec.width_mm}x{documentSpec.height_mm}mm
+                            </span>
+                            <span className="hidden shrink-0 items-center gap-1.5 lg:flex">
+                                <span className="h-0.5 w-0.5 rounded-full bg-border" />
+                                <span>{documentSpec.bleed_mm} mm udfald</span>
+                            </span>
+                            <span className="hidden shrink-0 items-center gap-1.5 xl:flex">
+                                <span className="h-0.5 w-0.5 rounded-full bg-border" />
+                                <span>{documentSpec.safe_area_mm ?? 3} mm sikkerhedsafstand</span>
+                            </span>
+                            <span className="hidden shrink-0 items-center gap-1.5 2xl:flex">
+                                <span className="h-0.5 w-0.5 rounded-full bg-border" />
+                                <span>{documentSpec.dpi} DPI</span>
+                                <span className="h-0.5 w-0.5 rounded-full bg-border" />
+                                <span>{documentSpec.color_profile}</span>
+                            </span>
                         </div>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div data-designer-toolbar-actions className="flex shrink-0 items-center gap-1 lg:gap-2">
                     {hasChanges ? (
-                        <span className="text-base text-amber-600 flex items-center gap-1.5 bg-amber-50 px-2 py-1 rounded-full border border-amber-100">
-                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                            Ugemte ændringer
+                        <span
+                            className="flex h-9 w-9 shrink-0 items-center justify-center gap-1.5 rounded-md border border-amber-100 bg-amber-50 text-xs text-amber-600 xl:w-auto xl:px-2"
+                            aria-label="Ugemte ændringer"
+                            title="Ugemte ændringer"
+                        >
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            <span className="hidden whitespace-nowrap xl:inline">Ugemte ændringer</span>
                         </span>
                     ) : (
-                        <span className="text-base text-muted-foreground flex items-center gap-1.5 px-2 py-1">
+                        <span
+                            className="flex h-9 w-9 shrink-0 items-center justify-center gap-1.5 text-xs text-muted-foreground xl:w-auto xl:px-2"
+                            aria-label="Gemt"
+                            title="Gemt"
+                        >
                             <FileCheck className="h-3.5 w-3.5" />
-                            Gemt
+                            <span className="hidden whitespace-nowrap xl:inline">Gemt</span>
                         </span>
                     )}
 
                     {orderMode && (productFlowLabel || designerMode || pricingModel) && (
-                        <span className="hidden items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2 py-1 text-xs text-primary md:flex">
+                        <span className="hidden items-center gap-1 whitespace-nowrap rounded-md border border-primary/20 bg-primary/5 px-2 py-1 text-xs text-primary 2xl:flex">
                             <FileText className="h-3.5 w-3.5" />
                             {[productFlowLabel, designerMode, pricingModel].filter(Boolean).join(" / ")}
                         </span>
                     )}
 
                     {companyControlledMode && (
-                        <span className="hidden items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800 md:flex">
+                        <span className="hidden items-center gap-1 whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800 2xl:flex">
                             <LockKeyhole className="h-3.5 w-3.5" />
                             Brandstyret design
                         </span>
                     )}
 
-                    <div className="h-4 w-px bg-border mx-2" />
+                    <div className="mx-1 hidden h-4 w-px shrink-0 bg-border lg:block" />
 
                     {!orderMode && (
                         <Button
@@ -3905,9 +4244,11 @@ function DesignerWorkspace() {
                             size="sm"
                             onClick={() => setIsLibraryOpen(true)}
                             title="Åbn Templates"
+                            aria-label="Åbn Templates"
+                            className="h-9 w-9 shrink-0 px-0 xl:w-auto xl:px-3"
                         >
-                            <LayoutGrid className="h-4 w-4 mr-2" />
-                            Templates
+                            <LayoutGrid className="h-4 w-4 xl:mr-2" />
+                            <span className="hidden whitespace-nowrap xl:inline">Templates</span>
                         </Button>
                     )}
 
@@ -3919,6 +4260,7 @@ function DesignerWorkspace() {
                             disabled={photopeaPreparing}
                             aria-label="Avanceret redigering"
                             title="Åbn den valgte fil i den isolerede Photopea-pilot"
+                            className="h-9 w-9 shrink-0 px-0 xl:w-auto xl:px-3"
                         >
                             {photopeaPreparing ? (
                                 <Loader2 className="h-4 w-4 animate-spin xl:mr-2" />
@@ -3929,40 +4271,86 @@ function DesignerWorkspace() {
                         </Button>
                     )}
 
-                    <Button variant="outline" size="sm" onClick={() => setIsExportDialogOpen(true)} disabled={saving}>
-                        {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                        Eksportér
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsExportDialogOpen(true)}
+                        disabled={saving}
+                        className="h-9 w-9 shrink-0 px-0 xl:w-auto xl:px-3"
+                        aria-label="Eksportér"
+                        title="Eksportér"
+                    >
+                        {saving ? (
+                            <Loader2 className="h-4 w-4 animate-spin xl:mr-2" />
+                        ) : (
+                            <Download className="h-4 w-4 xl:mr-2" />
+                        )}
+                        <span className="hidden whitespace-nowrap xl:inline">Eksportér</span>
                     </Button>
 
                     {orderMode ? (
-                        <Button onClick={handleReturnToOrder} className="bg-green-600 text-white hover:bg-green-700" disabled={returningToOrder}>
+                        <Button
+                            onClick={handleReturnToOrder}
+                            className="h-9 w-9 shrink-0 bg-green-600 px-0 text-white hover:bg-green-700 lg:w-auto lg:px-3"
+                            disabled={returningToOrder}
+                            aria-label={returningToOrder ? "Forbereder produktionsfil" : "Fortsæt til checkout"}
+                            title={returningToOrder ? "Forbereder produktionsfil" : "Fortsæt til checkout"}
+                        >
                             {returningToOrder ? (
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                <Loader2 className="h-4 w-4 animate-spin lg:mr-2" />
                             ) : (
-                                <ShoppingCart className="h-4 w-4 mr-2" />
+                                <ShoppingCart className="h-4 w-4 lg:mr-2" />
                             )}
-                            {returningToOrder ? "Forbereder produktionsfil..." : "Fortsæt til checkout"}
+                            <span className="hidden whitespace-nowrap lg:inline xl:hidden">
+                                {returningToOrder ? "Forbereder..." : "Checkout"}
+                            </span>
+                            <span className="hidden whitespace-nowrap xl:inline">
+                                {returningToOrder ? "Forbereder produktionsfil..." : "Fortsæt til checkout"}
+                            </span>
                         </Button>
                     ) : (
-                        <Button onClick={() => handleSave()} disabled={saving} className="bg-primary text-primary-foreground hover:bg-primary/90">
-                            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                            Gem design
+                        <Button
+                            onClick={() => handleSave()}
+                            disabled={saving}
+                            className="h-9 w-9 shrink-0 bg-primary px-0 text-primary-foreground hover:bg-primary/90 lg:w-auto lg:px-3"
+                            aria-label="Gem design"
+                            title="Gem design"
+                        >
+                            {saving ? (
+                                <Loader2 className="h-4 w-4 animate-spin lg:mr-2" />
+                            ) : (
+                                <Save className="h-4 w-4 lg:mr-2" />
+                            )}
+                            <span className="hidden whitespace-nowrap lg:inline">Gem design</span>
                         </Button>
                     )}
                 </div>
             </div>
 
             {orderMode && (
-                <div className={`border-b px-4 py-3 ${designerOrderFlowNotice.toneClassName}`}>
-                    <div className="mx-auto flex max-w-7xl flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                        <div className="flex min-w-0 items-start gap-3">
-                            <FileText className="mt-0.5 h-4 w-4 shrink-0" />
-                            <div className="min-w-0">
-                                <p className="text-sm font-semibold">{designerOrderFlowNotice.title}</p>
-                                <p className="text-xs leading-5 opacity-80">{designerOrderFlowNotice.body}</p>
+                <div
+                    data-designer-order-notice
+                    className={`h-16 min-h-16 shrink-0 overflow-hidden border-b px-3 lg:px-4 ${designerOrderFlowNotice.toneClassName}`}
+                >
+                    <div className="mx-auto flex h-full max-w-7xl min-w-0 items-center justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 items-center gap-2 lg:gap-3">
+                            <FileText className="h-4 w-4 shrink-0" />
+                            <div className="min-w-0 overflow-hidden">
+                                <p
+                                    className="truncate whitespace-nowrap text-sm font-semibold"
+                                    title={designerOrderFlowNotice.title}
+                                >
+                                    {designerOrderFlowNotice.title}
+                                </p>
+                                <p
+                                    className="truncate whitespace-nowrap text-xs leading-4 opacity-80"
+                                    title={designerOrderFlowNotice.body}
+                                >
+                                    {designerOrderFlowNotice.body}
+                                </p>
                             </div>
                         </div>
-                        <div className="flex shrink-0 items-center gap-2 text-xs opacity-80">
+                        <div className="hidden shrink-0 items-center gap-2 whitespace-nowrap text-xs opacity-80 xl:flex">
                             <FileCheck className="h-3.5 w-3.5" />
                             <span>{designerOrderFlowNotice.detail}</span>
                         </div>
@@ -3970,7 +4358,12 @@ function DesignerWorkspace() {
                 </div>
             )}
 
-            <div className="flex-1 flex overflow-hidden">
+            <div className="order-designer-metadata">
+                <span>{documentSpec.width_mm} × {documentSpec.height_mm} mm · {documentSpec.bleed_mm || 0} mm udfald · {documentSpec.safe_area_mm || 0} mm sikkerhedsafstand</span>
+                {orderMode && <details className="order-designer-help"><summary>Om dette format</summary><p>{designerOrderFlowNotice.title}</p><p>{designerOrderFlowNotice.body}</p><p>{designerOrderFlowNotice.detail}</p></details>}
+                {!embedded && <OrderDesignPreviewSwitch page="designer" value={orderDesign} />}
+            </div>
+            <div className="order-designer-workspace flex-1 flex overflow-hidden">
                 {/* PDF Import Modal */}
                 <PDFImportModal
                     open={showPDFImport}
@@ -3996,6 +4389,7 @@ function DesignerWorkspace() {
                     onOpenChange={setIsExportDialogOpen}
                     onExport={handleExportWithDialog}
                     isExporting={saving}
+                    defaultColorMode={productionColorMode}
                     hasBleed={(documentSpec.bleed_mm || 0) > 0}
                     pdfSourceMeta={null}
                     hasChanges={hasChanges}
@@ -4018,7 +4412,7 @@ function DesignerWorkspace() {
 
                 {/* Left Toolbar */}
                 <aside className={cn(
-                    "w-16 flex flex-col items-center py-4 border-r bg-background z-10",
+                    "order-designer-tools w-16 flex flex-col items-center py-4 border-r bg-background z-10",
                     companyControlledMode && "hidden",
                 )}>
                     <div className="flex flex-col gap-2">
@@ -4030,10 +4424,11 @@ function DesignerWorkspace() {
                                 className="h-10 w-10 relative group"
                                 onClick={() => handleToolClick(tool.id)}
                                 title={tool.label}
+                                aria-label={tool.label}
                             >
                                 <tool.icon className="h-5 w-5" />
-                                <span className="absolute left-12 bg-popover text-popover-foreground px-2 py-1 rounded text-xs shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none">
-                                    {tool.label}
+                                <span className="order-designer-tool-label absolute left-12 bg-popover text-popover-foreground px-2 py-1 rounded text-xs shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none">
+                                    {tool.label.replace(/^Tilføj /, '').replace(/ \(.*\)$/, '').replace('Horisontal foldelinje', 'Fold vandret').replace('Vertikal foldelinje', 'Fold lodret')}
                                 </span>
                             </Button>
                         ))}
@@ -4120,8 +4515,40 @@ function DesignerWorkspace() {
                 {/* Canvas Area */}
                 <main
                     ref={canvasAreaRef}
+                    data-designer-template-verification={JSON.stringify(designerTemplateVerification)}
                     className="flex-1 overflow-auto bg-[#e5e5e5] relative flex items-center justify-center p-20"
                 >
+                    {linkedTemplatePages.length > 1 && (
+                        <div
+                            className="absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm backdrop-blur"
+                            role="tablist"
+                            aria-label="Skabelonens sider"
+                        >
+                            <Files className="mx-2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                            {linkedTemplatePages.map((page) => {
+                                const isActive = page.index === activeTemplatePageIndex;
+                                return (
+                                    <button
+                                        key={page.index}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={isActive}
+                                        className={cn(
+                                            "min-h-9 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                            isActive
+                                                ? "bg-primary text-primary-foreground"
+                                                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                                        )}
+                                        disabled={switchingTemplatePage}
+                                        onClick={() => void handleLinkedTemplatePageChange(page.index)}
+                                    >
+                                        {page.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+
                     {/* Wrapper for canvas and overlays - provides positioning context */}
                     <div
                         className="relative"
@@ -4162,7 +4589,7 @@ function DesignerWorkspace() {
                             selectedTool={selectedTool}
                             onSelectionChange={handleSelectionChange}
                             onCanvasChange={() => {
-                                if (apparelSideChangeRef.current) return;
+                                if (apparelSideChangeRef.current || templatePageChangeRef.current) return;
                                 setHasChanges(true);
                                 // Debounce auto-preflight
                                 if (autoPreflightTimerRef.current) clearTimeout(autoPreflightTimerRef.current);
@@ -4180,10 +4607,10 @@ function DesignerWorkspace() {
                                 ref={proofingOverlayRef}
                                 className="absolute pointer-events-none"
                                 style={{
-                                    left: viewportOffsetX + pasteboardPaddingPx * effectiveScale,
-                                    top: viewportOffsetY + pasteboardPaddingPx * effectiveScale,
-                                    width: docWidth * effectiveScale,
-                                    height: docHeight * effectiveScale,
+                                    left: colorProofing.previewBounds?.left ?? viewportOffsetX + pasteboardPaddingPx * effectiveScale,
+                                    top: colorProofing.previewBounds?.top ?? viewportOffsetY + pasteboardPaddingPx * effectiveScale,
+                                    width: colorProofing.previewBounds?.width ?? docWidth * effectiveScale,
+                                    height: colorProofing.previewBounds?.height ?? docHeight * effectiveScale,
                                     mixBlendMode: 'normal',
                                     zIndex: 10,  // Below guide lines (z-index 20+) but above Fabric canvas
                                 }}
@@ -4216,7 +4643,7 @@ function DesignerWorkspace() {
                     {colorProofing.settings.enabled && (
                         <div className="absolute top-2 left-2 bg-purple-600 text-white text-xs px-2 py-1 rounded shadow-lg flex items-center gap-1">
                             <Palette className="h-3 w-3" />
-                            CMYK Preview
+                            {colorProofing.isPreviewVisible ? 'CMYK Preview' : colorProofing.error ? 'Proof utilgængelig' : 'Originale farver – proof opdateres'}
                             {colorProofing.isProcessing && <Loader2 className="h-3 w-3 animate-spin" />}
                         </div>
                     )}
@@ -4263,7 +4690,7 @@ function DesignerWorkspace() {
                 </main>
 
                 {/* Right inspector */}
-                <aside className="flex shrink-0 bg-background" aria-label="Designerens sidepanel">
+                <aside className="order-designer-inspector flex shrink-0 bg-background" aria-label="Designerens sidepanel">
                     {isRightPanelOpen && activeRightPanel && (
                         <section
                             id={`designer-panel-${activeRightPanel.id}`}
@@ -4342,15 +4769,24 @@ function DesignerWorkspace() {
                                 {activeTab === 'proofing' && (
                                     <ColorProofingPanel
                                         settings={colorProofing.settings}
-                                        isReady={true}
+                                        isReady={colorProofing.isReady}
                                         isProcessing={colorProofing.isProcessing}
                                         error={colorProofing.error}
                                         onSetEnabled={colorProofing.setEnabled}
-                                        onSetOutputProfile={colorProofing.setOutputProfile}
+                                        onSetOutputProfile={(id) => {
+                                            setProductionColorChoice({ context: colorContextKey, mode: productionColorMode });
+                                            setPreferredColorProfile(null);
+                                            colorProofing.setOutputProfile(id);
+                                            setHasChanges(true);
+                                        }}
                                         onSetShowGamutWarning={colorProofing.setShowGamutWarning}
                                         hasCustomProfile={colorProofing.hasCustomProfile}
                                         productProfileId={productProfile.id || undefined}
                                         productProfileName={productProfile.name || undefined}
+                                        tenantId={colorTenantId}
+                                        resolvedProfileName={colorProofing.resolvedOutputProfile?.name}
+                                        previewResolutionLimited={colorProofing.previewResolutionLimited}
+                                        isPreviewVisible={colorProofing.isPreviewVisible}
                                     />
                                 )}
                             </div>
@@ -4380,6 +4816,7 @@ function DesignerWorkspace() {
                                     title={isExpanded ? `${label} (skjul)` : `${label} (åbn)`}
                                 >
                                     <Icon className="h-5 w-5" aria-hidden="true" />
+                                    <span className="order-designer-panel-label">{label}</span>
                                     {badgeCount > 0 && (
                                         <span className="absolute right-0 top-0 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
                                             {badgeCount}
@@ -4435,6 +4872,29 @@ function DesignerWorkspace() {
                 </AlertDialogContent>
             </AlertDialog>
 
+            <Dialog open={pendingLoginSave !== null} onOpenChange={open => { if (!open) setPendingLoginSave(null); }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Log ind for at gemme designet</DialogTitle>
+                        <DialogDescription>
+                            Dit design bliver i denne fane. Log ind i en ny fane, kom tilbage hertil, og gem designet.
+                            Behold denne fane åben imens.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="flex-col gap-2 sm:flex-col">
+                        <Button asChild className="min-h-11">
+                            <a href={customerAuthHref('/min-konto', searchParams.toString())} target="_blank" rel="noopener noreferrer" className="!text-primary-foreground">
+                                <span className="text-primary-foreground">Log ind i en ny fane</span>
+                            </a>
+                        </Button>
+                        <Button variant="outline" className="min-h-11" disabled={saving}
+                            onClick={() => { if (pendingLoginSave) void performSave(pendingLoginSave.name, pendingLoginSave.destination); }}>
+                            {saving ? 'Gemmer…' : 'Jeg er logget ind — gem design'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             {/* Save Design Dialog - for naming new designs */}
             <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
                 <DialogContent className="sm:max-w-md">
@@ -4465,7 +4925,7 @@ function DesignerWorkspace() {
                         </div>
                         <div className="text-lg text-muted-foreground bg-muted/50 p-3 rounded-lg">
                             <p className="font-semibold mb-1">Format:</p>
-                            <p>{documentSpec.width_mm}×{documentSpec.height_mm}mm • {documentSpec.bleed_mm}mm bleed • {documentSpec.safe_area_mm ?? 3}mm safe zone</p>
+                            <p>{documentSpec.width_mm}×{documentSpec.height_mm} mm • {documentSpec.bleed_mm} mm udfald • {documentSpec.safe_area_mm ?? 3} mm sikkerhedsafstand</p>
                         </div>
                     </div>
                     <DialogFooter>

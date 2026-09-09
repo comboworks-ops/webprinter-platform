@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveAdminTenant } from "@/lib/adminTenant";
@@ -405,7 +406,7 @@ export function DesignerTemplateManager() {
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
                             <LayoutGrid className="h-5 w-5 text-primary" />
-                            <CardTitle>Templatebibliotek</CardTitle>
+                            <h1 className="text-2xl font-semibold">Templatebibliotek</h1>
                         </div>
                         <CardDescription>
                             {isMasterScope
@@ -446,7 +447,7 @@ export function DesignerTemplateManager() {
                 </CardHeader>
             </Card>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <WorkspaceCollection label="Templates og formater" className="workspace-format-templates" items={filteredTemplates.map(template => ({ id: template.id, title: template.name, image: template.preview_image_url, subtitle: `${template.width_mm} × ${template.height_mm} mm` }))}>
                 {filteredTemplates.map((template) => (
                     <Card key={template.id} className="overflow-hidden">
                         <div className="aspect-[4/3] border-b bg-muted/30">
@@ -523,7 +524,7 @@ export function DesignerTemplateManager() {
                         </CardContent>
                     </Card>
                 ))}
-            </div>
+            </WorkspaceCollection>
 
             {filteredTemplates.length === 0 ? (
                 <Card>

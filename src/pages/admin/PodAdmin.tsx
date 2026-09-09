@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 // POD Admin - Master Tenant Print on Demand Management
 // Includes Explorer, Browse, Curate, Pricing, and Publish tabs
 
@@ -2451,7 +2452,7 @@ function BrowseTab() {
                                 <p>Ingen produkter matcher din søgning.</p>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <WorkspaceCollection label="Vælg leverandørprodukt" className="workspace-supplier-selector" items={filteredProducts.map((product: any, index: number) => ({ id: String(product?.sku || product?.id || product?.productId || product?.product_id || index), title: String(product?.titleSingle || product?.title || product?.name || product?.titlePlural || `Produkt ${index + 1}`), subtitle: String(product?.sku || product?.id || product?.category || "") }))}>
                                 {filteredProducts.map((product: any, idx: number) => {
                                     const sku = String(product?.sku || product?.id || product?.productId || product?.product_id || "");
                                     const isImported = sku ? importedSkus.has(sku) : false;
@@ -2488,7 +2489,7 @@ function BrowseTab() {
                                         </Card>
                                     );
                                 })}
-                            </div>
+                            </WorkspaceCollection>
                         )}
                     </div>
                 )}

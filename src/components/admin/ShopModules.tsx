@@ -1,8 +1,10 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { withAdminWorkspaceContext } from "@/lib/admin/workspaceNavigation";
 import {
     Paintbrush,
     Calculator,
@@ -166,6 +168,7 @@ const SHOP_MODULES: ShopModule[] = [
 
 export function ShopModules() {
     const navigate = useNavigate();
+    const location = useLocation();
     const [previewModule, setPreviewModule] = useState<ShopModule | null>(null);
 
     const getStatusBadge = (status: ShopModule['status']) => {
@@ -227,46 +230,18 @@ export function ShopModules() {
                 </div>
             </div>
 
-            {/* Free Modules Section */}
-            <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                    <Gift className="h-5 w-5 text-green-600" />
-                    <h2 className="text-xl font-semibold">Inkluderet i dit abonnement</h2>
-                </div>
-                <div className="grid gap-6 md:grid-cols-2">
-                    {SHOP_MODULES.filter(m => m.tier === 'free').map((module) => (
-                        <ModuleCard
-                            key={module.id}
-                            module={module}
-                            onPreview={() => setPreviewModule(module)}
-                            onNavigate={() => module.route && navigate(module.route)}
-                            getStatusBadge={getStatusBadge}
-                            getTierBadge={getTierBadge}
-                        />
-                    ))}
-                </div>
-            </div>
-
-            {/* Premium Modules Section */}
-            <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                    <Crown className="h-5 w-5 text-amber-600" />
-                    <h2 className="text-xl font-semibold">Premium Moduler</h2>
-                    <span className="text-sm text-muted-foreground">(Tilkøb)</span>
-                </div>
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-2">
-                    {SHOP_MODULES.filter(m => m.tier === 'premium').map((module) => (
-                        <ModuleCard
-                            key={module.id}
-                            module={module}
-                            onPreview={() => setPreviewModule(module)}
-                            onNavigate={() => module.route && navigate(module.route)}
-                            getStatusBadge={getStatusBadge}
-                            getTierBadge={getTierBadge}
-                        />
-                    ))}
-                </div>
-            </div>
+            <WorkspaceCollection
+                label="Shop moduler"
+                className="workspace-modules"
+                items={SHOP_MODULES.map(module => ({ id: module.id, title: module.name, subtitle: module.description, icon: module.icon, group: module.tier === 'free' ? 'Inkluderet i dit abonnement' : 'Premium moduler' }))}
+            >
+                {SHOP_MODULES.map(module => (
+                    <ModuleCard key={module.id} module={module}
+                        onPreview={() => setPreviewModule(module)}
+                        onNavigate={() => module.route && navigate(withAdminWorkspaceContext(module.route, location.search))}
+                        getStatusBadge={getStatusBadge} getTierBadge={getTierBadge} />
+                ))}
+            </WorkspaceCollection>
 
             {/* Info Banner */}
             <Card className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border-primary/20">
@@ -356,7 +331,7 @@ export function ShopModules() {
                                     </Button>
                                     {previewModule.route && previewModule.status !== 'coming_soon' && (
                                         <Button onClick={() => {
-                                            navigate(previewModule.route!);
+                                            navigate(withAdminWorkspaceContext(previewModule.route!, location.search));
                                             setPreviewModule(null);
                                         }}>
                                             {previewModule.tier === 'premium' ? 'Prøv nu' : 'Åbn modul'}

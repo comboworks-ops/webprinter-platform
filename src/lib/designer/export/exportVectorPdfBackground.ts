@@ -11,11 +11,13 @@
  */
 
 import {
+    PDFArray,
     PDFDict,
     PDFDocument,
     PDFName,
     PDFNumber,
     PDFOperator,
+    PDFOperatorNames,
     concatTransformationMatrix,
     degrees,
     popGraphicsState,
@@ -285,7 +287,7 @@ function getCutContourObjects(fabricCanvas: fabric.Canvas): fabric.Object[] {
     });
 }
 
-async function drawCutContoursAsVector(
+export async function drawCutContoursAsVector(
     page: any,
     pdfDoc: PDFDocument,
     fabricCanvas: fabric.Canvas,
@@ -317,8 +319,8 @@ async function drawCutContoursAsVector(
             page.pushOperators(
                 pushGraphicsState(),
                 setGraphicsState(PDFName.of(CUT_CONTOUR_GSTATE_NAME)),
-                PDFOperator.of('CS', [PDFName.of(CUT_CONTOUR_COLORSPACE_NAME)]),
-                PDFOperator.of('SCN', [PDFNumber.of(1)]),
+                PDFOperator.of(PDFOperatorNames.StrokingColorspace, [PDFName.of(CUT_CONTOUR_COLORSPACE_NAME)]),
+                PDFOperator.of(PDFOperatorNames.StrokingColorN, [PDFNumber.of(1)]),
                 concatTransformationMatrix(
                     finalMatrix[0],
                     finalMatrix[1],
@@ -329,7 +331,12 @@ async function drawCutContoursAsVector(
                 ),
                 setLineWidth(lineWidth),
                 setDashPattern([], 0),
-                ...svgPathToOperators(pathSpec.path),
+                // The path helper's CJS entry can be a separate Vite module instance.
+                // Re-home its numeric operators into the same PDF classes as the page.
+                ...svgPathToOperators(pathSpec.path).map((operator: any) => PDFOperator.of(
+                    operator.name,
+                    operator.args.map((argument: any) => PDFNumber.of(Number(argument.toString()))),
+                )),
                 stroke(),
                 popGraphicsState(),
             );
@@ -386,7 +393,7 @@ function getCanvasCropToPageMatrix(
     pageHeight: number,
     displayMetrics: { mmToPx: number; pasteboardPaddingPx: number },
 ): Matrix {
-    const bleedPx = includeBleed ? (docSpec.bleed_mm || 0) * displayMetrics.mmToPx : 0;
+    const bleedPx = (docSpec.bleed_mm || 0) * displayMetrics.mmToPx;
     const cropLeft = displayMetrics.pasteboardPaddingPx + (includeBleed ? 0 : bleedPx);
     const cropTop = displayMetrics.pasteboardPaddingPx + (includeBleed ? 0 : bleedPx);
     const cropWidth = (docSpec.width_mm * displayMetrics.mmToPx) + (includeBleed ? bleedPx * 2 : 0);
@@ -504,7 +511,7 @@ function parsePointsAttribute(raw: string | null): Array<[number, number]> {
 function parseTransformString(transform: string | null): Matrix {
     if (!transform) return identityMatrix();
 
-    const operations = transform.match(/\w+\([^)]*\)/g) || [];
+    const operations: string[] = transform.match(/\w+\([^)]*\)/g) || [];
     return operations.reduce<Matrix>((current, operation) => {
         const match = operation.match(/^(\w+)\(([^)]*)\)$/);
         if (!match) return current;

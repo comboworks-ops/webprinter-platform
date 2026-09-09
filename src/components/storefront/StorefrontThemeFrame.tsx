@@ -1,8 +1,11 @@
+import "@/styles/orderFlowDesigns.css";
 import { useEffect, type ReactNode } from "react";
+import { resolvePrintDesignBranding } from '@/lib/branding/printDesignPresets';
 
 import {
   ThemeProvider,
   useTheme,
+  DEFAULT_THEME_ID,
 } from "@/lib/themes";
 import {
   buildBrandingCssVariables,
@@ -17,6 +20,7 @@ import {
 import "@/themes/classic";
 import "@/themes/glassmorphism";
 import "@/themes/taste-style-themes";
+import "@/themes/print";
 import "@/styles/storefrontShopTemplates.css";
 import "@/styles/storefrontVisualStyles.css";
 
@@ -103,6 +107,7 @@ interface StorefrontThemeFrameProps {
   tenantName?: string | null;
   children: ReactNode;
   topSlot?: ReactNode;
+  orderDesign?: number;
   isPreviewMode?: boolean;
 }
 
@@ -111,6 +116,7 @@ interface StorefrontThemeFrameInnerProps {
   tenantName?: string | null;
   children: ReactNode;
   topSlot?: ReactNode;
+  orderDesign?: number;
   isPreviewMode: boolean;
 }
 
@@ -120,6 +126,7 @@ function StorefrontThemeFrameInner({
   children,
   topSlot,
   isPreviewMode,
+  orderDesign,
 }: StorefrontThemeFrameInnerProps) {
   const { components: Theme } = useTheme();
   const fontSignature = extractStorefrontFonts(branding).join("|");
@@ -150,6 +157,7 @@ function StorefrontThemeFrameInner({
   return (
     <div
       className="storefront-shop-template-scope"
+      data-order-design={orderDesign}
       data-shop-template={shopLayout.templateId}
       data-shop-template-version={shopLayout.version}
       data-shop-content-width={shopLayout.contentWidth}
@@ -197,16 +205,18 @@ export function StorefrontThemeFrame({
   children,
   topSlot,
   isPreviewMode = false,
+  orderDesign,
 }: StorefrontThemeFrameProps) {
-  const resolvedBranding = mergeBrandingWithDefaults(branding || {});
+  const resolvedBranding = resolvePrintDesignBranding(mergeBrandingWithDefaults(branding || {}));
 
   return (
     <ThemeProvider
-      themeId={resolvedBranding.themeId || "classic"}
+      themeId={resolvedBranding.themeId || DEFAULT_THEME_ID}
       themeSettings={resolvedBranding.themeSettings || {}}
     >
       <StorefrontThemeFrameInner
         branding={resolvedBranding}
+        orderDesign={orderDesign}
         tenantName={tenantName}
         topSlot={topSlot}
         isPreviewMode={isPreviewMode}

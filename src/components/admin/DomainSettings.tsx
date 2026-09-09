@@ -185,14 +185,14 @@ export function DomainSettings() {
     const subdomainUrl = subdomain ? `https://${subdomain}.webprinter.dk` : '#';
 
     return (
-        <div className="space-y-6 max-w-4xl mx-auto">
+        <div className="workspace-domain workspace-summary-grid">
             <div>
                 <h1 className="text-3xl font-bold">Domæne Indstillinger</h1>
                 <p className="text-muted-foreground">Administrer dit shops domæne og tilslut dit eget domæne</p>
             </div>
 
             {/* Current Subdomain */}
-            <Card>
+            <Card className="workspace-priority-strip workspace-wide">
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                         <Globe className="h-5 w-5" />
