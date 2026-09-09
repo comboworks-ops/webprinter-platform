@@ -30,3 +30,7 @@ Responses carry `X-Robots-Tag: noindex, nofollow, noarchive`. Existing Vercel de
 - The broader application TypeScript backlog is not resolved by this test release.
 
 Rollback for this frontend test is to return its alias to a prior deployment or stop using its preview URL. No backend data or production payment state is migrated by this deployment. The original working checkout and its staged changes are preserved separately.
+
+## Protected preview routing
+
+The test branch serves its SPA document directly for frontend routes. The production tenant SEO wrapper fetches `index.html` through a second unauthenticated server request, which returned the Vercel login document even when the outer preview request was authenticated. The test routes avoid this extra fetch; the no-index header and deployment protection remain. Production routing is unchanged on `main`.

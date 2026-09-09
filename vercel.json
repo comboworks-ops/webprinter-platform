@@ -21,15 +21,15 @@
     },
     {
       "src": "^/$",
-      "dest": "/api/tenant-shell?pathname=/"
+      "dest": "/index.html"
     },
     {
       "src": "^/(kontakt|om-os|vilkaar|betingelser|privatliv|shop|produkter|prisberegner|grafisk-vejledning)/?$",
-      "dest": "/api/tenant-shell?pathname=/$1"
+      "dest": "/index.html"
     },
     {
       "src": "^/produkt/([^/?]+)/?$",
-      "dest": "/api/tenant-shell?pathname=/produkt/$1"
+      "dest": "/index.html"
     },
     {
       "src": "^/llms\\.txt$",
@@ -37,7 +37,7 @@
     },
     {
       "src": "^/(platform|priser|white-label|beregning|order-flow|online-designer|privacy-policy|handelsbetingelser|cookiepolitik|opret-shop)/?$",
-      "dest": "/api/tenant-shell?pathname=/$1"
+      "dest": "/index.html"
     },
     {
       "handle": "filesystem"
