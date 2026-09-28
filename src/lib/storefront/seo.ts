@@ -122,7 +122,7 @@ function safeStringArray(input: unknown): string[] {
     .filter(Boolean);
 }
 
-function normalizeFaqItems(input: unknown): StorefrontAiSeoFaqItem[] {
+function normalizeFaqItems(input: unknown): Array<StorefrontAiSeoFaqItem & { id: string }> {
   if (!Array.isArray(input)) return [];
   return input
     .map((item, index) => {
@@ -136,7 +136,7 @@ function normalizeFaqItems(input: unknown): StorefrontAiSeoFaqItem[] {
     .filter((item) => item.question.trim() || item.answer.trim());
 }
 
-export function normalizeStorefrontAiSeoConfig(input: unknown): StorefrontAiSeoConfig {
+export function normalizeStorefrontAiSeoConfig(input: unknown): StorefrontAiSeoConfig & { faq: Array<StorefrontAiSeoFaqItem & { id: string }> } {
   const record = (input || {}) as Record<string, unknown>;
   const rawSignals = (record.signals || {}) as Record<string, unknown>;
 

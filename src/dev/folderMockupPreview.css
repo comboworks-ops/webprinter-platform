@@ -1,0 +1,26 @@
+.folder-lab { max-width: 1160px; margin: auto; padding: 56px 28px; color: #183e49; }
+body:has(.folder-lab) { background: #f6f5f0; }
+.folder-lab-kicker { display: flex; align-items: center; gap: 10px; font-size: 11px; letter-spacing: .12em; font-weight: 650; }
+.folder-lab h1 { margin: 24px 0 18px; font-size: clamp(34px, 5.5vw, 64px); line-height: 1.03; letter-spacing: -.045em; font-weight: 600; }
+.folder-lab-intro { max-width: 510px; font-size: 17px; color: #617077; }
+.folder-lab-card { margin-top: 36px; display: grid; grid-template-columns: 1fr 1fr; background: #fff; border: 1px solid #dfE3e0; border-radius: 16px; overflow: hidden; }
+.folder-lab-card > div:first-child { padding: 36px; }
+.folder-lab-step { font-size: 10px; letter-spacing: .12em; font-weight: 600; color: #74827f; }
+.folder-lab h2 { font-size: 24px; font-weight: 600; margin: 12px 0; letter-spacing: -.025em; }
+.folder-lab-card p { font-size: 14px; line-height: 1.6; }
+.folder-lab-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+.folder-lab-actions button { min-height: 44px; gap: 8px; }
+.folder-lab-private { color: #74827f; font-size: 11px !important; margin-top: 18px; }
+.folder-lab-artwork { background: #e9edeb; padding: 24px; display: flex; align-items: center; justify-content: center; }
+.folder-lab-artwork img { width: 100%; max-height: 280px; object-fit: contain; }
+.folder-lab-placeholder { display: flex; flex-direction: column; align-items: center; gap: 16px; color: #7e918d; }
+.folder-lab-next { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 24px; background: #fff; border: 1px solid #dfe3e0; border-radius: 12px; margin-top: 12px; }
+.folder-lab-next p { font-size: 14px; margin-top: 5px; overflow-wrap: anywhere; }
+.folder-lab-note { font-size: 12px; max-width: 600px; margin-top: 26px; color: #74827f; }
+.folder-lab-tabs { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); margin-top: var(--ui-space-6); }
+.folder-lab-tabs button, .folder-lab-print button { min-height: var(--ui-control-height); }
+.folder-lab-product { margin-top: var(--ui-space-6); padding: var(--ui-space-6); border: 1px solid #dfe3e0; background: #fff; border-radius: 12px; max-width: 780px; }
+.folder-lab-print { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); margin: var(--ui-space-5) 0; }
+.folder-lab-product-action { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--ui-space-4); border-top: 1px solid #e9edeb; padding-top: var(--ui-space-5); }
+.folder-lab-product-action p { font-size: 14px; color: #617077; }
+@media (max-width: 680px) { .folder-lab { padding: 28px 18px; } .folder-lab-card { grid-template-columns: 1fr; } .folder-lab-card > div:first-child { padding: 24px; } .folder-lab-artwork { min-height: 210px; } .folder-lab-next { align-items: stretch; flex-direction: column; padding: 20px; } }

@@ -25,7 +25,7 @@ export function usePodConnections() {
         queryKey: ['pod-connections'],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from('pod_supplier_connections' as any)
+                .from('pod_supplier_connections')
                 .select('id, provider_key, base_url, auth_header_mode, auth_header_name, auth_header_prefix, is_active, created_at, updated_at')
                 .eq('tenant_id', MASTER_TENANT_ID)
                 .order('created_at', { ascending: false });
@@ -41,7 +41,7 @@ export function usePodApiPresets() {
         queryKey: ['pod-presets'],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from('pod_api_presets' as any)
+                .from('pod_api_presets')
                 .select('*')
                 .eq('tenant_id', MASTER_TENANT_ID)
                 .order('name');
@@ -86,7 +86,7 @@ export function usePodCatalogProducts() {
         queryKey: ['pod-catalog'],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from('pod_catalog_products' as any)
+                .from('pod_catalog_products')
                 .select(`
           *,
           pod_catalog_attributes (
@@ -236,7 +236,7 @@ export function usePodPublishedCatalog() {
         queryKey: ['pod-catalog-public'],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from('pod_catalog_public' as any)
+                .from('pod_catalog_public')
                 .select('*');
 
             if (error) throw error;
@@ -250,7 +250,7 @@ export function usePodTenantImports(tenantId?: string) {
         queryKey: ['pod-imports', tenantId],
         queryFn: async () => {
             let query = supabase
-                .from('pod_tenant_imports' as any)
+                .from('pod_tenant_imports')
                 .select('*');
 
             if (tenantId) {
@@ -381,7 +381,7 @@ export function usePodTenantBilling(tenantId?: string) {
         queryKey: ['pod-billing', tenantId],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from('pod_tenant_billing' as any)
+                .from('pod_tenant_billing')
                 .select('*')
                 .eq('tenant_id', tenantId)
                 .single();
@@ -398,7 +398,7 @@ export function usePodFulfillmentJobs(tenantId?: string) {
         queryKey: ['pod-jobs', tenantId],
         queryFn: async () => {
             let query = supabase
-                .from('pod_fulfillment_jobs' as any)
+                .from('pod_fulfillment_jobs')
                 .select('*')
                 .order('created_at', { ascending: false });
 

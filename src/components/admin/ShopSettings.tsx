@@ -18,6 +18,7 @@ export function ShopSettings() {
 
     // Company Info
     const [companyName, setCompanyName] = useState("");
+    const [invoiceName, setInvoiceName] = useState("");
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
     const [address, setAddress] = useState("");
@@ -46,6 +47,7 @@ export function ShopSettings() {
             // Company
             if (s.company) {
                 setCompanyName(s.company.name || "");
+                setInvoiceName(s.company.invoice_name || "");
                 setEmail(s.company.email || "");
                 setPhone(s.company.phone || "");
                 setAddress(s.company.address || "");
@@ -84,7 +86,7 @@ export function ShopSettings() {
         setSaving(true);
         try {
             const { data: tenantRow, error: tenantRowError } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenant.id)
                 .maybeSingle();
@@ -96,7 +98,9 @@ export function ShopSettings() {
             const newSettings = {
                 ...current,
                 company: {
+                    ...current.company,
                     name: companyName.trim() || null, // Use null if empty so fallback works
+                    invoice_name: invoiceName.trim() || null,
                     email,
                     phone,
                     address,
@@ -121,7 +125,7 @@ export function ShopSettings() {
             };
 
             const { error } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .update({ settings: newSettings })
                 .eq('id', tenant.id);
 
@@ -129,7 +133,7 @@ export function ShopSettings() {
 
             // Always update tenant name to match company name (or clear it if empty)
             await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .update({ name: companyName.trim() || null })
                 .eq('id', tenant.id);
 
@@ -148,7 +152,7 @@ export function ShopSettings() {
     if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>;
 
     return (
-        <div className="space-y-6 max-w-4xl mx-auto">
+        <div className="workspace-settings workspace-form-page">
             <div>
                 <h1 className="text-3xl font-bold">Indstillinger</h1>
                 <p className="text-muted-foreground">Generelle indstillinger for din webshop</p>
@@ -173,6 +177,11 @@ export function ShopSettings() {
                             placeholder="Dit Trykkeri ApS"
                         />
                         <p className="text-xs text-muted-foreground">Dette navn vises i admin panelet</p>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="invoiceName">Juridisk firmanavn på fakturaer</Label>
+                        <Input id="invoiceName" value={invoiceName} onChange={(e) => setInvoiceName(e.target.value)} placeholder={companyName || "Dit Trykkeri ApS"} />
+                        <p className="text-xs text-muted-foreground">Virksomheden bag shoppen. Hvis feltet er tomt, bruges firmanavnet ovenfor.</p>
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="adminName">Navn på administrator</Label>
@@ -359,6 +368,18 @@ export function ShopSettings() {
                     Gem Indstillinger
                 </Button>
             </div>
+            <aside className="workspace-inline-detail workspace-form-context" aria-label="Kontaktoplysninger i din webshop">
+                <h2>Om din shop</h2>
+                <p className="text-sm text-muted-foreground">Forhåndsvisning af de kontaktoplysninger, du redigerer.</p>
+                <dl>
+                    <div><dt>Virksomhed</dt><dd>{companyName || 'Ikke angivet'}</dd></div>
+                    <div><dt>Administrator</dt><dd>{adminName || 'Ikke angivet'}</dd></div>
+                    <div><dt>Email</dt><dd>{email || 'Ikke angivet'}</dd></div>
+                    <div><dt>Telefon</dt><dd>{phone || 'Ikke angivet'}</dd></div>
+                    <div><dt>CVR-nummer</dt><dd>{cvr || 'Ikke angivet'}</dd></div>
+                    <div><dt>Valuta og tidszone</dt><dd>{currency} · {timezone}</dd></div>
+                </dl>
+            </aside>
         </div>
     );
 }

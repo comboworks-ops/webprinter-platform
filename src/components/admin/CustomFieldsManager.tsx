@@ -14,6 +14,8 @@ interface CustomFieldsManagerProps {
   productId: string;
   tenantId?: string;
   onFieldsUpdate?: () => void;
+  productName?: string;
+  productImage?: string | null;
 }
 
 interface CustomField {
@@ -25,11 +27,12 @@ interface CustomField {
   default_value?: any;
 }
 
-export function CustomFieldsManager({ productId, tenantId, onFieldsUpdate }: CustomFieldsManagerProps) {
+export function CustomFieldsManager({ productId, tenantId, onFieldsUpdate, productName, productImage }: CustomFieldsManagerProps) {
   const [fields, setFields] = useState<CustomField[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [previewValues, setPreviewValues] = useState<Record<string, string | boolean>>({});
   const [newField, setNewField] = useState({
     field_name: '',
     field_label: '',
@@ -139,6 +142,7 @@ export function CustomFieldsManager({ productId, tenantId, onFieldsUpdate }: Cus
   }
 
   return (
+    <div className="admin-fields-workspace">
     <Card>
       <CardHeader>
         <CardTitle>Brugerdefinerede Felter</CardTitle>
@@ -176,6 +180,7 @@ export function CustomFieldsManager({ productId, tenantId, onFieldsUpdate }: Cus
                   </TableCell>
                   <TableCell className="text-right">
                     <Button
+                      aria-label={`Slet feltet ${field.field_label}`}
                       size="sm"
                       variant="destructive"
                       onClick={() => handleDeleteField(field.id)}
@@ -280,5 +285,28 @@ export function CustomFieldsManager({ productId, tenantId, onFieldsUpdate }: Cus
         )}
       </CardContent>
     </Card>
+    <aside className="admin-fields-preview">
+      <h3 className="text-lg font-semibold">Sådan ser felterne ud for kunden</h3>
+      <p className="mt-2 text-sm text-muted-foreground">Afprøv felternes visning. Værdier her gemmes ikke.</p>
+      <div className="mt-6 space-y-6 rounded-md border p-5">
+        {productName && <div className="flex items-center gap-4 border-b pb-5">
+          {productImage && <img src={productImage} alt="" className="h-24 w-28 rounded object-contain" />}
+          <h4 className="text-xl font-semibold">{productName}</h4>
+        </div>}
+        {fields.length === 0 && !isAdding && <p className="text-sm text-muted-foreground">Tilføj et felt for at se det her.</p>}
+        {[...fields, ...(isAdding ? [{ ...newField, id: 'new-field-preview' }] : [])].map(field => (
+          <div key={field.id} className="space-y-2">
+            <Label htmlFor={`preview-${field.id}`}>{field.field_label || 'Nyt felt'}{field.is_required ? ' *' : ''}</Label>
+            {field.field_type === 'boolean' ? (
+              <div className="flex items-center gap-3">
+                <Switch id={`preview-${field.id}`} checked={previewValues[field.id] === true} onCheckedChange={value => setPreviewValues(previous => ({ ...previous, [field.id]: value }))} />
+                <span className="text-sm text-muted-foreground">{previewValues[field.id] === true ? 'Ja' : 'Nej'}</span>
+              </div>
+            ) : <Input id={`preview-${field.id}`} type="number" value={typeof previewValues[field.id] === 'string' ? String(previewValues[field.id]) : ''} onChange={event => setPreviewValues(previous => ({ ...previous, [field.id]: event.target.value }))} placeholder="Indtast et tal" />}
+          </div>
+        ))}
+      </div>
+    </aside>
+    </div>
   );
 }

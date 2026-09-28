@@ -1,3 +1,5 @@
+import { fetchSameOriginAsset } from "../src/lib/storefront/fetchSameOriginAsset.js";
+
 export const config = {
   runtime: "edge",
 };
@@ -35,8 +37,7 @@ function getRequestedHostname(request: Request): string {
 }
 
 async function fetchFaviconAsset(request: Request, path: string): Promise<Response> {
-  const assetUrl = new URL(path, request.url);
-  return fetch(assetUrl, {
+  return fetchSameOriginAsset(request, path, {
     headers: {
       accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
     },

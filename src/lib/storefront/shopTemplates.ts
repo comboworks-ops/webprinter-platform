@@ -1,3 +1,5 @@
+import { APPROVED_DROPDOWN_PRESETS, type HeaderDropdownPreset } from "../branding/dropdownPresets.ts";
+
 export const STOREFRONT_SECTION_IDS = [
   "hero",
   "products",
@@ -28,12 +30,7 @@ export type ShopHeroHeight = "compact" | "standard" | "immersive";
 export type ShopContentWidth = "contained" | "wide" | "full";
 export type ShopSectionSpacing = "compact" | "balanced" | "generous";
 export type ShopSurfaceRhythm = "seamless" | "bands" | "editorial";
-export type ShopNavigationPreset =
-  | "classic"
-  | "showcase-bar"
-  | "split-preview"
-  | "compact-columns"
-  | "gallery-cards";
+export type ShopNavigationPreset = HeaderDropdownPreset;
 export type ShopHeaderVariant =
   | "catalog"
   | "compact"
@@ -109,37 +106,11 @@ export type ShopMotionVariant =
   | "market"
   | "dramatic";
 
-export const SHOP_NAVIGATION_OPTIONS: ReadonlyArray<{
-  id: ShopNavigationPreset;
-  name: string;
-  description: string;
-}> = [
-  {
-    id: "classic",
-    name: "Klassisk katalog",
-    description: "Rolig produktmenu med tydeligt hierarki.",
-  },
-  {
-    id: "showcase-bar",
-    name: "Visuel showcase",
-    description: "Kategoribilleder øverst og produkter nedenunder.",
-  },
-  {
-    id: "split-preview",
-    name: "Delt preview",
-    description: "Fremhævet produkt eller kampagne ved siden af menuen.",
-  },
-  {
-    id: "compact-columns",
-    name: "Kompakte kolonner",
-    description: "Tæt og hurtigt overblik til store kataloger.",
-  },
-  {
-    id: "gallery-cards",
-    name: "Galleri-kort",
-    description: "Visuel dropdown med tydelige produktgrupper.",
-  },
-];
+export const SHOP_NAVIGATION_OPTIONS = APPROVED_DROPDOWN_PRESETS.map(preset => ({
+  id: preset.id,
+  name: `${preset.number}. ${preset.name}${preset.id === 'search-and-discover' ? ' · Standard' : ''}`,
+  description: preset.description,
+}));
 
 export interface ShopComponentRecipe {
   openDesignSystem:

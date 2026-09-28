@@ -1,6 +1,6 @@
 # POD v2 System (Print.com Buyer + Platform + ERP Support)
 
-This document describes the **POD v2** module implemented alongside the existing POD v1 system.  
+This document describes the **POD v2** module implemented alongside the existing POD v1 system.
 **POD v1 is untouched**. POD v2 is fully isolated (new tables, new functions, new UI).
 
 ---
@@ -16,24 +16,29 @@ This document describes the **POD v2** module implemented alongside the existing
 
 ## High‑Level Flow
 
-1) **Master admin** curates products in POD v2 (`/admin/pod2`).  
-2) Master **imports** a curated product into WebPrinter’s pricing system (creates a normal `products` row + option groups + price matrix).  
-3) Master sends product updates to tenants (via existing `tenant_notifications` + `sync_specific_product` flow).  
-4) Tenants import the product into their shop.  
+1) **Master admin** curates products in POD v2 (`/admin/pod2`).
+2) Master **imports** a curated product into WebPrinter’s pricing system (creates a normal `products` row + option groups + price matrix).
+3) Master sends product updates to tenants (via existing `tenant_notifications` + `sync_specific_product` flow).
+4) Tenants import the product into their shop.
 5) Order/payment routing is planned for Phase 2 (see “Next steps”).
+
+Price ownership:
+- master-only `base_costs` is the supplier cost;
+- `recommended_retail` is the Webprinter product price offered to tenants;
+- tenants can add their own markup for the final customer price.
 
 ---
 
 ## Auth + Environments
 
 ### Buyer API (api.print.com)
-- Uses **PrintApiKey** header:  
+- Uses **PrintApiKey** header:
   `Authorization: PrintApiKey <your-key>`
-- **Live**: `https://api.print.com`  
+- **Live**: `https://api.print.com`
   **Test**: `https://api.stg.print.com`
 
 ### Platform API (platform.print.com)
-- Uses **Bearer JWT** (see Print.com docs).  
+- Uses **Bearer JWT** (see Print.com docs).
 - Base: `https://platform.print.com`
 
 ### ERP Support (Print.com web app)
@@ -120,7 +125,7 @@ This means:
 
 ## Stability for Large Price Matrices
 
-POD v2 import uses chunked inserts (`PRICE_CHUNK_SIZE = 500`) for `generic_product_prices`.  
+POD v2 import uses chunked inserts (`PRICE_CHUNK_SIZE = 500`) for `generic_product_prices`.
 This avoids crashes when a product has very large combinations (e.g. 20,000+ price points).
 
 Recommended usage:
@@ -146,10 +151,10 @@ To give the master admin more control, the product overview UI now calls a new R
 
 ERP Support can be enabled later to allow catalog selection inside Print.com UI:
 
-1) Whitelist your app  
+1) Whitelist your app
 2) Launch:
    `https://app.print.com/?YourApp=value&cb=<yourCallbackUrl>`
-3) Receive `productInfo` via callback  
+3) Receive `productInfo` via callback
 4) Persist into `pod2_catalog_products` (future work)
 
 ---

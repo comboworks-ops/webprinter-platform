@@ -1,6 +1,6 @@
 /**
  * PendingPurchasesDialog Component
- * 
+ *
  * Shows a summary of unpaid design elements that need to be purchased
  * before publishing. Blocks publish until payment is completed.
  */
@@ -216,9 +216,9 @@ export function PendingPurchasesDialog({
                             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
                                 <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
                                 <div className="text-sm text-amber-800">
-                                    <p className="font-medium">Betaling krævet</p>
+                                    <p className="font-medium">Køb er endnu ikke tilgængeligt</p>
                                     <p className="text-amber-700 mt-1">
-                                        Du kan fortsætte med at redigere dit design, men må betale disse elementer før du kan publicere.
+                                        Designskabeloner er gratis eller tildeles af Webprinter. Disse tidligere valgte elementer kræver afklaring med Webprinter. Der er ikke trukket penge, og din kladde bevares.
                                     </p>
                                 </div>
                             </div>
@@ -243,7 +243,7 @@ export function PendingPurchasesDialog({
                                 </Button>
                                 <Button
                                     onClick={handleConfirmPurchase}
-                                    disabled={isProcessing || pendingItems.length === 0}
+                                    disabled
                                     className="gap-2"
                                 >
                                     {isProcessing ? (
@@ -251,7 +251,7 @@ export function PendingPurchasesDialog({
                                     ) : (
                                         <CreditCard className="h-4 w-4" />
                                     )}
-                                    Betal {totalCost} kr
+                                    Kontakt Webprinter
                                 </Button>
                             </>
                         ) : (

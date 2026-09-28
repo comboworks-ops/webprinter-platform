@@ -67,7 +67,7 @@ export function DomainSettings() {
             if (domainToSave.endsWith('/')) domainToSave = domainToSave.slice(0, -1);
 
             const { error } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .update({ domain: domainToSave })
                 .eq('id', tenantId);
 
@@ -77,7 +77,7 @@ export function DomainSettings() {
 
             // Notify platform about domain request
             if (tenantId !== '00000000-0000-0000-0000-000000000000') {
-                const { error: notifyError } = await supabase.from('platform_messages' as any).insert({
+                const { error: notifyError } = await supabase.from('platform_messages').insert({
                     tenant_id: tenantId,
                     sender_role: 'tenant',
                     sender_user_id: user.id,
@@ -185,14 +185,14 @@ export function DomainSettings() {
     const subdomainUrl = subdomain ? `https://${subdomain}.webprinter.dk` : '#';
 
     return (
-        <div className="space-y-6 max-w-4xl mx-auto">
+        <div className="workspace-domain workspace-summary-grid">
             <div>
                 <h1 className="text-3xl font-bold">Domæne Indstillinger</h1>
                 <p className="text-muted-foreground">Administrer dit shops domæne og tilslut dit eget domæne</p>
             </div>
 
             {/* Current Subdomain */}
-            <Card>
+            <Card className="workspace-priority-strip workspace-wide">
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                         <Globe className="h-5 w-5" />

@@ -1,7 +1,11 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
 import { jsonResponse, optionsResponse } from "../_shared/http.ts";
 import { extractSupplierProductHtml, type ExtractedPriceCandidate } from "./extractor.ts";
+import { createSupplierJevClient, supplierJevEnabled } from "../_shared/supplierJev.ts";
+
+const suggestSupplierProduct = createSupplierJevClient({ env: (name) => Deno.env.get(name) });
 
 const OPERATOR_ROLE_MAP: Record<string, "admin" | "master_admin"> = {
   "admin@webprinter.dk": "master_admin",
@@ -193,7 +197,7 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  const serviceKey = readSupabaseKey((name) => Deno.env.get(name), "secret") || "";
   const serviceClient = createClient(supabaseUrl, serviceKey);
   const auth = await requireMasterAdmin(req, serviceClient);
   if (!auth.ok) return auth.response;
@@ -201,7 +205,11 @@ Deno.serve(async (req) => {
   let scrapeRunId: string | null = null;
   try {
     const body = await req.json().catch(() => ({}));
-    const action = body?.action === "save" ? "save" : "preview";
+    const action = body?.action === "suggest" ? "suggest" : body?.action === "save" ? "save" : "preview";
+    // Optional read-only action, behind the SAME master-admin and supplier allowlist checks.
+    if (action === "suggest" && !supplierJevEnabled((name) => Deno.env.get(name))) {
+      return jsonResponse({ ok: true, assistance: { status: "disabled" } });
+    }
     const rawUrl = normalizeText(body?.url, 2_000);
     const nameDaInput = normalizeText(body?.nameDa, 180);
     const note = normalizeText(body?.note, 1_000);
@@ -242,6 +250,10 @@ Deno.serve(async (req) => {
     if (!supplierHost) throw new Error("Leverandørens website-adresse er ugyldig.");
     const fetched = await fetchSupplierPage(sourceUrl, supplierHost);
     const extraction = extractSupplierProductHtml(fetched.html);
+    if (action === "suggest") {
+      const assistance = await suggestSupplierProduct({ title: extraction.title, description: extraction.description }, auth.user.id);
+      return jsonResponse({ ok: true, assistance, sourceUrl: fetched.finalUrl });
+    }
     const contentHash = await sha256(fetched.html);
     const urlHash = await sha256(fetched.finalUrl);
     const supplierProductKey = `url-${slugify(sourceUrl.pathname.split("/").filter(Boolean).pop() || "product")}-${urlHash.slice(0, 10)}`;
@@ -273,6 +285,7 @@ Deno.serve(async (req) => {
       pricingSummary,
       priceRows: normalizedRows.slice(0, 100),
       totalPriceRows: normalizedRows.length,
+      assistanceAvailable: supplierJevEnabled((name) => Deno.env.get(name)),
     };
 
     if (action === "preview") return jsonResponse({ ok: true, preview });

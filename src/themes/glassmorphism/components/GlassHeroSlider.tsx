@@ -1,3 +1,4 @@
+import type { HeroSettings } from "@/hooks/useBrandingDraft";
 /**
  * Glassmorphism Theme - HeroSlider Component
  *
@@ -102,10 +103,10 @@ function AnimatedGlassBackground({ primaryColor }: { primaryColor: string }) {
 
 export function GlassHeroSlider({ branding, tenantName }: ThemeComponentProps) {
     const navigate = useNavigate();
-    const heroSettings = branding?.hero || {};
+    const heroSettings: Partial<HeroSettings> = branding?.hero || {};
     const images = heroSettings.images || [];
     const slideshow = heroSettings.slideshow || { autoplay: true, intervalMs: 5000 };
-    const overlay = heroSettings.overlay || {};
+    const overlay: Partial<HeroSettings['overlay']> = heroSettings.overlay || {};
     const primaryColor = branding?.colors?.primary || '#0EA5E9';
 
     const [currentSlide, setCurrentSlide] = useState(0);

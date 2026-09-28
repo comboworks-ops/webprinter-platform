@@ -62,11 +62,11 @@ export function AdminCompanyHubManager({ tenantId }: AdminCompanyHubManagerProps
         createCompanyMutation,
         updateCompanyMutation,
         deleteCompanyMutation,
-        hubItemsQuery,
+        useHubItemsQuery,
         createHubItemMutation,
         updateHubItemMutation,
         deleteHubItemMutation,
-        membersQuery,
+        useMembersQuery,
         addMemberMutation,
         removeMemberMutation,
         tenantUsersQuery,
@@ -82,15 +82,15 @@ export function AdminCompanyHubManager({ tenantId }: AdminCompanyHubManagerProps
     const [newMemberUserId, setNewMemberUserId] = useState("");
 
     const selectedCompany = companiesQuery.data?.find(c => c.id === selectedCompanyId);
-    const { data: hubItems } = hubItemsQuery(selectedCompanyId || undefined);
-    const { data: members } = membersQuery(selectedCompanyId || undefined);
+    const { data: hubItems } = useHubItemsQuery(selectedCompanyId || undefined);
+    const { data: members } = useMembersQuery(selectedCompanyId || undefined);
 
     // Fetch products for THIS tenant
     const productsQuery = useQuery({
         queryKey: ["admin_products", tenantId],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from("products" as any)
+                .from("products")
                 .select("id, name, slug")
                 .eq("tenant_id", tenantId)
                 .order("name");
@@ -134,7 +134,7 @@ export function AdminCompanyHubManager({ tenantId }: AdminCompanyHubManagerProps
     };
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="workspace-company-classic grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* Companies List */}
             <Card className="lg:col-span-1">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -227,7 +227,7 @@ export function AdminCompanyHubManager({ tenantId }: AdminCompanyHubManagerProps
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="workspace-company-sections">
                             {/* Hub Items Manager */}
                             <Card>
                                 <CardHeader className="flex flex-row items-center justify-between space-y-0">

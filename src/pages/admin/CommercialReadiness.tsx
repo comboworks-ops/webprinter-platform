@@ -27,9 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
-  getSalgsmapperFallbackTemplates,
-  mergeProductTemplates,
-  resolveSelectedDesignerTemplateLaunch,
+  templateFileToDesignerLaunch,
   type ProductTemplateFile,
 } from "@/lib/designer/productTemplateLinks";
 import {
@@ -1441,7 +1439,7 @@ async function loadOrderOperationsSummary(tenantId: string) {
   };
 
   try {
-    const { data: orderRows, error: orderError } = await (supabase.from("orders" as any) as any)
+    const { data: orderRows, error: orderError } = await (supabase.from("orders") as any)
       .select("id,status,status_note,has_problem,requires_file_reupload")
       .eq("tenant_id", tenantId)
       .order("created_at", { ascending: false })
@@ -1464,7 +1462,7 @@ async function loadOrderOperationsSummary(tenantId: string) {
     }
 
     const orderIds = rows.map((order: any) => String(order.id)).filter(Boolean);
-    const { data: fileRows, error: fileError } = await (supabase.from("order_files" as any) as any)
+    const { data: fileRows, error: fileError } = await (supabase.from("order_files") as any)
       .select("order_id")
       .in("order_id", orderIds)
       .eq("is_current", true);
@@ -1535,7 +1533,7 @@ async function loadPaymentCheckoutSummary(tenantId: string) {
   };
 
   try {
-    const { data, error } = await (supabase.from("tenant_payment_settings" as any) as any)
+    const { data, error } = await (supabase.from("tenant_payment_settings") as any)
       .select("provider,status,charges_enabled,payouts_enabled,details_submitted,currency,platform_fee_percent,platform_fee_flat_ore,updated_at")
       .eq("tenant_id", tenantId)
       .maybeSingle();
@@ -1579,7 +1577,7 @@ async function loadSupportCustomerSummary(tenantId: string) {
   };
 
   try {
-    const { data: orderRows, error: orderError } = await (supabase.from("orders" as any) as any)
+    const { data: orderRows, error: orderError } = await (supabase.from("orders") as any)
       .select("id")
       .eq("tenant_id", tenantId)
       .order("created_at", { ascending: false })
@@ -1592,12 +1590,12 @@ async function loadSupportCustomerSummary(tenantId: string) {
       .filter(Boolean);
 
     const orderMessagesPromise = orderIds.length
-      ? (supabase.from("order_messages" as any) as any)
+      ? (supabase.from("order_messages") as any)
         .select("id,sender_type,is_read,created_at")
         .in("order_id", orderIds)
       : Promise.resolve({ data: [], error: null });
 
-    const platformMessagesPromise = (supabase.from("platform_messages" as any) as any)
+    const platformMessagesPromise = (supabase.from("platform_messages") as any)
       .select("id,sender_role,is_read,created_at")
       .eq("tenant_id", tenantId)
       .order("created_at", { ascending: false })
@@ -1647,18 +1645,18 @@ async function loadPlatformLeadSummary(): Promise<PlatformLeadSummary> {
 
   try {
     const platformLeadPattern = `${PLATFORM_LEAD_PREFIX}%`;
-    const totalPromise = (supabase.from("platform_messages" as any) as any)
+    const totalPromise = (supabase.from("platform_messages") as any)
       .select("id", { count: "exact", head: true })
       .eq("tenant_id", MASTER_TENANT_ID)
       .ilike("content", platformLeadPattern);
 
-    const unreadPromise = (supabase.from("platform_messages" as any) as any)
+    const unreadPromise = (supabase.from("platform_messages") as any)
       .select("id", { count: "exact", head: true })
       .eq("tenant_id", MASTER_TENANT_ID)
       .eq("is_read", false)
       .ilike("content", platformLeadPattern);
 
-    const latestPromise = (supabase.from("platform_messages" as any) as any)
+    const latestPromise = (supabase.from("platform_messages") as any)
       .select("created_at")
       .eq("tenant_id", MASTER_TENANT_ID)
       .ilike("content", platformLeadPattern)
@@ -1801,12 +1799,12 @@ async function loadDeliveryFulfillmentSummary(tenantId: string) {
 
   try {
     const [ordersResult, podProfileResult] = await Promise.all([
-      (supabase.from("orders" as any) as any)
+      (supabase.from("orders") as any)
         .select("id,delivery_type,tracking_number")
         .eq("tenant_id", tenantId)
         .order("created_at", { ascending: false })
         .limit(DELIVERY_FULFILLMENT_SAMPLE_LIMIT),
-      (supabase.from("tenant_pod_shipping_profile" as any) as any)
+      (supabase.from("tenant_pod_shipping_profile") as any)
         .select("sender_mode,sender_company_name,sender_contact_name,sender_email,sender_phone,sender_street,sender_house_number,sender_postcode,sender_city,sender_country,sender_vat_number,sender_logo_url")
         .eq("tenant_id", tenantId)
         .maybeSingle(),
@@ -1822,7 +1820,7 @@ async function loadDeliveryFulfillmentSummary(tenantId: string) {
     let deliveryTrackingEventCount = 0;
 
     if (orderIds.length > 0) {
-      const { count, error } = await (supabase.from("delivery_tracking" as any) as any)
+      const { count, error } = await (supabase.from("delivery_tracking") as any)
         .select("id", { count: "exact", head: true })
         .in("order_id", orderIds);
       if (error) throw error;
@@ -1864,11 +1862,11 @@ async function loadDeliveryFulfillmentSummary(tenantId: string) {
 async function loadTenantSignal(pilot: TenantPilot): Promise<TenantSignal> {
   try {
     const tenantQuery = pilot.domain === "webprinter.dk"
-      ? (supabase.from("tenants" as any) as any)
+      ? (supabase.from("tenants") as any)
         .select("id,name,domain,settings")
         .eq("id", MASTER_TENANT_ID)
         .maybeSingle()
-      : (supabase.from("tenants" as any) as any)
+      : (supabase.from("tenants") as any)
         .select("id,name,domain,settings")
         .in("domain", domainVariants(pilot.domain))
         .maybeSingle();
@@ -1978,7 +1976,7 @@ async function loadTenantSignal(pilot: TenantPilot): Promise<TenantSignal> {
       loadMailNotificationSummary(tenantId, (tenantRow as any)?.settings),
       loadDeliveryFulfillmentSummary(tenantId),
       pilot.firstProductSlug
-        ? (supabase.from("products" as any) as any)
+        ? (supabase.from("products") as any)
           .select("id,slug,name,is_published,pricing_type,template_files,banner_config")
           .eq("tenant_id", tenantId)
           .eq("slug", pilot.firstProductSlug)
@@ -2014,15 +2012,9 @@ async function loadTenantSignal(pilot: TenantPilot): Promise<TenantSignal> {
     const rawProductTemplates = Array.isArray(firstProduct?.template_files)
       ? firstProduct.template_files as ProductTemplateFile[]
       : [];
-    const fallbackTemplates = firstProduct
-      ? getSalgsmapperFallbackTemplates({
-        productId: firstProduct.id,
-        productName: firstProduct.name,
-        productSlug: firstProduct.slug,
-      })
-      : [];
-    const mergedTemplates = mergeProductTemplates(rawProductTemplates, fallbackTemplates);
-    const firstProductDesignerLaunch = resolveSelectedDesignerTemplateLaunch({ templates: mergedTemplates });
+    const firstProductDesignerLaunch = rawProductTemplates
+      .map(templateFileToDesignerLaunch)
+      .find(Boolean) || null;
     const firstProductDeliverySummary = readFirstProductDeliverySummary(firstProduct);
     const legalComplianceSummary = loadLegalComplianceSummary((tenantRow as any)?.settings, (tenantRow as any)?.name || null);
 
@@ -2036,7 +2028,7 @@ async function loadTenantSignal(pilot: TenantPilot): Promise<TenantSignal> {
       firstProductPricingType: firstProduct?.pricing_type || null,
       firstProductPriceRows,
       firstProductStorformatRows,
-      firstProductTemplateCount: firstProduct ? mergedTemplates.length : null,
+      firstProductTemplateCount: firstProduct ? rawProductTemplates.length : null,
       firstProductDesignerLaunchReady: Boolean(firstProductDesignerLaunch),
       firstProductOrderCount,
       activeTemplateCount,
@@ -6705,8 +6697,8 @@ function getProductionReleaseReadiness(
       area: "Tenant",
       status: materialBlockers === 0 && pilotProofReadyCount >= 2 && commercialReadyBlockers === 0 ? "qa" : "blokeret",
       evidence: `${formatCount(pilotProofReadyCount)}/${formatCount(pilotProofRuns.length)} pilotbeviser er klar eller i QA; ${formatCount(commercialReadyBlockers)} commercial-ready kriterier er blokeret.`,
-      required: materialGap?.next || pilotProofGap?.next || commercialReadyGap?.next || "Bevis mindst Webprinter produkt/pris, Salgsmapper template-flow og en kontrolleret ordrevej.",
-      stopRule: materialGap?.expected || pilotProofGap?.stopCondition || commercialReadyGap?.next || "Stop deploy som salgsklar hvis tenantbeviser kun er planlagt.",
+      required: materialGap?.next || commercialReadyGap?.next || "Bevis mindst Webprinter produkt/pris, Salgsmapper template-flow og en kontrolleret ordrevej.",
+      stopRule: materialGap?.expected || commercialReadyGap?.next || "Stop deploy som salgsklar hvis tenantbeviser kun er planlagt.",
       href: "/admin/commercial-readiness?force_domain=webprinter.dk#proof-flow",
     },
     {
@@ -6715,7 +6707,7 @@ function getProductionReleaseReadiness(
       status: adminAccessBlockers === 0 ? "qa" : "blokeret",
       evidence: `${formatCount(adminAccessReadiness.length - adminAccessBlockers)}/${formatCount(adminAccessReadiness.length)} adgangspunkter er uden hård blokering.`,
       required: accessGap?.manualCheck || "Log ind som admin@webprinter.dk og bevis dashboard, produkter, templates, ordrer, SEO, beskeder, betaling og Supplier Bank.",
-      stopRule: accessGap?.stopRule || "Stop hvis adminmailen ikke kan drive pilotområderne uden udviklerhjælp.",
+      stopRule: "Stop hvis adminmailen ikke kan drive pilotområderne uden udviklerhjælp.",
       href: accessGap?.href || "/admin?force_domain=webprinter.dk",
     },
     {
@@ -7858,7 +7850,7 @@ export default function CommercialReadiness() {
   const decisionOptionReadyCount = commercialDecisionOptionCards.filter((item) => item.status === "klar" || item.status === "qa").length;
 
   return (
-    <div className="space-y-6">
+    <div className="workspace-readiness space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-3xl space-y-2">
           <Badge variant="outline" className="w-fit border-sky-200 bg-sky-50 text-sky-800">
@@ -7894,6 +7886,38 @@ export default function CommercialReadiness() {
           </Button>
         </div>
       </div>
+
+      <section id="next-safe-action" className="workspace-readiness-priority scroll-mt-24 space-y-4">
+        <div className="flex items-center gap-2">
+          <ClipboardCheck className="h-5 w-5 text-slate-600" />
+          <h2 className="text-xl font-semibold">Næste sikre handling</h2>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {commercialFocusItems.map((item) => (
+            <Card key={item.title}>
+              <CardContent className="flex h-full flex-col gap-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <Badge variant="secondary">{item.label}</Badge>
+                    <h3 className="font-semibold">{item.title}</h3>
+                  </div>
+                  <StatusBadge status={item.status} />
+                </div>
+                <p className="text-sm leading-6 text-muted-foreground">{item.summary}</p>
+                <p className="text-xs font-medium leading-5 text-slate-700 dark:text-slate-300">
+                  Næste: {item.next}
+                </p>
+                <Button asChild variant="ghost" size="sm" className="mt-auto h-8 justify-between px-0">
+                  <Link to={item.href}>
+                    {item.cta}
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
@@ -7945,38 +7969,6 @@ export default function CommercialReadiness() {
           </CardContent>
         </Card>
       </div>
-
-      <section id="next-safe-action" className="scroll-mt-24 space-y-4">
-        <div className="flex items-center gap-2">
-          <ClipboardCheck className="h-5 w-5 text-slate-600" />
-          <h2 className="text-xl font-semibold">Næste sikre handling</h2>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-3">
-          {commercialFocusItems.map((item) => (
-            <Card key={item.title}>
-              <CardContent className="flex h-full flex-col gap-3 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
-                    <Badge variant="secondary">{item.label}</Badge>
-                    <h3 className="font-semibold">{item.title}</h3>
-                  </div>
-                  <StatusBadge status={item.status} />
-                </div>
-                <p className="text-sm leading-6 text-muted-foreground">{item.summary}</p>
-                <p className="text-xs font-medium leading-5 text-slate-700 dark:text-slate-300">
-                  Næste: {item.next}
-                </p>
-                <Button asChild variant="ghost" size="sm" className="mt-auto h-8 justify-between px-0">
-                  <Link to={item.href}>
-                    {item.cta}
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </section>
 
       <section id="goal-execution" className="scroll-mt-24 space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

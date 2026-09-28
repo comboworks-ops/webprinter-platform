@@ -1,0 +1,154 @@
+/* Open Workspace — selected 8 September 2026. Scoped to admin; storefront
+   branding, print canvases and pricing calculations keep their own contracts. */
+.admin-workspace,
+.admin-workspace-menu {
+  --background: 0 0% 100%;
+  --foreground: 220 65% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 220 65% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 65% 12%;
+  --primary: 202 92% 40%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 30% 97%;
+  --secondary-foreground: 220 65% 12%;
+  --muted: 210 30% 97%;
+  --muted-foreground: 220 18% 40%;
+  --accent: 205 85% 96%;
+  --accent-foreground: 202 92% 35%;
+  --border: 218 24% 89%;
+  --input: 218 24% 85%;
+  --ring: 202 92% 40%;
+  --radius: 0.35rem;
+  --heading-text: #0b1933;
+  --body-text: #4f5c74;
+  --link-text: #087fc5;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  -webkit-font-smoothing: antialiased;
+}
+.dark .admin-workspace,
+.dark .admin-workspace-menu {
+  --background: 222 40% 9%;
+  --foreground: 216 30% 95%;
+  --card: 222 35% 12%;
+  --card-foreground: 216 30% 95%;
+  --popover: 222 35% 12%;
+  --popover-foreground: 216 30% 95%;
+  --primary: 202 85% 55%;
+  --primary-foreground: 222 45% 8%;
+  --secondary: 222 25% 16%;
+  --secondary-foreground: 216 30% 95%;
+  --muted: 222 25% 16%;
+  --muted-foreground: 217 18% 70%;
+  --accent: 210 45% 19%;
+  --accent-foreground: 202 85% 75%;
+  --border: 220 23% 24%;
+  --input: 220 23% 30%;
+  --ring: 202 85% 55%;
+  --heading-text: #eef3fb;
+  --body-text: #b0bcd0;
+  --link-text: #65b7ed;
+}
+.admin-workspace { min-height: 100dvh; }
+.admin-workspace-chrome { position: relative; z-index: 30; background: hsl(var(--background)); }
+.admin-workspace-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  min-height: 80px; padding: 16px 40px; border-bottom: 1px solid hsl(var(--border));
+}
+.admin-workspace-identity { display: flex; align-items: center; min-width: 0; gap: 28px; }
+.admin-workspace-wordmark { color: hsl(var(--foreground)); font-size: 32px; line-height: 1; font-weight: 700; letter-spacing: -1.8px; }
+.admin-workspace-tenant { padding-left: 28px; border-left: 1px solid hsl(var(--border)); min-width: 0; }
+.admin-workspace-tenant-trigger { display: flex; align-items: center; gap: 16px; min-height: 40px; font-size: 15px; }
+.admin-workspace-tenant-trigger span { max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-workspace .admin-workspace-avatar { width: 44px; height: 44px; border-radius: 50%; background: hsl(var(--foreground)); color: hsl(var(--background)); }
+.admin-workspace .admin-workspace-avatar:hover { background: hsl(var(--foreground) / .85); color: hsl(var(--background)); }
+.admin-workspace-visit-shop { height: 44px; border-radius: 5px; border-color: hsl(var(--primary) / .65); color: hsl(var(--primary)); padding: 0 18px; }
+.admin-workspace-navigation { border-bottom: 1px solid hsl(var(--border)); }
+.admin-workspace-nav { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 34px; padding: 0 40px; }
+.admin-workspace-nav-item { display: flex; flex-shrink: 0; align-items: center; gap: 16px; min-height: 64px; border-bottom: 3px solid transparent; padding: 3px 2px 0; color: hsl(var(--foreground)); font-size: 14px; white-space: nowrap; }
+.admin-workspace-nav-item > svg { flex-shrink: 0; }
+.admin-workspace-nav-item[data-active='true'] { border-bottom-color: hsl(var(--primary)); color: hsl(var(--primary)); }
+.admin-workspace-nav-item:hover, .admin-workspace-nav-item[data-state='open'] { color: hsl(var(--primary)); }
+.admin-workspace :focus-visible, .admin-workspace-menu :focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+.admin-workspace-menu { border-radius: 5px; padding: 8px; }
+.admin-workspace-menu [role='menuitem'] { min-height: 44px; padding: 8px 12px; font-size: 14px; }
+.admin-workspace-menu [aria-current='page'] { background: hsl(var(--accent)); color: hsl(var(--primary)); }
+.admin-workspace-mobile-toggle { display: none; }
+.admin-workspace-main { min-width: 0; }
+.admin-workspace .admin-embedded-designer { height: max(680px, calc(100dvh - 295px)); overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: 5px; }
+.admin-workspace-content .admin-embedded-designer [data-designer-toolbar] h1 { font-size: 16px; letter-spacing: -.02em; }
+.admin-workspace .admin-embedded-designer .order-designer-metadata { background: hsl(var(--background)); color: hsl(var(--muted-foreground)); border-color: hsl(var(--border)); }
+.admin-workspace .admin-embedded-designer .order-designer-inspector { background: hsl(var(--background)); }
+.admin-workspace .admin-embedded-designer .pointer-events-none[class*="text-white/70"] { color: #fff; }
+.admin-workspace-content { width: 100%; max-width: 1800px; margin: 0 auto; padding: var(--ui-space-8) var(--ui-page-gutter) var(--ui-space-16); }
+.admin-workspace-content h1 { font-family: inherit; color: hsl(var(--foreground)); font-size: var(--ui-title-workspace); font-weight: 600; line-height: 1.2; letter-spacing: -1px; }
+.admin-workspace-content :where(h2, h3, h4) { font-family: inherit; color: hsl(var(--foreground)); letter-spacing: -.025em; }
+.admin-workspace-content :where(h1,h2,h3) { overflow-wrap:anywhere; }
+.admin-workspace-content :where(.shadow-sm, .shadow-md, .shadow-lg) { box-shadow: none; }
+.admin-workspace-content :where(.rounded-xl, .rounded-2xl) { border-radius: 6px; }
+.admin-workspace-content :where(table) { font-size: 14px; }
+.admin-workspace-content :where(th) { font-weight: 500; color: hsl(var(--foreground)); }
+.admin-workspace-content :where(td, th) { border-color: hsl(var(--border)); }
+.admin-workspace-content :where(input:not([type='checkbox']):not([type='radio']), select, textarea) { border-radius: 5px; }
+/* Global storefront link colors must not erase Button-as-Link contrast. */
+.admin-workspace .admin-workspace-content a.bg-primary.text-primary-foreground,
+.admin-workspace .admin-workspace-content a.bg-primary.text-primary-foreground:hover { color: hsl(var(--primary-foreground)); }
+/* Only the screen's primary tab bar; nested editors retain their own controls. */
+.admin-workspace-content > div > [dir] > [role='tablist'],
+.admin-workspace-content > [dir] > [role='tablist'] {
+  justify-content: flex-start; width: 100%; height: auto; min-height: 48px;
+  gap: 20px; padding: 0; overflow-x: auto; background: transparent;
+  border-radius: 0; border-bottom: 1px solid hsl(var(--border));
+}
+.admin-workspace-content > div > [dir] > [role='tablist'] > [role='tab'],
+.admin-workspace-content > [dir] > [role='tablist'] > [role='tab'] {
+  flex-shrink: 0; padding: 14px 0 12px; border-radius: 0; border-bottom: 2px solid transparent;
+  box-shadow: none; background: transparent;
+}
+.admin-workspace-content > div > [dir] > [role='tablist'] > [role='tab'][data-state='active'],
+.admin-workspace-content > [dir] > [role='tablist'] > [role='tab'][data-state='active'] { color: hsl(var(--primary)); border-bottom-color: hsl(var(--primary)); }
+.admin-workspace-section { padding-block: 24px; border-bottom: 1px solid hsl(var(--border)); }
+.admin-workspace-split { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); gap: 36px; }
+.admin-workspace-context { border-left: 1px solid hsl(var(--border)); padding-left: 32px; min-width: 0; }
+.admin-workspace-priority { border: 1px solid hsl(var(--primary) / .25); border-radius: 5px; padding: 24px; background: hsl(var(--accent)); }
+@media (min-width: 1800px) { .admin-workspace-header, .admin-workspace-nav { padding-left: max(40px, calc((100vw - 1720px) / 2)); padding-right: max(40px, calc((100vw - 1720px) / 2)); } }
+@media (max-width: 1199px) { .admin-workspace-nav { gap: 23px; padding-inline: 24px; } .admin-workspace-nav-item { gap: 8px; font-size: 13px; } .admin-workspace-header { padding-inline: 24px; } .admin-workspace-content { padding: var(--ui-space-8) var(--ui-page-gutter) var(--ui-space-12); } }
+/* The fixed eight-group master menu needs room before the tablet breakpoint.
+   Compact navigation is a vertical list; each group keeps its existing menu. */
+@media (max-width: 1199px) {
+  .admin-workspace-mobile-toggle { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 16px 24px; font-size: 14px; }
+  .admin-workspace-mobile-toggle > svg { flex-shrink: 0; }
+  .admin-workspace-mobile-toggle > :last-child { margin-left: auto; }
+  .admin-workspace-nav { display: none; flex-direction: column; align-items: stretch; padding: 0 24px 16px; gap: 0; }
+  .admin-workspace-nav[data-mobile-open='true'] { display: flex; }
+  .admin-workspace-nav-item { justify-content: space-between; width: 100%; min-height: 48px; gap: 16px; padding: 10px 12px; border-bottom: 0; border-left: 3px solid transparent; font-size: 14px; text-align: left; }
+  .admin-workspace-nav-item[data-active='true'] { border-left-color: hsl(var(--primary)); background: hsl(var(--accent)); }
+}
+@media (max-width: 899px) {
+  .admin-workspace-header { min-height: 72px; padding: 12px 20px; gap: 12px; }
+  .admin-workspace-identity { gap: 16px; }
+  .admin-workspace-wordmark { font-size: 27px; }
+  .admin-workspace-tenant { padding-left: 16px; }
+  .admin-workspace-tenant-trigger span { max-width: 170px; }
+  .admin-workspace-mobile-toggle { padding-inline: 20px; }
+  .admin-workspace-nav { padding-inline: 20px; }
+  .admin-workspace-split { grid-template-columns: 1fr; gap: 24px; }
+  .admin-workspace-context { border-left: 0; border-top: 1px solid hsl(var(--border)); padding: 24px 0 0; }
+}
+@media (max-width: 599px) {
+  .admin-workspace-mobile-toggle, .admin-workspace-nav { padding-inline: 16px; }
+  .admin-workspace-header { padding-inline: 16px; align-items: flex-start; }
+  .admin-workspace-identity { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .admin-workspace-wordmark { font-size: 26px; }
+  .admin-workspace-tenant { padding-left: 0; border: 0; }
+  .admin-workspace-tenant-trigger { min-height: 28px; font-size: 12px; gap: 8px; }
+  .admin-workspace-tenant-trigger span { max-width: 190px; }
+  .admin-workspace .admin-workspace-visit-shop { display: none; }
+  .admin-workspace .admin-workspace-avatar { width: 40px; height: 40px; }
+  .admin-workspace-content { padding: var(--ui-space-6) var(--ui-page-gutter) var(--ui-space-10); }
+  .admin-workspace-content h1 { letter-spacing: -.6px; }
+  .admin-workspace-priority { padding: 18px; }
+}
+@media (prefers-reduced-motion: reduce) { .admin-workspace *, .admin-workspace *::before, .admin-workspace *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

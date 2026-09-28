@@ -39,5 +39,7 @@
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ]
+  ],
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build"
 }

@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 // POD v2 Admin - Master Tenant Print on Demand Management
 // Includes Explorer, Browse, Curate, Pricing, and Publish tabs
 
@@ -1994,7 +1995,7 @@ function BrowseTab({
         for (const property of properties) {
             if (!property?.slug || property?.locked) continue;
             if (!Array.isArray(property?.options) || property.options.length === 0) continue;
-            const values = new Set(property.options.map((option: any, index: number) => String(option?.slug ?? option?.name ?? index)));
+            const values = new Set<string>(property.options.map((option: any, index: number) => String(option?.slug ?? option?.name ?? index)));
             allowed.set(property.slug, values);
         }
 
@@ -2256,7 +2257,7 @@ function BrowseTab({
             };
 
             const { data: catalogInsert, error: catalogError } = await supabase
-                .from("pod2_catalog_products" as any)
+                .from("pod2_catalog_products")
                 .insert({
                     public_title: { da: title, en: title },
                     public_description: { da: description, en: description },
@@ -2281,7 +2282,7 @@ function BrowseTab({
                 const groupLabel = wizardGroupLabels[property.slug] || property.title || property.slug;
 
                 const { data: attributeRow } = await supabase
-                    .from("pod2_catalog_attributes" as any)
+                    .from("pod2_catalog_attributes")
                     .insert({
                         catalog_product_id: catalogProductId,
                         group_key: String(property.slug),
@@ -2311,7 +2312,7 @@ function BrowseTab({
 
                 if (valuesPayload.length > 0) {
                     await supabase
-                        .from("pod2_catalog_attribute_values" as any)
+                        .from("pod2_catalog_attribute_values")
                         .insert(valuesPayload);
                 }
             }
@@ -2478,7 +2479,7 @@ function BrowseTab({
                 for (let index = 0; index < matrixPayload.length; index += PRICE_MATRIX_INSERT_CHUNK_SIZE) {
                     const chunk = matrixPayload.slice(index, index + PRICE_MATRIX_INSERT_CHUNK_SIZE);
                     const { error: matrixError } = await supabase
-                        .from("pod2_catalog_price_matrix" as any)
+                        .from("pod2_catalog_price_matrix")
                         .insert(chunk);
 
                     if (matrixError) {
@@ -2499,7 +2500,7 @@ function BrowseTab({
             };
 
             const { error: supplierDataError } = await supabase
-                .from("pod2_catalog_products" as any)
+                .from("pod2_catalog_products")
                 .update({
                     supplier_product_data: {
                         ...supplierProductData,
@@ -2521,7 +2522,7 @@ function BrowseTab({
                 );
             } else if (wizardAutoPublish) {
                 const { error: publishError } = await supabase
-                    .from("pod2_catalog_products" as any)
+                    .from("pod2_catalog_products")
                     .update({ status: "published" })
                     .eq("id", catalogProductId);
 
@@ -2571,7 +2572,7 @@ function BrowseTab({
     const fixedMappingConflicts = matrixMappingForUi.fixed.filter(
         (key) => (wizardSelections[key] || []).length > 1,
     );
-    const groupLabelByKey = selectableProperties.reduce<Record<string, string>>((acc, property: any) => {
+    const groupLabelByKey = selectableProperties.reduce((acc: Record<string, string>, property: any) => {
         const key = String(property.slug);
         acc[key] = wizardGroupLabels[key] || property.title || key;
         return acc;
@@ -2610,7 +2611,7 @@ function BrowseTab({
                                 <p>Ingen produkter matcher din søgning.</p>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <WorkspaceCollection label="Vælg leverandørprodukt" className="workspace-supplier-selector" items={filteredProducts.map((product: any, index: number) => ({ id: String(product?.sku || product?.id || product?.productId || product?.product_id || index), title: String(product?.titleSingle || product?.title || product?.name || product?.titlePlural || `Produkt ${index + 1}`), subtitle: String(product?.sku || product?.id || product?.category || "") }))}>
                                 {filteredProducts.map((product: any, idx: number) => {
                                     const sku = String(product?.sku || product?.id || product?.productId || product?.product_id || "");
                                     const isImported = sku ? importedSkus.has(sku) : false;
@@ -2660,7 +2661,7 @@ function BrowseTab({
                                         </Card>
                                     );
                                 })}
-                            </div>
+                            </WorkspaceCollection>
                         )}
                     </div>
                 )}
@@ -2966,7 +2967,7 @@ function BrowseTab({
                                                     const options = Array.isArray(property.options) ? property.options : [];
 
                                                     return (
-                                                        <div key={property.slug} className="space-y-2 border rounded-lg p-3">
+                                                        <div key={property.slug} className="workspace-pod2-variant-row space-y-2 border rounded-lg p-3">
                                                             <div className="flex flex-col gap-1">
                                                                 <Label className="text-sm">{property.title || property.slug}</Label>
                                                                 <Input
@@ -3256,7 +3257,7 @@ function CurateTab() {
         const newStatus = currentStatus === "published" ? "draft" : "published";
 
         const { error } = await supabase
-            .from("pod2_catalog_products" as any)
+            .from("pod2_catalog_products")
             .update({ status: newStatus })
             .eq("id", productId);
 
@@ -3275,7 +3276,7 @@ function CurateTab() {
         }
 
         const { error: jobsError } = await supabase
-            .from("pod2_fulfillment_jobs" as any)
+            .from("pod2_fulfillment_jobs")
             .delete()
             .eq("catalog_product_id", productId);
 
@@ -3285,7 +3286,7 @@ function CurateTab() {
         }
 
         const { error: importsError } = await supabase
-            .from("pod2_tenant_imports" as any)
+            .from("pod2_tenant_imports")
             .delete()
             .eq("catalog_product_id", productId);
 
@@ -3295,7 +3296,7 @@ function CurateTab() {
         }
 
         const { error } = await supabase
-            .from("pod2_catalog_products" as any)
+            .from("pod2_catalog_products")
             .delete()
             .eq("id", productId);
 

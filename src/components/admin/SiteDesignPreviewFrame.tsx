@@ -25,6 +25,12 @@ import {
     getSiteDesignPreviewProductSlug,
     normalizeSiteDesignPreviewPath,
 } from "@/lib/preview/siteDesignPreviewNavigation";
+import {
+    buildProductPricingPreviewMessages,
+    type ProductPricingPreviewState,
+} from "@/lib/preview/productPricingPreview";
+import { ORDER_FLOW_DESIGNS } from "@/lib/branding/orderFlowDesigns";
+import { getOrderFlowPreviewPage, getOrderFlowPreviewPath } from "@/lib/preview/orderFlowPreview";
 
 export interface SiteDesignPreviewProductOption {
     id: string;
@@ -33,6 +39,7 @@ export interface SiteDesignPreviewProductOption {
 }
 
 interface SiteDesignPreviewFrameProps {
+    presentation?: "device" | "workspace";
     previewUrl: string;
     branding: BrandingData; // Real-time branding data from parent
     tenantName?: string;
@@ -50,11 +57,10 @@ interface SiteDesignPreviewFrameProps {
         type: "path" | "first-product";
         path?: string;
     } | null;
+    featuredSlideId?: string;
+    sectionFocusRequest?: { id: number; target: string } | null;
     /** Product-specific pricing structure override for preview-only rendering */
-    productPricingPreview?: {
-        productId: string;
-        pricingStructure: unknown;
-    } | null;
+    productPricingPreview?: ProductPricingPreviewState | null;
     /** Called when preview path changes */
     onPreviewPathChange?: (path: string) => void;
     /** Whether preview clicks should select editable elements instead of navigating */
@@ -94,9 +100,11 @@ const ALLOWED_PREVIEW_PATHS = [
     '/cookiepolitik',
     '/privatliv',
     '/checkout',
+    '/designer',
 ];
 
 export function SiteDesignPreviewFrame({
+    presentation = "device",
     previewUrl,
     branding,
     tenantName = "Din Shop",
@@ -105,6 +113,8 @@ export function SiteDesignPreviewFrame({
     onSaveDraft,
     onResetDesign,
     navigationRequest,
+    sectionFocusRequest,
+    featuredSlideId,
     productPricingPreview,
     onPreviewPathChange,
     editMode = false,
@@ -114,6 +124,8 @@ export function SiteDesignPreviewFrame({
 }: SiteDesignPreviewFrameProps) {
     // Broadcast channel so detached preview windows get live updates
     const broadcastRef = useRef<BroadcastChannel | null>(null);
+    const [previewSessionId] = useState(() => crypto.randomUUID());
+    const previousPricingPreviewProductIdRef = useRef<string | null>(null);
     const [viewport, setViewport] = useState<ViewportSize>("desktop");
     const [isFlipped, setIsFlipped] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -121,10 +133,21 @@ export function SiteDesignPreviewFrame({
     const [currentPath, setCurrentPath] = useState("/");
     const [menuPreviewOpen, setMenuPreviewOpen] = useState(false);
     const [desktopScale, setDesktopScale] = useState(0.6);
+    const [workspaceHeight, setWorkspaceHeight] = useState(VIEWPORT_SIZES.desktop.height);
     const [isSavingForPreview, setIsSavingForPreview] = useState(false);
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const previewAreaRef = useRef<HTMLDivElement>(null);
     const lastNavigationIdRef = useRef<number | null>(null);
+    const latestPreviewRef = useRef({ branding, tenantName, iframeReady, featuredSlideId });
+
+    useEffect(() => {
+        latestPreviewRef.current = { branding, tenantName, iframeReady, featuredSlideId };
+    }, [branding, tenantName, iframeReady, featuredSlideId]);
+
+    useEffect(() => {
+        if (!sectionFocusRequest || !iframeReady) return;
+        iframeRef.current?.contentWindow?.postMessage({ type: 'PREVIEW_FOCUS_SECTION', target: sectionFocusRequest.target }, window.location.origin);
+    }, [sectionFocusRequest, iframeReady, currentPath]);
 
     const syncEditModeToIframe = useCallback(() => {
         console.log('[PreviewFrame] syncEditModeToIframe called, editMode:', editMode, 'iframeReady:', iframeReady);
@@ -165,7 +188,7 @@ export function SiteDesignPreviewFrame({
         setMenuPreviewOpen(false);
         syncMenuPreviewToIframe(false);
     }, [onPreviewPathChange, syncMenuPreviewToIframe]);
-    
+
     // Function to clear selection in iframe
     const clearSelection = useCallback(() => {
         if (iframeRef.current?.contentWindow && iframeReady) {
@@ -175,7 +198,7 @@ export function SiteDesignPreviewFrame({
             );
         }
     }, [iframeReady]);
-    
+
     // Listen for clearSelectionSignal from parent
     useEffect(() => {
         if (clearSelectionSignal) {
@@ -185,26 +208,30 @@ export function SiteDesignPreviewFrame({
 
     // Send branding to iframe via postMessage
     const sendBrandingToIframe = useCallback(() => {
+        // Startup retries must send the latest committed choice, not their scheduled snapshot.
+        const { branding, tenantName, iframeReady, featuredSlideId } = latestPreviewRef.current;
         if (iframeRef.current?.contentWindow && iframeReady) {
             iframeRef.current.contentWindow.postMessage(
                 { type: 'BRANDING_UPDATE', branding, tenantName },
                 '*'
             );
+            if (featuredSlideId) iframeRef.current.contentWindow.postMessage({ type: 'SELECT_FEATURED_PRODUCT', slideId: featuredSlideId }, window.location.origin);
         }
         // Also broadcast to any open preview windows
         if (broadcastRef.current) {
             broadcastRef.current.postMessage({ type: 'BRANDING_UPDATE', branding, tenantName });
         }
-    }, [branding, tenantName, iframeReady]);
+    }, []);
 
     // Send branding whenever it changes
     useEffect(() => {
         sendBrandingToIframe();
-    }, [sendBrandingToIframe]);
+    }, [sendBrandingToIframe, branding, tenantName, iframeReady, featuredSlideId]);
 
     // Listen for iframe ready signal and navigation events
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
+            if (event.origin !== window.location.origin || event.source !== iframeRef.current?.contentWindow) return;
             if (event.data?.type === 'PREVIEW_READY') {
                 setIframeReady(true);
                 setIsLoading(false);
@@ -262,24 +289,19 @@ export function SiteDesignPreviewFrame({
     }, [navigationRequest, iframeReady]);
 
     useEffect(() => {
-        if (!iframeReady || !iframeRef.current?.contentWindow || !productPricingPreview?.productId) return;
+        if (!iframeReady || !iframeRef.current?.contentWindow) return;
 
-        iframeRef.current.contentWindow.postMessage(
-            {
-                type: "PRODUCT_PRICING_PREVIEW_UPDATE",
-                productId: productPricingPreview.productId,
-                pricingStructure: productPricingPreview.pricingStructure,
-            },
-            "*"
-        );
+        const messages = buildProductPricingPreviewMessages({
+            previousProductId: previousPricingPreviewProductIdRef.current,
+            preview: productPricingPreview,
+        });
 
-        if (broadcastRef.current) {
-            broadcastRef.current.postMessage({
-                type: "PRODUCT_PRICING_PREVIEW_UPDATE",
-                productId: productPricingPreview.productId,
-                pricingStructure: productPricingPreview.pricingStructure,
-            });
-        }
+        messages.forEach((message) => {
+            iframeRef.current?.contentWindow?.postMessage(message, "*");
+            broadcastRef.current?.postMessage(message);
+        });
+
+        previousPricingPreviewProductIdRef.current = productPricingPreview?.productId || null;
     }, [iframeReady, productPricingPreview]);
 
     useEffect(() => {
@@ -292,35 +314,42 @@ export function SiteDesignPreviewFrame({
     }, [iframeReady, syncEditModeToIframe, syncMenuPreviewToIframe]);
 
     useEffect(() => {
-        if (viewport !== "desktop") return;
+        if (presentation !== "workspace" && viewport !== "desktop") return;
         const previewArea = previewAreaRef.current;
         if (!previewArea) return;
 
         const updateDesktopScale = () => {
-            const availableWidth = Math.max(320, previewArea.clientWidth - 64);
-            const availableHeight = Math.max(240, previewArea.clientHeight - 64);
+            const flat = presentation === "workspace";
+            const availableWidth = Math.max(flat ? 1 : 320, previewArea.clientWidth - (flat ? 0 : 64));
+            const availableHeight = Math.max(flat ? 1 : 240, previewArea.clientHeight - (flat ? 0 : 64));
+            const size = VIEWPORT_SIZES[viewport];
+            const width = flat ? (isFlipped ? size.height : size.width) : DESKTOP_FRAME_WIDTH;
+            const height = flat ? (isFlipped ? size.width : size.height) : DESKTOP_FRAME_HEIGHT;
             const nextScale = Math.min(
-                availableWidth / DESKTOP_FRAME_WIDTH,
-                availableHeight / DESKTOP_FRAME_HEIGHT,
+                availableWidth / width,
+                flat ? 1 : availableHeight / height,
                 1,
             );
-            setDesktopScale(Math.max(0.25, nextScale));
+            const fittedScale = Math.max(flat ? 0.1 : 0.25, nextScale);
+            setDesktopScale(fittedScale);
+            if (flat) setWorkspaceHeight(Math.floor(availableHeight / fittedScale));
         };
 
         updateDesktopScale();
         const observer = new ResizeObserver(updateDesktopScale);
         observer.observe(previewArea);
         return () => observer.disconnect();
-    }, [viewport]);
+    }, [viewport, isFlipped, presentation]);
 
     // Setup broadcast channel for cross-window preview updates
     useEffect(() => {
-        const channel = new BroadcastChannel('branding-preview');
+        const channel = new BroadcastChannel(`branding-preview:${previewSessionId}`);
         broadcastRef.current = channel;
 
         const handleBroadcast = (event: MessageEvent) => {
             // Preview windows can request the latest branding snapshot when they boot
             if (event.data?.type === 'REQUEST_BRANDING' || event.data?.type === 'PREVIEW_READY_BROADCAST') {
+                const { branding, tenantName } = latestPreviewRef.current;
                 channel.postMessage({ type: 'BRANDING_UPDATE', branding, tenantName });
             }
         };
@@ -332,7 +361,7 @@ export function SiteDesignPreviewFrame({
             channel.close();
             broadcastRef.current = null;
         };
-    }, [branding, tenantName]);
+    }, [previewSessionId]);
 
     const handleLoad = () => {
         // Iframe loaded, wait for PREVIEW_READY message
@@ -367,17 +396,14 @@ export function SiteDesignPreviewFrame({
             setIsSavingForPreview(false);
         }
         // Open with draft=1 to enable BroadcastChannel listening (but NOT preview_mode=1, which enables editing UI)
-        const urlWithDraft = previewUrl.includes('?')
-            ? `${previewUrl}&draft=1&t=${Date.now()}`
-            : `${previewUrl}?draft=1&t=${Date.now()}`;
-        window.open(urlWithDraft, '_blank');
+        const urlWithDraft = new URL(previewUrl, window.location.origin);
+        urlWithDraft.searchParams.set('draft', '1');
+        urlWithDraft.searchParams.set('previewSession', previewSessionId);
+        urlWithDraft.searchParams.set('t', String(Date.now()));
+        window.open(urlWithDraft.toString(), '_blank');
 
         // Send branding via broadcast channel immediately so new tab gets it
-        setTimeout(() => {
-            if (broadcastRef.current) {
-                broadcastRef.current.postMessage({ type: 'BRANDING_UPDATE', branding, tenantName });
-            }
-        }, 500);
+        setTimeout(sendBrandingToIframe, 500);
     };
 
     const baseSize = VIEWPORT_SIZES[viewport];
@@ -385,14 +411,18 @@ export function SiteDesignPreviewFrame({
     const currentSize = (viewport !== "desktop" && isFlipped)
         ? { ...baseSize, width: baseSize.height, height: baseSize.width }
         : baseSize;
+    const displaySize = presentation === "workspace"
+        ? { width: currentSize.width, height: workspaceHeight }
+        : currentSize;
     // Increased scale for tablet/mobile
     const scale = viewport === "tablet" ? 0.75 : 0.7;
     const currentPathname = getSiteDesignPreviewPathname(currentPath);
     const currentProductSlug = getSiteDesignPreviewProductSlug(currentPath);
+    const currentOrderPage = getOrderFlowPreviewPage(currentPath);
     const previewDestinationValue = currentProductSlug
         ? `product:${currentProductSlug}`
-        : currentPathname === "/checkout"
-            ? "page:/checkout"
+        : currentOrderPage && currentOrderPage !== "calculator"
+            ? `page:${getOrderFlowPreviewPath(currentOrderPage)}`
             : currentPathname === "/produkter" || currentPathname === "/shop"
                 ? "page:/produkter"
                 : "page:/";
@@ -415,13 +445,15 @@ export function SiteDesignPreviewFrame({
 
     return (
         <TooltipProvider delayDuration={180}>
-        <div className="flex flex-col h-full bg-gradient-to-br from-slate-100 to-slate-200 rounded-lg overflow-hidden">
+        <div className={cn("flex flex-col h-full bg-gradient-to-br from-slate-100 to-slate-200 rounded-lg overflow-hidden", presentation === "workspace" && "sd-frame-workspace")}>
             {/* Toolbar */}
             <div className="flex flex-wrap items-center justify-between gap-2 p-2 border-b bg-white/80 backdrop-blur">
                 <div className="flex min-w-0 flex-wrap items-center gap-1">
                     {(["desktop", "tablet", "mobile"] as ViewportSize[]).map((size) => (
                         <Button
                             key={size}
+                            aria-label={VIEWPORT_SIZES[size].label}
+                            aria-pressed={viewport === size}
                             variant={viewport === size ? "default" : "ghost"}
                             size="sm"
                             className="gap-1.5 h-8"
@@ -446,6 +478,7 @@ export function SiteDesignPreviewFrame({
                             className="h-8 w-8 p-0 ml-1"
                             onClick={() => setIsFlipped(!isFlipped)}
                             title={isFlipped ? "Portræt" : "Landskab"}
+                            aria-label={isFlipped ? "Vis portræt" : "Vis landskab"}
                         >
                             <RotateCcw className="w-4 h-4" />
                         </Button>
@@ -491,7 +524,15 @@ export function SiteDesignPreviewFrame({
                                 <SelectLabel>Sider</SelectLabel>
                                 <SelectItem value="page:/">Forside</SelectItem>
                                 <SelectItem value="page:/produkter">Produktoversigt</SelectItem>
-                                <SelectItem value="page:/checkout">Checkout</SelectItem>
+                            </SelectGroup>
+                            <SelectSeparator />
+                            <SelectGroup>
+                                <SelectLabel>Bestillingsflow</SelectLabel>
+                                {ORDER_FLOW_DESIGNS.filter((item) => item.page !== "calculator").map((item) => (
+                                    <SelectItem key={item.page} value={`page:${getOrderFlowPreviewPath(item.page)}`}>
+                                        {item.label}
+                                    </SelectItem>
+                                ))}
                             </SelectGroup>
                             {previewProducts.some((product) => Boolean(product.slug)) ? (
                                 <>
@@ -535,7 +576,7 @@ export function SiteDesignPreviewFrame({
 
                 <div className="flex items-center gap-1">
                     {iframeReady && (
-                        <span className="text-xs text-green-600 mr-2 hidden sm:inline">● Live</span>
+                        <span className="text-xs text-green-600 mr-2 hidden sm:inline">● Preview klar</span>
                     )}
 
                     {/* Reset Design */}
@@ -564,7 +605,7 @@ export function SiteDesignPreviewFrame({
                         <span className="hidden sm:inline text-xs">Forside</span>
                     </Button>
 
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={handleRefresh} disabled={isLoading}>
+                    <Button aria-label="Opdatér preview" variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={handleRefresh} disabled={isLoading}>
                         <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
                     </Button>
                     <Button
@@ -574,6 +615,7 @@ export function SiteDesignPreviewFrame({
                         onClick={openInNewTab}
                         disabled={isSavingForPreview}
                         title="Åbn preview i nyt vindue"
+                        aria-label="Åbn preview i nyt vindue"
                     >
                         {isSavingForPreview ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -585,7 +627,7 @@ export function SiteDesignPreviewFrame({
             </div>
 
             {/* Preview Security Notice */}
-            <div className="px-2 py-1 bg-amber-50 border-b border-amber-200 text-xs text-amber-700 flex items-center gap-1">
+            <div className="sd-preview-hint px-2 py-1 bg-amber-50 border-b border-amber-200 text-xs text-amber-700 flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" />
                 {editMode
                     ? "Klik på markerbare elementer i preview for at åbne den rigtige værktøjssektion."
@@ -595,9 +637,28 @@ export function SiteDesignPreviewFrame({
             {/* Device Preview Area */}
             <div
                 ref={previewAreaRef}
-                className="flex-1 flex items-center justify-center bg-slate-100 overflow-hidden relative p-8"
+                className="sd-preview-area flex-1 flex items-center justify-center bg-slate-100 overflow-hidden relative p-8"
             >
-                {viewport === "desktop" ? (
+                {presentation === "workspace" ? (
+                    <div className="sd-flat-preview" style={{ width: displaySize.width * desktopScale, height: displaySize.height * desktopScale }}>
+                        {isLoading && <div className="sd-preview-loading" role="status"><Loader2 className="h-6 w-6 animate-spin" />Indlæser preview…</div>}
+                        <div style={{ width: displaySize.width, height: displaySize.height, transform: `scale(${desktopScale})` }}>
+                            <iframe
+                                ref={iframeRef}
+                                src={previewUrl}
+                                className="h-full w-full border-0"
+                                onLoad={() => {
+                                    handleLoad();
+                                    setTimeout(sendBrandingToIframe, 500);
+                                    setTimeout(syncEditModeToIframe, 600);
+                                    setTimeout(syncMenuPreviewToIframe, 650);
+                                }}
+                                title="Branding Preview"
+                                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                            />
+                        </div>
+                    </div>
+                ) : viewport === "desktop" ? (
                     <div
                         className="relative shrink-0"
                         style={{
@@ -731,7 +792,7 @@ export function SiteDesignPreviewFrame({
             {/* Status Bar with Publish Option */}
             <div className="p-2 border-t bg-white/80 backdrop-blur flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">
-                    {currentSize.width} × {currentSize.height}px · {iframeReady ? "Live synkronisering" : "Venter på preview..."} · {editMode ? "Klik-redigering aktiv" : "Navigation aktiv"}
+                    {displaySize.width} × {displaySize.height}px · {iframeReady ? "Live synkronisering" : "Venter på preview..."} · {editMode ? "Klik-redigering aktiv" : "Navigation aktiv"}
                 </span>
 
                 {onPublish && (

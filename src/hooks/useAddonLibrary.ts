@@ -35,7 +35,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
 
       // Fetch groups
       const { data: groupsData, error: groupsError } = await supabase
-        .from('addon_library_groups' as any)
+        .from('addon_library_groups')
         .select('*')
         .eq('tenant_id', tenantId)
         .order('sort_order');
@@ -44,7 +44,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
 
       // Fetch items for all groups
       const { data: itemsData, error: itemsError } = await supabase
-        .from('addon_library_items' as any)
+        .from('addon_library_items')
         .select('*')
         .eq('tenant_id', tenantId)
         .order('sort_order');
@@ -53,7 +53,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
 
       // Fetch usage count (how many products use each group)
       const { data: importsData, error: importsError } = await supabase
-        .from('product_addon_imports' as any)
+        .from('product_addon_imports')
         .select('addon_group_id')
         .eq('tenant_id', tenantId);
 
@@ -93,7 +93,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
 
     try {
       const { data: newGroup, error } = await supabase
-        .from('addon_library_groups' as any)
+        .from('addon_library_groups')
         .insert({
           tenant_id: tenantId,
           name: data.name,
@@ -124,7 +124,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
   const updateGroup = async (id: string, data: Partial<AddonLibraryGroupInput>): Promise<boolean> => {
     try {
       const { error } = await supabase
-        .from('addon_library_groups' as any)
+        .from('addon_library_groups')
         .update({
           ...(data.name !== undefined && { name: data.name }),
           ...(data.display_label !== undefined && { display_label: data.display_label }),
@@ -155,7 +155,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
       }
 
       const { error } = await supabase
-        .from('addon_library_groups' as any)
+        .from('addon_library_groups')
         .delete()
         .eq('id', id);
 
@@ -179,7 +179,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
 
     try {
       const { data: newItem, error } = await supabase
-        .from('addon_library_items' as any)
+        .from('addon_library_items')
         .insert({
           tenant_id: tenantId,
           group_id: data.group_id,
@@ -211,7 +211,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
   const updateItem = async (id: string, data: Partial<AddonLibraryItemInput>): Promise<boolean> => {
     try {
       const { error } = await supabase
-        .from('addon_library_items' as any)
+        .from('addon_library_items')
         .update({
           ...(data.name !== undefined && { name: data.name }),
           ...(data.display_label !== undefined && { display_label: data.display_label }),
@@ -239,7 +239,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
   const deleteItem = async (id: string): Promise<boolean> => {
     try {
       const { error } = await supabase
-        .from('addon_library_items' as any)
+        .from('addon_library_items')
         .delete()
         .eq('id', id);
 
@@ -262,7 +262,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
     try {
       // Fetch item
       const { data: item, error: itemError } = await supabase
-        .from('addon_library_items' as any)
+        .from('addon_library_items')
         .select('*')
         .eq('id', itemId)
         .single();
@@ -271,7 +271,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
 
       // Fetch tiers
       const { data: tiers, error: tiersError } = await supabase
-        .from('addon_library_price_tiers' as any)
+        .from('addon_library_price_tiers')
         .select('*')
         .eq('addon_item_id', itemId)
         .order('from_m2');
@@ -280,7 +280,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
 
       // Fetch fixed prices
       const { data: fixedPrices, error: fixedError } = await supabase
-        .from('addon_library_fixed_prices' as any)
+        .from('addon_library_fixed_prices')
         .select('*')
         .eq('addon_item_id', itemId)
         .order('quantity');
@@ -307,7 +307,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
 
     try {
       const { data: newTier, error } = await supabase
-        .from('addon_library_price_tiers' as any)
+        .from('addon_library_price_tiers')
         .insert({
           tenant_id: tenantId,
           addon_item_id: data.addon_item_id,
@@ -332,7 +332,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
   const updatePriceTier = async (id: string, data: Partial<AddonLibraryPriceTierInput>): Promise<boolean> => {
     try {
       const { error } = await supabase
-        .from('addon_library_price_tiers' as any)
+        .from('addon_library_price_tiers')
         .update({
           ...(data.from_m2 !== undefined && { from_m2: data.from_m2 }),
           ...(data.to_m2 !== undefined && { to_m2: data.to_m2 }),
@@ -354,7 +354,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
   const deletePriceTier = async (id: string): Promise<boolean> => {
     try {
       const { error } = await supabase
-        .from('addon_library_price_tiers' as any)
+        .from('addon_library_price_tiers')
         .delete()
         .eq('id', id);
 
@@ -375,7 +375,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
 
     try {
       const { data: newPrice, error } = await supabase
-        .from('addon_library_fixed_prices' as any)
+        .from('addon_library_fixed_prices')
         .insert({
           tenant_id: tenantId,
           addon_item_id: data.addon_item_id,
@@ -401,7 +401,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
   const updateFixedPrice = async (id: string, data: Partial<AddonLibraryFixedPriceInput>): Promise<boolean> => {
     try {
       const { error } = await supabase
-        .from('addon_library_fixed_prices' as any)
+        .from('addon_library_fixed_prices')
         .update({
           ...(data.quantity !== undefined && { quantity: data.quantity }),
           ...(data.price !== undefined && { price: data.price }),
@@ -420,7 +420,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
   const deleteFixedPrice = async (id: string): Promise<boolean> => {
     try {
       const { error } = await supabase
-        .from('addon_library_fixed_prices' as any)
+        .from('addon_library_fixed_prices')
         .delete()
         .eq('id', id);
 
@@ -445,7 +445,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
     try {
       // Delete existing tiers
       const { error: deleteError } = await supabase
-        .from('addon_library_price_tiers' as any)
+        .from('addon_library_price_tiers')
         .delete()
         .eq('addon_item_id', itemId);
 
@@ -454,7 +454,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
       // Insert new tiers
       if (tiers.length > 0) {
         const { error: insertError } = await supabase
-          .from('addon_library_price_tiers' as any)
+          .from('addon_library_price_tiers')
           .insert(
             tiers.map((t, index) => ({
               tenant_id: tenantId,
@@ -487,7 +487,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
     try {
       // Delete existing fixed prices
       const { error: deleteError } = await supabase
-        .from('addon_library_fixed_prices' as any)
+        .from('addon_library_fixed_prices')
         .delete()
         .eq('addon_item_id', itemId);
 
@@ -496,7 +496,7 @@ export function useAddonLibrary(tenantId: string | undefined) {
       // Insert new fixed prices
       if (prices.length > 0) {
         const { error: insertError } = await supabase
-          .from('addon_library_fixed_prices' as any)
+          .from('addon_library_fixed_prices')
           .insert(
             prices.map((p, index) => ({
               tenant_id: tenantId,

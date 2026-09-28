@@ -77,7 +77,7 @@ export function PrintProductionSettings({
 
     let result: StatusSyncResult;
     try {
-      result = await syncPrintcomStatus.mutateAsync();
+      result = await syncPrintcomStatus.mutateAsync(undefined);
     } catch {
       // The existing mutation surfaces a safe operator-facing error toast.
       return;

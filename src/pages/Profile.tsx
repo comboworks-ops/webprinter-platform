@@ -118,7 +118,7 @@ const Profile = () => {
   const fetchRecentOrders = async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .from('orders' as any)
+        .from('orders')
         .select('id, order_number, product_name, total_price, status, created_at')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
@@ -382,4 +382,3 @@ const Profile = () => {
 };
 
 export default Profile;
-

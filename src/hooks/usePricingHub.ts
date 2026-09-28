@@ -1,11 +1,11 @@
 /**
  * usePricingHub Hook
- * 
+ *
  * Manages state and operations for the Pricing Hub feature:
  * - Folders and projects CRUD
  * - CSV file uploads and parsing
  * - Material auto-creation
- * 
+ *
  * STANDALONE: Does not modify any existing pricing code
  */
 
@@ -280,7 +280,7 @@ export function usePricingHub() {
 
             // Fetch folders
             const { data: foldersData, error: foldersError } = await supabase
-                .from("pricing_hub_folders" as any)
+                .from("pricing_hub_folders")
                 .select("*")
                 .order("sort_order", { ascending: true });
 
@@ -289,7 +289,7 @@ export function usePricingHub() {
 
             // Fetch projects with imports
             const { data: projectsData, error: projectsError } = await supabase
-                .from("pricing_hub_projects" as any)
+                .from("pricing_hub_projects")
                 .select("*, imports:pricing_hub_imports(*)")
                 .order("sort_order", { ascending: true });
 
@@ -321,7 +321,7 @@ export function usePricingHub() {
 
         try {
             const { data, error } = await supabase
-                .from("pricing_hub_folders" as any)
+                .from("pricing_hub_folders")
                 .insert({
                     tenant_id: tenantId,
                     name,
@@ -349,7 +349,7 @@ export function usePricingHub() {
             const { data: { user } } = await supabase.auth.getUser();
 
             const { data, error } = await supabase
-                .from("pricing_hub_projects" as any)
+                .from("pricing_hub_projects")
                 .insert({
                     tenant_id: tenantId,
                     folder_id: folderId,
@@ -384,7 +384,7 @@ export function usePricingHub() {
     const deleteFolder = useCallback(async (folderId: string) => {
         try {
             const { error } = await supabase
-                .from("pricing_hub_folders" as any)
+                .from("pricing_hub_folders")
                 .delete()
                 .eq("id", folderId);
 
@@ -401,7 +401,7 @@ export function usePricingHub() {
     const deleteProject = useCallback(async (projectId: string) => {
         try {
             const { error } = await supabase
-                .from("pricing_hub_projects" as any)
+                .from("pricing_hub_projects")
                 .delete()
                 .eq("id", projectId);
 
@@ -423,7 +423,7 @@ export function usePricingHub() {
     const renameFolder = useCallback(async (folderId: string, newName: string) => {
         try {
             const { error } = await supabase
-                .from("pricing_hub_folders" as any)
+                .from("pricing_hub_folders")
                 .update({ name: newName, updated_at: new Date().toISOString() })
                 .eq("id", folderId);
 
@@ -440,7 +440,7 @@ export function usePricingHub() {
     const renameProject = useCallback(async (projectId: string, newName: string) => {
         try {
             const { error } = await supabase
-                .from("pricing_hub_projects" as any)
+                .from("pricing_hub_projects")
                 .update({ name: newName, updated_at: new Date().toISOString() })
                 .eq("id", projectId);
 
@@ -482,7 +482,7 @@ export function usePricingHub() {
             // Create import record
             console.log("uploadCSV: Inserting into pricing_hub_imports...");
             const { data, error } = await supabase
-                .from("pricing_hub_imports" as any)
+                .from("pricing_hub_imports")
                 .insert({
                     tenant_id: tenantId,
                     project_id: projectId,
@@ -519,7 +519,7 @@ export function usePricingHub() {
                 console.log("uploadCSV: Updating project with combined data", { combinedDataCount: combinedData.length });
 
                 const { error: updateError } = await supabase
-                    .from("pricing_hub_projects" as any)
+                    .from("pricing_hub_projects")
                     .update({
                         combined_data: combinedData,
                         detected_attributes: allAttributes,

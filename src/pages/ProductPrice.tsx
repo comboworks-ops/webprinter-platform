@@ -1,3 +1,19 @@
+import { approvedPrintTemplateLaunch } from '@/lib/mockup/approvedPrintModels';
+import { ProductPrintMedia } from '@/components/mockup/ProductPrintMedia';
+import { useApprovedPrintModel } from '@/components/mockup/useApprovedPrintModel';
+import { ProductPresentationCard } from '@/components/storefront/ProductPresentation';
+import { resolveProductPresentation } from '@/lib/branding/productPresentations';
+import { useStorefrontCatalog } from '@/hooks/useStorefrontCatalog';
+import { galleryMatrixSelections, gallerySelectionKey, readProductGallery } from '@/lib/products/productGallery';
+import { ProductMediaGallery } from '@/components/product-price-page/ProductMediaGallery';
+import { ProductFolderMedia, type ProductFolderUpload } from '@/components/mockup/ProductFolderMedia';
+import { resolveProductFolderPreview, hasProductFolderPreview } from '@/lib/mockup/productFolderPreview';
+import { resolveFolderDefinition } from '@/lib/mockup/folderDefinition';
+import { usePreviewBranding } from '@/contexts/PreviewBrandingContext';
+import ProductGrid from '@/components/ProductGrid';
+import { ProductCalculatorLayout } from "@/components/product-price-page/ProductCalculatorLayout";
+import { useOrderFlowDesign } from "@/hooks/useOrderFlowDesign";
+import { OrderDesignPreviewSwitch } from "@/components/checkout/OrderDesignPreviewSwitch";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useLocation, useParams, useSearchParams } from "react-router-dom";
 import { PriceMatrix } from "@/components/product-price-page/PriceMatrix";
@@ -5,6 +21,9 @@ import { MatrixLayoutV1Renderer } from "@/components/product-price-page/MatrixLa
 import { ProductPricePanel, type DeliveryMethod } from "@/components/product-price-page/ProductPricePanel";
 import { ProductFilters } from "@/components/product-price-page/ProductFilters";
 import { StaticProductInfo } from "@/components/product-price-page/StaticProductInfo";
+import {
+  type ProductFormatGuideData,
+} from "@/components/product-price-page/ProductFormatGuide";
 import { CustomDimensionsCalculator } from "@/components/product-price-page/CustomDimensionsCalculator";
 import { StorformatConfigurator, type StorformatSelection } from "@/components/product-price-page/StorformatConfigurator";
 import { DynamicProductOptions } from "@/components/product-price-page/DynamicProductOptions";
@@ -29,13 +48,17 @@ import { fetchProductDetailRead } from "@/lib/api/productDetailRead";
 import { resolveCanvaOffer } from "@/lib/canva/launch";
 import { resolveMatrixLinkedTemplateId } from "@/lib/designer/linkedTemplates";
 import {
-  getSalgsmapperFallbackTemplates,
-  mergeProductTemplates,
+  collectExactTemplateSelectionConstraints,
   resolveSelectedDesignerTemplateLaunch,
+  selectionUsesFoldedLayout,
+  templateHasSelectionConstraints,
   type ProductTemplateFile,
 } from "@/lib/designer/productTemplateLinks";
 import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
-import type { SiteCheckoutState } from "@/lib/checkout/siteCheckoutSession";
+import {
+  readSiteCheckoutSession,
+  type SiteCheckoutState,
+} from "@/lib/checkout/siteCheckoutSession";
 import { resolveStorefrontProductFlow } from "@/lib/sites/storefrontProductFlow";
 
 // Legacy product configurations removed on user request (2025-01-30)
@@ -98,13 +121,17 @@ const writeDetailCache = (tenantId: string, slug: string, payload: ProductDetail
   }
 };
 
-const ProductPrice = () => {
-  const { slug } = useParams<{ slug: string }>();
+const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = false }: { workspacePreview?: boolean; previewSlug?: string; cardPreview?: boolean }) => {
+  const { slug: routeSlug } = useParams<{ slug: string }>();
+  const slug = previewSlug || routeSlug;
+  const preview = usePreviewBranding();
+  const previewCatalog = useStorefrontCatalog({ enabled: workspacePreview && cardPreview });
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const shopSettings = useShopSettings();
   const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
-  const branding = shopSettings.data?.branding;
+  const branding = preview.isPreviewMode && preview.branding ? preview.branding : shopSettings.data?.branding;
+  const orderDesign = useOrderFlowDesign("calculator", branding);
   const tenantName = String(
     branding?.shop_name
     || shopSettings.data?.tenant_name
@@ -113,6 +140,11 @@ const ProductPrice = () => {
   ).trim() || "Din Shop";
 
   const staticProduct = slug ? getProductBySlug(slug) : null;
+  const restoredCheckoutSelection = useMemo(() => {
+    const checkoutState = readSiteCheckoutSession();
+    if (!checkoutState || !slug || checkoutState.productSlug !== slug) return null;
+    return checkoutState;
+  }, [slug]);
   const companyContext = useMemo(() => {
     const state = (location.state || {}) as Partial<SiteCheckoutState>;
     if (!state.companyId || !state.companyCatalogItemId) return null;
@@ -127,6 +159,7 @@ const ProductPrice = () => {
   }, [location.state]);
 
   // State
+  const [folderUploadDraft, setFolderUploadDraft] = useState<ProductFolderUpload | null>(null);
   const [selectedFormat, setSelectedFormat] = useState<string>("");
   const [matrixSelectedSectionValues, setMatrixSelectedSectionValues] = useState<Record<string, string | null>>({});
   const [matrixPricingMeta, setMatrixPricingMeta] = useState<{
@@ -144,10 +177,11 @@ const ProductPrice = () => {
   const [customWidth, setCustomWidth] = useState<number>(100); // cm
   const [customHeight, setCustomHeight] = useState<number>(100); // cm
   const [basePricePerSqm, setBasePricePerSqm] = useState<Record<string, number>>({});
+  const [matrixQuantityTiers, setMatrixQuantityTiers] = useState<Array<{ quantity: number; price: number }>>([]);
   const [optionExtraPrice, setOptionExtraPrice] = useState<number>(0);
   const [optionSelections, setOptionSelections] = useState<Record<string, { optionId: string; name: string; extraPrice: number; priceMode: "fixed" | "per_quantity" | "per_area" }>>({});
   const [sizeDistributionValues, setSizeDistributionValues] = useState<Record<string, number>>({});
-  const [pricingStructure, setPricingStructure] = useState<any>(null);
+  const [basePricingStructure, setPricingStructure] = useState<any>(null);
   const [valueNameById, setValueNameById] = useState<Record<string, string>>({});
   const [valueMetaById, setValueMetaById] = useState<Record<string, { width_mm?: number; height_mm?: number; bleed_mm?: number; safe_area_mm?: number }>>({});
   const [matrixSelectionSummary, setMatrixSelectionSummary] = useState<string[]>([]);
@@ -163,13 +197,17 @@ const ProductPrice = () => {
     console.log('[ProductPrice] productPrice state changed to:', productPrice);
   }, [productPrice]);;
   const [dbProductId, setDbProductId] = useState<string | null>(null);
+  const pricingStructure: any = (preview.isPreviewMode && dbProductId && preview.productPricingOverrides[dbProductId]) || basePricingStructure;
   const [genericVariantNames, setGenericVariantNames] = useState<string[]>([]);
   const [selectedVariantName, setSelectedVariantName] = useState<string>("");
-  const [dbProduct, setDbProduct] = useState<{
+  const [baseDbProduct, setDbProduct] = useState<{
     id: string;
     name: string;
     description: string;
     image_url: string | null;
+    about_title?: string | null;
+    about_description?: string | null;
+    about_image_url?: string | null;
     technical_specs?: any;
     pricing_type?: string;
     category?: string | null;
@@ -179,6 +217,7 @@ const ProductPrice = () => {
     tenant_id?: string | null;
     is_published?: boolean;
   } | null>(null);
+  const dbProduct = useMemo(() => baseDbProduct ? { ...baseDbProduct, ...(pricingStructure as any)?.workspaceContent } : null, [baseDbProduct, pricingStructure]);
   const [mpaConfig, setMpaConfig] = useState<any>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [productUnavailable, setProductUnavailable] = useState(false);
@@ -189,7 +228,7 @@ const ProductPrice = () => {
   }, []);
 
   // Use static product if available, otherwise fall back to database product
-  const product = useMemo(() => productUnavailable ? null : staticProduct || (dbProduct ? {
+  const product = useMemo(() => productUnavailable ? null : (dbProduct ? {
     id: slug || '',
     name: dbProduct.name,
     slug: slug || '',
@@ -198,13 +237,40 @@ const ProductPrice = () => {
     pricingType: 'matrix' as const,
     category: 'tryksager' as const,
     image: dbProduct.image_url || '/placeholder.svg'
-  } : null), [productUnavailable, staticProduct, dbProduct, slug]);
+  } : staticProduct), [productUnavailable, staticProduct, dbProduct, slug]);
 
   // No legacy config fallback
   const config = null;
   // Always generic if database product exists (unless overridden by specific types below)
   const isGenericPricing = !!dbProduct;
   const isStorformat = !!dbProduct && dbProduct.pricing_type === "STORFORMAT";
+  const selectedFormatId = useMemo(() => {
+    if (selectedFormat && isUuid(selectedFormat)) return selectedFormat;
+    if (selectedVariantName) {
+      const candidates = selectedVariantName.split('|').filter(Boolean);
+      for (const candidate of candidates) {
+        if (isUuid(candidate)) {
+          const meta = valueMetaById[candidate];
+          if (meta?.width_mm && meta?.height_mm) return candidate;
+        }
+      }
+      if (isUuid(selectedVariantName)) return selectedVariantName;
+    }
+    return "";
+  }, [selectedFormat, selectedVariantName, valueMetaById, isUuid]);
+  const optionPricingDimensions = useMemo(() => {
+    if (isStorformat && storformatSelection) {
+      return {widthMm: storformatSelection.widthCm * 10, heightMm: storformatSelection.heightCm * 10};
+    }
+    if (["bannere", "skilte", "folie"].includes(product?.id || "")) {
+      return {widthMm: customWidth * 10, heightMm: customHeight * 10};
+    }
+    const dimensions = valueMetaById[matrixPricingMeta.formatId || selectedFormatId];
+    return dimensions?.width_mm && dimensions?.height_mm
+      ? {widthMm: dimensions.width_mm, heightMm: dimensions.height_mm} : null;
+  }, [isStorformat, storformatSelection, product?.id, customWidth, customHeight, valueMetaById, matrixPricingMeta.formatId, selectedFormatId]);
+  const optionAreaM2 = optionPricingDimensions && optionPricingDimensions.widthMm > 0 && optionPricingDimensions.heightMm > 0
+    ? optionPricingDimensions.widthMm * optionPricingDimensions.heightMm / 1_000_000 : null;
   const isPodProduct = !!dbProduct?.technical_specs?.is_pod;
   const podShippingEnabled = isPodProduct
     && pricingStructure?.mode === "matrix_layout_v1"
@@ -314,9 +380,12 @@ const ProductPrice = () => {
   ]);
 
   const orderValidationError = useMemo(() => {
+    if (Object.values(optionSelections).some(option => option.priceMode === "per_area") && !optionAreaM2) {
+      return "Vælg et format med kendte mål, før tillæg pr. m² kan beregnes.";
+    }
     if (!sizeDistributionMismatch) return null;
     return `Fordel størrelser så summen er ${sizeDistributionSelectionQuantity} stk (nu ${sizeDistributionTotal}).`;
-  }, [sizeDistributionMismatch, sizeDistributionSelectionQuantity, sizeDistributionTotal]);
+  }, [sizeDistributionMismatch, sizeDistributionSelectionQuantity, sizeDistributionTotal, optionSelections, optionAreaM2]);
 
   const sizeDistributionSummary = useMemo(() => {
     if (!sizeDistributionConfig || sizeDistributionEntries.length === 0) return "";
@@ -342,7 +411,7 @@ const ProductPrice = () => {
       setProductUnavailable(false);
       setMpaConfig(null);
       console.log('[ProductPrice] Fetching product with slug:', slug);
-      const productSelect = 'id, slug, name, description, image_url, category, technical_specs, pricing_structure, pricing_type, banner_config, template_files' as any;
+      const productSelect = 'id, slug, name, description, image_url, about_title, about_description, about_image_url, category, technical_specs, pricing_structure, pricing_type, banner_config, template_files' as any;
       const tenantId = shopSettings.data?.id || MASTER_TENANT_ID;
       const applyProductData = (data: any) => {
         setDbProductId(data.id);
@@ -368,6 +437,14 @@ const ProductPrice = () => {
         }
       };
 
+      if ((workspacePreview || preview.isPreviewMode) && searchParams.get('tenantId')) {
+        const previewTenant = searchParams.get('tenantId');
+        if (!previewTenant) { setLoading(false); setProductUnavailable(true); return; }
+        const { data, error } = await supabase.from('products').select('*').eq('slug', slug).eq('tenant_id', previewTenant).maybeSingle();
+        if (error || !data) { setProductUnavailable(true); setLoading(false); return; }
+        applyProductData(data); setLoading(false); return;
+      }
+
       const mapApiProductToLocalShape = (apiProduct: Record<string, unknown> | null) => {
         if (!apiProduct || typeof apiProduct !== "object") return null;
         return {
@@ -375,6 +452,9 @@ const ProductPrice = () => {
           name: typeof apiProduct.name === "string" ? apiProduct.name : "",
           description: typeof apiProduct.description === "string" ? apiProduct.description : "",
           image_url: typeof apiProduct.image_url === "string" ? apiProduct.image_url : null,
+          about_title: typeof apiProduct.about_title === "string" ? apiProduct.about_title : null,
+          about_description: typeof apiProduct.about_description === "string" ? apiProduct.about_description : null,
+          about_image_url: typeof apiProduct.about_image_url === "string" ? apiProduct.about_image_url : null,
           category: typeof apiProduct.category === "string" ? apiProduct.category : null,
           technical_specs: (apiProduct.technical_specs && typeof apiProduct.technical_specs === "object") ? apiProduct.technical_specs : null,
           pricing_structure: apiProduct.pricing_structure ?? null,
@@ -417,7 +497,7 @@ const ProductPrice = () => {
             applyProductData(apiProduct);
 
             const { data: cfg } = await supabase
-              .from('product_pricing_configs' as any)
+              .from('product_pricing_configs')
               .select('*')
               .eq('product_id', apiProduct.id)
               .eq('pricing_type', 'MACHINE_PRICED')
@@ -505,7 +585,7 @@ const ProductPrice = () => {
 
           // Fetch MPA Config if available
           const { data: cfg } = await supabase
-            .from('product_pricing_configs' as any)
+            .from('product_pricing_configs')
             .select('*')
             .eq('product_id', data.id)
             .eq('pricing_type', 'MACHINE_PRICED')
@@ -545,14 +625,14 @@ const ProductPrice = () => {
       }
     }
     fetchDbProduct();
-  }, [slug, shopSettings.data?.id, shopSettings.isLoading]);
+  }, [slug, shopSettings.data?.id, shopSettings.isLoading, workspacePreview, preview.isPreviewMode, preview.productPricingRefreshVersion]);
 
   useEffect(() => {
     if (!dbProductId || !isGenericPricing) return;
 
     const fetchAttributeValues = async () => {
       const { data } = await supabase
-        .from('product_attribute_groups' as any)
+        .from('product_attribute_groups')
         .select('id, values:product_attribute_values(id, name, width_mm, height_mm, meta)')
         .eq('product_id', dbProductId);
 
@@ -603,7 +683,7 @@ const ProductPrice = () => {
 
     const fetchMissingValues = async () => {
       const { data } = await supabase
-        .from('product_attribute_values' as any)
+        .from('product_attribute_values')
         .select('id, name, width_mm, height_mm, meta')
         .in('id', missingIds);
 
@@ -756,7 +836,7 @@ const ProductPrice = () => {
     setSelectedCell({ row: _row, column });
     // For all m²-based products, trust the matrix value (already includes any volume-based discount)
     setProductPrice(basePrice);
-    const totalExtra = computeOptionExtras(optionSelections, column, customArea || 1);
+    const totalExtra = computeOptionExtras(optionSelections, column, optionAreaM2 || 0);
     setOptionExtraPrice(totalExtra);
   };
 
@@ -774,10 +854,10 @@ const ProductPrice = () => {
   const handleOptionSelectionChange = useCallback((selections: Record<string, { optionId: string; name: string; extraPrice: number; priceMode: "fixed" | "per_quantity" | "per_area" }>) => {
     setOptionSelections(selections);
     const qty = isStorformat ? (storformatSelection?.quantity || 0) : (selectedCell?.column ?? 1);
-    const area = isStorformat ? (storformatSelection?.areaM2 || 1) : (customArea || 1);
+    const area = optionAreaM2 || 0;
     const totalExtra = computeOptionExtras(selections, qty, area);
     setOptionExtraPrice(totalExtra);
-  }, [selectedCell, computeOptionExtras, customArea, isStorformat, storformatSelection]);
+  }, [selectedCell, computeOptionExtras, optionAreaM2, isStorformat, storformatSelection]);
 
   const handleSizeDistributionChange = useCallback((fieldKey: string, rawValue: string) => {
     const parsed = Number(rawValue);
@@ -809,10 +889,10 @@ const ProductPrice = () => {
 
   useEffect(() => {
     const qty = isStorformat ? (storformatSelection?.quantity || 0) : (selectedCell?.column ?? 1);
-    const area = isStorformat ? (storformatSelection?.areaM2 || 1) : (customArea || 1);
+    const area = optionAreaM2 || 0;
     const totalExtra = computeOptionExtras(optionSelections, qty, area);
     setOptionExtraPrice(totalExtra);
-  }, [selectedCell, optionSelections, computeOptionExtras, customArea, isStorformat, storformatSelection]);
+  }, [selectedCell, optionSelections, computeOptionExtras, optionAreaM2, isStorformat, storformatSelection]);
 
   // Recalculate base price when area or selection changes for area-based products
   useEffect(() => {
@@ -831,9 +911,9 @@ const ProductPrice = () => {
     }
 
     setProductPrice(base);
-    const extra = computeOptionExtras(optionSelections, qty, customArea || 1);
+    const extra = computeOptionExtras(optionSelections, qty, optionAreaM2 || 0);
     setOptionExtraPrice(extra);
-  }, [selectedCell, customArea, basePricePerSqm, matrixData, product, computeOptionExtras, optionSelections, mpaConfig, isStorformat, pricingStructure]);
+  }, [selectedCell, customArea, basePricePerSqm, matrixData, product, computeOptionExtras, optionSelections, optionAreaM2, mpaConfig, isStorformat, pricingStructure]);
 
   // Memoized handler for MatrixLayoutV1 to avoid conditional hook errors
   const handleMatrixCellClick = useCallback((row: string, column: number, price: number) => {
@@ -904,6 +984,9 @@ const ProductPrice = () => {
       productId: dbProductId,
       productSlug: slug || null,
       quantity,
+      quantityTiers: pricingStructure?.mode === 'matrix_layout_v1' ? matrixQuantityTiers.map(tier => ({
+        quantity: tier.quantity, price: Math.round(tier.price + computeOptionExtras(optionSelections, tier.quantity, optionAreaM2 || 0)),
+      })) : undefined,
       formatId: matrixPricingMeta.formatId || selectedFormat || null,
       materialId: matrixPricingMeta.materialId || null,
       verticalValueId: matrixPricingMeta.verticalValueId || null,
@@ -913,12 +996,24 @@ const ProductPrice = () => {
       selectedSectionValues: matrixSelectedSectionValues,
       optionIds: Object.values(optionSelections)
         .map((option) => option.optionId)
-        .filter((optionId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(optionId || ""))),
+        .filter((optionId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(optionId || ""))),
       shippingSelected: null,
-      areaM2: isStorformat ? (storformatSelection?.areaM2 || null) : (customArea || null),
+      areaM2: optionAreaM2,
+      widthMm: optionPricingDimensions?.widthMm || null,
+      heightMm: optionPricingDimensions?.heightMm || null,
+      storformat: isStorformat && storformatSelection ? {
+        widthMm: storformatSelection.widthCm * 10,
+        heightMm: storformatSelection.heightCm * 10,
+        materialId: storformatSelection.materialId,
+        finishIds: storformatSelection.finishIds,
+        productIds: storformatSelection.productIds,
+        selectedSectionValues: storformatSelection.selectedSectionValues,
+      } : null,
     };
   }, [
-    customArea,
+    matrixQuantityTiers, computeOptionExtras, pricingStructure,
+    optionAreaM2,
+    optionPricingDimensions,
     dbProductId,
     isStorformat,
     matrixPricingMeta,
@@ -928,8 +1023,7 @@ const ProductPrice = () => {
     selectedCell?.column,
     selectedFormat,
     slug,
-    storformatSelection?.areaM2,
-    storformatSelection?.quantity,
+    storformatSelection,
   ]);
 
 
@@ -1012,45 +1106,62 @@ const ProductPrice = () => {
 
   // Loading State
   // Determine current dimensions based on selection
-  const selectedFormatId = useMemo(() => {
-    if (selectedFormat && isUuid(selectedFormat)) return selectedFormat;
-    if (selectedVariantName) {
-      const candidates = selectedVariantName.split('|').filter(Boolean);
-      for (const candidate of candidates) {
-        if (isUuid(candidate)) {
-          const meta = valueMetaById[candidate];
-          if (meta?.width_mm && meta?.height_mm) return candidate;
-        }
-      }
-      if (isUuid(selectedVariantName)) return selectedVariantName;
-    }
-    return "";
-  }, [selectedFormat, selectedVariantName, valueMetaById, isUuid]);
   const selectedFormatLabel = useMemo(() => {
     if (selectedFormatId && valueNameById[selectedFormatId]) return valueNameById[selectedFormatId];
     return selectedFormat || selectedVariantName || "";
   }, [selectedFormat, selectedFormatId, selectedVariantName, valueNameById]);
   const availableProductTemplates = useMemo(() => {
-    const fallbackTemplates = getSalgsmapperFallbackTemplates({
-      productId: dbProductId || product?.id,
-      productName: dbProduct?.name || product?.name,
-      productSlug: dbProduct?.slug || slug,
-    });
-    return mergeProductTemplates(dbProduct?.template_files, fallbackTemplates);
-  }, [dbProduct?.name, dbProduct?.slug, dbProduct?.template_files, dbProductId, product?.id, product?.name, slug]);
+    return Array.isArray(dbProduct?.template_files) ? dbProduct.template_files : [];
+  }, [dbProduct?.template_files]);
+  const exactTemplateCombinationSelections = useMemo(() => (
+    collectExactTemplateSelectionConstraints(availableProductTemplates)
+  ), [availableProductTemplates]);
   const designerTemplateLaunch = useMemo(() => {
     return resolveSelectedDesignerTemplateLaunch({
       templates: availableProductTemplates,
       selectedFormat,
       selectedFormatLabel,
+      selectedOptionLabels: matrixSelectionSummary,
+      selectedSectionValues: matrixSelectedSectionValues,
     });
-  }, [availableProductTemplates, selectedFormat, selectedFormatLabel]);
-  const productFlow = useMemo(() => resolveStorefrontProductFlow({
+  }, [availableProductTemplates, matrixSelectedSectionValues, matrixSelectionSummary, selectedFormat, selectedFormatLabel]);
+  const approvedPrintModel = useApprovedPrintModel(designerTemplateLaunch, pricingStructure?.workspaceContent, matrixSelectedSectionValues);
+  const approvedDesignerLaunch = useMemo(() => approvedPrintTemplateLaunch(designerTemplateLaunch, approvedPrintModel), [designerTemplateLaunch, approvedPrintModel]);
+  const legacyLinkedTemplateId = useMemo(() => {
+    if (pricingStructure?.mode === "matrix_layout_v1") {
+      return resolveMatrixLinkedTemplateId(pricingStructure, matrixSelectedSectionValues);
+    }
+    return storformatSelection?.linkedTemplateId || null;
+  }, [matrixSelectedSectionValues, pricingStructure, storformatSelection]);
+  const hasConfigurationSpecificTemplates = useMemo(
+    () => availableProductTemplates.some(templateHasSelectionConstraints),
+    [availableProductTemplates],
+  );
+  const baseProductFlow = useMemo(() => resolveStorefrontProductFlow({
     name: dbProduct?.name || product?.name,
     category: dbProduct?.category || (product as any)?.category || null,
     pricing_type: dbProduct?.pricing_type || null,
     technical_specs: dbProduct?.technical_specs || null,
-  }), [dbProduct?.category, dbProduct?.name, dbProduct?.pricing_type, dbProduct?.technical_specs, product]);
+    template_files: dbProduct?.template_files || null,
+  }), [dbProduct?.category, dbProduct?.name, dbProduct?.pricing_type, dbProduct?.technical_specs, dbProduct?.template_files, product]);
+  const productFlow = useMemo(() => {
+    const hasCompatibleLegacyTemplate = Boolean(legacyLinkedTemplateId) && !hasConfigurationSpecificTemplates;
+    if (
+      baseProductFlow.designerMode !== "pdf_template"
+      || designerTemplateLaunch
+      || hasCompatibleLegacyTemplate
+    ) {
+      return baseProductFlow;
+    }
+
+    return {
+      ...baseProductFlow,
+      badgeLabel: "Skabelon mangler for valget",
+      customerHelpText: "Denne kombination kan bestilles med egen trykfil, men designeren åbnes først, når den korrekte PDF-skabelon er tilknyttet.",
+      showDesignerButton: false,
+      showTemplateDownload: false,
+    };
+  }, [baseProductFlow, designerTemplateLaunch, hasConfigurationSpecificTemplates, legacyLinkedTemplateId]);
   const currentDimensions = useMemo(() => {
     const techSpecs = dbProduct?.technical_specs;
     if (selectedFormatId) {
@@ -1111,12 +1222,72 @@ const ProductPrice = () => {
     }
     return undefined;
   }, [selectedFormatId, valueMetaById, dbProduct?.technical_specs]);
-  const linkedTemplateId = useMemo(() => {
-    if (pricingStructure?.mode === "matrix_layout_v1") {
-      return resolveMatrixLinkedTemplateId(pricingStructure, matrixSelectedSectionValues);
+  const formatGuideData = useMemo<ProductFormatGuideData | null>(() => {
+    if (!product || !selectedFormatLabel || designDimensions.width <= 0 || designDimensions.height <= 0) {
+      return null;
     }
-    return storformatSelection?.linkedTemplateId || null;
-  }, [matrixSelectedSectionValues, pricingStructure, storformatSelection]);
+
+    const layoutKind = selectionUsesFoldedLayout(product.name, selectedFormatLabel, ...matrixSelectionSummary)
+      ? "folded"
+      : "flat";
+    const printSideLabel = matrixSelectionSummary.find((label) => (
+      /4\+0|4\+4|en side|begge sider|enkeltsidet|dobbeltsidet/i.test(label)
+    )) || null;
+    const foldTypeLabel = matrixSelectionSummary.find((label) => /midterfals|rullefalset|zigzag/i.test(label)) || null;
+    const pageCountLabel = matrixSelectionSummary.find((label) => /\d+\s*sider/i.test(label)) || null;
+    const orientationLabel = matrixSelectionSummary.find((label) => /^(lodret|vandret)$/i.test(label)) || null;
+    const swapFinishedDimensions = layoutKind === "folded"
+      && /vandret/i.test(orientationLabel || "")
+      && designDimensions.width !== designDimensions.height;
+    const finishedWidthMm = swapFinishedDimensions ? designDimensions.height : designDimensions.width;
+    const finishedHeightMm = swapFinishedDimensions ? designDimensions.width : designDimensions.height;
+
+    return {
+      productName: product.name,
+      productImageUrl: dbProduct?.image_url || getProductImage(product.slug),
+      formatLabel: selectedFormatLabel,
+      finishedWidthMm: layoutKind === "folded"
+        ? finishedWidthMm
+        : (designerTemplateLaunch?.widthMm ?? designDimensions.width),
+      finishedHeightMm: layoutKind === "folded"
+        ? finishedHeightMm
+        : (designerTemplateLaunch?.heightMm ?? designDimensions.height),
+      dataWidthMm: layoutKind === "folded" ? designerTemplateLaunch?.widthMm : undefined,
+      dataHeightMm: layoutKind === "folded" ? designerTemplateLaunch?.heightMm : undefined,
+      bleedMm: designerTemplateLaunch?.bleedMm ?? designDimensions.bleed ?? 3,
+      safeAreaMm: designerTemplateLaunch?.safeMm ?? designSafeAreaMm ?? 3,
+      minDpi: Number(dbProduct?.technical_specs?.min_dpi || 300),
+      layoutKind,
+      printSideLabel,
+      foldTypeLabel,
+      pageCountLabel,
+      foldGeometry: designerTemplateLaunch?.guideGeometry,
+      template: designerTemplateLaunch
+        ? {
+            name: designerTemplateLaunch.name,
+            url: designerTemplateLaunch.pdfUrl,
+          }
+        : null,
+    };
+  }, [
+    dbProduct?.image_url,
+    dbProduct?.technical_specs?.min_dpi,
+    designDimensions.bleed,
+    designDimensions.height,
+    designDimensions.width,
+    designerTemplateLaunch,
+    designSafeAreaMm,
+    matrixSelectionSummary,
+    product,
+    selectedFormatLabel,
+  ]);
+  const linkedTemplateId = useMemo(() => {
+    if (designerTemplateLaunch?.templateId) return designerTemplateLaunch.templateId;
+
+    if (hasConfigurationSpecificTemplates && !designerTemplateLaunch) return null;
+
+    return legacyLinkedTemplateId;
+  }, [designerTemplateLaunch, hasConfigurationSpecificTemplates, legacyLinkedTemplateId]);
   const currentQuantity = useMemo(() => {
     if (isStorformat) return storformatSelection?.quantity || 0;
     return selectedCell?.column || 0;
@@ -1223,16 +1394,21 @@ const ProductPrice = () => {
     shopSettings.data,
     slug,
   ]);
-  const renderInStorefrontFrame = (content: any, mainClassName: string, topSlot?: any) => (
+  const renderInStorefrontFrame = (content: any, mainClassName: string, topSlot?: any) => workspacePreview ? (
+    <StorefrontThemeFrame branding={branding} orderDesign={orderDesign} tenantName={tenantName} contentOnly isPreviewMode><main data-tooltip-product={dbProductId} className="storefront-order-flow storefront-product-flow product-workspace-customer-preview">{content}</main></StorefrontThemeFrame>
+  ) : (
     <StorefrontThemeFrame
       branding={branding}
+      orderDesign={orderDesign}
       tenantName={tenantName}
       topSlot={topSlot}
     >
       <main
         className={`${mainClassName} storefront-order-flow storefront-product-flow`}
         data-storefront-order-flow="product"
+        data-tooltip-product={dbProductId}
       >
+        <OrderDesignPreviewSwitch page="calculator" value={orderDesign} />
         {content}
       </main>
     </StorefrontThemeFrame>
@@ -1286,284 +1462,34 @@ const ProductPrice = () => {
     </div>
   ) : null;
 
-  const renderPricingInterface = () => {
-    if (isStorformat && dbProductId) {
-      const storformatDeliveryBusinessDayOffset = /fast production/i.test(
-        storformatSelection?.productName || ""
-      )
-        ? 2
-        : 0;
-      const summaryParts = [
-        product?.name,
-        storformatSelection ? `${storformatSelection.widthCm} x ${storformatSelection.heightCm} cm` : null,
-        storformatSelection?.materialName,
-        storformatSelection?.finishName || null,
-        storformatSelection?.productName || null,
-        storformatSelection ? `${storformatSelection.quantity} stk` : null,
-        sizeDistributionSummary || null,
-      ].filter(Boolean);
-
-      return (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8" data-storefront-order-stage="storformat">
-          <div className="min-w-0 space-y-6 lg:col-span-2">
-            <StorformatConfigurator
-              productId={dbProductId}
-              onSelectionChange={handleStorformatSelection}
-            />
-            {dbProductId && (
-              <div>
-                <DynamicProductOptions
-                  productId={dbProductId}
-                  onSelectionChange={handleOptionSelectionChange}
-                />
-              </div>
-            )}
-            {sizeDistributionBlock}
-          </div>
-          <div className="min-w-0 lg:col-span-1 lg:self-start">
-            <ProductPricePanel
-              productId={dbProductId}
-              quantity={storformatSelection?.quantity || 0}
-              productPrice={storformatSelection?.totalPrice || 0}
-              extraPrice={optionExtraPrice}
-              branding={shopSettings.data?.branding}
-              deliveryBusinessDayOffset={storformatDeliveryBusinessDayOffset}
-              orderValidationError={orderValidationError}
-              onShippingChange={handleShippingChange}
-              optionSelections={combinedOptionSelections}
-              pricingQuote={pricingQuote}
-              selectedVariant={storformatSelection?.materialName}
-              productName={product?.name || ''}
-              productSlug={slug || ''}
-              selectedFormat={storformatSelection ? `${storformatSelection.widthCm} x ${storformatSelection.heightCm} cm` : undefined}
-              linkedTemplateId={linkedTemplateId}
-              orderDeliveryConfig={orderDeliveryConfig}
-              designWidthMm={designDimensions.width}
-              designHeightMm={designDimensions.height}
-              designBleedMm={designDimensions.bleed}
-              designSafeAreaMm={designSafeAreaMm}
-              designerTemplateLaunch={designerTemplateLaunch}
-              productFlow={productFlow}
-              externalDeliveryEnabled={podShippingEnabled}
-              externalDeliveryMethods={podShippingMethods}
-              externalDeliveryLoading={podShippingLoading}
-              externalDeliveryError={podShippingError}
-              externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
-              canvaOffer={canvaOffer}
-              summary={summaryParts.join(' • ')}
-              companyContext={companyContext}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    if (pricingStructure?.mode === 'matrix_layout_v1' && dbProductId) {
-      return (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8" data-storefront-order-stage="matrix">
-          <div className="min-w-0 space-y-6 lg:col-span-2">
-            <MatrixLayoutV1Renderer
-              productId={dbProductId}
-              pricingStructure={pricingStructure}
-              onCellClick={handleMatrixCellClick}
-              onSelectionSummary={setMatrixSelectionSummary}
-              onSelectionChange={handleMatrixSelectionChange}
-            />
-            <DynamicProductOptions
-              productId={dbProductId}
-              onSelectionChange={handleOptionSelectionChange}
-            />
-            {sizeDistributionBlock}
-          </div>
-          <div className="min-w-0 lg:col-span-1 lg:self-start">
-            <ProductPricePanel
-              productId={dbProductId}
-              quantity={selectedCell?.column || 0}
-              productPrice={productPrice}
-              extraPrice={optionExtraPrice}
-              branding={shopSettings.data?.branding}
-              orderValidationError={orderValidationError}
-              onShippingChange={handleShippingChange}
-              optionSelections={combinedOptionSelections}
-              pricingQuote={pricingQuote}
-              selectedVariant={selectedCell?.row}
-              productName={product?.name || ''}
-              productSlug={slug || ''}
-              selectedFormat={selectedFormat}
-              linkedTemplateId={linkedTemplateId}
-              orderDeliveryConfig={orderDeliveryConfig}
-              designWidthMm={designDimensions.width}
-              designHeightMm={designDimensions.height}
-              designBleedMm={designDimensions.bleed}
-              designSafeAreaMm={designSafeAreaMm}
-              designerTemplateLaunch={designerTemplateLaunch}
-              productFlow={productFlow}
-              externalDeliveryEnabled={podShippingEnabled}
-              externalDeliveryMethods={podShippingMethods}
-              externalDeliveryLoading={podShippingLoading}
-              externalDeliveryError={podShippingError}
-              externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
-              canvaOffer={canvaOffer}
-              summary={[
-                product?.name,
-                ...matrixSelectionSummary,
-                selectedCell?.row,
-                selectedCell ? `${selectedCell.column} stk` : '',
-                sizeDistributionSummary || '',
-              ].filter(Boolean).join(' • ')}
-              companyContext={companyContext}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    const isAreaBased = product.id === "bannere" || product.id === "skilte" || product.id === "folie";
-    const optionsBlock = dbProductId ? (
-      <div className="mb-6">
-        <DynamicProductOptions
-          productId={dbProductId}
-          onSelectionChange={handleOptionSelectionChange}
-        />
-      </div>
-    ) : null;
-
-    return (
-      <>
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8" data-storefront-order-stage="standard">
-          <div className="min-w-0 space-y-6 lg:col-span-2">
-            {/* For non-area products, keep options above */}
-            {!isAreaBased && optionsBlock}
-
-            {isGenericPricing && genericVariantNames.length > 1 && (
-              <div>
-                <label className="text-base font-semibold mb-3 block">Vælg produkttype</label>
-                <div className="flex flex-wrap gap-2">
-                  {genericVariantNames.map((name) => (
-                    <button
-                      key={name}
-                      onClick={() => setSelectedVariantName(name)}
-                      className={`px-4 py-2 rounded-lg border-2 transition-all font-medium ${selectedVariantName === name
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border hover:border-primary/50"
-                        }`}
-                    >
-                      {formatVariantLabel(name)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {config && (
-              <ProductFilters
-                formats={config.formats}
-                extraOptions={config.extraOptions}
-                selectedFormat={selectedFormat}
-                selectedExtraOption={selectedExtraOption}
-                onFormatChange={setSelectedFormat}
-                onExtraOptionChange={setSelectedExtraOption}
-                extraOptionsLabel={config.extraOptionsLabel}
-              />
-            )}
-
-            {isAreaBased && (
-              <div className="storefront-order-surface">
-                <CustomDimensionsCalculator onAreaChange={handleAreaChange} />
-              </div>
-            )}
-
-            {/* For area-based products, show options below width/height calculator (e.g., lamination) */}
-            {isAreaBased && optionsBlock}
-
-            {sizeDistributionBlock}
-
-            {mpaConfig ? (
-              <MachineConfigurator
-                productId={dbProductId || ""}
-                width={0}
-                height={0}
-                engineVersion={(dbProduct?.technical_specs as any)?.machine_pricing?.engine === "v2_pilot" ? "v2_pilot" : "v1"}
-                engineConfig={(dbProduct?.technical_specs as any)?.machine_pricing || undefined}
-                onPriceUpdate={(data) => {
-                  console.log('[ProductPrice] Received from MachineConfigurator:', data);
-                  setProductPrice(data.totalPrice);
-                  // Update selected cell mock to satisfy ProductPricePanel
-                  setSelectedCell({ row: data.materialName || "Special", column: data.quantity });
-                }}
-              />
-            ) : (
-              <PriceMatrix
-                rows={matrixData.rows}
-                columns={matrixData.columns}
-                cells={matrixData.cells}
-                onCellClick={handleCellClick}
-                selectedCell={selectedCell}
-                columnUnit="stk"
-                customArea={isAreaBased ? customArea : undefined}
-                basePricePerSqm={isAreaBased ? basePricePerSqm : undefined}
-                computeExtras={(qty, area) => computeOptionExtras(optionSelections, qty, area || 1)}
-              />
-            )}
-          </div>
-
-          <div className="min-w-0 space-y-6 lg:col-span-1">
-            <div>
-              <ProductPricePanel
-                productId={dbProductId || ""}
-                quantity={selectedCell?.column || 0}
-                productPrice={productPrice}
-                extraPrice={optionExtraPrice}
-                branding={shopSettings.data?.branding}
-                orderValidationError={orderValidationError}
-                onShippingChange={handleShippingChange}
-                optionSelections={combinedOptionSelections}
-                pricingQuote={pricingQuote}
-                selectedVariant={selectedCell?.row}
-                productName={product.name}
-                productSlug={slug || ""}
-                selectedFormat={selectedFormat}
-                linkedTemplateId={linkedTemplateId}
-                orderDeliveryConfig={orderDeliveryConfig}
-                designWidthMm={designDimensions.width}
-                designHeightMm={designDimensions.height}
-                designBleedMm={designDimensions.bleed}
-                designSafeAreaMm={designSafeAreaMm}
-                designerTemplateLaunch={designerTemplateLaunch}
-                productFlow={productFlow}
-                externalDeliveryEnabled={podShippingEnabled}
-                externalDeliveryMethods={podShippingMethods}
-                externalDeliveryLoading={podShippingLoading}
-                externalDeliveryError={podShippingError}
-                externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
-                canvaOffer={canvaOffer}
-                summary={[
-                  product.name,
-                  // For area-based products, show custom dimensions instead of format
-                  (product.id === "bannere" || product.id === "skilte" || product.id === "folie")
-                    ? `${customWidth} x ${customHeight} cm`
-                    : (selectedFormat ? config?.formats.find(f => f.id === selectedFormat)?.label : ""),
-                  selectedCell ? selectedCell.row : "",
-                  selectedExtraOption ? config?.extraOptions?.find(e => e.id === selectedExtraOption)?.label : "",
-                  selectedCell ? `${selectedCell.column} stk` : "",
-                  sizeDistributionSummary || "",
-                ].filter(Boolean).join(" • ")}
-                companyContext={companyContext}
-              />
-            </div>
-          </div>
-        </div>
-      </>
-    );
-  };
-
-  return renderInStorefrontFrame(
-    <>
-        {fallbackNotice && (
-          <div className="mb-6 rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-            {fallbackNotice}
-          </div>
-        )}
+  const galleryImages = readProductGallery(pricingStructure?.workspaceContent);
+  const gallerySelections = { ...galleryMatrixSelections(matrixSelectedSectionValues, pricingStructure?.vertical_axis, selectedCell?.row, valueNameById), _format: selectedFormat, _variant: selectedVariantName, _extra: selectedExtraOption };
+  const folderPreviewSelection = { templateFiles: dbProduct?.template_files,
+    workspaceContent: pricingStructure?.workspaceContent, selectedSectionValues: matrixSelectedSectionValues };
+  const folderProductPreview = resolveProductFolderPreview(designerTemplateLaunch?.templatePdfSha256, folderPreviewSelection);
+  const hasFolderProductMedia = hasProductFolderPreview(designerTemplateLaunch?.templatePdfSha256, folderPreviewSelection);
+  const folderArtworkPreview = folderProductPreview?.print === '4+0' && designerTemplateLaunch
+    && resolveFolderDefinition(designerTemplateLaunch.templatePdfSha256,
+      (designerTemplateLaunch.widthMm ?? 0) + 2 * (designerTemplateLaunch.bleedMm ?? 0),
+      (designerTemplateLaunch.heightMm ?? 0) + 2 * (designerTemplateLaunch.bleedMm ?? 0));
+  const matchingFolderUpload = folderArtworkPreview && folderUploadDraft?.templateHash === designerTemplateLaunch?.templatePdfSha256
+    ? folderUploadDraft.upload : approvedPrintModel && folderUploadDraft?.templateHash === approvedPrintModel.definition.templateHash
+      ? folderUploadDraft.upload : undefined;
+  // A configuration change releases a manually chosen thumbnail. Quantity and price updates do not.
+  const productGallery = <ProductMediaGallery
+    key={`${dbProductId}:${gallerySelectionKey(gallerySelections)}`} name={product.name}
+    defaultImage={dbProduct?.image_url || getProductImage(product.slug)} images={galleryImages} selections={gallerySelections}
+  />;
+  const productMedia = approvedPrintModel ? <ProductPrintMedia key={`${dbProductId}:${approvedPrintModel.definition.id}`}
+    gallery={productGallery} preview={approvedPrintModel} color={branding?.colors?.primary}
+    artworkContext={!preview.isPreviewMode ? { model: approvedPrintModel, templateHash: approvedPrintModel.definition.templateHash,
+      tenantId: shopSettings.data?.id || "", productId: dbProductId! } : undefined}
+    onArtworkUploaded={setFolderUploadDraft} /> : hasFolderProductMedia ? <ProductFolderMedia key={dbProductId}
+    gallery={productGallery} preview={folderProductPreview} color={branding?.colors?.primary}
+    artworkContext={folderArtworkPreview && !preview.isPreviewMode ? { definition: folderArtworkPreview, templateHash: designerTemplateLaunch!.templatePdfSha256!, tenantId: shopSettings.data?.id || "", productId: dbProductId! } : undefined}
+    onArtworkUploaded={setFolderUploadDraft} />
+    : pricingStructure?.workspaceGroups || galleryImages.length ? productGallery : undefined;
+  const productIntro = (
         <div className="storefront-order-hero flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between sm:gap-8 mb-8" data-branding-id="productPage.heading">
           <div className="flex-1">
             {(() => {
@@ -1614,7 +1540,7 @@ const ProductPrice = () => {
               );
             })()}
           </div>
-          {product && (
+          {product && !productMedia && (
             <div className="storefront-order-product-image w-full h-40 flex-shrink-0 sm:w-48 sm:h-48">
               <img
                 src={dbProduct?.image_url || getProductImage(product.slug)}
@@ -1625,6 +1551,293 @@ const ProductPrice = () => {
             </div>
           )}
         </div>
+  );
+
+  const renderPricingInterface = () => {
+    if (isStorformat && dbProductId) {
+      const storformatDeliveryBusinessDayOffset = /fast production/i.test(
+        storformatSelection?.productName || ""
+      )
+        ? 2
+        : 0;
+      const summaryParts = [
+        product?.name,
+        storformatSelection ? `${storformatSelection.widthCm} x ${storformatSelection.heightCm} cm` : null,
+        storformatSelection?.materialName,
+        storformatSelection?.finishName || null,
+        storformatSelection?.productName || null,
+        storformatSelection ? `${storformatSelection.quantity} stk` : null,
+        sizeDistributionSummary || null,
+      ].filter(Boolean);
+
+      return <StorformatConfigurator
+        productId={dbProductId}
+        onSelectionChange={handleStorformatSelection}
+        layout={{ design: orderDesign, intro: productIntro, media: productMedia,
+          extras: <><DynamicProductOptions productId={dbProductId} onSelectionChange={handleOptionSelectionChange} />{sizeDistributionBlock}</>,
+          summary: (
+            <ProductPricePanel
+              productArtworkUpload={matchingFolderUpload}
+              presentation="order-flow"
+              productId={dbProductId}
+              quantity={storformatSelection?.quantity || 0}
+              productPrice={storformatSelection?.totalPrice || 0}
+              extraPrice={optionExtraPrice}
+              branding={shopSettings.data?.branding}
+              deliveryBusinessDayOffset={storformatDeliveryBusinessDayOffset}
+              orderValidationError={orderValidationError}
+              onShippingChange={handleShippingChange}
+              optionSelections={combinedOptionSelections}
+              pricingQuote={pricingQuote}
+              selectedVariant={storformatSelection?.materialName}
+              productName={product?.name || ''}
+              productSlug={slug || ''}
+              selectedFormat={storformatSelection ? `${storformatSelection.widthCm} x ${storformatSelection.heightCm} cm` : undefined}
+              linkedTemplateId={linkedTemplateId}
+              orderDeliveryConfig={orderDeliveryConfig}
+              designWidthMm={designDimensions.width}
+              designHeightMm={designDimensions.height}
+              designBleedMm={designDimensions.bleed}
+              designSafeAreaMm={designSafeAreaMm}
+              designerTemplateLaunch={approvedDesignerLaunch}
+              productFlow={productFlow}
+              externalDeliveryEnabled={podShippingEnabled}
+              externalDeliveryMethods={podShippingMethods}
+              externalDeliveryLoading={podShippingLoading}
+              externalDeliveryError={podShippingError}
+              externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+              canvaOffer={canvaOffer}
+              formatGuide={formatGuideData}
+              summary={summaryParts.join(' • ')}
+              companyContext={companyContext}
+            />
+          ),
+        }}
+      />;
+    }
+
+    if (pricingStructure?.mode === 'matrix_layout_v1' && dbProductId) {
+      return (
+        <MatrixLayoutV1Renderer
+          productId={dbProductId}
+          pricingStructure={pricingStructure}
+          exactCombinationSelections={exactTemplateCombinationSelections}
+          initialSelection={restoredCheckoutSelection?.pricingQuote?.selectedSectionValues || undefined}
+          initialSelectedRow={restoredCheckoutSelection?.selectedVariant || undefined}
+          initialSelectedQuantity={restoredCheckoutSelection?.quantity || undefined}
+          onCellClick={handleMatrixCellClick}
+          onSelectionSummary={setMatrixSelectionSummary}
+          onQuantityTiers={setMatrixQuantityTiers}
+          onSelectionChange={handleMatrixSelectionChange}
+          layout={{ design: orderDesign, intro: productIntro, media: productMedia,
+            extras: <>
+              <DynamicProductOptions
+                productId={dbProductId}
+                onSelectionChange={handleOptionSelectionChange}
+              />
+              {sizeDistributionBlock}
+            </>,
+            summary: (
+              <ProductPricePanel
+                productArtworkUpload={matchingFolderUpload}
+                presentation="order-flow"
+                productId={dbProductId}
+                quantity={selectedCell?.column || 0}
+                productPrice={productPrice}
+                extraPrice={optionExtraPrice}
+                branding={shopSettings.data?.branding}
+                orderValidationError={orderValidationError}
+                onShippingChange={handleShippingChange}
+                optionSelections={combinedOptionSelections}
+                pricingQuote={pricingQuote}
+                selectedVariant={selectedCell?.row}
+                productName={product?.name || ''}
+                productSlug={slug || ''}
+                selectedFormat={selectedFormat}
+                linkedTemplateId={linkedTemplateId}
+                orderDeliveryConfig={orderDeliveryConfig}
+                designWidthMm={designDimensions.width}
+                designHeightMm={designDimensions.height}
+                designBleedMm={designDimensions.bleed}
+                designSafeAreaMm={designSafeAreaMm}
+                designerTemplateLaunch={approvedDesignerLaunch}
+                productFlow={productFlow}
+                externalDeliveryEnabled={podShippingEnabled}
+                externalDeliveryMethods={podShippingMethods}
+                externalDeliveryLoading={podShippingLoading}
+                externalDeliveryError={podShippingError}
+                externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+                canvaOffer={canvaOffer}
+                formatGuide={formatGuideData}
+                summary={[
+                  product?.name,
+                  ...matrixSelectionSummary,
+                  selectedCell?.row,
+                  selectedCell ? `${selectedCell.column} stk` : '',
+                  sizeDistributionSummary || '',
+                ].filter(Boolean).join(' • ')}
+                companyContext={companyContext}
+              />
+            ),
+          }}
+        />
+      );
+    }
+
+    const isAreaBased = product.id === "bannere" || product.id === "skilte" || product.id === "folie";
+    const optionsBlock = dbProductId ? (
+      <div className="mb-6">
+        <DynamicProductOptions
+          productId={dbProductId}
+          onSelectionChange={handleOptionSelectionChange}
+        />
+      </div>
+    ) : null;
+
+    return (
+      <ProductCalculatorLayout
+        design={orderDesign}
+        intro={productIntro}
+        media={productMedia}
+        controls={<>
+          {/* For non-area products, keep options above */}
+          {!isAreaBased && optionsBlock}
+
+          {isGenericPricing && genericVariantNames.length > 1 && (
+            <div>
+              <label className="text-base font-semibold mb-3 block">Vælg produkttype</label>
+              <div className="flex flex-wrap gap-2">
+                {genericVariantNames.map((name) => (
+                  <button
+                    key={name}
+                    onClick={() => setSelectedVariantName(name)}
+                    className={`px-4 py-2 rounded-lg border-2 transition-all font-medium ${selectedVariantName === name
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border hover:border-primary/50"
+                      }`}
+                  >
+                    {formatVariantLabel(name)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {config && (
+            <ProductFilters
+              formats={config.formats}
+              extraOptions={config.extraOptions}
+              selectedFormat={selectedFormat}
+              selectedExtraOption={selectedExtraOption}
+              onFormatChange={setSelectedFormat}
+              onExtraOptionChange={setSelectedExtraOption}
+              extraOptionsLabel={config.extraOptionsLabel}
+            />
+          )}
+
+          {isAreaBased && (
+            <div className="storefront-order-surface">
+              <CustomDimensionsCalculator onAreaChange={handleAreaChange} />
+            </div>
+          )}
+
+          {/* For area-based products, show options below width/height calculator (e.g., lamination) */}
+          {isAreaBased && optionsBlock}
+
+          {sizeDistributionBlock}
+        </>}
+        matrix={
+          mpaConfig ? (
+            <MachineConfigurator
+              productId={dbProductId || ""}
+              width={0}
+              height={0}
+              engineVersion={(dbProduct?.technical_specs as any)?.machine_pricing?.engine === "v2_pilot" ? "v2_pilot" : "v1"}
+              engineConfig={(dbProduct?.technical_specs as any)?.machine_pricing || undefined}
+              onPriceUpdate={(data) => {
+                console.log('[ProductPrice] Received from MachineConfigurator:', data);
+                setProductPrice(data.totalPrice);
+                // Update selected cell mock to satisfy ProductPricePanel
+                setSelectedCell({ row: data.materialName || "Special", column: data.quantity });
+              }}
+            />
+          ) : (
+            <PriceMatrix
+              rows={matrixData.rows}
+              columns={matrixData.columns}
+              cells={matrixData.cells}
+              onCellClick={handleCellClick}
+              selectedCell={selectedCell}
+              columnUnit="stk"
+              customArea={isAreaBased ? customArea : undefined}
+              basePricePerSqm={isAreaBased ? basePricePerSqm : undefined}
+              computeExtras={(qty, area) => computeOptionExtras(optionSelections, qty, area || 1)}
+            />
+          )
+        }
+        summary={
+          <ProductPricePanel
+            productArtworkUpload={matchingFolderUpload}
+            presentation="order-flow"
+            productId={dbProductId || ""}
+            quantity={selectedCell?.column || 0}
+            productPrice={productPrice}
+            extraPrice={optionExtraPrice}
+            branding={shopSettings.data?.branding}
+            orderValidationError={orderValidationError}
+            onShippingChange={handleShippingChange}
+            optionSelections={combinedOptionSelections}
+            pricingQuote={pricingQuote}
+            selectedVariant={selectedCell?.row}
+            productName={product.name}
+            productSlug={slug || ""}
+            selectedFormat={selectedFormat}
+            linkedTemplateId={linkedTemplateId}
+            orderDeliveryConfig={orderDeliveryConfig}
+            designWidthMm={designDimensions.width}
+            designHeightMm={designDimensions.height}
+            designBleedMm={designDimensions.bleed}
+            designSafeAreaMm={designSafeAreaMm}
+            designerTemplateLaunch={approvedDesignerLaunch}
+            productFlow={productFlow}
+            externalDeliveryEnabled={podShippingEnabled}
+            externalDeliveryMethods={podShippingMethods}
+            externalDeliveryLoading={podShippingLoading}
+            externalDeliveryError={podShippingError}
+            externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
+            canvaOffer={canvaOffer}
+            formatGuide={formatGuideData}
+            summary={[
+              product.name,
+              // For area-based products, show custom dimensions instead of format
+              (product.id === "bannere" || product.id === "skilte" || product.id === "folie")
+                ? `${customWidth} x ${customHeight} cm`
+                : (selectedFormat ? config?.formats.find(f => f.id === selectedFormat)?.label : ""),
+              selectedCell ? selectedCell.row : "",
+              selectedExtraOption ? config?.extraOptions?.find(e => e.id === selectedExtraOption)?.label : "",
+              selectedCell ? `${selectedCell.column} stk` : "",
+              sizeDistributionSummary || "",
+            ].filter(Boolean).join(" • ")}
+            companyContext={companyContext}
+          />
+        }
+      />
+    );
+  };
+
+  if (workspacePreview && cardPreview && dbProduct) {
+    const card = { ...previewCatalog.products.find(item => item.id === dbProduct.id), ...dbProduct, id: dbProduct.id, slug: slug || '', category: dbProduct.category || 'tryksager', categoryKey: dbProduct.category || 'tryksager', categoryLabel: '', pricing_type: dbProduct.pricing_type || 'matrix', default_variant: null, default_quantity: null, banner_config: dbProduct.banner_config || {}, tooltip_product: null, tooltip_price: null, displayPrice: dbProduct.banner_config?.price_from ? `Fra ${dbProduct.banner_config.price_from} kr` : previewCatalog.products.find(item => item.id === dbProduct.id)?.displayPrice };
+    const cardPresentation = resolveProductPresentation(branding?.forside?.productsSection?.presentation);
+    return <StorefrontThemeFrame branding={branding} tenantName={tenantName} contentOnly isPreviewMode><div className="product-workspace-card-preview" onClickCapture={event => { if ((event.target as HTMLElement).closest('a')) event.preventDefault(); }}>{cardPresentation !== "standard" ? <ProductPresentationCard product={card} branding={branding} layout={cardPresentation}/> : <ProductGrid category="__all__" products={[card]} loadingOverride={false} buttonConfig={branding?.forside?.productsSection?.button} layoutStyle={(branding?.forside?.productsSection as any)?.layoutStyle || "cards"} />}</div></StorefrontThemeFrame>;
+  }
+
+  return renderInStorefrontFrame(
+    <>
+        {fallbackNotice && (
+          <div className="mb-6 rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+            {fallbackNotice}
+          </div>
+        )}
 
         {renderPricingInterface()}
 
@@ -1632,6 +1845,11 @@ const ProductPrice = () => {
           productId={dbProductId || product.slug || product.id}
           selectedFormat={selectedFormat}
           selectedFormatLabel={selectedFormatLabel}
+          selectedOptionLabels={matrixSelectionSummary}
+          selectedSectionValues={matrixSelectedSectionValues}
+          showTemplateDownloads={false}
+          formatGuide={formatGuideData}
+          productData={dbProduct}
         />
 
         {/* Debug Overlay */}

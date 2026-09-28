@@ -30,7 +30,7 @@ export function StorefrontSeo() {
     queryKey: ["storefront-page-seo", settings.id, pathname],
     queryFn: async () => {
       const { data: row, error } = await supabase
-        .from("page_seo" as any)
+        .from("page_seo")
         .select("title, meta_description, og_image_url")
         .eq("tenant_id", settings.id)
         .eq("slug", pathname)

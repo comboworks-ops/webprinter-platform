@@ -343,7 +343,7 @@ export function PrintProductWizard({
               <dd className="mt-1 text-lg font-semibold tabular-nums">{formatCurrency(displayedMinCost, currency)}</dd>
             </div>
             <div className="bg-background p-4">
-              <dt className="text-xs font-medium uppercase text-muted-foreground">Salgspris fra</dt>
+              <dt className="text-xs font-medium uppercase text-muted-foreground">Webprinter-pris fra</dt>
               <dd className="mt-1 text-lg font-semibold tabular-nums">{formatCurrency(displayedMinRetail, currency)}</dd>
             </div>
             <div className="bg-background p-4">
@@ -393,7 +393,7 @@ export function PrintProductWizard({
               {[
                 { label: "Publiceret katalogprodukt", ready: selectedProduct.status === "published" },
                 { label: "Varianter og mængder", ready: attributes.length > 0 && quantities.length > 0 },
-                { label: "Salgspriser", ready: pricingComplete },
+                { label: "Webprinter-priser", ready: pricingComplete },
                 { label: "Produktnavn", ready: Boolean(title.trim()) },
                 { label: "Produktbillede", ready: Boolean(imageUrl) },
               ].map((item) => (

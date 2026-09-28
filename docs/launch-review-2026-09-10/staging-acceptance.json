@@ -1,0 +1,958 @@
+{
+  "recorded_at": "2026-09-10T17:17:57.963Z",
+  "environment": "hosted isolated staging; synthetic fixtures; Stripe Test mode",
+  "release_status": "HOLD: email delivery, matched frontend/live rollout and complete production acceptance remain open",
+  "infrastructure": {
+    "organization": "yebbo project",
+    "organization_id": "ywwazrdktvdrmaspkvuf",
+    "parent_project": "ziattmsmiirfweiuunfo",
+    "project": "cyurochbkxggcobnxaxq",
+    "branch": "webprinter-launch-test",
+    "branch_id": "4b13be6a-7eb7-43c2-8dc3-8a0bbe5652b8",
+    "created_at": "2026-09-10T16:06:23Z",
+    "with_data": false,
+    "cost_usd_per_hour_approved": 0.01344,
+    "cost_note": "Still provisioned, about $0.32/day plus usage",
+    "historical_replay": "Failed after 20231210100000; repaired with guarded live-schema-only baseline in ignored staging workspace",
+    "baseline": "tmp/launch-staging-20260910/bootstrap/supabase/migrations/20260910161402_staging_schema_baseline.sql",
+    "baseline_warning": "NEVER merge or apply this staging bootstrap to production/root migrations",
+    "copied_live_business_rows": 0,
+    "copied_live_auth_users": 0,
+    "copied_live_files": 0
+  },
+  "migrations": [
+    {
+      "name": "20260908140250_customer_order_file_finalization.sql",
+      "sha256": "a1b82b071b94e8aa69ceb16da569565a636ef7bbf7c201e895d027a383867701",
+      "deployed_to": "staging only",
+      "copy_matches": true
+    },
+    {
+      "name": "20260908171700_customer_order_message_read_receipts.sql",
+      "sha256": "ea92a6ee8d0543e5d62fdd0b3856a91509e501992c6a84c096930ed49b9e6785",
+      "deployed_to": "staging only",
+      "copy_matches": true
+    },
+    {
+      "name": "20260908171743_storefront_checkout_finalization.sql",
+      "sha256": "c2df784a57ef5fa88a9946b2329b0a0b4cba895884a3fe2474b53e0dfc5dfa4c",
+      "deployed_to": "staging only",
+      "copy_matches": true
+    },
+    {
+      "name": "20260908172146_tenant_branding_settings_compare_and_swap.sql",
+      "sha256": "a1b6d129e89934070a221dd10e0b579bf538dd13c0f2cac17b07b43473404442",
+      "deployed_to": "staging only",
+      "copy_matches": true
+    },
+    {
+      "name": "20260908172325_checkout_customer_profile_address_details.sql",
+      "sha256": "26479c1f45b40cbe29e92d985e5cfad79968c1a1c6907ffa95173da764022d7a",
+      "deployed_to": "staging only",
+      "copy_matches": true
+    },
+    {
+      "name": "20260908184205_storefront_order_email_outbox.sql",
+      "sha256": "de1b28737d18b1ff16037b4bafd9760ead3ccebf74d6799370b75187a0712fd6",
+      "deployed_to": "staging only",
+      "copy_matches": true
+    },
+    {
+      "name": "20260909131000_storformat_source_quote_model.sql",
+      "sha256": "6b141a30b7d914a05ec85b0d457de32eb415026253c8c8ac03ef8ed3858ca282",
+      "deployed_to": "staging only",
+      "copy_matches": true
+    },
+    {
+      "name": "20260910164000_storefront_tenant_write_boundaries.sql",
+      "sha256": "77331b513ee4b111f282021bb47e84acad1036aa5598a177007b5f808e33a986",
+      "deployed_to": "staging only",
+      "copy_matches": true
+    }
+  ],
+  "edge_functions": [
+    {
+      "name": "stripe-create-payment-intent",
+      "verify_jwt": true,
+      "files": [
+        {
+          "name": "stripe-create-payment-intent/index.ts",
+          "sha256": "4a395a60e56d00784a805e0b39712062efc04ffe3ab92bf39b4fa45f4c32a58f"
+        },
+        {
+          "name": "_shared/rateLimit.ts",
+          "sha256": "038dda3c65e652fb47042eb8a59272a1c94529749f0560d88b328356bfee4f5f"
+        },
+        {
+          "name": "_shared/http.ts",
+          "sha256": "a805f2f1925117705590adeced89e4e498b427871a5b7017e7159a985e2946e3"
+        },
+        {
+          "name": "_shared/storefrontCheckout.ts",
+          "sha256": "f425ea5714545cb7e9b7ee648c556b957ee4461a1cf51cb7ee9c398969adea6f"
+        },
+        {
+          "name": "_shared/storefrontQuoteAmounts.ts",
+          "sha256": "830047d26df131b1ba75657293b2e19f65d1cba6ffff2155b2e606e2a204853a"
+        },
+        {
+          "name": "_shared/storefrontStorformatQuote.ts",
+          "sha256": "aee569a87e63c8a7d404eaea76e57103e945c8db2cc31b7a8be6a276e40eefcf"
+        },
+        {
+          "name": "_shared/storefrontStorformatFormula.ts",
+          "sha256": "efa1e19b9a8c19edd754b859959416b1c88ab931247caf1204df37689a700247"
+        },
+        {
+          "name": "_shared/storformatQuoteModel.ts",
+          "sha256": "4628525bc0e94e31b1f9a87efc836a893e2e4ee8ccbfc6f7cf2dcccb62c34194"
+        },
+        {
+          "name": "_shared/storefrontCheckoutRuntime.ts",
+          "sha256": "5289d5ca6732f739dad74ccdc5c2da43389f7763355866b007ed8676b21c5c37"
+        }
+      ],
+      "version": 15,
+      "match": true
+    },
+    {
+      "name": "stripe-finalize-checkout",
+      "verify_jwt": true,
+      "files": [
+        {
+          "name": "stripe-finalize-checkout/index.ts",
+          "sha256": "4e3b422c5a3bc13fdc9fdc23873630546399fdaaf8085f8817b49860dc014b04"
+        },
+        {
+          "name": "_shared/rateLimit.ts",
+          "sha256": "038dda3c65e652fb47042eb8a59272a1c94529749f0560d88b328356bfee4f5f"
+        },
+        {
+          "name": "_shared/http.ts",
+          "sha256": "a805f2f1925117705590adeced89e4e498b427871a5b7017e7159a985e2946e3"
+        },
+        {
+          "name": "_shared/storefrontCheckout.ts",
+          "sha256": "f425ea5714545cb7e9b7ee648c556b957ee4461a1cf51cb7ee9c398969adea6f"
+        },
+        {
+          "name": "_shared/storefrontCheckoutRuntime.ts",
+          "sha256": "5289d5ca6732f739dad74ccdc5c2da43389f7763355866b007ed8676b21c5c37"
+        }
+      ],
+      "version": 1,
+      "match": true
+    },
+    {
+      "name": "stripe-storefront-webhook",
+      "verify_jwt": false,
+      "files": [
+        {
+          "name": "stripe-storefront-webhook/index.ts",
+          "sha256": "998536ccf0174aa7957d6e095457c0f8ad5c41e04144211edd0985a7486d0b9a"
+        },
+        {
+          "name": "_shared/storefrontCheckout.ts",
+          "sha256": "f425ea5714545cb7e9b7ee648c556b957ee4461a1cf51cb7ee9c398969adea6f"
+        },
+        {
+          "name": "_shared/storefrontCheckoutRuntime.ts",
+          "sha256": "5289d5ca6732f739dad74ccdc5c2da43389f7763355866b007ed8676b21c5c37"
+        }
+      ],
+      "version": 1,
+      "match": true
+    },
+    {
+      "name": "storefront-order-email-dispatch",
+      "verify_jwt": false,
+      "files": [
+        {
+          "name": "storefront-order-email-dispatch/index.ts",
+          "sha256": "bec5581160fc20c99cb31f8c655d21fe7ca6b34840b8dfa2a74796ff4b55f14c"
+        },
+        {
+          "name": "_shared/storefrontOrderEmail.ts",
+          "sha256": "06315f66b3b596b25dbe6ce05279fee64db900d8c65b28601d2edffaa37a25b3"
+        }
+      ],
+      "version": 1,
+      "match": true
+    },
+    {
+      "name": "send-order-email",
+      "verify_jwt": true,
+      "files": [
+        {
+          "name": "send-order-email/index.ts",
+          "sha256": "25910886633b478154e4f3a100fa42692fa9fd0ee0f84f8746c8b09cbf8c5342"
+        },
+        {
+          "name": "_shared/rateLimit.ts",
+          "sha256": "038dda3c65e652fb47042eb8a59272a1c94529749f0560d88b328356bfee4f5f"
+        },
+        {
+          "name": "_shared/http.ts",
+          "sha256": "a805f2f1925117705590adeced89e4e498b427871a5b7017e7159a985e2946e3"
+        },
+        {
+          "name": "_shared/storefrontStatusEmail.ts",
+          "sha256": "9ffdec62a20d06b991d0551e9062708f86b757adc06ad848239bcfdb0813ff24"
+        },
+        {
+          "name": "_shared/storefrontOrderEmail.ts",
+          "sha256": "06315f66b3b596b25dbe6ce05279fee64db900d8c65b28601d2edffaa37a25b3"
+        }
+      ],
+      "version": 17,
+      "match": true
+    }
+  ],
+  "tenant_acceptance": {
+    "before_summary": {
+      "passed": 18,
+      "failed": 11,
+      "total": 29
+    },
+    "after_summary": {
+      "passed": 29,
+      "failed": 0,
+      "total": 29
+    },
+    "before": {
+      "project": "cyurochbkxggcobnxaxq",
+      "started_at": "2026-09-10T16:45:16.218Z",
+      "environment": "hosted synthetic",
+      "checks": [
+        {
+          "name": "owner branding save",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "branding survives reload",
+          "pass": true
+        },
+        {
+          "name": "stale branding save cannot overwrite",
+          "pass": true,
+          "rows": 0
+        },
+        {
+          "name": "cross-shop branding RPC denied cleanly",
+          "pass": false,
+          "error": "42P01",
+          "message": "relation \"user_roles\" does not exist"
+        },
+        {
+          "name": "cross-shop direct settings write denied",
+          "pass": false,
+          "rows": 1
+        },
+        {
+          "name": "platform admin can save another shop",
+          "pass": false,
+          "error": "42P01",
+          "message": "relation \"user_roles\" does not exist"
+        },
+        {
+          "name": "tenant cannot activate platform-only fulfillment",
+          "pass": false,
+          "rows": 1
+        },
+        {
+          "name": "tenant admin cannot self-promote to platform admin",
+          "pass": false,
+          "rows": 1
+        },
+        {
+          "name": "tenant admin cannot assign roles in another shop",
+          "pass": false,
+          "rows": 1
+        },
+        {
+          "name": "own product edit allowed",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "foreign product edit denied",
+          "pass": false,
+          "rows": 1
+        },
+        {
+          "name": "foreign product price edit denied",
+          "pass": false,
+          "rows": 1
+        },
+        {
+          "name": "price cannot target a different tenant product",
+          "pass": false,
+          "rows": 1
+        },
+        {
+          "name": "owner_a own order read",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "owner_a foreign order read",
+          "pass": false,
+          "rows": 1
+        },
+        {
+          "name": "customer_a own order read",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "customer_a foreign order read",
+          "pass": true,
+          "rows": 0
+        },
+        {
+          "name": "cross-shop order update denied",
+          "pass": false,
+          "rows": 1
+        },
+        {
+          "name": "customer_b message acknowledgement",
+          "pass": true,
+          "error": "42501",
+          "message": "customer_message_access_denied"
+        },
+        {
+          "name": "customer_a message acknowledgement",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "customer cannot rewrite an operator message",
+          "pass": true,
+          "rows": 0
+        },
+        {
+          "name": "other customer replacement rejected",
+          "pass": true,
+          "error": "42501",
+          "message": "customer_file_access_denied"
+        },
+        {
+          "name": "own replacement preflight works",
+          "pass": true
+        },
+        {
+          "name": "customer replacement storage upload works",
+          "pass": true
+        },
+        {
+          "name": "replacement finalizes atomically",
+          "pass": true
+        },
+        {
+          "name": "replacement retry returns the same version",
+          "pass": true
+        },
+        {
+          "name": "exactly one current file after replacement",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "customer address details persist",
+          "pass": true
+        },
+        {
+          "name": "other customer address read denied",
+          "pass": true,
+          "rows": 0
+        }
+      ],
+      "finished_at": "2026-09-10T16:45:21.371Z",
+      "passed": 18,
+      "failed": 11
+    },
+    "after": {
+      "project": "cyurochbkxggcobnxaxq",
+      "started_at": "2026-09-10T16:48:36.080Z",
+      "environment": "hosted synthetic",
+      "checks": [
+        {
+          "name": "owner branding save",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "branding survives reload",
+          "pass": true
+        },
+        {
+          "name": "stale branding save cannot overwrite",
+          "pass": true,
+          "rows": 0
+        },
+        {
+          "name": "cross-shop branding RPC denied cleanly",
+          "pass": true,
+          "rows": 0
+        },
+        {
+          "name": "cross-shop direct settings write denied",
+          "pass": true,
+          "rows": 0
+        },
+        {
+          "name": "platform admin can save another shop",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "tenant cannot activate platform-only fulfillment",
+          "pass": true,
+          "error": "42501",
+          "message": "tenant_control_fields_forbidden"
+        },
+        {
+          "name": "tenant admin cannot self-promote to platform admin",
+          "pass": true,
+          "error": "42501",
+          "message": "new row violates row-level security policy \"storefront_role_insert_boundary\" for table \"user_roles\""
+        },
+        {
+          "name": "tenant admin cannot assign roles in another shop",
+          "pass": true,
+          "error": "42501",
+          "message": "new row violates row-level security policy \"storefront_role_insert_boundary\" for table \"user_roles\""
+        },
+        {
+          "name": "own product edit allowed",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "foreign product edit denied",
+          "pass": true,
+          "rows": 0
+        },
+        {
+          "name": "foreign product price edit denied",
+          "pass": true,
+          "rows": 0
+        },
+        {
+          "name": "price cannot target a different tenant product",
+          "pass": true,
+          "error": "42501",
+          "message": "new row violates row-level security policy \"storefront_price_product_insert_boundary\" for table \"generic_product_prices\""
+        },
+        {
+          "name": "owner_a own order read",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "owner_a foreign order read",
+          "pass": true,
+          "rows": 0
+        },
+        {
+          "name": "customer_a own order read",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "customer_a foreign order read",
+          "pass": true,
+          "rows": 0
+        },
+        {
+          "name": "cross-shop order update denied",
+          "pass": true,
+          "rows": 0
+        },
+        {
+          "name": "customer_b message acknowledgement",
+          "pass": true,
+          "error": "42501",
+          "message": "customer_message_access_denied"
+        },
+        {
+          "name": "customer_a message acknowledgement",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "customer cannot rewrite an operator message",
+          "pass": true,
+          "rows": 0
+        },
+        {
+          "name": "other customer replacement rejected",
+          "pass": true,
+          "error": "42501",
+          "message": "customer_file_access_denied"
+        },
+        {
+          "name": "own replacement preflight works",
+          "pass": true
+        },
+        {
+          "name": "customer replacement storage upload works",
+          "pass": true
+        },
+        {
+          "name": "replacement finalizes atomically",
+          "pass": true
+        },
+        {
+          "name": "replacement retry returns the same version",
+          "pass": true
+        },
+        {
+          "name": "exactly one current file after replacement",
+          "pass": true,
+          "rows": 1
+        },
+        {
+          "name": "customer address details persist",
+          "pass": true
+        },
+        {
+          "name": "other customer address read denied",
+          "pass": true,
+          "rows": 0
+        }
+      ],
+      "finished_at": "2026-09-10T16:48:39.684Z",
+      "passed": 29,
+      "failed": 0
+    },
+    "runner": "supabase/tests/storefront_tenant_boundaries.mjs",
+    "live_compatibility_read_only": {
+      "generic_price_rows": 357913,
+      "tenant_product_mismatches": 0
+    },
+    "limits": "Targeted storefront policies only; other legacy pricing/RPC/storage/signup and historical key rotation remain open"
+  },
+  "stripe": {
+    "account_id": "acct_1KEH0SLlYyddTjie",
+    "mode": "test",
+    "webhook_id": "we_1UEAsrLlYyddTjieao9a8NXE",
+    "endpoint": "https://cyurochbkxggcobnxaxq.supabase.co/functions/v1/stripe-storefront-webhook",
+    "event": "payment_intent.succeeded",
+    "endpoint_api_version": "2023-10-16",
+    "unchanged_account_api_version": "2020-08-27",
+    "merchant_name_observed_in_3ds": "COOKADELI; user clarification pending, branding unchanged",
+    "prepare": {
+      "at": "2026-09-10T16:48:56.487Z",
+      "project": "cyurochbkxggcobnxaxq",
+      "phase": "prepare",
+      "checks": [
+        {
+          "name": "guest_success",
+          "pass": true,
+          "status": 200,
+          "payment_intent_id": "pi_3UEB9XLlYyddTjie0YXrscX7",
+          "userBound": false
+        },
+        {
+          "name": "customer_success",
+          "pass": true,
+          "status": 200,
+          "payment_intent_id": "pi_3UEB9ZLlYyddTjie11iDZB4t",
+          "userBound": true
+        },
+        {
+          "name": "decline",
+          "pass": true,
+          "status": 200,
+          "payment_intent_id": "pi_3UEB9bLlYyddTjie0NwjWL1X",
+          "userBound": false
+        },
+        {
+          "name": "cancel",
+          "pass": true,
+          "status": 200,
+          "payment_intent_id": "pi_3UEB9cLlYyddTjie1sEwb4WZ",
+          "userBound": false
+        },
+        {
+          "name": "three_ds",
+          "pass": true,
+          "status": 200,
+          "payment_intent_id": "pi_3UEB9eLlYyddTjie00EzTFb5",
+          "userBound": false
+        },
+        {
+          "name": "client amount tampering rejected",
+          "pass": true,
+          "status": 409,
+          "error": "checkout_amount_mismatch"
+        },
+        {
+          "name": "unsigned webhook rejected",
+          "pass": true,
+          "status": 400
+        }
+      ]
+    },
+    "before_3ds": {
+      "at": "2026-09-10T16:52:17.546Z",
+      "project": "cyurochbkxggcobnxaxq",
+      "phase": "verify",
+      "checks": [
+        {
+          "name": "guest_success: signed webhook completed the order before client finalization",
+          "pass": true,
+          "state": "completed"
+        },
+        {
+          "name": "guest_success: client recovery succeeds",
+          "pass": true,
+          "status": 200,
+          "order_id": "af5350c2-9b18-4fb2-8a55-124f61637a67"
+        },
+        {
+          "name": "guest_success: duplicate finalization reuses the order",
+          "pass": true,
+          "status": 200
+        },
+        {
+          "name": "guest_success: exactly one file and queued email",
+          "pass": true,
+          "files": 1,
+          "queuedEmails": 1,
+          "emailStatus": "pending"
+        },
+        {
+          "name": "customer_success: signed webhook completed the order before client finalization",
+          "pass": true,
+          "state": "completed"
+        },
+        {
+          "name": "customer_success: client recovery succeeds",
+          "pass": true,
+          "status": 200,
+          "order_id": "b289c9b9-b8f7-4dd3-90de-919aa3add4f4"
+        },
+        {
+          "name": "customer_success: duplicate finalization reuses the order",
+          "pass": true,
+          "status": 200
+        },
+        {
+          "name": "customer_success: exactly one file and queued email",
+          "pass": true,
+          "files": 1,
+          "queuedEmails": 1,
+          "emailStatus": "pending"
+        },
+        {
+          "name": "decline: incomplete payment cannot create an order",
+          "pass": true,
+          "status": 409,
+          "error": "checkout_payment_not_completed"
+        },
+        {
+          "name": "cancellation creates no order",
+          "pass": true,
+          "status": 200,
+          "state": "cancelled"
+        },
+        {
+          "name": "three_ds: incomplete payment cannot create an order",
+          "pass": true,
+          "status": 409,
+          "error": "checkout_payment_not_completed"
+        }
+      ]
+    },
+    "final": {
+      "at": "2026-09-10T17:06:51.541Z",
+      "project": "cyurochbkxggcobnxaxq",
+      "phase": "verify",
+      "checks": [
+        {
+          "name": "guest_success: signed webhook completed the order before client finalization",
+          "pass": true,
+          "state": "completed"
+        },
+        {
+          "name": "guest_success: client recovery succeeds",
+          "pass": true,
+          "status": 200,
+          "order_id": "af5350c2-9b18-4fb2-8a55-124f61637a67"
+        },
+        {
+          "name": "guest_success: duplicate finalization reuses the order",
+          "pass": true,
+          "status": 200
+        },
+        {
+          "name": "guest_success: exactly one file and queued email",
+          "pass": true,
+          "files": 1,
+          "queuedEmails": 1,
+          "emailStatus": "pending"
+        },
+        {
+          "name": "customer_success: signed webhook completed the order before client finalization",
+          "pass": true,
+          "state": "completed"
+        },
+        {
+          "name": "customer_success: client recovery succeeds",
+          "pass": true,
+          "status": 200,
+          "order_id": "b289c9b9-b8f7-4dd3-90de-919aa3add4f4"
+        },
+        {
+          "name": "customer_success: duplicate finalization reuses the order",
+          "pass": true,
+          "status": 200
+        },
+        {
+          "name": "customer_success: exactly one file and queued email",
+          "pass": true,
+          "files": 1,
+          "queuedEmails": 1,
+          "emailStatus": "pending"
+        },
+        {
+          "name": "decline: incomplete payment cannot create an order",
+          "pass": true,
+          "status": 409,
+          "error": "checkout_payment_not_completed"
+        },
+        {
+          "name": "cancellation creates no order",
+          "pass": true,
+          "status": 200,
+          "state": "cancelled"
+        },
+        {
+          "name": "three_ds: signed webhook completed the order before client finalization",
+          "pass": true,
+          "state": "completed"
+        },
+        {
+          "name": "three_ds: client recovery succeeds",
+          "pass": true,
+          "status": 200,
+          "order_id": "3947f9d3-4a64-4895-8849-e179093b3eca"
+        },
+        {
+          "name": "three_ds: duplicate finalization reuses the order",
+          "pass": true,
+          "status": 200
+        },
+        {
+          "name": "three_ds: exactly one file and queued email",
+          "pass": true,
+          "files": 1,
+          "queuedEmails": 1,
+          "emailStatus": "pending"
+        },
+        {
+          "name": "recovery_success: signed webhook completed the order before client finalization",
+          "pass": true,
+          "state": "completed"
+        },
+        {
+          "name": "recovery_success: client recovery succeeds",
+          "pass": true,
+          "status": 200,
+          "order_id": "25bd556e-36dc-4a66-a506-8abd0a47ac9b"
+        },
+        {
+          "name": "recovery_success: duplicate finalization reuses the order",
+          "pass": true,
+          "status": 200
+        },
+        {
+          "name": "recovery_success: exactly one file and queued email",
+          "pass": true,
+          "files": 1,
+          "queuedEmails": 1,
+          "emailStatus": "pending"
+        }
+      ]
+    },
+    "final_summary": {
+      "passed": 18,
+      "failed": 0,
+      "total": 18
+    },
+    "decline_observed": {
+      "status": "requires_payment_method",
+      "amount_received": 0,
+      "code": "card_declined",
+      "decline_code": "generic_decline"
+    },
+    "duplicate_signed_delivery": {
+      "event_id": "evt_3UEB9eLlYyddTjie0tiq1kXT",
+      "manual_resend_at": "2026-09-10T18:57:17+02:00",
+      "status": 200,
+      "no_duplicates_in_final_checks": true
+    },
+    "recovery": {
+      "payment_intent_id": "pi_3UEBJZLlYyddTjie1NQ9n3o4",
+      "event_id": "evt_3UEBJZLlYyddTjie1U04KLLc",
+      "fault": "Only this unpaid synthetic attempt temporarily changed ready -> prepared before payment confirmation",
+      "client_finalizer_status": 503,
+      "client_error": "checkout_finalization_pending",
+      "stripe_failed_deliveries": [
+        {
+          "at": "2026-09-10T19:00:21+02:00",
+          "status": 503
+        },
+        {
+          "at": "2026-09-10T19:00:38+02:00",
+          "status": 503
+        }
+      ],
+      "observe": {
+        "at": "2026-09-10T17:04:58.503Z",
+        "action": "observe",
+        "before": {
+          "id": "23f0dbfa-a489-4e1a-ab89-bd38c6f7ed16",
+          "state": "prepared",
+          "order_id": null,
+          "livemode": false,
+          "payment_intent_id": "pi_3UEBJZLlYyddTjie1NQ9n3o4"
+        },
+        "after": {
+          "id": "23f0dbfa-a489-4e1a-ab89-bd38c6f7ed16",
+          "state": "prepared",
+          "order_id": null,
+          "livemode": false,
+          "payment_intent_id": "pi_3UEBJZLlYyddTjie1NQ9n3o4"
+        }
+      },
+      "restore": {
+        "at": "2026-09-10T17:05:14.255Z",
+        "action": "restore",
+        "before": {
+          "id": "23f0dbfa-a489-4e1a-ab89-bd38c6f7ed16",
+          "state": "prepared",
+          "order_id": null,
+          "livemode": false,
+          "payment_intent_id": "pi_3UEBJZLlYyddTjie1NQ9n3o4"
+        },
+        "after": {
+          "id": "23f0dbfa-a489-4e1a-ab89-bd38c6f7ed16",
+          "state": "ready",
+          "order_id": null,
+          "livemode": false,
+          "payment_intent_id": "pi_3UEBJZLlYyddTjie1NQ9n3o4"
+        }
+      },
+      "recovered_delivery": {
+        "id": "wc_1UEBPcLlYyddTjieKJRztV1s",
+        "at": "2026-09-10T19:05:24+02:00",
+        "status": 200,
+        "stripe_ui_status": "Delivered / Recovered / Resent manually"
+      },
+      "order_id": "25bd556e-36dc-4a66-a506-8abd0a47ac9b",
+      "proof_limit": "Manual retry of a real signed Stripe event; not a wait for its later scheduled automatic retry"
+    }
+  },
+  "final_database_counts": {
+    "tenants": 2,
+    "products": 2,
+    "auth_users": 5,
+    "sent_emails": 0,
+    "pending_emails": 4,
+    "live_mode_attempts": 0,
+    "cancelled_checkouts": 1,
+    "completed_checkouts": 4,
+    "all_synthetic_orders": 6,
+    "ready_incomplete_checkouts": 1
+  },
+  "paused": {
+    "checkout_enabled": false,
+    "email_mode": "disabled",
+    "allow_local_dev_functions": false,
+    "verified_secret_digest_updated_at": "2026-09-10T17:08:18.769Z",
+    "signed_webhook_reconciliation_available": true,
+    "endpoint_probes": [
+      {
+        "name": "stripe-create-payment-intent",
+        "credential": "none",
+        "status": 401,
+        "expected": 401,
+        "error": "Missing authorization header",
+        "pass": true
+      },
+      {
+        "name": "stripe-create-payment-intent",
+        "credential": "public-anon",
+        "status": 503,
+        "expected": 503,
+        "error": "checkout_backend_not_ready",
+        "pass": true
+      },
+      {
+        "name": "stripe-finalize-checkout",
+        "credential": "public-anon",
+        "status": 400,
+        "expected": 400,
+        "error": "checkout_identity_required",
+        "pass": true
+      },
+      {
+        "name": "stripe-storefront-webhook",
+        "credential": "none",
+        "status": 400,
+        "expected": 400,
+        "error": "invalid_webhook_signature",
+        "pass": true
+      },
+      {
+        "name": "storefront-order-email-dispatch",
+        "credential": "none",
+        "status": 401,
+        "expected": 401,
+        "error": "unauthorized",
+        "pass": true
+      },
+      {
+        "name": "send-order-email",
+        "credential": "none",
+        "status": 401,
+        "expected": 401,
+        "error": "Missing authorization header",
+        "pass": true
+      }
+    ]
+  },
+  "email": {
+    "provider": "Resend",
+    "domain": "webprinter.dk",
+    "domain_verified": true,
+    "credential_access": "Automatic approval review blocked opening API-key settings; specific user authorization pending",
+    "test_recipient_authorization": "pending",
+    "api_key_configured": false,
+    "schedule_configured": false,
+    "sent": 0
+  },
+  "validation": {
+    "explicit_migration_grants": "10 files pass",
+    "deno_runtime_entrypoints": "5 pass",
+    "previous_local_baseline": {
+      "node_tests_passed": 524,
+      "browser_fixtures_passed": 6,
+      "build": "pass",
+      "app_typescript_diagnostics": 401
+    },
+    "local_suite_note": "Previous checkpoint baseline; not rerun for this staging-only SQL/evidence change"
+  },
+  "limits": [
+    "New migration and payment/save/email packet are not deployed live",
+    "Do not deploy tenant-boundary restrictions alone over the legacy direct customer-order path",
+    "Actual isolated storefront frontend/payment form and operator UI not yet exercised",
+    "Synthetic PDF/hash proof is not actual production-PDF or printer approval",
+    "No confirmed email receipt, supplier submission or full production journey",
+    "No live business data writes, real payments, emails, frontend deployment, Git commit/push/index change in this staging checkpoint"
+  ]
+}

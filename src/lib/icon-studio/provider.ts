@@ -136,11 +136,11 @@ const ANCHOR_BOXES: Record<IconStudioPlacementPresetKey, { x: number; y: number;
 
 function escapeXml(input: string) {
   return input
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 function getProductFamily(productKey: IconStudioProductKey) {

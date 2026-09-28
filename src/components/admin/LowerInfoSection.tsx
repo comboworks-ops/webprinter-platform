@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { FontSelector } from "./FontSelector";
 import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches";
-import { type BrandingData, type LowerInfoSettings, type LowerInfoItem, DEFAULT_FORSIDE } from "@/hooks/useBrandingDraft";
+import { type BrandingData, type LowerInfoSettings, type LowerInfoItem, DEFAULT_FORSIDE, DEFAULT_LOWER_INFO } from "@/hooks/useBrandingDraft";
 
 interface LowerInfoSectionProps {
     draft: BrandingData;
@@ -42,7 +42,7 @@ export function LowerInfoSection({
     const [uploading, setUploading] = useState<string | null>(null);
 
     const forside = draft.forside ?? DEFAULT_FORSIDE;
-    const lowerInfo = lowerInfoProp ?? forside.lowerInfo ?? DEFAULT_FORSIDE.lowerInfo;
+    const lowerInfo = lowerInfoProp ?? forside.lowerInfo ?? DEFAULT_LOWER_INFO;
 
     const updateLowerInfo = (updates: Partial<LowerInfoSettings>) => {
         const next: LowerInfoSettings = {

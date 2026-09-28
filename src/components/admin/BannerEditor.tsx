@@ -255,7 +255,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
             try {
                 // First get the 'forside-banner' category ID (homepage hero backgrounds)
                 const { data: categoryData, error: categoryError } = await supabase
-                    .from('resource_categories' as any)
+                    .from('resource_categories')
                     .select('id')
                     .or('slug.eq.forside-bannere,slug.eq.banners')
                     .limit(1)
@@ -267,7 +267,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
 
                 // Then fetch assets from that category
                 const { data } = await supabase
-                    .from('master_assets' as any)
+                    .from('master_assets')
                     .select('id, name, url, thumbnail_url')
                     .eq('category_id', categoryId)
                     .eq('is_published', true)
@@ -289,7 +289,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
             if (!tenantId) return;
             try {
                 const { data } = await supabase
-                    .from('tenant_banner_library' as any)
+                    .from('tenant_banner_library')
                     .select('id, name, url, thumbnail_url, created_at')
                     .eq('tenant_id', tenantId)
                     .order('created_at', { ascending: false });
@@ -340,7 +340,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
 
             // Try to save to tenant_banner_library table
             const { data: insertedData, error: insertError } = await supabase
-                .from('tenant_banner_library' as any)
+                .from('tenant_banner_library')
                 .insert({
                     tenant_id: tenantId,
                     name: file.name.replace(/\.[^/.]+$/, ''),
@@ -397,7 +397,7 @@ export function BannerEditor({ draft, updateDraft, tenantId, focusTargetId, save
 
         try {
             await supabase
-                .from('tenant_banner_library' as any)
+                .from('tenant_banner_library')
                 .delete()
                 .eq('id', asset.id);
 

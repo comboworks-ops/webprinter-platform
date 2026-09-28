@@ -251,7 +251,7 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
         </Button>
       </header>
 
-      <div className="grid gap-8 lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <div className="workspace-company-grouped">
         <aside className="space-y-3 lg:border-r lg:pr-6" aria-label="Firmaer">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -335,7 +335,7 @@ export function AdminCompanyWorkspace({ tenantId }: AdminCompanyWorkspaceProps) 
                 </TabsList>
 
                 <TabsContent value="setup" className="mt-0 py-6">
-                  <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="workspace-company-overview">
                     <button type="button" className="rounded-md border bg-background p-5 text-left transition-colors hover:border-primary/50" onClick={() => setActiveView("locations")}>
                       <Building2 className="h-5 w-5 text-primary" aria-hidden="true" />
                       <h3 className="mt-4 text-sm font-semibold">Kontorer og adresser</h3>

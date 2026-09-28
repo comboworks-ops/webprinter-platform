@@ -86,6 +86,8 @@ type RuntimeSiteStorformatConfig = {
   roundingStep: number;
   globalMarkupPct: number;
   quantities: number[];
+  areaPricingBasis?: string | null;
+  sourceQuoteModel?: unknown;
 };
 
 type RuntimeSiteStorformatMaterial = {
@@ -485,7 +487,6 @@ function previewPrice(name: string, index: number): number {
 
 export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SitePackagePreviewProps) {
   const sitePackage = SITE_PACKAGE_MAP[siteId];
-  const isPreviewMode = mode === 'preview';
 
   if (!sitePackage) {
     return (
@@ -501,6 +502,13 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
       </div>
     );
   }
+
+  return <ResolvedSitePackagePreview siteId={siteId} tenantId={tenantId} mode={mode} />;
+}
+
+function ResolvedSitePackagePreview({ siteId, tenantId, mode = 'preview' }: SitePackagePreviewProps) {
+  const sitePackage = SITE_PACKAGE_MAP[siteId];
+  const isPreviewMode = mode === 'preview';
 
   const [manifest, setManifest] = useState<SitePreviewManifest | null>(null);
   const [manifestStatus, setManifestStatus] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
@@ -597,11 +605,11 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
 
         if (sourceProductIds.length > 0) {
           const readStorformatTable = async (
-            table: string,
+            table: 'storformat_configs' | 'storformat_materials' | 'storformat_m2_prices' | 'storformat_finishes' | 'storformat_finish_prices' | 'storformat_products' | 'storformat_product_fixed_prices' | 'storformat_product_price_tiers',
             orderBy?: string,
           ): Promise<Array<Record<string, unknown>>> => {
             let query = supabase
-              .from(table as any)
+              .from(table)
               .select('*')
               .in('product_id', sourceProductIds);
             if (orderBy) {
@@ -670,6 +678,8 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
               ? {
                 roundingStep: asNumber(configRow.rounding_step) ?? 1,
                 globalMarkupPct: asNumber(configRow.global_markup_pct) ?? 0,
+                areaPricingBasis: asString(configRow.area_pricing_basis),
+                sourceQuoteModel: configRow.source_quote_model,
                 quantities: Array.isArray(configRow.quantities)
                   ? configRow.quantities
                     .map((value) => asNumber(value))

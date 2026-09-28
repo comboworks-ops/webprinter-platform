@@ -515,8 +515,8 @@
     box-shadow: var(--storefront-card-shadow) !important;
   }
 
-  .storefront-order-flow [data-branding-id="productPage.matrix"] button,
-  .storefront-order-flow [data-branding-id="productPage.optionSelectors"] button,
+  .storefront-order-flow [data-branding-id="productPage.matrix"] button:not([data-product-option-styled]),
+  .storefront-order-flow [data-branding-id="productPage.optionSelectors"] button:not([data-product-option-styled]),
   .storefront-order-flow .price-panel-download-button,
   .storefront-order-flow .order-primary-button,
   .storefront-order-flow .order-secondary-button,

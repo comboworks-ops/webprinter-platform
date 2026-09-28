@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -426,7 +427,7 @@ export function AssetsLibrary() {
                                             <p className="text-sm">Upload SVG, PNG eller WebP filer</p>
                                         </div>
                                     ) : (
-                                        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-4">
+                                        <WorkspaceCollection label="Ikoner" className="workspace-icon-inspector" items={filteredAssets.map(asset => ({ id: asset.id, title: asset.name, image: asset.file_url }))}>
                                             {filteredAssets.map((asset) => (
                                                 <div
                                                     key={asset.id}
@@ -450,7 +451,7 @@ export function AssetsLibrary() {
                                                     </span>
                                                 </div>
                                             ))}
-                                        </div>
+                                        </WorkspaceCollection>
                                     )}
                                 </CardContent>
                             </Card>

@@ -1,0 +1,264 @@
+{
+  "recorded_at": "2026-09-10T19:34:17.800Z",
+  "scope": "Local email templates and browser previews only; not deployed",
+  "tests": {
+    "focused_node": {
+      "passed": 31,
+      "failed": 0
+    },
+    "deno_entrypoints": {
+      "passed": 2,
+      "failed": 0
+    },
+    "generator_syntax": "pass"
+  },
+  "browser": {
+    "engine": "Codex in-app Chromium",
+    "cases": [
+      {
+        "shop": 1,
+        "kind": "confirmation",
+        "width": 320,
+        "measured_content_width": 320,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 1,
+        "kind": "problem",
+        "width": 320,
+        "measured_content_width": 320,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 2,
+        "kind": "confirmation",
+        "width": 320,
+        "measured_content_width": 320,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 2,
+        "kind": "problem",
+        "width": 320,
+        "measured_content_width": 320,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 3,
+        "kind": "confirmation",
+        "width": 320,
+        "measured_content_width": 320,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 3,
+        "kind": "problem",
+        "width": 320,
+        "measured_content_width": 320,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 4,
+        "kind": "confirmation",
+        "width": 320,
+        "measured_content_width": 320,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 4,
+        "kind": "problem",
+        "width": 320,
+        "measured_content_width": 320,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 1,
+        "kind": "confirmation",
+        "width": 390,
+        "measured_content_width": 390,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 1,
+        "kind": "problem",
+        "width": 390,
+        "measured_content_width": 390,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 2,
+        "kind": "confirmation",
+        "width": 390,
+        "measured_content_width": 390,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 2,
+        "kind": "problem",
+        "width": 390,
+        "measured_content_width": 390,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 3,
+        "kind": "confirmation",
+        "width": 390,
+        "measured_content_width": 390,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 3,
+        "kind": "problem",
+        "width": 390,
+        "measured_content_width": 390,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 4,
+        "kind": "confirmation",
+        "width": 390,
+        "measured_content_width": 390,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 4,
+        "kind": "problem",
+        "width": 390,
+        "measured_content_width": 390,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 1,
+        "kind": "confirmation",
+        "width": 600,
+        "measured_content_width": 600,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 1,
+        "kind": "problem",
+        "width": 600,
+        "measured_content_width": 600,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 2,
+        "kind": "confirmation",
+        "width": 600,
+        "measured_content_width": 600,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 2,
+        "kind": "problem",
+        "width": 600,
+        "measured_content_width": 600,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 3,
+        "kind": "confirmation",
+        "width": 600,
+        "measured_content_width": 600,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 3,
+        "kind": "problem",
+        "width": 600,
+        "measured_content_width": 600,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 4,
+        "kind": "confirmation",
+        "width": 600,
+        "measured_content_width": 600,
+        "horizontal_overflow": false
+      },
+      {
+        "shop": 4,
+        "kind": "problem",
+        "width": 600,
+        "measured_content_width": 600,
+        "horizontal_overflow": false
+      }
+    ],
+    "logos": "Onlinetryksager pending on first 320px immediate read; loaded in later measurements and inspected 600px screenshot",
+    "visually_inspected": [
+      "Webprinter confirmation 320px",
+      "Red example problem letter 600px",
+      "Onlinetryksager confirmation and logo 600px"
+    ],
+    "captured_error_logs": 0,
+    "viewport_override_reset": true
+  },
+  "preview": {
+    "url": "http://127.0.0.1:8186/",
+    "file": "output/email-design-2026-09-10/index.html",
+    "brands": [
+      "Webprinter",
+      "Onlinetryksager",
+      "salgsmapper.dk",
+      "Synthetic red brand"
+    ],
+    "variants": 9,
+    "individual_html_files": 36,
+    "sends": 0,
+    "order_data": "synthetic",
+    "branding_source": "read-only published live settings; no unpublished designs copied"
+  },
+  "credential": {
+    "key_page_access_authorized": true,
+    "key_page_access_completed": true,
+    "new_key_created": false,
+    "prepared_name": "Webprinter launch test — cyurochbkxggcobnxaxq",
+    "prepared_permission": "Sending access",
+    "prepared_domain": "webprinter.dk",
+    "specific_creation_approval": "pending after automatic-review rejection",
+    "test_recipient": "pending",
+    "target_secret_name": "STOREFRONT_ORDER_EMAIL_RESEND_API_KEY",
+    "global_resend_key_in_staging": "must remain absent"
+  },
+  "deployment": {
+    "performed": false,
+    "email_mode": "disabled from prior staging checkpoint",
+    "previous_staging_outbox": "4 pending, 0 sent; not changed this follow-up"
+  },
+  "source_files": [
+    {
+      "path": "supabase/functions/_shared/storefrontEmailDesign.ts",
+      "sha256": "785601f993b6a0e474db55a8bca799728611e6e1764f0c4fd2da6982b6e5b585"
+    },
+    {
+      "path": "supabase/functions/_shared/storefrontEmailDesign.test.ts",
+      "sha256": "0ee5a84f9f12a6d0f7ee7bb0751e62d69379f05eec05d94ca7548a18f75dff7c"
+    },
+    {
+      "path": "supabase/functions/_shared/storefrontOrderEmail.ts",
+      "sha256": "4d3d055add026db935a10ff61ccb53c9ee51e92cf141ea4b44a1375862d6756e"
+    },
+    {
+      "path": "supabase/functions/_shared/storefrontStatusEmail.ts",
+      "sha256": "ecd4b5139ab5057f2a74919a9fa8d763b000a9306117b656ed36499e1bbe74ea"
+    },
+    {
+      "path": "supabase/functions/storefront-order-email-dispatch/index.ts",
+      "sha256": "23792381f461ab1675012a2027234da43a880a980c3f7187c4041c4602d3545b"
+    },
+    {
+      "path": "supabase/functions/send-order-email/index.ts",
+      "sha256": "3460b1988ec12175a9631334d0072b1f9a4f5307e5b66df02caba5bfb3908e74"
+    },
+    {
+      "path": "scripts/render-storefront-email-preview.mjs",
+      "sha256": "55e7030569134e3e99a81f6aa8909621eb3f1108198533bb3006866818398703"
+    }
+  ],
+  "limits": [
+    "Browser rendering is not real inbox/client or physical-device acceptance",
+    "No newly configured sender/key, provider request or scheduler",
+    "Contact/quote/Auth letters not yet integrated with the shared shell",
+    "Existing checkout/site URLs and sender-domain approvals are not inferred from tenant branding"
+  ]
+}

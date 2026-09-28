@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { getPriceForSelection } from "./productPricing";
-import { calculateStorformatPrice } from "./storformatPricing";
+import { calculateStorformatDisplayPrice } from "./storformatDisplayPrice";
+import { getStorformatSourceQuoteFields } from "@/lib/pricing/storformatQuoteUi";
 
 interface Product {
   id: string;
@@ -192,20 +193,22 @@ export async function getProductDisplayPrice(product: Product): Promise<string> 
 
     // Generic/Machine Pricing Add-On (MPA) support
     if (product.pricing_type === 'STORFORMAT') {
-      const { data: cfg } = await supabase
-        .from('storformat_configs' as any)
+      const { data: cfg, error: configError } = await supabase
+        .from('storformat_configs')
         .select('*')
         .eq('product_id', product.id)
         .maybeSingle();
+      // A missing config may conceal quote-based pricing. Never fall back to old tiers in that state.
+      if (configError || !cfg) return 'Se priser';
 
       const { data: materialRows } = await supabase
-        .from('storformat_materials' as any)
+        .from('storformat_materials')
         .select('*')
         .eq('product_id', product.id)
         .order('sort_order');
 
       const { data: materialTiers } = await supabase
-        .from('storformat_material_price_tiers' as any)
+        .from('storformat_material_price_tiers')
         .select('*')
         .eq('product_id', product.id)
         .order('sort_order');
@@ -216,19 +219,19 @@ export async function getProductDisplayPrice(product: Product): Promise<string> 
       }));
 
       const { data: productRows } = await supabase
-        .from('storformat_products' as any)
+        .from('storformat_products')
         .select('*')
         .eq('product_id', product.id)
         .order('sort_order');
 
       const { data: productTiers } = await supabase
-        .from('storformat_product_price_tiers' as any)
+        .from('storformat_product_price_tiers')
         .select('*')
         .eq('product_id', product.id)
         .order('sort_order');
 
       const { data: productFixedPrices } = await supabase
-        .from('storformat_product_fixed_prices' as any)
+        .from('storformat_product_fixed_prices')
         .select('*')
         .eq('product_id', product.id)
         .order('sort_order');
@@ -241,28 +244,19 @@ export async function getProductDisplayPrice(product: Product): Promise<string> 
 
       if (materialsWithTiers.length > 0) {
         const config = {
-          rounding_step: cfg?.rounding_step || 1,
+          rounding_step: cfg?.rounding_step ?? 1,
           global_markup_pct: cfg?.global_markup_pct || 0,
+          ...getStorformatSourceQuoteFields(cfg),
           quantities: cfg?.quantities?.length ? cfg.quantities : [1]
         };
-        const quantity = config.quantities[0] || 1;
-        const material = materialsWithTiers[0];
-        const productSelection = productsWithPricing[0] || null;
-        const result = calculateStorformatPrice({
-          widthMm: 1000,
-          heightMm: 1000,
-          quantity,
-          material,
-          product: productSelection,
-          config
-        });
-        return `Fra ${Math.round(result.totalPrice)} kr`;
+        const price = calculateStorformatDisplayPrice(config, materialsWithTiers, productsWithPricing);
+        return price == null ? 'Se priser' : `Fra ${Math.round(price)} kr`;
       }
     }
 
     if (product.pricing_type === 'MACHINE_PRICED') {
       const { data: mpaCfg } = await supabase
-        .from('product_pricing_configs' as any)
+        .from('product_pricing_configs')
         .select('*')
         .eq('product_id', product.id)
         .maybeSingle();
@@ -297,7 +291,7 @@ export async function getProductDisplayPrice(product: Product): Promise<string> 
     // Generic matrix-based products (incl. matrix_layout_v1)
     if (product.pricing_type === 'matrix' || product.pricing_type === 'MATRIX' || product.pricing_type === 'matrix_layout_v1') {
       const { data } = await supabase
-        .from('generic_product_prices' as any)
+        .from('generic_product_prices')
         .select('price_dkk')
         .eq('product_id', product.id)
         .order('price_dkk', { ascending: true })

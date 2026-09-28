@@ -17,7 +17,7 @@ export function ProductMarquee() {
         const fetchProducts = async () => {
             // Fetch products from Master Tenant to show system capabilities
             const { data } = await supabase
-                .from("products" as any)
+                .from("products")
                 .select("id, name, icon_text, image_url")
                 .eq("tenant_id", "00000000-0000-0000-0000-000000000000") // Master Tenant
                 .eq("is_published", true);

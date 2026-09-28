@@ -1,0 +1,70 @@
+/* Machine setup uses the selected Open Workspace palette, including portals. */
+.machine-pricing-surface,
+.machine-pricing-dialog,
+.machine-pricing-menu {
+  --background: 0 0% 100%;
+  --foreground: 220 65% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 65% 12%;
+  --primary: 202 92% 40%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 30% 97%;
+  --secondary-foreground: 220 65% 12%;
+  --muted: 210 30% 97%;
+  --muted-foreground: 220 18% 40%;
+  --accent: 205 85% 96%;
+  --accent-foreground: 202 92% 35%;
+  --border: 218 24% 89%;
+  --input: 218 24% 85%;
+  --ring: 202 92% 40%;
+  --radius: 0.35rem;
+  color: hsl(var(--foreground));
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.machine-pricing-dialog,
+.machine-pricing-menu { border-radius: 5px; }
+
+:is(.machine-pricing-surface, .machine-pricing-dialog) :where(.rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl) {
+  border-radius: 5px;
+}
+
+:is(.machine-pricing-surface, .machine-pricing-dialog) :where(input, textarea, button:not([role="switch"])) {
+  border-radius: 5px;
+}
+
+.machine-pricing-dialog :where(h2, h3) {
+  color: hsl(var(--foreground));
+  font-family: inherit;
+  letter-spacing: -.025em;
+  overflow-wrap: anywhere;
+}
+
+.machine-pricing-dialog :where(section, aside, .space-y-2) { min-width: 0; }
+.machine-pricing-dialog > form { min-width: 0; width: 100%; }
+.machine-pricing-dialog .grid > * { min-width: 0; }
+.machine-pricing-dialog > form > :first-child .flex.items-center.gap-3 { flex-wrap: wrap; }
+.machine-pricing-dialog :where([role="tab"], [role="combobox"]) { min-height: 44px; }
+.machine-pricing-menu :where([role="option"]) { min-height: 40px; }
+
+@media (max-width: 639px) {
+  .machine-pricing-dialog[role="dialog"]:has(> form) {
+    inset: 8px;
+    height: calc(100dvh - 16px);
+  }
+  .machine-pricing-dialog > form > :first-child {
+    padding: 18px 16px;
+    padding-right: 38px;
+  }
+  .machine-pricing-dialog > form > :last-child { padding-inline: 16px; }
+  .machine-pricing-dialog > form > :first-child .grid { display: none; }
+  .machine-pricing-dialog > form > :first-child .space-y-2 > .flex { flex-wrap: wrap; }
+  .machine-pricing-dialog > form > :first-child .text-right { text-align: left; }
+  .machine-pricing-dialog :where(section) { padding: 18px 16px; }
+  .machine-pricing-dialog section > .mb-5 > div:has(> svg) { display: none; }
+  .machine-pricing-dialog section > .mb-5 { flex-wrap: wrap; }
+  .machine-pricing-dialog section > .mb-5 > .flex > div:has(> svg) { display: none; }
+  .machine-pricing-dialog :where(h3) { font-size: 16px; line-height: 1.4; }
+  .machine-pricing-dialog :where(input, textarea) { font-size: 16px; }
+  .machine-pricing-dialog :where(.grid-cols-2) { grid-template-columns: minmax(0, 1fr); }
+}

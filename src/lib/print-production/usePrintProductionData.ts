@@ -37,7 +37,7 @@ export function usePrintProductionData(input: UsePrintProductionDataInput): UseP
   const dataQuery = useQuery({
     queryKey: ["print-production", page, pageSize, search, status],
     queryFn: async () => {
-      const catalogQuery = (supabase.from("pod2_catalog_products" as any) as any)
+      const catalogQuery = (supabase.from("pod2_catalog_products") as any)
         .select(`
           id, status, public_title, public_description, public_images, supplier_product_ref, supplier_product_data, created_at, updated_at,
           pod2_catalog_price_matrix (id, catalog_product_id, variant_signature, quantities, base_costs, recommended_retail, currency, needs_quote, updated_at)
@@ -54,23 +54,23 @@ export function usePrintProductionData(input: UsePrintProductionDataInput): UseP
 
       const [catalogResult, jobsResult, activeProductsResult, paidOrFailedResult, submittedWithoutProviderResult, distributedTenantRows] = await Promise.all([
         catalogQuery,
-        (supabase.from("pod2_fulfillment_jobs" as any) as any)
+        (supabase.from("pod2_fulfillment_jobs") as any)
           .select("*")
           .order("created_at", { ascending: false })
           .range(0, 99),
-        (supabase.from("pod2_catalog_products" as any) as any)
+        (supabase.from("pod2_catalog_products") as any)
           .select("id, pod2_tenant_imports!inner(product_id)", { count: "exact", head: true })
           .eq("tenant_id", MASTER_TENANT_ID)
           .eq("status", "published")
           .eq("pod2_tenant_imports.tenant_id", MASTER_TENANT_ID),
-        (supabase.from("pod2_fulfillment_jobs" as any) as any)
+        (supabase.from("pod2_fulfillment_jobs") as any)
           .select("id", { count: "exact", head: true })
           .in("status", ["paid", "failed"]),
-        (supabase.from("pod2_fulfillment_jobs" as any) as any)
+        (supabase.from("pod2_fulfillment_jobs") as any)
           .select("id", { count: "exact", head: true })
           .eq("status", "submitted")
           .is("printcom_order_id", null),
-        readAllNotificationRows<{ tenant_id: string }>(() => (supabase.from("tenant_notifications" as any) as any)
+        readAllNotificationRows<{ tenant_id: string }>(() => (supabase.from("tenant_notifications") as any)
           .select("tenant_id")
           .eq("type", "product_update")
           .eq("status", "accepted")
@@ -104,7 +104,7 @@ export function usePrintProductionData(input: UsePrintProductionDataInput): UseP
         };
       }
 
-      const importsResult = await (supabase.from("pod2_tenant_imports" as any) as any)
+      const importsResult = await (supabase.from("pod2_tenant_imports") as any)
         .select("catalog_product_id, product_id")
         .eq("tenant_id", MASTER_TENANT_ID)
         .in("catalog_product_id", catalogProductIds);
@@ -113,7 +113,7 @@ export function usePrintProductionData(input: UsePrintProductionDataInput): UseP
       const imports = (importsResult.data || []) as Array<{ catalog_product_id: string; product_id: string }>;
       const masterProductIds = imports.map((row) => row.product_id);
       const masterProductsResult = masterProductIds.length
-        ? await (supabase.from("products" as any) as any)
+        ? await (supabase.from("products") as any)
           .select("id, name, slug, category, image_url, is_published, is_ready")
           .eq("tenant_id", MASTER_TENANT_ID)
           .in("id", masterProductIds)
@@ -128,7 +128,7 @@ export function usePrintProductionData(input: UsePrintProductionDataInput): UseP
           status: string;
           created_at?: string;
           data: { product_id?: string; slug?: string; delivery_mode?: string };
-        }>(() => (supabase.from("tenant_notifications" as any) as any)
+        }>(() => (supabase.from("tenant_notifications") as any)
           .select("id, tenant_id, status, created_at, data")
           .eq("type", "product_update")
           .eq("status", "accepted")
@@ -137,7 +137,7 @@ export function usePrintProductionData(input: UsePrintProductionDataInput): UseP
         : [];
       const tenantIds = [...new Set([...notices.map((notice) => notice.tenant_id), ...jobs.map((job) => job.tenant_id)])];
       const tenantsResult = tenantIds.length
-        ? await (supabase.from("tenants" as any) as any)
+        ? await (supabase.from("tenants") as any)
           .select("id, name, domain, pod2_auto_forward")
           .in("id", tenantIds)
         : { data: [], error: null };

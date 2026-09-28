@@ -208,5 +208,5 @@ export function buildIconStudioPayload(input: IconStudioPayloadBuilderInput): Ic
       format: input.format,
       size: input.size,
     },
-  });
+  }) as IconStudioGenerationPayload;
 }

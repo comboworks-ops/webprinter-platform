@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { resolveSharedButton, sharedButtonAttributes } from '@/lib/branding/sharedButtons';
+import '@/styles/sharedButtons.css';
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -6,16 +8,20 @@ import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { getMatrixStyleVars } from "@/lib/branding/matrix";
 
 type PriceMatrixProps = {
+  productionMethods?: Record<string, Record<number, string>>;
+  maxColumnsPerPage?: number;
   rows: string[];
   columns: number[];
   cells: Record<string, Record<number, number>>;
   onCellClick: (row: string, column: number, basePrice: number, displayPrice: number) => void;
+  isCellUnavailable?: (row: string, column: number) => boolean;
   selectedCell?: { row: string; column: number } | null;
   columnUnit?: string; // e.g., "stk", "m²"
   customArea?: number; // For area-based products - multiplier for price calculation
   basePricePerSqm?: Record<string, number>; // Base price per m² for each material (row)
   computeExtras?: (quantity: number, area?: number) => number; // Optional extra pricing (e.g., tilvalg)
   rowHeaderLabel?: string;
+  renderRowLabel?: (row: string) => ReactNode;
   matrixBox?: {
     backgroundColor?: string;
     borderRadiusPx?: number;
@@ -26,16 +32,20 @@ type PriceMatrixProps = {
 };
 
 export function PriceMatrix({
+  productionMethods,
+  maxColumnsPerPage,
   rows,
   columns,
   cells,
   onCellClick,
+  isCellUnavailable,
   selectedCell,
   columnUnit = "stk",
   customArea,
   basePricePerSqm,
   computeExtras,
   rowHeaderLabel,
+  renderRowLabel,
   matrixBox,
 }: PriceMatrixProps) {
   const settings = useShopSettings();
@@ -43,6 +53,7 @@ export function PriceMatrix({
   const activeBranding = (isPreviewMode && previewBranding)
     ? previewBranding
     : settings.data?.branding;
+  const sharedSelection = sharedButtonAttributes(resolveSharedButton(activeBranding, 'selection', 'matrix'), 'selection');
   const matrixStyleVars = getMatrixStyleVars(activeBranding, matrixBox);
   const isAreaBased = customArea !== undefined && basePricePerSqm !== undefined;
 
@@ -60,7 +71,7 @@ export function PriceMatrix({
     };
   };
   const [columnOffset, setColumnOffset] = useState(0);
-  const [columnsPerPage, setColumnsPerPage] = useState(8);
+  const [columnsPerPage, setColumnsPerPage] = useState(maxColumnsPerPage ?? 8);
   // const [isUpdating, setIsUpdating] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -96,14 +107,14 @@ export function PriceMatrix({
         // Estimate: ~100px per column + 150px for row headers
         const availableWidth = width - 150;
         const cols = Math.floor(availableWidth / 100);
-        setColumnsPerPage(Math.max(4, Math.min(cols, columns.length)));
+        setColumnsPerPage(Math.min(maxColumnsPerPage ?? Infinity, Math.max(4, Math.min(cols, columns.length))));
       }
     };
 
     updateColumnsPerPage();
     window.addEventListener("resize", updateColumnsPerPage);
     return () => window.removeEventListener("resize", updateColumnsPerPage);
-  }, [columns.length]);
+  }, [columns.length, maxColumnsPerPage]);
 
   const visibleColumns = columns.slice(columnOffset, columnOffset + columnsPerPage);
   const canGoPrev = columnOffset > 0;
@@ -118,50 +129,32 @@ export function PriceMatrix({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, row: string, col: number) => {
-    const currentRowIndex = rows.indexOf(row);
-    const currentColIndex = columns.indexOf(col);
-
-    switch (e.key) {
-      case "ArrowUp":
-        e.preventDefault();
-        if (currentRowIndex > 0) {
-          const newRow = rows[currentRowIndex - 1];
-          const { base, display } = getPrices(newRow, col);
-          onCellClick(newRow, col, base, display);
-        }
-        break;
-      case "ArrowDown":
-        e.preventDefault();
-        if (currentRowIndex < rows.length - 1) {
-          const newRow = rows[currentRowIndex + 1];
-          const { base, display } = getPrices(newRow, col);
-          onCellClick(newRow, col, base, display);
-        }
-        break;
-      case "ArrowLeft":
-        e.preventDefault();
-        if (currentColIndex > 0) {
-          const newCol = columns[currentColIndex - 1];
-          const { base, display } = getPrices(row, newCol);
-          onCellClick(row, newCol, base, display);
-        }
-        break;
-      case "ArrowRight":
-        e.preventDefault();
-        if (currentColIndex < columns.length - 1) {
-          const newCol = columns[currentColIndex + 1];
-          const { base, display } = getPrices(row, newCol);
-          onCellClick(row, newCol, base, display);
-        }
-        break;
-      case "Enter":
-      case " ":
-        e.preventDefault();
-        const { base, display } = getPrices(row, col);
-        onCellClick(row, col, base, display);
-        break;
+    let rowIndex = rows.indexOf(row);
+    let colIndex = columns.indexOf(col);
+    const direction = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
+    if (direction) {
+      e.preventDefault();
+      do {
+        rowIndex += direction[0];
+        colIndex += direction[1];
+        if (rowIndex < 0 || rowIndex >= rows.length || colIndex < 0 || colIndex >= columns.length) return;
+      } while (isCellUnavailable?.(rows[rowIndex], columns[colIndex]));
+      const { base, display } = getPrices(rows[rowIndex], columns[colIndex]);
+      onCellClick(rows[rowIndex], columns[colIndex], base, display);
+      requestAnimationFrame(() => {
+        containerRef.current?.querySelector<HTMLButtonElement>(`[data-matrix-row="${rowIndex}"][data-matrix-column="${colIndex}"]`)?.focus();
+      });
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (isCellUnavailable?.(row, col)) return;
+      const { base, display } = getPrices(row, col);
+      onCellClick(row, col, base, display);
     }
   };
+  const hasAvailableSelection = selectedCell && !isCellUnavailable?.(selectedCell.row, selectedCell.column);
+  const firstAvailableCell = isCellUnavailable && !hasAvailableSelection
+    ? rows.flatMap(row => visibleColumns.map(column => ({ row, column }))).find(cell => !isCellUnavailable(cell.row, cell.column))
+    : null;
 
   return (
     <div
@@ -202,7 +195,7 @@ export function PriceMatrix({
       )}
 
       {/* Matrix */}
-      <div 
+      <div
         className="max-w-full overflow-x-auto overscroll-x-contain rounded-[var(--matrix-box-radius)] border-[var(--matrix-box-border-width)] border-[var(--matrix-box-border-color)] bg-[var(--matrix-box-bg)] p-[var(--matrix-box-padding)] pb-3 transition-opacity duration-200"
         data-branding-id="productPage.matrix.box"
         data-site-design-target="productPage.matrix.box"
@@ -220,6 +213,7 @@ export function PriceMatrix({
                 className="w-20 flex-shrink-0 border-l border-[var(--matrix-border)] p-2 text-center text-xs font-semibold first:border-l-0 sm:w-24 sm:p-3 sm:text-sm"
               >
                 {col} {columnUnit}
+                {productionMethods && (() => { const labels = rows.map(row => productionMethods[row]?.[col]); return labels[0] && labels.every(label => label === labels[0]) ? <small className="block mt-1 text-[10px] font-normal">{labels[0]}</small> : null; })()}
               </div>
             ))}
           </div>
@@ -228,28 +222,37 @@ export function PriceMatrix({
           {rows.map((row) => (
             <div key={row} role="row" className="flex border-b border-[var(--matrix-border)] last:border-b-0">
               <div className="sticky left-0 w-28 flex-shrink-0 border-r border-[var(--matrix-border)] bg-[var(--matrix-row-header-bg)] p-2 text-xs font-medium text-[var(--matrix-row-header-text)] sm:w-32 sm:p-3 sm:text-sm md:w-40" data-site-design-target="productPage.matrix.vertical">
-                {row}
+                {renderRowLabel ? renderRowLabel(row) : row}
               </div>
               {visibleColumns.map((col) => {
                 const { base, display } = getPrices(row, col);
-                const isSelected = selectedCell?.row === row && selectedCell?.column === col;
+                const unavailable = Boolean(isCellUnavailable?.(row, col));
+                const isSelected = !unavailable && selectedCell?.row === row && selectedCell?.column === col;
+                const isFirstAvailable = firstAvailableCell?.row === row && firstAvailableCell?.column === col;
 
                 return (
                   <button
                     key={`${row}-${col}`}
+                    {...sharedSelection}
+                    data-shared-button-density="matrix"
                     role="gridcell"
-                    tabIndex={isSelected ? 0 : -1}
-                    aria-label={`${row}, ${col} ${columnUnit}, ${display} kr`}
+                    data-matrix-row={rows.indexOf(row)}
+                    data-matrix-column={columns.indexOf(col)}
+                    disabled={unavailable}
+                    tabIndex={isSelected || isFirstAvailable ? 0 : -1}
+                    aria-label={`${row}, ${col} ${columnUnit}, ${unavailable ? "Ingen pris for valgt format og tilvalg" : `${display} kr`}`}
+                    title={unavailable ? "Ingen pris for valgt format og tilvalg" : undefined}
                     aria-selected={isSelected}
-                    onClick={() => onCellClick(row, col, base, display)}
+                    onClick={() => { if (!unavailable) onCellClick(row, col, base, display); }}
                     onKeyDown={(e) => handleKeyDown(e, row, col)}
                     data-site-design-target="productPage.matrix.pricing"
-                    className={`min-h-11 w-20 flex-shrink-0 touch-manipulation border-l border-[var(--matrix-border)] p-2 text-center text-xs tabular-nums transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--matrix-selected-bg)] focus:ring-inset sm:w-24 sm:p-3 sm:text-sm ${isSelected
+                    className={`disabled:cursor-not-allowed disabled:opacity-50 min-h-11 w-20 flex-shrink-0 touch-manipulation border-l border-[var(--matrix-border)] p-2 text-center text-xs tabular-nums transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--matrix-selected-bg)] focus:ring-inset sm:w-24 sm:p-3 sm:text-sm ${isSelected
                       ? "bg-[var(--matrix-selected-bg)] font-semibold text-[var(--matrix-selected-text)]"
                       : "cursor-pointer bg-[var(--matrix-cell-bg)] text-[var(--matrix-cell-text)] hover:bg-[var(--matrix-cell-hover-bg)] hover:text-[var(--matrix-cell-hover-text)]"
                       }`}
                   >
-                    {display > 0 ? `${display} kr` : "-"}
+                    {unavailable ? "—" : display > 0 ? `${display} kr` : "-"}
+                    {!unavailable && productionMethods?.[row]?.[col] && <small className="block text-[10px] font-normal">{productionMethods[row][col]}</small>}
                   </button>
                 );
               })}

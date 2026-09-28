@@ -36,6 +36,9 @@ export interface ProductGridProps {
         textColor?: string;
         hoverTextColor?: string;
         font?: string;
+        fontSizePx?: number;
+        paddingYPx?: number;
+        borderRadiusPx?: number;
         animation?: 'none' | 'lift' | 'glow' | 'pulse';
     };
     layoutStyle?: 'cards' | 'flat' | 'grouped' | 'slim';

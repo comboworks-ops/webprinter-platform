@@ -1,8 +1,14 @@
+import { SharedButtonContext } from './SharedButtonContext';
+import "@/styles/orderFlowDesigns.css";
 import { useEffect, type ReactNode } from "react";
+import { resolvePrintDesignBranding } from '@/lib/branding/printDesignPresets';
+import { printJourneyAttributes } from '@/lib/branding/printJourney';
+import '@/themes/print/printJourney.css';
 
 import {
   ThemeProvider,
   useTheme,
+  DEFAULT_THEME_ID,
 } from "@/lib/themes";
 import {
   buildBrandingCssVariables,
@@ -17,6 +23,7 @@ import {
 import "@/themes/classic";
 import "@/themes/glassmorphism";
 import "@/themes/taste-style-themes";
+import "@/themes/print";
 import "@/styles/storefrontShopTemplates.css";
 import "@/styles/storefrontVisualStyles.css";
 
@@ -103,7 +110,9 @@ interface StorefrontThemeFrameProps {
   tenantName?: string | null;
   children: ReactNode;
   topSlot?: ReactNode;
+  orderDesign?: number;
   isPreviewMode?: boolean;
+  contentOnly?: boolean;
 }
 
 interface StorefrontThemeFrameInnerProps {
@@ -111,7 +120,9 @@ interface StorefrontThemeFrameInnerProps {
   tenantName?: string | null;
   children: ReactNode;
   topSlot?: ReactNode;
+  orderDesign?: number;
   isPreviewMode: boolean;
+  contentOnly?: boolean;
 }
 
 function StorefrontThemeFrameInner({
@@ -120,6 +131,8 @@ function StorefrontThemeFrameInner({
   children,
   topSlot,
   isPreviewMode,
+  contentOnly,
+  orderDesign,
 }: StorefrontThemeFrameInnerProps) {
   const { components: Theme } = useTheme();
   const fontSignature = extractStorefrontFonts(branding).join("|");
@@ -148,8 +161,10 @@ function StorefrontThemeFrameInner({
   }, [fontSignature]);
 
   return (
-    <div
+    <SharedButtonContext.Provider value={branding}><div
       className="storefront-shop-template-scope"
+      {...printJourneyAttributes(branding)}
+      data-order-design={orderDesign}
       data-shop-template={shopLayout.templateId}
       data-shop-template-version={shopLayout.version}
       data-shop-content-width={shopLayout.contentWidth}
@@ -175,19 +190,19 @@ function StorefrontThemeFrameInner({
         cssVariables={buildBrandingCssVariables(branding)}
       >
         {topSlot}
-        <Theme.Header
+        {!contentOnly && <Theme.Header
           branding={branding}
           tenantName={resolvedTenantName}
           isPreviewMode={isPreviewMode}
-        />
+        />}
         {children}
-        <Theme.Footer
+        {!contentOnly && <Theme.Footer
           branding={branding}
           tenantName={resolvedTenantName}
           isPreviewMode={isPreviewMode}
-        />
+        />}
       </Theme.ShopLayout>
-    </div>
+    </div></SharedButtonContext.Provider>
   );
 }
 
@@ -197,18 +212,22 @@ export function StorefrontThemeFrame({
   children,
   topSlot,
   isPreviewMode = false,
+  contentOnly = false,
+  orderDesign,
 }: StorefrontThemeFrameProps) {
-  const resolvedBranding = mergeBrandingWithDefaults(branding || {});
+  const resolvedBranding = resolvePrintDesignBranding(mergeBrandingWithDefaults(branding || {}));
 
   return (
     <ThemeProvider
-      themeId={resolvedBranding.themeId || "classic"}
+      themeId={resolvedBranding.themeId || DEFAULT_THEME_ID}
       themeSettings={resolvedBranding.themeSettings || {}}
     >
       <StorefrontThemeFrameInner
         branding={resolvedBranding}
+        orderDesign={orderDesign}
         tenantName={tenantName}
         topSlot={topSlot}
+        contentOnly={contentOnly}
         isPreviewMode={isPreviewMode}
       >
         {children}

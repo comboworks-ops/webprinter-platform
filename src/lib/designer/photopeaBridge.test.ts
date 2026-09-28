@@ -15,6 +15,12 @@ import {
   validatePhotopeaSource,
 } from "./photopeaBridge.ts";
 
+function failureMessage(result: { ok: true } | { ok: false; message: string }): string {
+  assert.equal(result.ok, false);
+  if (result.ok === false) return result.message;
+  throw new Error("Expected a validation failure");
+}
+
 test("accepts approved source formats and rejects unsafe boundaries", () => {
   assert.deepEqual(
     validatePhotopeaSource({
@@ -33,19 +39,19 @@ test("accepts approved source formats and rejects unsafe boundaries", () => {
     { ok: true },
   );
   assert.match(
-    validatePhotopeaSource({
+    failureMessage(validatePhotopeaSource({
       byteLength: 2048,
       fileName: "payload.exe",
       mimeType: "application/octet-stream",
-    }).message,
+    })),
     /understøttes ikke/i,
   );
   assert.match(
-    validatePhotopeaSource({
+    failureMessage(validatePhotopeaSource({
       byteLength: PHOTOPEA_MAX_INPUT_BYTES + 1,
       fileName: "large.psd",
       mimeType: "image/vnd.adobe.photoshop",
-    }).message,
+    })),
     /75 MB/i,
   );
 });
@@ -102,19 +108,19 @@ test("accepts only PNG output with the expected signature", () => {
   const validPng = buildPngHeader(1200, 800);
   assert.deepEqual(validatePhotopeaPngOutput(validPng), { ok: true });
   assert.match(
-    validatePhotopeaPngOutput(new TextEncoder().encode("not a png").buffer).message,
+    failureMessage(validatePhotopeaPngOutput(new TextEncoder().encode("not a png").buffer)),
     /gyldig PNG/i,
   );
   assert.match(
-    validatePhotopeaPngOutput(
+    failureMessage(validatePhotopeaPngOutput(
       buildPngHeader(PHOTOPEA_MAX_OUTPUT_DIMENSION + 1, 1),
-    ).message,
+    )),
     /for store/i,
   );
 });
 
 test("keeps the message sequence fail-closed", () => {
-  let state = { phase: "waiting-for-photopea" } as const;
+  const state = { phase: "waiting-for-photopea" } as const;
 
   const ignoredEarlyOutput = reducePhotopeaBridge(state, { type: "photopea-output" });
   assert.equal(ignoredEarlyOutput.action, "none");

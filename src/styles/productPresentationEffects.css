@@ -1,0 +1,29 @@
+[data-card-hover] {position:relative;transition:transform .25s,box-shadow .25s,border-color .25s}
+[data-card-hover="none"]:hover {transform:none;box-shadow:none}
+[data-card-hover="shadow"]:hover {box-shadow:0 12px 28px #0f172a26}
+[data-card-hover="lift"]:hover {transform:translateY(-5px);box-shadow:0 12px 24px #0f172a1f}
+[data-card-hover="glow"]:hover {box-shadow:0 0 0 3px hsl(var(--primary)/.15),0 0 24px hsl(var(--primary)/.25)}
+[data-card-hover="outline"]:hover {border-color:hsl(var(--primary));box-shadow:0 0 0 1px hsl(var(--primary))}
+[data-card-hover="scale"]:hover {transform:scale(1.025)}
+[data-image-hover] img {transition:transform .3s,filter .3s,opacity .3s}
+[data-image-hover="zoom"]:hover img {transform:scale(1.1)!important}
+[data-image-hover="lift"]:hover img {transform:translateY(-7px)!important}
+[data-image-hover="tilt"]:hover img {transform:rotate(4deg) scale(1.04)!important}
+[data-image-hover="brighten"]:hover img {filter:brightness(1.15)!important}
+[data-image-hover="grayscale"] img {filter:grayscale(1)!important}
+[data-image-hover="grayscale"]:hover img {filter:grayscale(0)!important}
+.product-custom-badge {position:absolute;z-index:20;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:700;line-height:1.15;pointer-events:none}
+.product-custom-badge img {width:100%;height:100%;object-fit:contain}
+.product-custom-badge[data-hover-only="true"] {opacity:0;transition:opacity .2s}
+[data-card-hover]:hover .product-custom-badge,[data-card-hover]:focus-within .product-custom-badge {opacity:1}
+.product-badge-spin {animation:product-badge-spin var(--badge-duration,4s) linear infinite}
+.product-badge-float {animation:product-badge-float var(--badge-duration,4s) ease-in-out infinite}
+@keyframes product-badge-spin {to{transform:rotate(360deg)}}
+@keyframes product-badge-float {50%{transform:translateY(-8px) rotate(5deg)}}
+@media(hover:none){.product-custom-badge[data-hover-only="true"]{opacity:1}}
+@media(prefers-reduced-motion:reduce){[data-card-hover],[data-image-hover] img,.product-custom-badge {animation:none!important;transition:none!important;transform:none!important}}
+
+.pp-single-preview{padding:26px!important}.product-presentation.pp-single-preview .pp-grid{display:block;grid-template-columns:1fr}.pp-single-preview .pp-tile{max-width:380px;margin:auto}.product-presentation.pp-single-preview .pp-shelf-rail{display:block;overflow:visible}.product-presentation.pp-single-preview .pp-studio-stage{display:block;min-height:300px}.pp-single-preview .pp-studio-object{display:block;width:100%}
+[data-image-hover="none"]:hover img {transform:none!important}
+
+.pp-card-price{display:block;font-size:16px;margin:8px 0;font-weight:600}.pp-card-price del{font-weight:400;color:var(--pp-body);font-size:13px}.pp-card-price small{font-size:11px;color:var(--pp-accent)}

@@ -23,10 +23,12 @@ Tenants never touch Print.com. The platform owns one Print.com account
 2. **Master shares** that catalog product to tenants via the existing
    product-transfer system (`send_product_to_tenants` RPC →
    `clone_product_for_tenant_release` copy-on-transfer). Tenants see it as a
-   native WebPrinter product and can customize photos/text/price.
+   native WebPrinter product. The Webprinter product price is their purchase
+   price, and they can customize photos/text and add their own markup for the
+   customer-facing price.
 3. **Customer** buys from the tenant's shop through normal checkout. Tenant is
    billed in their own currency on their own Stripe.
-4. **Tenant pays master** for the POD cost (handled by existing
+4. **Tenant pays master** the Webprinter product price (handled by existing
    `pod2-tenant-approve-charge`, not touched in this work).
 5. **Master forwards to Print.com** via the `pod2-order-submit` edge function
    — a single `POST /orders`. WebPrinter is the Print.com customer; WebPrinter
@@ -34,6 +36,10 @@ Tenants never touch Print.com. The platform owns one Print.com account
 
 Tenants never see Print.com option slugs, pricing schemas, or supplier
 countries. All of that lives on the master's catalog row.
+
+The price fields have distinct meanings: `base_costs` is the private Print.com
+cost, `recommended_retail` is Webprinter's price to the tenant, and the tenant's
+own storefront price may include an additional tenant-controlled markup.
 
 ---
 

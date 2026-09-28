@@ -1,3 +1,5 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
+import {PRIVATE_UPLOAD_PATH,requireUploadCapability,signPrivateUpload} from '../_shared/storefrontFileAccess.ts';
 // POD v2 PDF preflight via Print.com Platform API
 // Runs for POD products only and can auto-fix by overwriting the uploaded PDF in storage.
 
@@ -80,7 +82,7 @@ const assertSafeStoragePath = (path: string) => {
 };
 
 const userCanAccessTenant = async (
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: ReturnType<typeof createClient<any>>,
   userId: string,
   tenantId: string | null,
 ) => {
@@ -95,8 +97,8 @@ const userCanAccessTenant = async (
   if (normalizedRoles.some((entry) => entry.role === "master_admin")) return true;
 
   const isMasterTenant = tenantId === "00000000-0000-0000-0000-000000000000";
-  if (isMasterTenant && normalizedRoles.some((entry) => entry.role === "admin")) return true;
-  if (tenantId && normalizedRoles.some((entry) => entry.tenant_id === tenantId)) return true;
+  if (isMasterTenant && normalizedRoles.some((entry) => entry.role === "admin" && (!entry.tenant_id || entry.tenant_id === tenantId))) return true;
+  if (tenantId && normalizedRoles.some((entry) => entry.role === 'admin' && entry.tenant_id === tenantId)) return true;
 
   if (tenantId) {
     const { data: ownedTenant, error: ownerError } = await serviceClient
@@ -144,7 +146,7 @@ serve(async (req) => {
 
     const serviceClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      readSupabaseKey((name) => Deno.env.get(name), "secret") ?? ""
     );
 
     const { data: product, error: productError } = await serviceClient
@@ -251,13 +253,24 @@ serve(async (req) => {
       if (bucket !== ORDER_FILES_BUCKET) {
         throw new RequestError("Unsupported storageBucket for POD2 preflight");
       }
-      const { data: signedUrlData, error: signedUrlError } = await serviceClient.storage
+      const capability = (body as PreflightRequest & {fileAccess?: any}).fileAccess;
+      if (PRIVATE_UPLOAD_PATH.test(filePath)) {
+        const claim = await requireUploadCapability(serviceClient, {...capability, user_id: auth.user.id});
+        if (claim.storage_path !== filePath) throw new RequestError('File access denied', 403);
+        preflightPdfUrl = await signPrivateUpload(serviceClient, claim);
+      } else {
+      // Use the caller's storage permissions, never a service-role signing oracle.
+      const readerClient = createClient(Deno.env.get('SUPABASE_URL')!,
+        readSupabaseKey(name => Deno.env.get(name), 'publishable')!,
+        {global: {headers: {Authorization: auth.authHeader}}});
+      const { data: signedUrlData, error: signedUrlError } = await readerClient.storage
         .from(bucket)
         .createSignedUrl(filePath, 10 * 60);
       if (signedUrlError || !signedUrlData?.signedUrl) {
         throw new RequestError("Could not create signed PDF URL for preflight", 500);
       }
       preflightPdfUrl = signedUrlData.signedUrl;
+      }
     }
 
     assertSafeRemoteUrl(preflightPdfUrl, "preflightPdfUrl");
@@ -328,15 +341,18 @@ serve(async (req) => {
           throw new RequestError("Auto-fix download did not return a PDF");
         }
 
+        // Corrections are a new version for download/re-upload and fresh approval.
+        // The submitted or previously approved file must remain byte-identical.
+        const correctedPath = `designer-pdf-service-output/${auth.user.id}/preflight/${crypto.randomUUID()}.pdf`;
         const { error: uploadError } = await serviceClient.storage
           .from("order-files")
-          .upload(filePath, pdfBytes, { contentType: "application/pdf", upsert: true });
+          .upload(correctedPath, pdfBytes, { contentType: "application/pdf", upsert: false });
 
         if (!uploadError) {
-          const { data } = serviceClient.storage
+          const { data } = await serviceClient.storage
             .from("order-files")
-            .getPublicUrl(filePath);
-          updatedFileUrl = data.publicUrl;
+            .createSignedUrl(correctedPath, 15 * 60);
+          updatedFileUrl = data?.signedUrl;
         }
       }
     }

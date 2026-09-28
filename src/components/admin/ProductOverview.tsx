@@ -41,6 +41,9 @@ import {
 } from "@/components/ui/dialog";
 import { ProductCloneDialog } from "./ProductCloneDialog";
 import { AdminInlineHelp } from "./AdminInlineHelp";
+import { ProductLocator } from "./ProductLocator";
+import { locatorUrl } from "@/lib/products/productLocator";
+import "@/styles/adminProductsWorkspace.css";
 
 type Product = {
   id: string;
@@ -136,16 +139,6 @@ function normalizeCategoryKey(categoryName?: string | null): string {
   const normalized = String(categoryName || "").trim();
   if (!normalized) return "ukategoriseret";
   return toSlug(normalized) || normalized.toLowerCase();
-}
-
-function getProductCardShellClass(product: Pick<Product, "is_published" | "is_ready">): string {
-  if (product.is_ready) {
-    return "border-emerald-300 bg-emerald-50/70 hover:border-emerald-400 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:hover:border-emerald-400/60";
-  }
-  if (product.is_published) {
-    return "border-orange-300 bg-orange-50/70 hover:border-orange-400 dark:border-orange-500/40 dark:bg-orange-500/10 dark:hover:border-orange-400/60";
-  }
-  return "hover:border-primary bg-background";
 }
 
 function isStorformatProduct(product: Pick<Product, "pricing_type">): boolean {
@@ -255,6 +248,7 @@ export function ProductOverview() {
   const location = useLocation();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [priceHealthByProductId, setPriceHealthByProductId] = useState<Record<string, ProductPriceHealth>>({});
   const [priceHealthLoading, setPriceHealthLoading] = useState(false);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
@@ -263,7 +257,6 @@ export function ProductOverview() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("Alle");
   const [priceHealthFilter, setPriceHealthFilter] = useState<PriceHealthFilter>("all");
-  const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [companyAccounts, setCompanyAccounts] = useState<CompanyAccount[]>([]);
   const [companyHubItems, setCompanyHubItems] = useState<CompanyHubItem[]>([]);
@@ -292,6 +285,14 @@ export function ProductOverview() {
     },
   ]);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+  const [selectedWorkspaceCategory, setSelectedWorkspaceCategory] = useState<string | null>(null);
+  const [categoryWorkspaceSearch, setCategoryWorkspaceSearch] = useState("");
+  const activeWorkspaceCategoryId = selectedWorkspaceCategory === 'new'
+    ? null
+    : adminCategories.find(category => category.id === selectedWorkspaceCategory)?.id || adminCategories[0]?.id;
+  useEffect(() => {
+    if (location.hash === '#categories') setCategoryDialogOpen(true);
+  }, [location.hash]);
   const [selectedOverviewId, setSelectedOverviewId] = useState<string>(FALLBACK_OVERVIEW_ID);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryOverviewId, setNewCategoryOverviewId] = useState<string>(FALLBACK_OVERVIEW_ID);
@@ -304,17 +305,12 @@ export function ProductOverview() {
   const [editingOverviewName, setEditingOverviewName] = useState("");
   const [overviewsLoaded, setOverviewsLoaded] = useState(false);
   const [categoriesLoaded, setCategoriesLoaded] = useState(false);
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => {
-    const saved = localStorage.getItem('admin-product-categories-collapsed');
-    return saved ? new Set(JSON.parse(saved)) : new Set();
-  });
   const [productsTenantId, setProductsTenantId] = useState<string | null>(null);
   // LOCK LF-005: Distribution actions are only valid in Master tenant context.
   const canDistributeToTenants = isMasterAdmin && productsTenantId === MASTER_TENANT_ID;
   const withAdminContext = (path: string) => {
-    const forceDomain = new URLSearchParams(location.search).get("force_domain");
-    if (!forceDomain || !path.startsWith("/admin") || path.includes("?")) return path;
-    return `${path}?force_domain=${encodeURIComponent(forceDomain)}`;
+    if (!path.startsWith("/admin")) return path;
+    return locatorUrl(path, location.search);
   };
   const getProductPriceHealth = useCallback((product: Product): ProductPriceHealth => (
     priceHealthByProductId[product.id] ||
@@ -325,7 +321,7 @@ export function ProductOverview() {
   const fetchUnreadMessages = async () => {
     try {
       const { count } = await supabase
-        .from('order_messages' as any)
+        .from('order_messages')
         .select('*', { count: 'exact', head: true })
         .eq('sender_type', 'customer')
         .eq('is_read', false);
@@ -381,7 +377,7 @@ export function ProductOverview() {
     if (user) {
       // Check if user owns the Master tenant
       const { data } = await supabase
-        .from('tenants' as any)
+        .from('tenants')
         .select('id')
         .eq('id', '00000000-0000-0000-0000-000000000000') // Master ID
         .eq('owner_id', user.id)
@@ -391,6 +387,8 @@ export function ProductOverview() {
   };
 
   const fetchProducts = async () => {
+    setLoading(true);
+    setLoadError("");
     try {
       const { tenantId } = await resolveAdminTenant();
       if (!tenantId) throw new Error("No tenant found");
@@ -408,6 +406,7 @@ export function ProductOverview() {
       void fetchProductPriceHealth(rows, tenantId);
     } catch (error) {
       console.error('Error fetching products:', error);
+      setLoadError('Prøv igen, eller kontrollér at du har adgang til den valgte shop.');
       toast.error('Kunne ikke hente produkter');
     } finally {
       setLoading(false);
@@ -439,7 +438,7 @@ export function ProductOverview() {
         chunk.map(async (product) => {
           try {
             const { count, error } = await supabase
-              .from("generic_product_prices" as any)
+              .from("generic_product_prices")
               .select("id", { count: "exact", head: true })
               .eq("tenant_id", tenantId)
               .eq("product_id", product.id);
@@ -467,8 +466,8 @@ export function ProductOverview() {
       if (!tenantId) return;
 
       const [{ data: accounts }, { data: items }] = await Promise.all([
-        supabase.from('company_accounts' as any).select('id, name, logo_url').eq('tenant_id', tenantId),
-        supabase.from('company_hub_items' as any).select('id, company_id, product_id, title, sort_order').eq('tenant_id', tenantId).order('sort_order')
+        supabase.from('company_accounts').select('id, name, logo_url').eq('tenant_id', tenantId),
+        supabase.from('company_hub_items').select('id, company_id, product_id, title, sort_order').eq('tenant_id', tenantId).order('sort_order')
       ]);
 
       setCompanyAccounts(accounts || []);
@@ -484,7 +483,7 @@ export function ProductOverview() {
       if (!tenantId) return;
 
       const { data, error } = await supabase
-        .from('product_overviews' as any)
+        .from('product_overviews')
         .select('*')
         .eq('tenant_id', tenantId)
         .order('sort_order');
@@ -510,7 +509,7 @@ export function ProductOverview() {
       if (rows.length === 0) {
         // Seed one default overview for this tenant if table exists but empty.
         const { data: created } = await supabase
-          .from('product_overviews' as any)
+          .from('product_overviews')
           .insert({
             tenant_id: tenantId,
             name: FALLBACK_OVERVIEW_NAME,
@@ -552,7 +551,7 @@ export function ProductOverview() {
       if (!tenantId) return;
 
       const { data, error } = await supabase
-        .from('product_categories' as any)
+        .from('product_categories')
         .select('id, tenant_id, name, slug, sort_order, overview_id, parent_category_id, navigation_mode, frontend_product_id')
         .eq('tenant_id', tenantId)
         .order('sort_order');
@@ -560,7 +559,7 @@ export function ProductOverview() {
       if (error) {
         if (isMissingOverviewColumn(error) || isMissingHierarchyColumn(error) || isMissingFrontendCardColumn(error)) {
           const fallback = await supabase
-            .from('product_categories' as any)
+            .from('product_categories')
             .select('id, tenant_id, name, slug, sort_order')
             .eq('tenant_id', tenantId)
             .order('sort_order');
@@ -603,7 +602,7 @@ export function ProductOverview() {
 
     try {
       const { data, error } = await supabase
-        .from('tenants' as any)
+        .from('tenants')
         .select("id, name, domain")
         .neq("id", MASTER_TENANT_ID)
         .order('name');
@@ -971,7 +970,7 @@ export function ProductOverview() {
       const maxSortOrder = Math.max(0, ...adminOverviews.map((o) => o.sort_order || 0));
 
       const { error } = await supabase
-        .from('product_overviews' as any)
+        .from('product_overviews')
         .insert({
           tenant_id: tenantId,
           name: newOverviewName.trim(),
@@ -1001,7 +1000,7 @@ export function ProductOverview() {
     try {
       const slug = toSlug(newName.trim());
       const { error } = await supabase
-        .from('product_overviews' as any)
+        .from('product_overviews')
         .update({ name: newName.trim(), slug })
         .eq('id', id)
         .eq('tenant_id', productsTenantId);
@@ -1030,7 +1029,7 @@ export function ProductOverview() {
 
     try {
       const { error } = await supabase
-        .from('product_overviews' as any)
+        .from('product_overviews')
         .delete()
         .eq('id', id)
         .eq('tenant_id', productsTenantId);
@@ -1061,8 +1060,8 @@ export function ProductOverview() {
 
     try {
       await Promise.all([
-        supabase.from('product_overviews' as any).update({ sort_order: target.sort_order }).eq('id', current.id).eq('tenant_id', productsTenantId),
-        supabase.from('product_overviews' as any).update({ sort_order: current.sort_order }).eq('id', target.id).eq('tenant_id', productsTenantId),
+        supabase.from('product_overviews').update({ sort_order: target.sort_order }).eq('id', current.id).eq('tenant_id', productsTenantId),
+        supabase.from('product_overviews').update({ sort_order: current.sort_order }).eq('id', target.id).eq('tenant_id', productsTenantId),
       ]);
       fetchAdminOverviews();
     } catch (error) {
@@ -1092,19 +1091,6 @@ export function ProductOverview() {
       console.error('Error updating product category:', error);
       toast.error('Kunne ikke opdatere kategori: ' + (error?.message || 'Ukendt fejl'));
     }
-  };
-
-  const toggleCategoryCollapsed = (categoryName: string) => {
-    setCollapsedCategories(prev => {
-      const next = new Set(prev);
-      if (next.has(categoryName)) {
-        next.delete(categoryName);
-      } else {
-        next.add(categoryName);
-      }
-      localStorage.setItem('admin-product-categories-collapsed', JSON.stringify([...next]));
-      return next;
-    });
   };
 
   const deleteProduct = async (id: string, name: string) => {
@@ -1355,17 +1341,6 @@ export function ProductOverview() {
     });
   }, [getProductPriceHealth, overviewAllProducts, priceHealthFilter, selectedCategory, getCanonicalCategoryName]);
 
-  const productsByCategory = useMemo(() => {
-    const map = new Map<string, Product[]>();
-    overviewFilteredProducts.forEach((product) => {
-      const category = getCanonicalCategoryName(product.category);
-      const existing = map.get(category) || [];
-      existing.push(product);
-      map.set(category, existing);
-    });
-    return map;
-  }, [overviewFilteredProducts, getCanonicalCategoryName]);
-
   const categories = useMemo(() => {
     const overviewCategoryNames = sortedAdminCategories
       .filter((cat) => (cat.overview_id || FALLBACK_OVERVIEW_ID) === selectedOverviewId)
@@ -1394,8 +1369,6 @@ export function ProductOverview() {
     setSelectedCategory("Alle");
   }, [categories, selectedCategory]);
 
-  const isFilteringProducts = searchQuery !== "" || selectedCategory !== "Alle" || priceHealthFilter !== "all";
-
   const categoriesByOverview = useMemo(() => {
     const map = new Map<string, ProductCategory[]>();
     sortedAdminCategories.forEach((category) => {
@@ -1406,74 +1379,6 @@ export function ProductOverview() {
     });
     return map;
   }, [sortedAdminCategories]);
-
-  const overviewSections = useMemo(() => {
-    const sortedOverviews = [...allOverviewOptions]
-      .sort((a, b) => {
-      const orderA = a.sort_order ?? 999;
-      const orderB = b.sort_order ?? 999;
-      if (orderA !== orderB) return orderA - orderB;
-      return a.name.localeCompare(b.name, 'da');
-      })
-      .filter((overview) => overview.id === selectedOverviewId);
-
-    const sections = sortedOverviews.map((overview) => {
-      const categories = sortedAdminCategories
-        .filter((cat) => (cat.overview_id || FALLBACK_OVERVIEW_ID) === overview.id)
-        .map((cat) => ({
-          categoryName: cat.name,
-          categoryOrder: cat.sort_order ?? 999,
-          products: productsByCategory.get(cat.name) || [],
-        }));
-
-      return {
-        overviewId: overview.id,
-        overviewName: overview.name,
-        categories,
-      };
-    });
-
-    // Show categories that exist on products but are not in admin_categories yet.
-    const knownCategoryNames = new Set(sortedAdminCategories.map((cat) => cat.name));
-    const orphanCategoryNames = Array.from(productsByCategory.keys())
-      .filter((categoryName) => !knownCategoryNames.has(categoryName))
-      .sort((a, b) => a.localeCompare(b, 'da'));
-
-    if (orphanCategoryNames.length > 0) {
-      const fallbackOverviewIndex = sections.findIndex((s) => s.overviewId === FALLBACK_OVERVIEW_ID);
-      const fallbackTarget = fallbackOverviewIndex >= 0
-        ? sections[fallbackOverviewIndex]
-        : {
-            overviewId: FALLBACK_OVERVIEW_ID,
-            overviewName: FALLBACK_OVERVIEW_NAME,
-            categories: [] as { categoryName: string; categoryOrder: number; products: Product[] }[],
-          };
-
-      orphanCategoryNames.forEach((categoryName, idx) => {
-        fallbackTarget.categories.push({
-          categoryName,
-          categoryOrder: 1000 + idx,
-          products: productsByCategory.get(categoryName) || [],
-        });
-      });
-
-      if (fallbackOverviewIndex < 0) {
-        sections.push(fallbackTarget);
-      }
-    }
-
-    return sections
-      .map((section) => ({
-        ...section,
-        categories: section.categories
-          .sort((a, b) => {
-            if (a.categoryOrder !== b.categoryOrder) return a.categoryOrder - b.categoryOrder;
-            return a.categoryName.localeCompare(b.categoryName, 'da');
-          })
-          .filter((category) => !isFilteringProducts || category.products.length > 0),
-      }))
-      .filter((section) => section.categories.length > 0 || !isFilteringProducts);
-  }, [allOverviewOptions, selectedOverviewId, sortedAdminCategories, productsByCategory, isFilteringProducts]);
 
   // Get all category names for the dropdown (from adminCategories + existing product categories)
   const allCategoryNames = useMemo(() => {
@@ -1534,24 +1439,6 @@ export function ProductOverview() {
     special: "Specialpris",
     unknown: "Prisstatus ukendt",
   };
-  const priceHealthSummary = useMemo(() => {
-    return products.reduce(
-      (acc, product) => {
-        const health = priceHealthByProductId[product.id] || createSpecialPriceHealth(product);
-        if (!health) {
-          acc.unknown += 1;
-          return acc;
-        }
-        if (health.tone === "warning") acc.missing += 1;
-        if (health.tone === "ok") acc.ok += 1;
-        if (health.tone === "info") acc.special += 1;
-        if (health.tone === "unknown") acc.unknown += 1;
-        return acc;
-      },
-      { ok: 0, missing: 0, special: 0, unknown: 0 },
-    );
-  }, [priceHealthByProductId, products]);
-
   const storefrontCategoryReadiness = useMemo(() => {
     const categoryById = new Map(sortedAdminCategories.map((category) => [category.id, category]));
     const productCountByCategoryKey = products.reduce((map, product) => {
@@ -1609,26 +1496,130 @@ export function ProductOverview() {
     };
   }, [categoryChildrenByParentId, products, sortedAdminCategories]);
 
-  // Handle search open/close
-  const handleSearchToggle = () => {
-    if (searchOpen) {
-      setSearchQuery("");
-      setSearchOpen(false);
-    } else {
-      setSearchOpen(true);
-      setTimeout(() => searchInputRef.current?.focus(), 100);
-    }
-  };
+  // Both product views must keep the existing distribution dialog mounted.
+  const sendDialog = (
+      <Dialog open={sendDialogOpen} onOpenChange={(open) => !open && closeSendDialog()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Send{" "}
+              <span className="font-semibold">
+                {dialogProduct ? `"${dialogProduct.name}"` : "produkt"}
+              </span>{" "}
+              til lejere
+            </DialogTitle>
+            <DialogDescription>
+              Vælg de lejere, der skal modtage produktet som en systemopdatering.
+            </DialogDescription>
+          </DialogHeader>
 
-  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Escape") {
-      setSearchQuery("");
-      setSearchOpen(false);
-    }
-  };
+          <div className="space-y-4">
+            {dialogProduct && getProductPriceHealth(dialogProduct).tone === "warning" && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>
+                  Produktet har 0 Matrix-prisrækker. Lejere kan modtage produktet uden pris-preview, indtil priserne er lagt ind.
+                </p>
+              </div>
+            )}
+
+            <Input
+              placeholder="Søg efter lejer..."
+              value={tenantFilter}
+              onChange={(event) => setTenantFilter(event.target.value)}
+              disabled={tenantLoading || tenantCount === 0}
+            />
+
+            <div className="border rounded-lg border-input/60 bg-background/80 p-3 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-semibold">Leverings-type</p>
+                <AdminInlineHelp content="Standard pris opretter en uafhængig kopi direkte i lejerens Produkter. POD-pris sender produktet til System Updates som en master-styret import." />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {DELIVERY_MODES.map((mode) => (
+                  <div key={mode.id} className="flex items-center gap-1">
+                    <Button
+                      variant={deliveryMode === mode.id ? "secondary" : "outline"}
+                      size="sm"
+                      onClick={() => setDeliveryMode(mode.id)}
+                      className="gap-2 rounded-lg"
+                    >
+                      <span className="text-xs font-semibold leading-none">{mode.label}</span>
+                    </Button>
+                    <AdminInlineHelp content={mode.description} />
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {DELIVERY_MODES.find((mode) => mode.id === deliveryMode)?.description}
+              </p>
+            </div>
+
+            {tenantLoading ? (
+              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Henter lejere...
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+                {filteredTenants.map((tenant) => {
+                  const isChecked = selectedTenantIds.includes(tenant.id);
+                  return (
+                    <label
+                      key={tenant.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm hover:border-primary transition-colors"
+                    >
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={() => handleTenantToggle(tenant.id)}
+                        className="h-4 w-4"
+                      />
+                      <div className="flex-1">
+                        <p className="font-medium leading-none">{tenant.name}</p>
+                        {tenant.domain && (
+                          <p className="text-xs text-muted-foreground">{tenant.domain}</p>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
+                {!filteredTenants.length && (
+                  <p className="text-sm text-muted-foreground">
+                    {tenantFilter ? "Ingen lejere matcher din søgning." : "Ingen lejere fundet."}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeSendDialog} disabled={sending}>
+              Annuller
+            </Button>
+            <Button
+              onClick={handleSendToTenants}
+              disabled={sending || selectedTenantIds.length === 0 || tenantLoading}
+            >
+              {sending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Send til {selectedTenantIds.length} {selectedTenantIds.length === 1 ? "lejer" : "lejere"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+  );
+
+  const locatorProducts = useMemo(() => products.map(product => ({ ...product, category: getCanonicalCategoryName(product.category) || product.category })), [products, getCanonicalCategoryName]);
+  if (new URLSearchParams(location.search).get('view') !== 'manage' && location.hash !== '#categories') {
+    return <><ProductLocator products={locatorProducts} tenantId={productsTenantId} loading={loading} error={loadError} retry={fetchProducts} canImport={canDistributeToTenants}
+      sendingDisabled={tenantLoading || tenantCount === 0}
+      onTogglePublish={id => { const product = products.find(item => item.id === id); if (product) void togglePublish(product); }}
+      onSendToTenants={id => { const product = products.find(item => item.id === id); if (product) openSendDialog(product); }}
+    />{sendDialog}</>;
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="admin-products-register space-y-6" data-design-choice="products_register">
+      <Button variant="ghost" asChild><Link to={locatorUrl('/admin/products', location.search, { view: '' })}>Find produkter</Link></Button>
       <ProductCloneDialog
         isOpen={cloneDialogOpen}
         onClose={() => setCloneDialogOpen(false)}
@@ -1637,7 +1628,7 @@ export function ProductOverview() {
 
       {/* Category Management Dialog */}
       <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="admin-workspace-menu admin-categories-workspace max-w-[1280px]" data-design-choice="categories_0">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FolderOpen className="h-5 w-5" />
@@ -1648,8 +1639,18 @@ export function ProductOverview() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-6 py-4">
-            <div className="space-y-3">
+          <div className="admin-categories-columns py-4">
+            <nav className="admin-categories-navigation space-y-3" aria-label="Produktkategorier">
+              <Input aria-label="Søg i kategorier" placeholder="Søg i kategorier..." value={categoryWorkspaceSearch} onChange={event => setCategoryWorkspaceSearch(event.target.value)} />
+              <Button variant="outline" className="w-full" onClick={() => setSelectedWorkspaceCategory('new')}><Plus className="mr-2 h-4 w-4" />Ny kategori</Button>
+              {allOverviewOptions.map(overview => <div key={overview.id} className="space-y-1">
+                <h3 className="pt-3 text-sm font-semibold">{overview.name}</h3>
+                {adminCategories.filter(category => (category.overview_id || FALLBACK_OVERVIEW_ID) === overview.id && category.name.toLocaleLowerCase('da').includes(categoryWorkspaceSearch.toLocaleLowerCase('da'))).map(category => <button key={category.id} type="button" className="admin-options-group" aria-pressed={activeWorkspaceCategoryId === category.id} onClick={() => setSelectedWorkspaceCategory(category.id)}>{category.name}</button>)}
+              </div>)}
+            </nav>
+            <div className="admin-categories-editor space-y-6">
+            <details className="space-y-3">
+              <summary className="cursor-pointer text-sm font-medium">Administrer hovedoversigter</summary>
               <p className="text-sm font-medium">Hovedoversigter</p>
               <div className="flex gap-2">
                 <Input
@@ -1658,7 +1659,7 @@ export function ProductOverview() {
                   onChange={(e) => setNewOverviewName(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && addOverview()}
                 />
-                <Button onClick={addOverview} size="icon" disabled={!newOverviewName.trim()}>
+                <Button aria-label="Opret hovedoversigt" onClick={addOverview} size="icon" disabled={!newOverviewName.trim()}>
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
@@ -1674,6 +1675,7 @@ export function ProductOverview() {
                     >
                       <div className="flex flex-col">
                         <button
+                          aria-label={`Flyt ${overview.name} op`}
                           onClick={() => moveOverviewOrder(overview.id, 'up')}
                           disabled={index === 0 || overview.id === FALLBACK_OVERVIEW_ID}
                           className="p-0.5 hover:bg-muted rounded disabled:opacity-30"
@@ -1681,6 +1683,7 @@ export function ProductOverview() {
                           <ChevronUp className="h-3 w-3" />
                         </button>
                         <button
+                          aria-label={`Flyt ${overview.name} ned`}
                           onClick={() => moveOverviewOrder(overview.id, 'down')}
                           disabled={index === allOverviewOptions.length - 1 || overview.id === FALLBACK_OVERVIEW_ID}
                           className="p-0.5 hover:bg-muted rounded disabled:opacity-30"
@@ -1724,6 +1727,7 @@ export function ProductOverview() {
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        aria-label={`Slet hovedoversigten ${overview.name}`}
                         onClick={() => deleteOverview(overview.id)}
                         disabled={overview.id === FALLBACK_OVERVIEW_ID}
                       >
@@ -1733,11 +1737,11 @@ export function ProductOverview() {
                   );
                 })}
               </div>
-            </div>
+            </details>
 
             <div className="space-y-3">
               <p className="text-sm font-medium">Kategorier</p>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2" hidden={selectedWorkspaceCategory !== 'new' && adminCategories.length > 0}>
                 <div className="flex gap-2">
                   <Input
                     placeholder="Ny kategori navn..."
@@ -1745,7 +1749,7 @@ export function ProductOverview() {
                     onChange={(e) => setNewCategoryName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && addCategory()}
                   />
-                  <Button onClick={addCategory} size="icon" disabled={!newCategoryName.trim()}>
+                  <Button aria-label="Opret kategori" onClick={addCategory} size="icon" disabled={!newCategoryName.trim()}>
                     <Plus className="h-4 w-4" />
                   </Button>
                 </div>
@@ -1787,7 +1791,7 @@ export function ProductOverview() {
                 </Select>
               </div>
 
-              <div className="space-y-1 max-h-80 overflow-y-auto">
+              <div className="space-y-1">
                 {adminCategories.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
                     Ingen kategorier oprettet endnu
@@ -1805,10 +1809,12 @@ export function ProductOverview() {
                     return (
                       <div
                         key={cat.id}
-                        className="flex items-center gap-2 p-2 rounded-lg border bg-card hover:bg-muted/50"
+                        className="admin-category-editor-row flex items-start gap-3 p-4 rounded-lg border bg-card"
+                        hidden={cat.id !== activeWorkspaceCategoryId}
                       >
                         <div className="flex flex-col">
                           <button
+                            aria-label={`Flyt ${cat.name} op`}
                             onClick={() => moveCategoryOrder(cat.id, 'up')}
                             disabled={index === 0}
                             className="p-0.5 hover:bg-muted rounded disabled:opacity-30"
@@ -1816,6 +1822,7 @@ export function ProductOverview() {
                             <ChevronUp className="h-3 w-3" />
                           </button>
                           <button
+                            aria-label={`Flyt ${cat.name} ned`}
                             onClick={() => moveCategoryOrder(cat.id, 'down')}
                             disabled={index === adminCategories.length - 1}
                             className="p-0.5 hover:bg-muted rounded disabled:opacity-30"
@@ -1927,6 +1934,7 @@ export function ProductOverview() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          aria-label={`Slet kategorien ${cat.name}`}
                           onClick={() => deleteCategory(cat.id)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -1937,6 +1945,25 @@ export function ProductOverview() {
                 )}
               </div>
             </div>
+            </div>
+            <aside className="admin-categories-summary">
+              <h3 className="text-lg font-semibold">Kategori i overblik</h3>
+              {(() => {
+                const category = adminCategories.find(item => item.id === activeWorkspaceCategoryId);
+                if (!category) return <p className="mt-4 text-sm text-muted-foreground">Opret en kategori for at organisere produkterne.</p>;
+                const frontProduct = products.find(item => item.id === category.frontend_product_id);
+                return <div className="mt-5 space-y-5 text-sm">
+                  <dl className="space-y-4">
+                    <div><dt className="text-muted-foreground">Navn</dt><dd className="mt-1 font-medium">{category.name}</dd></div>
+                    <div><dt className="text-muted-foreground">Hovedoversigt</dt><dd className="mt-1">{allOverviewOptions.find(item => item.id === (category.overview_id || FALLBACK_OVERVIEW_ID))?.name}</dd></div>
+                    <div><dt className="text-muted-foreground">Overkategori</dt><dd className="mt-1">{adminCategories.find(item => item.id === category.parent_category_id)?.name || 'Ingen overkategori'}</dd></div>
+                    <div><dt className="text-muted-foreground">Produkter</dt><dd className="mt-1">{products.filter(item => normalizeCategoryKey(item.category) === normalizeCategoryKey(category.name)).length}</dd></div>
+                  </dl>
+                  {frontProduct?.image_url && <img src={frontProduct.image_url} alt={frontProduct.name} className="aspect-video w-full rounded object-contain" />}
+                  <p className="border-t pt-4 text-xs leading-relaxed text-muted-foreground">Kategoriændringer gemmes ved valg. Produkternes publicering håndteres på produktoversigten.</p>
+                </div>;
+              })()}
+            </aside>
           </div>
 
           <DialogFooter>
@@ -1949,64 +1976,16 @@ export function ProductOverview() {
 
       <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight">Produktoversigt</h1>
-          <p className="text-muted-foreground max-w-2xl">Administrer alle produkter og deres priser</p>
-          <div className="flex flex-wrap items-center gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setPriceHealthFilter(priceHealthFilter === "ok" ? "all" : "ok")}
-              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${priceHealthFilter === "ok" ? "ring-2 ring-emerald-500/40" : ""} ${getPriceHealthClasses("ok")}`}
-            >
-              <CheckCircle2 className="h-3 w-3" />
-              <span className="ml-1">{priceHealthSummary.ok} pris OK</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPriceHealthFilter(priceHealthFilter === "missing" ? "all" : "missing")}
-              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${priceHealthFilter === "missing" ? "ring-2 ring-amber-500/40" : ""} ${getPriceHealthClasses("warning")}`}
-            >
-              <AlertTriangle className="h-3 w-3" />
-              <span className="ml-1">{priceHealthSummary.missing} uden Matrix-priser</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPriceHealthFilter(priceHealthFilter === "special" ? "all" : "special")}
-              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${priceHealthFilter === "special" ? "ring-2 ring-sky-500/40" : ""} ${getPriceHealthClasses("info")}`}
-            >
-              <Gauge className="h-3 w-3" />
-              <span className="ml-1">{priceHealthSummary.special} specialpris</span>
-            </button>
-            {priceHealthSummary.unknown > 0 && (
-              <button
-                type="button"
-                onClick={() => setPriceHealthFilter(priceHealthFilter === "unknown" ? "all" : "unknown")}
-                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${priceHealthFilter === "unknown" ? "ring-2 ring-slate-500/40" : ""} ${getPriceHealthClasses("unknown")}`}
-              >
-                <Gauge className="h-3 w-3" />
-                <span className="ml-1">{priceHealthSummary.unknown} ukendt</span>
-              </button>
-            )}
-            {priceHealthFilter !== "all" && (
-              <button
-                type="button"
-                onClick={() => setPriceHealthFilter("all")}
-                className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
-              >
-                Nulstil prisfilter
-              </button>
-            )}
-            {priceHealthLoading && (
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Tjekker prisstatus
-              </span>
-            )}
-          </div>
+          <h1 className="text-3xl font-bold tracking-tight">Produkter</h1>
+          <p className="text-muted-foreground max-w-2xl">Overblik over sortiment, synlighed og prisgrundlag.</p>
+          <p className="text-sm text-muted-foreground">{products.length} produkter · {products.filter(product => product.is_published).length} publiceret · {products.filter(product => !product.is_published).length} kladder</p>
+
         </div>
         <div className="flex items-center gap-3">
+          <Button variant="outline" onClick={() => setCategoryDialogOpen(true)}>Kategorier</Button>
           <Button onClick={() => navigate(withAdminContext("/admin/create-product"))}>
             <Package className="mr-2 h-4 w-4" />
-            Opret Nyt Produkt
+            Opret produkt
           </Button>
         </div>
       </div>
@@ -2015,89 +1994,315 @@ export function ProductOverview() {
         <div className="py-16 text-center text-sm text-muted-foreground">Henter produkter...</div>
       ) : (
         <div className="space-y-4">
-          {/* Toolbar: Category chips + Search */}
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            {/* Category Filter Chips */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {categories.map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-full border transition-colors ${selectedCategory === cat
-                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                    : "bg-muted/50 hover:bg-muted border-transparent"
-                    }`}
-                >
-                  {cat}
-                </button>
-              ))}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => setCategoryDialogOpen(true)}
-                    >
-                      <Settings2 className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                <TooltipContent>Administrer overblik og kategorier</TooltipContent>
-                </Tooltip>
+          <div className="admin-product-register-toolbar" role="search" aria-label="Filtrér produkter">
+            <div className="relative min-w-0">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input ref={searchInputRef} aria-label="Søg produkter" placeholder="Søg efter produktnavn eller slug..." value={searchQuery} onChange={event => setSearchQuery(event.target.value)} className="h-10 pl-9 pr-9" />
+              {searchQuery && <button type="button" aria-label="Ryd produktsøgning" onClick={() => setSearchQuery('')} className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center text-muted-foreground"><X className="h-4 w-4" /></button>}
             </div>
-
-            {/* Expanding Search Control */}
-            <div className="flex items-center">
-              <div
-                className={`flex items-center overflow-hidden transition-all duration-200 ease-in-out ${searchOpen ? "w-64" : "w-10"
-                  }`}
-              >
-                {searchOpen ? (
-                  <div className="relative w-full">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      ref={searchInputRef}
-                      type="text"
-                      placeholder="Søg produkter..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyDown={handleSearchKeyDown}
-                      className="pl-9 pr-8 h-10"
-                    />
-                    {searchQuery && (
-                      <button
-                        onClick={() => setSearchQuery("")}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-10 w-10"
-                    onClick={handleSearchToggle}
-                  >
-                    <Search className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-              {searchOpen && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="ml-2"
-                  onClick={handleSearchToggle}
-                >
-                  Luk
-                </Button>
-              )}
-            </div>
+            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+              <SelectTrigger aria-label="Filtrér efter kategori"><SelectValue /></SelectTrigger>
+              <SelectContent>{categories.map(category => <SelectItem key={category} value={category}>{category === 'Alle' ? 'Alle kategorier' : category}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={priceHealthFilter} onValueChange={value => setPriceHealthFilter(value as PriceHealthFilter)}>
+              <SelectTrigger aria-label="Filtrér efter prisstatus"><SelectValue /></SelectTrigger>
+              <SelectContent>{Object.entries(priceHealthFilterLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+            </Select>
+            {allOverviewOptions.length > 1 && <Select value={selectedOverviewId} onValueChange={value => { setSelectedOverviewId(value); setSelectedCategory('Alle'); }}>
+              <SelectTrigger aria-label="Filtrér efter overblik"><SelectValue placeholder="Vælg overblik" /></SelectTrigger>
+              <SelectContent>{allOverviewOptions.map(overview => <SelectItem key={overview.id} value={overview.id}>{overview.name}</SelectItem>)}</SelectContent>
+            </Select>}
+          </div>
+          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>{overviewFilteredProducts.length} af {products.filter(product => getOverviewIdForCategory(getCanonicalCategoryName(product.category)) === selectedOverviewId).length} produkter</span>
+            {priceHealthLoading && <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Tjekker prisstatus</span>}
           </div>
 
-          {!taxonomyLoading && adminCategories.length > 0 && (
+          {/* Products Section */}
+          <Card className="admin-product-register-panel overflow-hidden">
+            <CardContent className="p-0">
+              {taxonomyLoading ? <div className="p-8 text-center text-muted-foreground">Henter overblik...</div> : overviewFilteredProducts.length === 0 ? <div className="p-8 text-center text-muted-foreground">Ingen produkter matcher de valgte filtre.</div> : (
+                <div className="admin-product-register-list">
+                  <div className="admin-product-register-head" aria-hidden="true"><span>Produkt og prisstatus</span><span>Kategori</span><span>Synlighed og handlinger</span>{canDistributeToTenants && <span>Distribution</span>}</div>
+                    {overviewFilteredProducts.map((product) => (
+                      (() => {
+                        const productOverviewId = getOverviewIdForCategory(product.category);
+                        const productCategoryNames = (
+                          categoriesByOverview.get(productOverviewId) || []
+                        ).map((category) => category.name);
+                        const priceHealth =
+                          priceHealthByProductId[product.id] ||
+                          createSpecialPriceHealth(product) ||
+                          createMatrixPriceHealth(null);
+                        const PriceHealthIcon = priceHealth.tone === "ok"
+                          ? CheckCircle2
+                          : priceHealth.tone === "warning"
+                            ? AlertTriangle
+                            : Gauge;
+
+                        return (
+                      <Card
+                        key={product.id}
+                        className="admin-product-register-row transition-colors"
+                      >
+                        <CardContent className="admin-product-register-cells p-0">
+                          {/* Thumbnail + Name */}
+                          <div
+                            className="admin-product-register-name cursor-pointer flex items-center gap-3 p-3 border-b"
+                            role="link"
+                            tabIndex={0}
+                            onKeyDown={event => { if (event.key === 'Enter') navigate(withAdminContext(`/admin/product/${product.slug}`)); }}
+                            onClick={() => navigate(withAdminContext(`/admin/product/${product.slug}`))}
+                          >
+                            <div className="w-10 h-10 rounded bg-muted flex-shrink-0 flex items-center justify-center overflow-hidden">
+                              {product.image_url ? (
+                                <img
+                                  src={product.image_url}
+                                  alt={product.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium truncate" title={product.name}>
+                                {product.name}
+                              </p>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {getPricingTypeLabel(product.pricing_type)}
+                              </p>
+                              <Badge
+                                variant="outline"
+                                title={priceHealth.detail}
+                                className={`mt-1 max-w-full gap-1 truncate text-[10px] ${getPriceHealthClasses(priceHealth.tone)}`}
+                              >
+                                <PriceHealthIcon className="h-3 w-3 shrink-0" />
+                                <span className="truncate">{priceHealth.label}</span>
+                              </Badge>
+                            </div>
+                          </div>
+
+                          {/* Overview + Category Controls */}
+                          <div className="admin-product-register-category px-3 py-1.5 border-b space-y-1.5">
+                            <Select
+                              value={productOverviewId}
+                              onValueChange={(value) => updateProductOverview(product, value)}
+                            >
+                              <SelectTrigger aria-label={`Overblik for ${product.name}`} className="h-7 text-xs">
+                                <SelectValue placeholder="Vælg overblik" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {allOverviewOptions.map((overview) => (
+                                  <SelectItem key={overview.id} value={overview.id} className="text-xs">
+                                    {overview.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Select
+                              value={getCanonicalCategoryName(product.category) || ''}
+                              onValueChange={(value) => updateProductCategory(product.id, value)}
+                            >
+                              <SelectTrigger aria-label={`Kategori for ${product.name}`} className="h-7 text-xs">
+                                <SelectValue placeholder="Vælg kategori" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(productCategoryNames.length > 0
+                                  ? categoryOptions.filter((option) => option.overviewId === productOverviewId && productCategoryNames.includes(option.name))
+                                  : categoryOptions.filter((option) => option.overviewId === productOverviewId)
+                                ).map((categoryOption) => (
+                                  <SelectItem key={categoryOption.id} value={categoryOption.name} className="text-xs">
+                                    {categoryOption.label}
+                                  </SelectItem>
+                                ))}
+                                {(productCategoryNames.length === 0 && categoryOptions.filter((option) => option.overviewId === productOverviewId).length === 0) &&
+                                  allCategoryNames.map((catName) => (
+                                    <SelectItem key={catName} value={catName} className="text-xs">
+                                      {catName}
+                                    </SelectItem>
+                                  ))
+                                }
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Actions Row */}
+                          <div className="admin-product-register-actions flex items-center justify-between px-3 py-2">
+                            <Button variant="link" className="h-auto px-0 text-sm" onClick={() => navigate(withAdminContext(`/admin/product/${product.slug}`))}>Konfigurer</Button>
+                            {/* Publish toggle with tooltip */}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="flex items-center gap-1.5">
+                                  <Switch
+                                    aria-label={`Publicering af ${product.name}`}
+                                    checked={product.is_published}
+                                    onCheckedChange={() => togglePublish(product)}
+                                    className="scale-90"
+                                  />
+                                  <span className="text-xs">{product.is_published ? 'Publiceret' : 'Kladde'}</span>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {product.is_published
+                                  ? "Produktet er synligt i webshoppen."
+                                  : priceHealth.tone === "warning"
+                                    ? "Produktet mangler Matrix-prisrækker. Publicering kræver bekræftelse."
+                                    : "Produktet er skjult i webshoppen. Priser og opsætning bevares."}
+                              </TooltipContent>
+                            </Tooltip>
+
+                            <div className="flex items-center gap-0.5">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    aria-label={`${product.is_ready ? 'Fjern' : 'Tilføj'} klar-markering: ${product.name}`}
+                                    aria-pressed={!!product.is_ready}
+                                    className="h-8 gap-1.5 px-2 text-xs"
+                                    onClick={() => toggleReady(product)}
+                                  >
+                                    <span className={`h-2 w-2 rounded-full ${product.is_ready ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                    {product.is_ready ? 'Klar' : 'Markér klar'}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>{product.is_ready ? 'Fjern klar-markering' : priceHealth.tone === 'warning' ? 'Produktet mangler Matrix-prisrækker. Klar-markering kræver bekræftelse.' : 'Markér produktet som færdigt'}</TooltipContent>
+                              </Tooltip>
+
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label={`Duplikér ${product.name}`}
+                                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      duplicateProduct(product);
+                                    }}
+                                  >
+                                    <Copy className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Duplikér produkt</TooltipContent>
+                              </Tooltip>
+
+                              {/* Clone to Tenant (Master Only) */}
+                              {canDistributeToTenants && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      aria-label={`Kopier ${product.name} til lejer`}
+                                      className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:bg-blue-500/10"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openCloneDialog(product);
+                                      }}
+                                    >
+                                      <Building2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Kopier til Lejer</TooltipContent>
+                                </Tooltip>
+                              )}
+
+                              <AlertDialog>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        aria-label={`Slet ${product.name}`}
+                                        className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Slet produkt</TooltipContent>
+                                </Tooltip>
+                                <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Slet produkt</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Er du sikker på at du vil slette "{product.name}"? Denne handling kan ikke fortrydes.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Annuller</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      onClick={() => deleteProduct(product.id, product.name)}
+                                    >
+                                      Slet
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
+                          </div>
+
+                          {/* Release to Tenants Toggle (Master only) */}
+                          {canDistributeToTenants && (
+                            <div className="admin-product-register-distribution border-t border-dashed bg-blue-50/30 px-3 py-2 space-y-2 dark:bg-blue-950/20">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                                        {product.is_available_to_tenants ? "Frigivet" : "Privat"}
+                                      </span>
+                                      <AdminInlineHelp content="Gør masterproduktet tilgængeligt for deling til andre lejere. Det påvirker ikke om produktet vises i webshoppen." />
+                                    </div>
+                                    <Switch
+                                      aria-label={`Frigiv ${product.name} til lejere`}
+                                      className="data-[state=checked]:bg-blue-600 dark:data-[state=checked]:bg-blue-500 scale-90"
+                                      checked={!!product.is_available_to_tenants}
+                                      onCheckedChange={() => toggleAvailableToTenants(product)}
+                                    />
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {product.is_available_to_tenants
+                                    ? "Frigivet til lejere"
+                                    : priceHealth.tone === "warning"
+                                      ? "Produktet mangler Matrix-prisrækker. Frigivelse kræver bekræftelse."
+                                      : "Kun synlig for Master"}
+                                </TooltipContent>
+                              </Tooltip>
+                              <Button
+                                variant="outline"
+                                className="w-full justify-center gap-2 text-xs"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openSendDialog(product);
+                                }}
+                                disabled={tenantLoading || tenantCount === 0}
+                              >
+                                <Building2 className="h-3.5 w-3.5" />
+                                Send til lejere
+                              </Button>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                        );
+                      })()
+                    ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <details className="admin-product-category-check">
+            <summary className="cursor-pointer py-3 text-sm font-medium">Kontrol af kategoristruktur</summary>
+            {!taxonomyLoading && adminCategories.length > 0 && (
             <Card className="border-slate-200 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-950/30">
               <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="space-y-2">
@@ -2158,389 +2363,7 @@ export function ProductOverview() {
               </CardContent>
             </Card>
           )}
-
-          {/* Products Section */}
-          <Card className="overflow-hidden">
-            <div className="bg-gradient-to-r from-primary/10 to-primary/5 px-6 py-4 border-b">
-              <h2 className="text-xl font-bold flex items-center gap-2">
-                <Package className="h-5 w-5" />
-                Produkter
-                <span className="text-sm font-normal text-muted-foreground ml-2">
-                  ({overviewFilteredProducts.length} af {overviewAllProducts.length})
-                  {priceHealthFilter !== "all" ? ` · ${priceHealthFilterLabels[priceHealthFilter]}` : ""}
-                </span>
-              </h2>
-              <p className="text-sm text-muted-foreground">Administrer dine produkter og priser</p>
-              {!taxonomyLoading && allOverviewOptions.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {allOverviewOptions
-                    .slice()
-                    .sort((a, b) => {
-                      const orderA = a.sort_order ?? 999;
-                      const orderB = b.sort_order ?? 999;
-                      if (orderA !== orderB) return orderA - orderB;
-                      return a.name.localeCompare(b.name, 'da');
-                    })
-                    .map((overview) => (
-                      <button
-                        key={overview.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedOverviewId(overview.id);
-                          setSelectedCategory("Alle");
-                        }}
-                        className={`px-3 py-1.5 text-sm font-medium rounded-full border transition-colors ${
-                          selectedOverviewId === overview.id
-                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                            : "bg-background hover:bg-muted border-border"
-                        }`}
-                      >
-                        {overview.name}
-                      </button>
-                    ))}
-                </div>
-              )}
-            </div>
-            <CardContent className="p-0">
-              {taxonomyLoading ? (
-                <div className="p-8 text-center text-muted-foreground">
-                  Henter overblik...
-                </div>
-              ) : overviewSections.length === 0 && (
-                <div className="p-8 text-center text-muted-foreground">
-                  {searchQuery || selectedCategory !== "Alle"
-                    ? "Ingen produkter matcher din søgning."
-                    : "Ingen produkter fundet."}
-                </div>
-              )}
-              {!taxonomyLoading && overviewSections.map((overviewSection) => {
-                return (
-                <div key={overviewSection.overviewId} className="group border-b last:border-b-0">
-                  <div className="px-6 py-2 bg-primary/5 border-b">
-                    <p className="text-sm font-semibold text-primary">{overviewSection.overviewName}</p>
-                  </div>
-
-                  {overviewSection.categories.length === 0 ? (
-                    <div className="px-6 py-4 text-sm text-muted-foreground">
-                      Ingen kategorier i denne oversigt endnu.
-                    </div>
-                  ) : (
-                    overviewSection.categories.map((group) => {
-                      const category = group.categoryName;
-                      const categoryProducts = group.products;
-                      const collapseKey = `${overviewSection.overviewId}::${category}`;
-                      const isCollapsed = collapsedCategories.has(collapseKey);
-                      return (
-                      <div key={collapseKey}>
-                        <button
-                          onClick={() => toggleCategoryCollapsed(collapseKey)}
-                          className="w-full cursor-pointer px-6 py-3 bg-muted/30 hover:bg-muted/50 transition-colors flex items-center justify-between"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold capitalize">{category.replace('_', ' ')}</span>
-                            <span className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                              {categoryProducts.length} produkter
-                            </span>
-                          </div>
-                          <span className={`text-muted-foreground text-sm transition-transform ${isCollapsed ? '' : 'rotate-180'}`}>▼</span>
-                        </button>
-                        {!isCollapsed && (
-                        <>
-                        {categoryProducts.length === 0 ? (
-                          <div className="px-6 py-4 text-sm text-muted-foreground">
-                            Ingen produkter i denne kategori endnu.
-                          </div>
-                        ) : (
-                        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                    {categoryProducts.map((product) => (
-                      (() => {
-                        const productOverviewId = getOverviewIdForCategory(product.category);
-                        const productCategoryNames = (
-                          categoriesByOverview.get(productOverviewId) || []
-                        ).map((category) => category.name);
-                        const priceHealth =
-                          priceHealthByProductId[product.id] ||
-                          createSpecialPriceHealth(product) ||
-                          createMatrixPriceHealth(null);
-                        const PriceHealthIcon = priceHealth.tone === "ok"
-                          ? CheckCircle2
-                          : priceHealth.tone === "warning"
-                            ? AlertTriangle
-                            : Gauge;
-
-                        return (
-                      <Card
-                        key={product.id}
-                        className={`transition-colors overflow-hidden relative ${getProductCardShellClass(product)}`}
-                      >
-                        {/* Ready Status Dot */}
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              className={`absolute top-2 right-2 z-10 w-3 h-3 rounded-full cursor-pointer transition-colors ${
-                                product.is_ready
-                                  ? 'bg-green-500 hover:bg-green-600'
-                                  : 'bg-red-500 hover:bg-red-600'
-                              }`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleReady(product);
-                              }}
-                            />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {product.is_ready
-                              ? 'Klik for at markere som ikke færdig'
-                              : priceHealth.tone === "warning"
-                                ? 'Produktet mangler Matrix-prisrækker. Klar-markering kræver bekræftelse.'
-                                : 'Klik for at markere som færdig'}
-                          </TooltipContent>
-                        </Tooltip>
-                        {product.is_ready && (
-                          <div className="absolute left-2 top-2 z-10">
-                            <Badge
-                              variant="secondary"
-                              className="border border-emerald-300 bg-emerald-100 text-emerald-800 shadow-sm dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200"
-                            >
-                              Klar
-                            </Badge>
-                          </div>
-                        )}
-                        <CardContent className="p-0">
-                          {/* Thumbnail + Name */}
-                          <div
-                            className="cursor-pointer flex items-center gap-3 p-3 border-b"
-                            onClick={() => navigate(withAdminContext(`/admin/product/${product.slug}`))}
-                          >
-                            <div className="w-10 h-10 rounded bg-muted flex-shrink-0 flex items-center justify-center overflow-hidden">
-                              {product.image_url ? (
-                                <img
-                                  src={product.image_url}
-                                  alt={product.name}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <ImageIcon className="h-5 w-5 text-muted-foreground" />
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium truncate" title={product.name}>
-                                {product.name}
-                              </p>
-                              <p className="text-xs text-muted-foreground truncate">
-                                {getPricingTypeLabel(product.pricing_type)}
-                              </p>
-                              <Badge
-                                variant="outline"
-                                title={priceHealth.detail}
-                                className={`mt-1 max-w-full gap-1 truncate text-[10px] ${getPriceHealthClasses(priceHealth.tone)}`}
-                              >
-                                <PriceHealthIcon className="h-3 w-3 shrink-0" />
-                                <span className="truncate">{priceHealth.label}</span>
-                              </Badge>
-                            </div>
-                          </div>
-
-                          {/* Overview + Category Controls */}
-                          <div className="px-3 py-1.5 border-b space-y-1.5">
-                            <Select
-                              value={productOverviewId}
-                              onValueChange={(value) => updateProductOverview(product, value)}
-                            >
-                              <SelectTrigger className="h-7 text-xs">
-                                <SelectValue placeholder="Vælg overblik" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {allOverviewOptions.map((overview) => (
-                                  <SelectItem key={overview.id} value={overview.id} className="text-xs">
-                                    {overview.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <Select
-                              value={getCanonicalCategoryName(product.category) || ''}
-                              onValueChange={(value) => updateProductCategory(product.id, value)}
-                            >
-                              <SelectTrigger className="h-7 text-xs">
-                                <SelectValue placeholder="Vælg kategori" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {(productCategoryNames.length > 0
-                                  ? categoryOptions.filter((option) => option.overviewId === productOverviewId && productCategoryNames.includes(option.name))
-                                  : categoryOptions.filter((option) => option.overviewId === productOverviewId)
-                                ).map((categoryOption) => (
-                                  <SelectItem key={categoryOption.id} value={categoryOption.name} className="text-xs">
-                                    {categoryOption.label}
-                                  </SelectItem>
-                                ))}
-                                {(productCategoryNames.length === 0 && categoryOptions.filter((option) => option.overviewId === productOverviewId).length === 0) &&
-                                  allCategoryNames.map((catName) => (
-                                    <SelectItem key={catName} value={catName} className="text-xs">
-                                      {catName}
-                                    </SelectItem>
-                                  ))
-                                }
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          {/* Actions Row */}
-                          <div className="flex items-center justify-between px-3 py-2">
-                            {/* Publish toggle with tooltip */}
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="flex items-center gap-1.5">
-                                  <Switch
-                                    checked={product.is_published}
-                                    onCheckedChange={() => togglePublish(product)}
-                                    className="scale-90"
-                                  />
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {product.is_published
-                                  ? "Produktet er synligt i webshoppen."
-                                  : priceHealth.tone === "warning"
-                                    ? "Produktet mangler Matrix-prisrækker. Publicering kræver bekræftelse."
-                                    : "Produktet er skjult i webshoppen. Priser og opsætning bevares."}
-                              </TooltipContent>
-                            </Tooltip>
-
-                            <div className="flex items-center gap-0.5">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      duplicateProduct(product);
-                                    }}
-                                  >
-                                    <Copy className="h-3.5 w-3.5" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Duplikér produkt</TooltipContent>
-                              </Tooltip>
-
-                              {/* Clone to Tenant (Master Only) */}
-                              {canDistributeToTenants && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:bg-blue-500/10"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openCloneDialog(product);
-                                      }}
-                                    >
-                                      <Building2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Kopier til Lejer</TooltipContent>
-                                </Tooltip>
-                              )}
-
-                              <AlertDialog>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <AlertDialogTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                        onClick={(e) => e.stopPropagation()}
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </Button>
-                                    </AlertDialogTrigger>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Slet produkt</TooltipContent>
-                                </Tooltip>
-                                <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Slet produkt</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      Er du sikker på at du vil slette "{product.name}"? Denne handling kan ikke fortrydes.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Annuller</AlertDialogCancel>
-                                    <AlertDialogAction
-                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                      onClick={() => deleteProduct(product.id, product.name)}
-                                    >
-                                      Slet
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </div>
-                          </div>
-
-                          {/* Release to Tenants Toggle (Master only) */}
-                          {canDistributeToTenants && (
-                            <div className="border-t border-dashed bg-blue-50/30 px-3 py-2 space-y-2 dark:bg-blue-950/20">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-                                        {product.is_available_to_tenants ? "Frigivet" : "Privat"}
-                                      </span>
-                                      <AdminInlineHelp content="Gør masterproduktet tilgængeligt for deling til andre lejere. Det påvirker ikke om produktet vises i webshoppen." />
-                                    </div>
-                                    <Switch
-                                      className="data-[state=checked]:bg-blue-600 dark:data-[state=checked]:bg-blue-500 scale-90"
-                                      checked={!!product.is_available_to_tenants}
-                                      onCheckedChange={() => toggleAvailableToTenants(product)}
-                                    />
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {product.is_available_to_tenants
-                                    ? "Frigivet til lejere"
-                                    : priceHealth.tone === "warning"
-                                      ? "Produktet mangler Matrix-prisrækker. Frigivelse kræver bekræftelse."
-                                      : "Kun synlig for Master"}
-                                </TooltipContent>
-                              </Tooltip>
-                              <Button
-                                variant="outline"
-                                className="w-full justify-center gap-2 text-xs"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openSendDialog(product);
-                                }}
-                                disabled={tenantLoading || tenantCount === 0}
-                              >
-                                <Building2 className="h-3.5 w-3.5" />
-                                Send til lejere
-                              </Button>
-                            </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                        );
-                      })()
-                    ))}
-                        </div>
-                        )}
-                        </>
-                        )}
-                      </div>
-                      );
-                    })
-                  )}
-                </div>
-                );
-              })}
-            </CardContent>
-          </Card>
+          </details>
 
           {/* Company Hub Section */}
           <Card className="overflow-hidden">
@@ -2653,114 +2476,7 @@ export function ProductOverview() {
           </Card>
         </div>
       )}
-      <Dialog open={sendDialogOpen} onOpenChange={(open) => !open && closeSendDialog()}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              Send{" "}
-              <span className="font-semibold">
-                {dialogProduct ? `"${dialogProduct.name}"` : "produkt"}
-              </span>{" "}
-              til lejere
-            </DialogTitle>
-            <DialogDescription>
-              Vælg de lejere, der skal modtage produktet som en systemopdatering.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {dialogProduct && getProductPriceHealth(dialogProduct).tone === "warning" && (
-              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <p>
-                  Produktet har 0 Matrix-prisrækker. Lejere kan modtage produktet uden pris-preview, indtil priserne er lagt ind.
-                </p>
-              </div>
-            )}
-
-            <Input
-              placeholder="Søg efter lejer..."
-              value={tenantFilter}
-              onChange={(event) => setTenantFilter(event.target.value)}
-              disabled={tenantLoading || tenantCount === 0}
-            />
-
-            <div className="border rounded-lg border-input/60 bg-background/80 p-3 space-y-2">
-              <div className="flex items-center gap-1.5">
-                <p className="text-sm font-semibold">Leverings-type</p>
-                <AdminInlineHelp content="Standard pris opretter en uafhængig kopi direkte i lejerens Produkter. POD-pris sender produktet til System Updates som en master-styret import." />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {DELIVERY_MODES.map((mode) => (
-                  <div key={mode.id} className="flex items-center gap-1">
-                    <Button
-                      variant={deliveryMode === mode.id ? "secondary" : "outline"}
-                      size="sm"
-                      onClick={() => setDeliveryMode(mode.id)}
-                      className="gap-2 rounded-lg"
-                    >
-                      <span className="text-xs font-semibold leading-none">{mode.label}</span>
-                    </Button>
-                    <AdminInlineHelp content={mode.description} />
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {DELIVERY_MODES.find((mode) => mode.id === deliveryMode)?.description}
-              </p>
-            </div>
-
-            {tenantLoading ? (
-              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Henter lejere...
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-                {filteredTenants.map((tenant) => {
-                  const isChecked = selectedTenantIds.includes(tenant.id);
-                  return (
-                    <label
-                      key={tenant.id}
-                      className="flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm hover:border-primary transition-colors"
-                    >
-                      <Checkbox
-                        checked={isChecked}
-                        onCheckedChange={() => handleTenantToggle(tenant.id)}
-                        className="h-4 w-4"
-                      />
-                      <div className="flex-1">
-                        <p className="font-medium leading-none">{tenant.name}</p>
-                        {tenant.domain && (
-                          <p className="text-xs text-muted-foreground">{tenant.domain}</p>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })}
-                {!filteredTenants.length && (
-                  <p className="text-sm text-muted-foreground">
-                    {tenantFilter ? "Ingen lejere matcher din søgning." : "Ingen lejere fundet."}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={closeSendDialog} disabled={sending}>
-              Annuller
-            </Button>
-            <Button
-              onClick={handleSendToTenants}
-              disabled={sending || selectedTenantIds.length === 0 || tenantLoading}
-            >
-              {sending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Send til {selectedTenantIds.length} {selectedTenantIds.length === 1 ? "lejer" : "lejere"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {sendDialog}
     </div>
   );
 }

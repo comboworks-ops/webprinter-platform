@@ -1,0 +1,45 @@
+.featured-product-deck,.featured-canvas-frame { min-width:0; width:100%; }
+.featured-canvas-frame { overflow-x:clip; }
+.featured-canvas { container: featured-canvas / inline-size; }
+.featured-product-slides { display:grid; align-items:start; }
+.featured-product-slide { min-width:0; grid-area:1 / 1; }
+.featured-product-placement { min-width:0; position:relative; }
+.featured-product-slide[data-active="false"] { visibility:hidden; pointer-events:none; }
+.featured-product-navigation { display:flex; gap:8px; align-items:center; justify-content:center; margin-top:16px; color:var(--body-text,#475569); }
+.featured-product-navigation button { display:grid; place-items:center; width:44px; min-height:44px; border:1px solid #e2e8f0; border-radius:50%; background:white; color:inherit; }
+.featured-product-navigation button:hover { background:#f1f5f9; }
+.featured-product-navigation button:focus-visible { outline:3px solid currentColor; outline-offset:3px; }
+.featured-product-pagination { display:flex; flex-wrap:wrap; justify-content:center; gap:2px; }
+.featured-product-pagination button { border:0; width:32px; }
+.featured-product-pagination span { width:7px; height:7px; background:currentColor; border-radius:50%; opacity:.25; }
+.featured-product-pagination [aria-current="true"] span { opacity:1; }
+.featured-product-count { white-space:nowrap; font-size:12px; font-variant-numeric:tabular-nums; }
+/* Text never creates extra button rows. The explicit grids own the layout. */
+.featured-canvas :is(button,[data-branding-id$=".button"]) { white-space:nowrap; }
+.featured-canvas [data-shop-primary="true"] { white-space:nowrap !important; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+.featured-canvas [data-branding-id="forside.products.featured.button"] { display:block; text-align:center; overflow:hidden; text-overflow:ellipsis; line-height:1.25; width:100%; min-width:0; flex-shrink:0; }
+.featured-canvas .print-price-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:end; min-height:110px; }
+.featured-canvas .print-price-row > div { min-width:0; }
+.featured-canvas[data-layout="fixed"] .print-price-row > div > div { line-height:1.1; }
+.featured-canvas .print-quantities button { overflow:hidden; min-width:0; padding-inline:8px; }
+.featured-canvas .print-quantities button div { overflow:hidden; text-overflow:ellipsis; }
+.featured-canvas .print-quantities [aria-pressed="true"] > div { color:inherit; }
+.featured-canvas .print-options button span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.featured-canvas[data-layout="fixed"] .featured-card-grid[data-side="true"] { grid-template-columns:minmax(0,1fr) 320px; }
+.featured-canvas[data-layout="fixed"] .print-config-layout { flex-direction:row; }
+.featured-canvas[data-layout="fixed"] .print-config-body { width:60%; }
+.featured-canvas[data-layout="fixed"] [data-branding-id="forside.products.featured.image"] { width:40%; min-height:280px; }
+.featured-canvas[data-layout="fixed"] [data-branding-id="forside.products.featured.copy"] h3 { font-size:36px; }
+.featured-canvas[data-layout="fixed"] [data-branding-id="forside.products.featured.copy"] p { min-height:3.1em; }
+.featured-canvas[data-layout="fixed"] .print-options { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.featured-canvas[data-layout="fixed"] .print-quantities > div { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); }
+@container featured-canvas (max-width:540px) {
+  .print-price-row { grid-template-columns:minmax(0,1fr); }
+  .print-quantities > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+
+.featured-canvas[data-layout="fixed"] [data-branding-id="forside.products.featured.side-panel.copy"] p { font-size:16px; line-height:1.5; }
+.featured-canvas[data-layout="fixed"] .featured-card-grid[data-side="true"] .print-quantities > div { grid-template-columns:repeat(2,minmax(0,1fr)); }
+
+.featured-canvas[data-layout="fixed"] [data-branding-id="forside.products.featured.image"] { height:320px; }
+.featured-canvas[data-layout="fixed"] .featured-card-grid[data-side="true"][data-product-side="right"] { grid-template-columns:320px minmax(0,1fr); }

@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -514,6 +515,7 @@ async function fetchProduct(
     .select(productSelect)
     .eq(lookupBy.field, lookupBy.value)
     .eq("tenant_id", tenantId)
+    .eq("is_published", true)
     .limit(1);
   if (tenantError) throw tenantError;
   const tenantProduct = ((tenantRows as ProductRow[] | null) || [])[0] || null;
@@ -525,6 +527,7 @@ async function fetchProduct(
       .select(productSelect)
       .eq(lookupBy.field, lookupBy.value)
       .eq("tenant_id", MASTER_TENANT_ID)
+      .eq("is_published", true)
       .limit(1);
     if (masterError) throw masterError;
     const masterProduct = ((masterRows as ProductRow[] | null) || [])[0] || null;
@@ -551,7 +554,7 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const serviceKey = readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "";
 
     if (!supabaseUrl || !serviceKey) {
       return jsonResponse(500, { success: false, error: "Missing Supabase environment configuration" });

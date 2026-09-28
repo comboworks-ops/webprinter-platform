@@ -1,11 +1,126 @@
 # Pixart Import Runbook (With UX/Logic Guardrails)
 
-Last updated: February 25, 2026
+Last updated: September 9, 2026
 Owner: Webprinter import workflow (`$pixart`)
 
 ## Purpose
 
 This document defines the safe, repeatable process for importing Pixart wide-format products into Webprinter and the non-negotiable guardrails for Format + Storformat UX.
+
+## Current flat-surface quote mode
+
+New flat-surface imports default to `--pricing-mode per-piece-quotes` in
+`scripts/fetch-pixart-flat-surface-adhesive-import.mjs`. This is an additive mode;
+legacy configurations and the rigids importer retain their existing pricing
+engine. Do not use an aggregate-area m² approximation for a new flat product.
+
+The source captures a complete **regular EUR order quote** for each material,
+finish, piece size, quantity and delivery choice. Convert that full order
+amount once using the reviewed FX and markup (default `7.6 × 1.8 = 13.68`).
+`1 m² × 2 pieces` must remain distinct from `2 m² × 1 piece`. Supplier minimum
+billing is represented by the actual source quotes; no minimum coefficient,
+quantity interpolation, rate clamping or smoothing is inferred.
+
+The existing extractor reads the first numeric price in each delivery cell.
+The reviewed Pixart DOM presents the regular struck-through amount before its
+temporary promotional amount. Consequently the recorded regular list prices
+exclude VAT and temporary promotions. The rightmost regular delivery quote is
+stored in `cheapest_quote_eur`; this field name does **not** mean the current
+discounted payable checkout price. Extraction metadata now explicitly records
+the regular basis and EUR currency. Recheck the supplier DOM when markup
+changes rather than assuming this observation remains valid forever.
+Flat quote-mode extraction/import is restricted to the reviewed canonical
+`https://www.pixartprinting.eu/wide-format/printing-self-adhesive-pvc/flat-surface-adhesive/`
+source. A different regional URL is rejected before browser launch or currency
+labelling; supporting it requires verifying its actual currency and price basis.
+
+The additive config contract is:
+
+```text
+area_pricing_basis: "per_piece_quotes"
+source_quote_model: {
+  version: 1, currency: "DKK", price_basis: "regular",
+  base_product_ids: [actual Standard delivery UUID],
+  combinations: [{
+    material_id: actual material UUID,
+    finish_ids: [] or [actual finish UUID],
+    product_ids: [actual Standard or Fast delivery UUID],
+    points: [{area_m2: area of one piece, quantity: exact integer, total_price: full order DKK}]
+  }]
+}
+```
+
+Each paid-finish/production combination contains a full quote, not independently
+averaged surcharges. Standard delivery is an explicit selection. The quote
+engine only interpolates full order totals between captured piece areas for
+the exact material/finish/production/quantity. It refuses extrapolation and
+uncaptured quantities/combinations. Selection rows keep real database IDs;
+preview aliases must never be serialized into a live model.
+
+### Source preparation and review
+
+1. Capture the original product/config/selection IDs before preparing a refresh.
+   Keep raw extraction files and their hashes as immutable source evidence.
+2. Probe, then extract with explicit material, finish, size and quantity scope.
+   Start with a small clean slice. Capture at least three quantities when using
+   the existing whole-series stale-quote checks; include every quantity that
+   the intended product should offer before calling it supplier-verified.
+3. Reject visible supplier dimension errors and changed/clamped dimensions.
+   Flat extraction now validates dimensions before and after quote-grid
+   stabilization, and fails when the grid never stabilizes. A 1500 cm length
+   exceeding a 1497 cm limit is not a valid quote. A retry at another width must
+   preserve its actual width/height and piece area in its source row.
+4. Use the local replacement audit and supplier-bank normalizer to review
+   arithmetic, coverage and stale-price flags. A shared price between materials
+   can be legitimate; inspect it rather than inventing different prices.
+5. Run the same importer in dry-run mode:
+
+   ```bash
+   node scripts/fetch-pixart-flat-surface-adhesive-import.mjs import \
+     --profile flat-surface-adhesive --pricing-mode per-piece-quotes \
+     --input <reviewed-source.json> --dry-run --eur-to-dkk 7.6 --markup-pct 80
+   ```
+
+   The review reports regular/promotional basis, FX/markup, exact quantities,
+   supported areas per combination, full-order/per-piece examples and missing
+   or unsupported combinations. Show this review and same-size/quantity price
+   comparisons to the user. A dry-run does not connect to Supabase or write
+   products/prices.
+6. Full Cartesian coverage is declared by `materials_used`,
+   `laminations_used`, `areas_used_m2` (or historical `areas_requested_m2`), and
+   `quantities_used` metadata. Non-Cartesian combined packets declare an exact
+   `meta.quote_coverage` list of `{material,lamination,area_m2,quantity}` tuples.
+   Missing, duplicate, undeclared, invalid-dimension, failed or inconsistent
+   quote rows block preparation. Paid finishes need matching no-finish
+   baselines. Unsupported options must remain explicitly unpriced; do not copy
+   another option's values. Historical regular/EUR annotations require reviewed
+   evidence; `--source-currency EUR` can explicitly annotate a reviewed packet
+   without changing its raw source file.
+
+### New product versus an existing-product refresh
+
+For an explicitly approved new-product import, the importer first checks that
+the additive config columns are deployed. It creates option IDs, binds the
+validated model to those same IDs, and publishes only after the full config
+has been stored when `--publish` was requested. A failed intermediate write
+therefore leaves the quote-mode product unpublished.
+
+An existing flat product is rejected before any product or price writes. The
+old delete-and-recreate path must not erase stable IDs or original pricing.
+For an approved refresh, use the pure source builder and ID binder in
+`scripts/product-import/shared/pixart-source-quotes.js` to prepare a **config-only
+proposal** bound to the captured existing material/finish/production IDs.
+Retain the original config, tenant ID, layout and selection mappings. Review
+supported and unsupported states and compare prices against the original.
+Only then prepare/apply the separately approved update with a current-value
+guard. Rollback restores the captured original config; legacy tiers are not
+deleted or rewritten. Preparing a proposal is not permission to apply live
+prices or deploy code.
+
+The original m² transformation remains selectable with
+`--pricing-mode legacy-m2` for explicitly scoped legacy reviews. It is not a
+fallback for failed new-mode validation. Historical sections below describe
+the earlier import/bank work and do not override this current flat-surface rule.
 
 ## What Was Completed
 

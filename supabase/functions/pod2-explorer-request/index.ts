@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 // POD v2 Explorer Edge Function - Runs API requests using stored credentials
 // MASTER ONLY - Never expose credentials to browser
 
@@ -72,7 +73,7 @@ serve(async (req) => {
     // Get supplier connection (use service role for encrypted key access)
     const serviceClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "",
     );
 
     let connection: any | null = null;

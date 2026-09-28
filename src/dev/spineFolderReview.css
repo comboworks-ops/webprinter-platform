@@ -1,0 +1,3 @@
+.spine-folder-sheet{margin:var(--ui-space-6,24px) 0}.spine-folder-sheet svg{display:block;width:100%;height:auto}.spine-folder-sheet figcaption{font-size:.78rem;text-align:center;color:#64748b;margin-top:var(--ui-space-2,8px)}
+.spine-folder-review .flat-review-model .flat-print-stage{height:clamp(340px,48vh,500px)}
+@media(max-width:480px){.spine-folder-review .flat-review-model .flat-print-stage{height:360px}}

@@ -1,6 +1,6 @@
 /**
  * usePaidItems Hook
- * 
+ *
  * Manages paid design elements:
  * - Tracks which paid items are used in the current draft
  * - Calculates total cost of unpaid items
@@ -63,7 +63,7 @@ export interface UsePaidItemsReturn {
     // Check if an item is pending (in draft but not purchased)
     isItemPending: (itemType: PaidItemType, itemId: string) => boolean;
 
-    // Process payment (mock for now - would integrate with Stripe/payment provider)
+    // Disabled until design purchases have server-verified payment evidence
     processPurchase: () => Promise<boolean>;
 
     // Refresh data
@@ -89,7 +89,7 @@ export function usePaidItems(tenantId: string | null): UsePaidItemsReturn {
         setLoadingPending(true);
         try {
             const { data, error } = await supabase
-                .from('tenant_pending_items' as any)
+                .from('tenant_pending_items')
                 .select('*')
                 .eq('tenant_id', tenantId)
                 .order('applied_at', { ascending: false });
@@ -126,7 +126,7 @@ export function usePaidItems(tenantId: string | null): UsePaidItemsReturn {
         setLoadingPurchases(true);
         try {
             const { data, error } = await supabase
-                .from('tenant_purchases' as any)
+                .from('tenant_purchases')
                 .select('*')
                 .eq('tenant_id', tenantId)
                 .eq('status', 'completed')
@@ -214,7 +214,7 @@ export function usePaidItems(tenantId: string | null): UsePaidItemsReturn {
         try {
             debugLog('[usePaidItems] Inserting pending item into database...');
             const { data, error } = await supabase
-                .from('tenant_pending_items' as any)
+                .from('tenant_pending_items')
                 .upsert({
                     tenant_id: tenantId,
                     item_type: item.type,
@@ -250,7 +250,7 @@ export function usePaidItems(tenantId: string | null): UsePaidItemsReturn {
 
         try {
             const { error } = await supabase
-                .from('tenant_pending_items' as any)
+                .from('tenant_pending_items')
                 .delete()
                 .eq('tenant_id', tenantId)
                 .eq('item_type', itemType)
@@ -272,7 +272,7 @@ export function usePaidItems(tenantId: string | null): UsePaidItemsReturn {
 
         try {
             const { error } = await supabase
-                .from('tenant_pending_items' as any)
+                .from('tenant_pending_items')
                 .delete()
                 .eq('tenant_id', tenantId);
 
@@ -286,46 +286,10 @@ export function usePaidItems(tenantId: string | null): UsePaidItemsReturn {
         }
     }, [tenantId]);
 
-    // Process purchase (convert pending items to purchases)
-    const processPurchase = useCallback(async (): Promise<boolean> => {
-        if (!tenantId || pendingItems.length === 0) return true;
-
-        try {
-            // In a real implementation, this would:
-            // 1. Create a payment intent with Stripe
-            // 2. Show payment UI
-            // 3. Wait for successful payment
-            // 4. Then insert purchases
-
-            // For now, we'll do a "mock" purchase that just moves items to purchases
-            const purchaseInserts = pendingItems.map(item => ({
-                tenant_id: tenantId,
-                item_type: item.type,
-                item_id: item.itemId,
-                item_name: item.name,
-                price_paid: item.price,
-                status: 'completed',
-            }));
-
-            const { error: insertError } = await supabase
-                .from('tenant_purchases' as any)
-                .insert(purchaseInserts);
-
-            if (insertError) {
-                console.error('Error inserting purchases:', insertError);
-                return false;
-            }
-
-            // Clear pending items
-            await clearPendingItems();
-            await loadPurchases();
-
-            return true;
-        } catch (err) {
-            console.error('Error processing purchase:', err);
-            return false;
-        }
-    }, [tenantId, pendingItems, clearPendingItems, loadPurchases]);
+    // No server-verified payment integration exists for design-library purchases.
+    // Keep this fail-closed until a provider callback can prove the payment.
+    // Never manufacture a completed purchase or erase the pending records here.
+    const processPurchase = useCallback(async (): Promise<boolean> => false, []);
 
     // Refresh all data
     const refresh = useCallback(async () => {

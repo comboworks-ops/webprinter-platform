@@ -8,12 +8,14 @@ This repo uses a few high-priority docs to avoid breaking production logic. Read
 4) Handover notes: `.agent/HANDOVER.md`
 
 General expectations:
+- For layout, spacing, typography and responsive header work, use `.agent/skills/ui-layout-consistency/SKILL.md` and the shared layout tokens; preserve selected design presets and tenant branding.
 - Do not change existing pricing or POD v1 logic unless explicitly instructed.
 - Prefer additive changes; avoid destructive DB changes.
 - If a task mentions POD v2, follow `POD2_README.md` strictly.
 - Do not introduce major workflow/UI architecture changes (for example replacing manual product creation flow) without explicit user approval first.
 - For Pixart wide-format imports, use `.agent/skills/pixart/SKILL.md` and `scripts/fetch-pixart-flat-surface-adhesive-import.mjs` (do not create a parallel import flow).
 - For t-shirt imports with size distribution, use `.agent/skills/tshirt-fetch/SKILL.md` and keep scope limited to t-shirt products.
+- For one-link supplier product imports or append-only continuation imports that include prices, Danish copy, visual option icons, file guides, and exact designer PDF templates, use `.agent/skills/import-supplier-product/SKILL.md`; protect existing product data and keep extraction, bank writes, product changes, pricing writes, and publishing as separate approval gates.
 - For Supabase migrations that create `public` tables, views, or RPC/functions,
   follow `docs/SUPABASE_DATA_API_GRANTS.md`: add explicit `GRANT`/`REVOKE`
   decisions beside RLS policies and run `npm run check:supabase-grants`.

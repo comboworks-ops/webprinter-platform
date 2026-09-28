@@ -347,7 +347,7 @@ export function getProductionOrderPresentation(
     if (validationIsCurrent) {
       return presentation("ready", "Klar til produktion", true, true, "Bekræft leverandørordre");
     }
-    const waitingLabel = job.status === "awaiting_approval" ? "Afventer godkendelse" : "Afventer kontrol";
+    const waitingLabel = "Afventer kontrol";
     return presentation("waiting", waitingLabel, true, false, "Kontrollér ordre");
   }
 

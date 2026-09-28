@@ -1,3 +1,4 @@
+import { StorefrontPrimaryButton } from "@/components/storefront/StorefrontPrimaryButton";
 import { useMemo, useState } from "react";
 import {
     Elements,
@@ -133,7 +134,7 @@ function CheckoutForm({
                 >
                     Annuller
                 </Button>
-                <Button
+                <StorefrontPrimaryButton
                     type="submit"
                     disabled={!stripe || isProcessing}
                     className="flex-1 h-12 text-lg font-bold"
@@ -148,7 +149,7 @@ function CheckoutForm({
                             Betal {amount.toLocaleString("da-DK")} kr
                         </>
                     )}
-                </Button>
+                </StorefrontPrimaryButton>
             </div>
         </form>
     );
@@ -163,6 +164,19 @@ export function StripePaymentForm({
     connectedAccountId,
 }: PaymentFormProps) {
     const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+
+    // Memoize the stripe instance. Without this, `loadStripe` fires on every
+    // render in the connected-account path — <Elements> sees a new Stripe
+    // promise, remounts, and the PaymentElement never stays mounted (Stripe
+    // then throws "elements should have a mounted Payment Element" on
+    // confirmPayment and hammers elements/sessions with 400s).
+    const stripeInstance = useMemo(() => {
+        if (!stripeKey) return null;
+        return connectedAccountId
+            ? loadStripe(stripeKey, { stripeAccount: connectedAccountId })
+            : getStripePromise();
+    }, [stripeKey, connectedAccountId]);
+
 
     // If no Stripe key is configured, show a message instead of crashing
     if (!stripeKey) {
@@ -192,18 +206,6 @@ export function StripePaymentForm({
         },
         locale: "da",
     };
-
-    // Memoize the stripe instance. Without this, `loadStripe` fires on every
-    // render in the connected-account path — <Elements> sees a new Stripe
-    // promise, remounts, and the PaymentElement never stays mounted (Stripe
-    // then throws "elements should have a mounted Payment Element" on
-    // confirmPayment and hammers elements/sessions with 400s).
-    const stripeInstance = useMemo(() => {
-        if (!stripeKey) return null;
-        return connectedAccountId
-            ? loadStripe(stripeKey, { stripeAccount: connectedAccountId })
-            : getStripePromise();
-    }, [stripeKey, connectedAccountId]);
 
     return (
         <Card className="w-full max-w-md mx-auto shadow-xl border-2">

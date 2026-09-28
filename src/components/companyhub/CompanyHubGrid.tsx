@@ -7,8 +7,8 @@ import { useNavigate } from "react-router-dom";
 
 export function CompanyHubGrid({ company }: { company: CompanyAccount }) {
     const navigate = useNavigate();
-    const { hubItemsQuery } = useCompanyHub(company.tenant_id);
-    const { data: items, isLoading } = hubItemsQuery(company.id);
+    const { useHubItemsQuery } = useCompanyHub(company.tenant_id);
+    const { data: items, isLoading } = useHubItemsQuery(company.id);
 
     const handleBuy = (item: HubItem) => {
         if (!item.product_slug) return;

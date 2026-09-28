@@ -44,19 +44,19 @@ export function VisitorStatsWidget() {
             const [activeResult, todayResult, weekResult] = await Promise.all([
                 // Active now - unique visitors in last 5 min
                 supabase
-                    .from('page_views' as any)
+                    .from('page_views')
                     .select('visitor_id')
                     .gte('created_at', fiveMinutesAgo),
 
                 // Today - unique visitors today
                 supabase
-                    .from('page_views' as any)
+                    .from('page_views')
                     .select('visitor_id')
                     .gte('created_at', startOfDay),
 
                 // This week - unique visitors this week
                 supabase
-                    .from('page_views' as any)
+                    .from('page_views')
                     .select('visitor_id')
                     .gte('created_at', startOfWeek),
             ]);

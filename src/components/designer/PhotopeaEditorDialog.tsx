@@ -132,7 +132,7 @@ export function PhotopeaEditorDialog({
     }
 
     const validation = validatePhotopeaPngOutput(bytes);
-    if (!validation.ok) {
+    if (validation.ok === false) {
       setError(validation.message);
       return;
     }
@@ -191,7 +191,7 @@ export function PhotopeaEditorDialog({
       fileName: file.name,
       mimeType: file.type,
     });
-    if (!validation.ok) {
+    if (validation.ok === false) {
       setError(validation.message);
       return;
     }

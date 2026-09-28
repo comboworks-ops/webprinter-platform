@@ -1555,6 +1555,8 @@ async function runIngestBlueprint(args) {
     payload: {},
     firecrawlError: null,
     playwrightError: null,
+    scraplingError: null,
+    staticHtmlError: null,
   };
   let transformed = { rows: [], skipped: [] };
 
@@ -1581,6 +1583,9 @@ async function runIngestBlueprint(args) {
       provider: extraction.provider,
       firecrawlError: extraction.firecrawlError || null,
       playwrightError: extraction.playwrightError || null,
+      scraplingError: extraction.scraplingError || null,
+      staticHtmlError: extraction.staticHtmlError || null,
+      evidence: extraction.payload || {},
     },
     liTexts: extraction.liTexts,
     rows: transformed.rows,

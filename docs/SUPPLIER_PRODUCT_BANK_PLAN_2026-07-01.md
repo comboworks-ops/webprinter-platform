@@ -216,9 +216,19 @@ Adapter responsibilities:
 
 Recommended tool order:
 1. Supplier API or JSON endpoint, when available.
-2. Existing optimized Playwright scripts for complex dynamic suppliers.
-3. Firecrawl for simpler catalog/product pages and text extraction.
-4. Static HTML fetch as a fallback for simple pages.
+2. Guarded Scrapling HTTP for fast, bounded static discovery, metadata, images,
+   PDF references, and stable server-rendered selectors.
+3. Existing optimized Playwright scripts for complex dynamic suppliers and
+   authoritative configurator-price extraction.
+4. Basic static HTML fetch or Jina Reader when full CSS evidence is unnecessary.
+5. Firecrawl only as a low-credit fallback or for an explicitly bounded crawl,
+   URL map, or schema extraction.
+
+Scrapling is wired through `scripts/product-import/extractors.js` and the
+isolated runtime under `$CODEX_HOME/tools/webprinter-scrapling/0.4.8`. It is a
+read-only evidence route. It must not bypass source-specific price validation,
+the Supplier Bank review state, or the separate product/pricing/publish approval
+gates.
 
 ## Danish Normalization
 

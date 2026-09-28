@@ -1,6 +1,6 @@
 /**
  * SpecialBadgeEditor - Admin UI for configuring the special badge on product cards
- * 
+ *
  * Allows configuration of:
  * - Enable/disable badge
  * - Badge text (e.g., "Tilbud", "Nyhed", "Bestseller")
@@ -9,6 +9,7 @@
  * - Text color
  */
 
+import { WorkspaceImageInput } from "./WorkspaceImageInput";
 import { useState, useEffect } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,8 @@ import { Sparkles, RotateCw, Zap, Circle } from "lucide-react";
 import { ProductBadge, type ProductBadgeConfig, type BadgeAnimation } from "@/components/ProductBadge";
 
 interface SpecialBadgeEditorProps {
+    tenantId?: string;
+    productId?: string;
     value: ProductBadgeConfig | undefined;
     onChange: (config: ProductBadgeConfig) => void;
 }
@@ -39,6 +42,9 @@ const DEFAULT_CONFIG: ProductBadgeConfig = {
 };
 
 const ANIMATION_OPTIONS: { value: BadgeAnimation; label: string; icon: React.ReactNode; description: string }[] = [
+    {value: "none", label: "Ingen", icon: <Circle className="h-4 w-4" />, description: "Står stille"},
+    {value: "spin", label: "Rotation", icon: <RotateCw className="h-4 w-4" />, description: "Drejer kontinuerligt"},
+    {value: "float", label: "Svæv", icon: <Sparkles className="h-4 w-4" />, description: "Svæver roligt"},
     {
         value: "bounce",
         label: "Bounce",
@@ -61,7 +67,7 @@ const ANIMATION_OPTIONS: { value: BadgeAnimation; label: string; icon: React.Rea
 
 const PRESET_TEXTS = ["Tilbud", "Nyhed", "Bestseller", "Populær", "-20%", "Gratis fragt"];
 
-export function SpecialBadgeEditor({ value, onChange }: SpecialBadgeEditorProps) {
+export function SpecialBadgeEditor({ value, onChange, tenantId, productId }: SpecialBadgeEditorProps) {
     const [config, setConfig] = useState<ProductBadgeConfig>(value || DEFAULT_CONFIG);
 
     // Sync with parent when value changes
@@ -107,6 +113,12 @@ export function SpecialBadgeEditor({ value, onChange }: SpecialBadgeEditorProps)
                         </div>
                     </div>
 
+                    {tenantId && productId && <WorkspaceImageInput label="Eget badge-billede (PNG, JPG eller WebP)" value={config.imageUrl || ''} tenantId={tenantId} productId={productId} onChange={imageUrl => updateConfig({imageUrl})} />}
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="text-sm">Størrelse (px)<Input type="number" min={32} max={160} value={config.size || 64} onChange={e => updateConfig({size:Number(e.target.value)})}/></label>
+                      <label className="text-sm">Varighed (sekunder)<Input type="number" min={1} max={20} value={config.duration || 4} onChange={e => updateConfig({duration:Number(e.target.value)})}/></label>
+                      <label className="text-sm">Placering<select className="block w-full rounded border p-2" value={config.position || 'top-left'} onChange={e => updateConfig({position:e.target.value as ProductBadgeConfig['position']})}>{[['top-left','Øverst til venstre'],['top-right','Øverst til højre'],['bottom-left','Nederst til venstre'],['bottom-right','Nederst til højre']].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
+                    </div>
                     {/* Badge Text */}
                     <div className="space-y-2">
                         <Label>Badge tekst</Label>

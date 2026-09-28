@@ -1,6 +1,7 @@
+import { DEFAULT_BRANDING } from "@/hooks/useBrandingDraft";
 /**
  * Forside (Front Page) Editor Section
- * 
+ *
  * Unified section that combines Logo, Header, Banner toggle, Content Blocks, and Footer
  * into a single "Forside" tab with collapsible subsections.
  */
@@ -70,7 +71,7 @@ export function ForsideSection({
 
     const forside = draft.forside;
     const contentBlocks = forside.contentBlocks || [];
-    const productsSection = forside.productsSection || { enabled: true, columns: 4 };
+    const productsSection = forside.productsSection || DEFAULT_BRANDING.forside.productsSection;
     const layoutStyle = productsSection.layoutStyle || 'cards';
     const buttonConfig = productsSection.button || {
         style: 'default',

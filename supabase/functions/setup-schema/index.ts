@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
             // I'll wrap policies in try/catch blocks via separate queries or ignore errors.
 
             const createPolicy = async (sql: string) => {
-                try { await connection.queryObject(sql); } catch (e) { console.log("Policy error (maybe exists):", e.message); }
+                try { await connection.queryObject(sql); } catch (e) { console.log("Policy error (maybe exists):", e instanceof Error ? e.message : "Policy setup failed"); }
             };
 
             await createPolicy(`create policy "Public Read Flyer" on print_flyers for select using (true)`);
@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
     } catch (err) {
         console.error("Schema Setup Error:", err);
-        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ error: err instanceof Error ? err.message : "Schema setup failed" }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     } finally {
         await pool.end();
     }

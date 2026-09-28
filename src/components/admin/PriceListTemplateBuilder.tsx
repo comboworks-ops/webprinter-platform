@@ -62,7 +62,7 @@ export function PriceListTemplateBuilder({
         if (stored) {
             try {
                 setSelectedOplag(JSON.parse(stored));
-            } catch { }
+            } catch { /* Ignore invalid local cache and keep the current selection. */ }
         }
         fetchTemplates();
     }, [productId]);
@@ -75,7 +75,7 @@ export function PriceListTemplateBuilder({
     // Fetch saved templates
     async function fetchTemplates() {
         const { data } = await supabase
-            .from('price_list_templates' as any)
+            .from('price_list_templates')
             .select('*')
             .eq('product_id', productId)
             .order('created_at', { ascending: false });
@@ -157,7 +157,7 @@ export function PriceListTemplateBuilder({
             const { data: { user } } = await supabase.auth.getUser();
 
             const { error } = await supabase
-                .from('price_list_templates' as any)
+                .from('price_list_templates')
                 .insert({
                     tenant_id: tenantId,
                     product_id: productId,
@@ -191,7 +191,7 @@ export function PriceListTemplateBuilder({
         try {
             const { data: { user } } = await supabase.auth.getUser();
             const { error } = await supabase
-                .from('price_list_templates' as any)
+                .from('price_list_templates')
                 .insert({
                     tenant_id: tenantId,
                     product_id: productId,
@@ -213,7 +213,7 @@ export function PriceListTemplateBuilder({
     const deleteTemplate = async (id: string) => {
         if (!confirm('Slet denne skabelon?')) return;
         const { error } = await supabase
-            .from('price_list_templates' as any)
+            .from('price_list_templates')
             .delete()
             .eq('id', id);
         if (error) {
@@ -231,7 +231,7 @@ export function PriceListTemplateBuilder({
         try {
             const spec = buildSpec();
             const { error } = await supabase
-                .from('price_list_templates' as any)
+                .from('price_list_templates')
                 .update({ name: editingTemplate.name, spec, updated_at: new Date().toISOString() })
                 .eq('id', editingTemplate.id);
             if (error) throw error;

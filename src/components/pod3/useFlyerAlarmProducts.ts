@@ -46,7 +46,7 @@ async function checkProductConfigurator(groupId: number): Promise<boolean> {
     if (groupConfigData.success && groupConfigData.data?.attributes && Object.keys(groupConfigData.data.attributes).length > 0) {
       return true;
     }
-    
+
     return false;
   } catch (error) {
     return false;
@@ -69,16 +69,16 @@ export function useFlyerAlarmProducts(options: UseFlyerAlarmProductsOptions = {}
       try {
         // Get all product groups
         const data = await makeApiRequest("/catalog/groups", "GET");
-        
+
         if (data.success && data.data?.data) {
-          let allProducts: FlyerAlarmProduct[] = data.data.data;
-          
+          const allProducts: FlyerAlarmProduct[] = data.data.data;
+
           // Filter to working products if requested
           if (filterWorking) {
             // Test first 20 products to find working ones
             const testBatch = allProducts.slice(0, 20);
             const workingProducts: FlyerAlarmProduct[] = [];
-            
+
             for (const product of testBatch) {
               const hasConfigurator = await checkProductConfigurator(product.id);
               if (hasConfigurator) {
@@ -86,7 +86,7 @@ export function useFlyerAlarmProducts(options: UseFlyerAlarmProductsOptions = {}
                 if (workingProducts.length >= limit) break;
               }
             }
-            
+
             setProducts(workingProducts);
           } else {
             setProducts(allProducts.slice(0, limit));

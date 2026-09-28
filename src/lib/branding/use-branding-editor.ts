@@ -1,13 +1,15 @@
 /**
  * Shared Branding Editor Hook
- * 
+ *
  * A React hook that provides branding editing state and actions,
  * working with any storage adapter (Master or Tenant).
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useReducer } from 'react';
+import { createDraftHistory, draftHistoryReducer } from './draftHistory';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { BrandingSettingsWriteError } from './settings-persistence';
 import {
     type BrandingData,
     type BrandingStorageAdapter,
@@ -39,6 +41,12 @@ export interface UseBrandingEditorReturn {
     entityName: string;
     capabilities: BrandingCapabilities;
 
+    canUndo: boolean;
+    canRedo: boolean;
+    undo: () => void;
+    redo: () => void;
+    replaceDraft: (data: BrandingData) => void;
+
     // Draft operations
     updateDraft: (partial: Partial<BrandingData>) => void;
     saveDraft: () => Promise<void>;
@@ -61,7 +69,7 @@ export interface UseBrandingEditorReturn {
     deleteSavedDesign: (id: string) => Promise<void>;
 
     // Asset operations
-    uploadAsset: (file: File, type: 'logo' | 'hero-image' | 'hero-video') => Promise<string>;
+    uploadAsset: (file: File, type: 'logo' | 'hero-image' | 'hero-video' | 'usp-icon') => Promise<string>;
     deleteAsset: (url: string) => Promise<void>;
 
     // Refresh
@@ -72,7 +80,12 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
     const { adapter, capabilities } = options;
     const queryClient = useQueryClient();
 
-    const [draft, setDraft] = useState<BrandingData>(DEFAULT_BRANDING);
+    const [draftHistory, dispatchDraft] = useReducer(draftHistoryReducer<BrandingData>, DEFAULT_BRANDING, createDraftHistory<BrandingData>);
+    const draft = draftHistory.present;
+    const setDraft = useCallback((value: BrandingData) => dispatchDraft({ type: 'load', value }), []);
+    const replaceDraft = useCallback((value: BrandingData) => dispatchDraft({ type: 'edit', value }), []);
+    const undo = useCallback(() => dispatchDraft({ type: 'undo' }), []);
+    const redo = useCallback(() => dispatchDraft({ type: 'redo' }), []);
     const [published, setPublished] = useState<BrandingData>(DEFAULT_BRANDING);
     const [originalDraft, setOriginalDraft] = useState<BrandingData>(DEFAULT_BRANDING);
     const [history, setHistory] = useState<BrandingHistoryEntry[]>([]);
@@ -128,7 +141,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         } finally {
             setIsLoading(false);
         }
-    }, [adapter]);
+    }, [adapter, setDraft]);
 
     useEffect(() => {
         loadData();
@@ -136,7 +149,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
 
     // Update draft (local state only)
     const updateDraft = useCallback((partial: Partial<BrandingData>) => {
-        setDraft(prev => {
+        dispatchDraft({ type: 'edit', at: Date.now(), group: Object.keys(partial).join(','), value: prev => {
             // Deep merge for nested objects
             const newHero = partial.hero ? {
                 ...prev.hero,
@@ -206,7 +219,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
                 forside: newForside,
                 navigation: { ...prev.navigation, ...(partial.navigation || {}) },
             };
-        });
+        } });
     }, []);
 
     // Save draft to storage
@@ -215,10 +228,11 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         try {
             await adapter.saveDraft(draft);
             setOriginalDraft(draft);
+            dispatchDraft({ type: 'checkpoint' });
             toast.success('Kladde gemt (ikke live endnu)');
         } catch (error) {
             console.error('Error saving draft:', error);
-            toast.error('Kunne ikke gemme kladde');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke gemme kladde');
             throw error;
         } finally {
             setIsSaving(false);
@@ -236,12 +250,12 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             toast.success('Ændringer kasseret');
         } catch (error) {
             console.error('Error discarding draft:', error);
-            toast.error('Kunne ikke kassere ændringer');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke kassere ændringer');
             throw error;
         } finally {
             setIsSaving(false);
         }
-    }, [adapter]);
+    }, [adapter, setDraft]);
 
     // Publish
     const publish = useCallback(async (label?: string) => {
@@ -250,11 +264,12 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             await adapter.publish(draft, label);
             setPublished(draft);
             setOriginalDraft(draft);
+            dispatchDraft({ type: 'checkpoint' });
             await refreshShopSettings();
             toast.success('Branding publiceret (live opdateret)');
         } catch (error) {
             console.error('Error publishing:', error);
-            toast.error('Kunne ikke publicere');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke publicere');
             throw error;
         } finally {
             setIsSaving(false);
@@ -273,12 +288,12 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             toast.success('Nulstillet til standard');
         } catch (error) {
             console.error('Error resetting:', error);
-            toast.error('Kunne ikke nulstille');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke nulstille');
             throw error;
         } finally {
             setIsSaving(false);
         }
-    }, [adapter, refreshShopSettings]);
+    }, [adapter, refreshShopSettings, setDraft]);
 
     // Load history
     const loadHistory = useCallback(async () => {
@@ -301,12 +316,12 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             toast.success('Version gendannet');
         } catch (error) {
             console.error('Error restoring version:', error);
-            toast.error('Kunne ikke gendanne version');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke gendanne version');
             throw error;
         } finally {
             setIsSaving(false);
         }
-    }, [adapter]);
+    }, [adapter, setDraft]);
 
     // Load saved designs
     const loadSavedDesigns = useCallback(async () => {
@@ -331,11 +346,12 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
                 // If no name, just save current draft state (standard save)
                 await adapter.saveDraft(draft);
                 setOriginalDraft(draft);
+                dispatchDraft({ type: 'checkpoint' });
                 toast.success('Kladde gemt (ikke live endnu)');
             }
         } catch (error) {
             console.error('Error saving design:', error);
-            toast.error('Kunne ikke gemme');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke gemme');
             throw error;
         } finally {
             setIsSaving(false);
@@ -348,8 +364,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         try {
             const designData = await adapter.loadSavedDesign(id);
             const merged = mergeBrandingWithDefaults(designData);
-            setDraft(merged);
-            setOriginalDraft(merged); // Treat loaded design as new baseline
+            replaceDraft(merged); // Loading a design remains an unsaved, undoable change
             toast.success('Design indlæst');
         } catch (error) {
             console.error('Error loading design:', error);
@@ -358,7 +373,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         } finally {
             setIsSaving(false);
         }
-    }, [adapter]);
+    }, [adapter, replaceDraft]);
 
     // Delete saved design
     const deleteSavedDesign = useCallback(async (id: string) => {
@@ -369,7 +384,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
             toast.success('Design slettet');
         } catch (error) {
             console.error('Error deleting design:', error);
-            toast.error('Kunne ikke slette design');
+            toast.error(error instanceof BrandingSettingsWriteError ? error.message : 'Kunne ikke slette design');
             throw error;
         } finally {
             setIsSaving(false);
@@ -379,7 +394,7 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
     // Upload asset
     const uploadAsset = useCallback(async (
         file: File,
-        type: 'logo' | 'hero-image' | 'hero-video'
+        type: 'logo' | 'hero-image' | 'hero-video' | 'usp-icon'
     ): Promise<string> => {
         return adapter.uploadAsset(file, type);
     }, [adapter]);
@@ -402,6 +417,12 @@ export function useBrandingEditor(options: UseBrandingEditorOptions): UseBrandin
         entityId: adapter.entityId,
         entityName: adapter.entityName,
         capabilities,
+
+        canUndo: draftHistory.past.length > 0,
+        canRedo: draftHistory.future.length > 0,
+        undo,
+        redo,
+        replaceDraft,
 
         // Draft operations
         updateDraft,

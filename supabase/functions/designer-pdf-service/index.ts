@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 // Authenticated designer PDF processing facade. The browser never receives the
 // private Stirling-PDF URL or API key, and processed files are stored immutably.
 
@@ -161,13 +162,13 @@ const safeFileStem = (fileName?: string) => {
 const getServiceClient = () =>
   createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "",
   );
 
 const getUserClient = (authHeader: string) =>
   createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+    readSupabaseKey((name) => Deno.env.get(name), "publishable") ?? "",
     { global: { headers: { Authorization: authHeader } } },
   );
 

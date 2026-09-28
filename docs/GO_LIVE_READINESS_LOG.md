@@ -1,5 +1,10 @@
 # Go-Live Readiness Log
 
+Current execution index (2026-09-06): [Launch register](LAUNCH_REGISTER.md).
+Use it for the compact scope, dated evidence and ordered next actions. The
+checklists below retain historical status; unchecked items are not fresh
+failure reports. Record the final owner launch decision in this log.
+
 Date opened: 2026-03-21
 Owner: Webprinter
 Overall status: In progress
@@ -103,3 +108,7 @@ Do not open for real customer ordering if any of these remain unresolved:
 - Pricing logic remains protected and should only be checked, not changed, unless explicitly approved.
 - If a release candidate is prepared, record the final go-live date and decision in this file before opening customer traffic.
 - After the current launch blockers are cleared, audit the mixed fulfillment model explicitly: tenant-owned storefront, master-processed orders, and POD/manual supplier channels must be separated from customer-facing branding.
+
+## 2026-09-10 — launch audit: HOLD
+
+Current [launch register](LAUNCH_REGISTER.md) refreshed after the Markdown inventory, local build/521 tests/typecheck and real browser review, plus read-only hosted migration/function/privilege checks. Local public ordering screens work through non-square Designer handoff; unrestricted launch is held for exposed administrative/seed endpoints, writable owner-rights public catalog views, undeployed payment/account/branding/email repairs and missing authenticated transaction/production acceptance. No release approval or production change occurred. [Detailed evidence](launch-review-2026-09-10/verification.md).

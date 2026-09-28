@@ -1,7 +1,12 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import { normalizeJobIds } from "../_shared/pod2PrintcomSafety.ts";
+import { resolvePod2PriceSnapshot } from "../_shared/pod2Pricing.ts";
+import {requireUser} from '../_shared/auth.ts';
+import {completedOrderProof,ownsCompletedCheckout,canManagePod2Jobs} from '../_shared/pod2JobAccess.ts';
+import {boundedExplorerText} from '../_shared/podExplorerAccess.ts';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,29 +30,6 @@ const parseSenderMode = (note: string | null | undefined) => {
   return "standard" as const;
 };
 
-const resolveTenantCost = (
-  quantities: number[] = [],
-  baseCosts: number[] = [],
-  qty: number,
-) => {
-  let resolved = 0;
-  for (let i = quantities.length - 1; i >= 0; i -= 1) {
-    const tierQty = Number(quantities[i]);
-    const tierCost = Number(baseCosts[i]);
-    if (
-      Number.isFinite(tierQty) && Number.isFinite(tierCost) && qty >= tierQty
-    ) {
-      resolved = tierCost;
-      break;
-    }
-  }
-  if (!resolved && baseCosts.length > 0) {
-    const fallback = Number(baseCosts[0]);
-    if (Number.isFinite(fallback)) resolved = fallback;
-  }
-  return resolved;
-};
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -60,16 +42,12 @@ serve(async (req) => {
   }
 
   try {
-    // This endpoint is called from two places:
-    //   1. Tenant/master admins clicking "Opret job fra ordre" in the UI.
-    //   2. The checkout flow, right after an order is persisted — often
-    //      as an anonymous customer with no JWT.
-    //
-    // The operation is fully determined by the order row (tenant_id,
-    // product, qty, etc. all come from the DB, not the caller) and is
-    // idempotent (one job per order+catalog_product). So the orderId
-    // itself is the authorization — no role gate.
-    const body = await req.json().catch(() => ({}));
+    // Admin operations require exact tenant management. Guest checkout carries
+    // its separate recovery capability, bound to the completed paid order.
+    const body = JSON.parse(await boundedExplorerText(req.body,8192));
+    const fromCheckout=!!body.checkout_attempt_id || !!body.checkout_access_token;
+    const actor=fromCheckout ? null : await requireUser(req);
+    if(actor && !actor.ok)return actor.response;
     let orderId = "";
     try {
       orderId = normalizeJobIds([body?.orderId], 1)?.[0] || "";
@@ -88,16 +66,27 @@ serve(async (req) => {
 
     const serviceClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "",
     );
 
     const { data: order, error: orderError } = await serviceClient
       .from("orders")
       .select(
-        "id, tenant_id, product_slug, product_name, quantity, customer_email, customer_name, delivery_type, delivery_address, delivery_city, delivery_zip, status_note, product_configuration",
+        "id, tenant_id, total_price, product_slug, product_name, quantity, customer_email, customer_name, delivery_type, delivery_address, delivery_city, delivery_zip, status_note, product_configuration",
       )
       .eq("id", orderId)
       .maybeSingle();
+
+    if(orderError || !order)return new Response(JSON.stringify({error:'Order access denied'}),{status:403,headers:corsHeaders});
+    let proofQuery=serviceClient.from('storefront_checkout_attempts')
+      .select('id,order_id,tenant_id,state,payment_intent_id,amount_ore,access_token_hash')
+      .eq('order_id',order.id).eq('tenant_id',order.tenant_id).eq('state','completed');
+    if(fromCheckout)proofQuery=proofQuery.eq('id',body.checkout_attempt_id || '');
+    const {data:proof}=await proofQuery.maybeSingle();
+    const allowed=fromCheckout
+      ? await ownsCompletedCheckout(proof,order,body.checkout_access_token)
+      : actor?.ok && await canManagePod2Jobs(serviceClient,actor.user.id,order.tenant_id);
+    if(!allowed)return new Response(JSON.stringify({error:'Order access denied'}),{status:403,headers:corsHeaders});
 
     // Pull the tenant's POD v2 auto-forward flag. Self-owned tenants skip
     // the approve+charge gate so the job lands straight in master queue.
@@ -110,7 +99,7 @@ serve(async (req) => {
         .select("pod2_auto_forward")
         .eq("id", order?.tenant_id || "")
         .maybeSingle();
-      autoForward = Boolean((tenantRow as any)?.pod2_auto_forward);
+      autoForward = Boolean((tenantRow as any)?.pod2_auto_forward) && completedOrderProof(proof,order);
     } catch {
       autoForward = false;
     }
@@ -184,7 +173,7 @@ serve(async (req) => {
     let { data: priceMatrix } = await serviceClient
       .from("pod2_catalog_price_matrix")
       .select(
-        "variant_signature, quantities, base_costs, currency, needs_quote",
+        "variant_signature, quantities, base_costs, recommended_retail, currency, needs_quote",
       )
       .eq("catalog_product_id", catalogProductId)
       .eq("variant_signature", requestedVariant)
@@ -195,7 +184,7 @@ serve(async (req) => {
       const { data: fallbackMatrix } = await serviceClient
         .from("pod2_catalog_price_matrix")
         .select(
-          "variant_signature, quantities, base_costs, currency, needs_quote",
+          "variant_signature, quantities, base_costs, recommended_retail, currency, needs_quote",
         )
         .eq("catalog_product_id", catalogProductId)
         .eq("needs_quote", false)
@@ -215,18 +204,21 @@ serve(async (req) => {
     }
 
     const qty = Number(order.quantity || 1);
-    const tenantCost = resolveTenantCost(
-      priceMatrix.quantities,
-      priceMatrix.base_costs,
-      qty,
-    );
+    const priceSnapshot = resolvePod2PriceSnapshot({
+      quantities: priceMatrix.quantities,
+      supplierCosts: priceMatrix.base_costs,
+      webprinterPrices: priceMatrix.recommended_retail,
+      orderedQuantity: qty,
+    });
+    const tenantCost = priceSnapshot?.webprinterPrice ?? 0;
     if (
       !Number.isInteger(qty) || qty <= 0 || !Number.isFinite(tenantCost) ||
       tenantCost <= 0
     ) {
       return new Response(
         JSON.stringify({
-          error: "POD v2 quantity or supplier cost is invalid",
+          error:
+            "POD v2 quantity, supplier cost, or Webprinter price is invalid",
         }),
         {
           status: 409,

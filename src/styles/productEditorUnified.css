@@ -1,0 +1,28 @@
+.product-editor-unified .admin-product-editorial {display:grid;grid-template-columns:minmax(300px,38%) minmax(0,1fr);gap:20px;align-items:start}
+.product-editor-unified .admin-product-editorial-controls {max-height:calc(100vh - 260px);overflow:auto;min-width:0;padding-right:6px}
+.product-editor-unified .admin-product-editorial-preview {position:sticky;top:16px;min-width:0;padding:0;border:0;background:transparent}
+.product-editor-unified .admin-product-editorial-preview .pw-frame-shell {min-height:580px}
+@media(min-width:901px){
+  .product-editor-unified .admin-product-editorial{height:max(680px,calc(100dvh - 240px));align-items:stretch}
+  .product-editor-unified .admin-product-editorial-controls{height:100%;max-height:none;overflow-y:auto;overscroll-behavior:contain}
+  .product-editor-unified .admin-product-editorial-preview{height:100%}
+  .product-editor-unified .admin-product-editorial-preview .pw-preview{display:flex;flex-direction:column;height:100%}
+  .product-editor-unified .admin-product-editorial-preview .pw-frame-shell{flex:1 1 auto;height:auto;min-height:0}
+}
+.tooltip-real-workspace {display:grid;gap:18px;min-width:0}
+.tooltip-real-columns {display:grid;grid-template-columns:minmax(270px,32%) minmax(0,1fr);gap:18px;align-items:start}
+.tooltip-real-inspector {border:1px solid #dbe3ed;border-radius:6px;max-height:calc(100vh - 250px);overflow:auto;min-width:0}
+.tooltip-real-workspace .pw-preview-toolbar {padding:8px;gap:8px;justify-content:flex-start}
+.tooltip-real-workspace .pw-preview-toolbar button,.tooltip-real-workspace select {min-height:36px;font-size:12px}
+.tooltip-real-workspace select {border:1px solid #dbe3ed;border-radius:4px;padding:5px;background:white;max-width:100%}
+.tooltip-real-workspace .pw-frame-shell {min-height:650px}
+[data-tooltip-effect="fade"] {animation:tooltip-soft-fade .2s ease!important}
+[data-tooltip-effect="slide"] {animation:tooltip-soft-slide .2s ease!important}
+[data-tooltip-effect="bounce"] {animation:tooltip-soft-bounce .3s ease!important}
+[data-tooltip-effect="zoom"] {animation:tooltip-soft-zoom .2s ease!important}
+@keyframes tooltip-soft-fade{from{opacity:0}to{opacity:1}}
+@keyframes tooltip-soft-slide{from{opacity:0;translate:0 8px}to{opacity:1;translate:0 0}}
+@keyframes tooltip-soft-bounce{0%{scale:.8}65%{scale:1.05}100%{scale:1}}
+@keyframes tooltip-soft-zoom{from{opacity:0;scale:.9}to{opacity:1;scale:1}}
+@media(max-width:900px){.product-editor-unified .admin-product-editorial,.tooltip-real-columns{grid-template-columns:1fr}.product-editor-unified .admin-product-editorial-controls,.tooltip-real-inspector{max-height:none;overflow:visible}.product-editor-unified .admin-product-editorial-preview{position:static}}
+@media(prefers-reduced-motion:reduce){[data-tooltip-effect]{animation:none!important}}

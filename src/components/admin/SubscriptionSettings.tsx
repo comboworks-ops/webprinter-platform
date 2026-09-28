@@ -182,7 +182,7 @@ export function SubscriptionSettings() {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="workspace-subscription workspace-summary-grid">
             <div>
                 <h1 className="text-3xl font-bold">Abonnement</h1>
                 <p className="text-muted-foreground">{headerDescription}</p>

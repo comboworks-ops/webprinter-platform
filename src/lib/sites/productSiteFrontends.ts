@@ -1,4 +1,5 @@
-type JsonObject = Record<string, unknown>;
+import type { Json } from "../../integrations/supabase/types.js";
+type JsonObject = { [key: string]: Json | undefined };
 
 export interface SiteFrontendConfig {
   buttonKey: string | null;

@@ -103,3 +103,44 @@ Cleanup verification:
 - Temporary pilot product rows remaining: 0.
 - Roland machine rate after test: 0 DKK/hour.
 - No order or payment was submitted.
+
+## Jobpulje pilot (2026-08-25)
+
+An additive, read-only `Jobpulje` workspace now sits beside `Kostpris-test`.
+It is the first controlled step toward sammelform planning:
+
+- accepts several manual draft jobs with quantity and finished format;
+- uses bleed, gap and rotation to place compatible jobs on one raw sheet;
+- distributes jobs across additional forms when one form cannot contain them;
+- compares pooled production with producing every job separately;
+- shows sheet use, overrun, utilization, setup-time saving and cost breakdown;
+- supports digital click, area-based ink and a manually reviewed offset estimate;
+- uses MaxRects for deterministic two-dimensional placement;
+- filters the workspace to sheet machines and sheet-compatible materials.
+
+The current Webprinter dataset contains two roll printers and no sheet machine.
+The workspace therefore shows a deliberate empty state and links to machine
+setup. A real result appears only after an arkmaskine with valid sheet format,
+speed and operating cost has been created.
+
+### Pilot boundary
+
+- Inputs are local drafts and are not persisted.
+- No order, storefront product, supplier request, price row or pricing profile
+  is read into or written by the planner.
+- The recommendation is advisory and cannot be submitted to production.
+- Existing machine pricing, POD v1/v2 and product pricing logic are unchanged.
+- No migration, Edge Function or live publication path was added.
+- Offset results require manual review of plates, color sequence, gripper,
+  perfecting, marks and finishing.
+
+### Gates before operational job pooling
+
+1. Calibrate and approve at least one sheet-machine profile.
+2. Add explicit compatibility data for stock, grammage, color setup, sides,
+   coating, grain direction, finishing and due date.
+3. Import immutable order snapshots instead of editable manual drafts.
+4. Add operator approval, audit history and duplicate protection.
+5. Compare estimates with completed production jobs.
+6. Only then consider JDF/JMF export or MIS feedback; keep storefront prices
+   and order submission behind separate explicit approvals.

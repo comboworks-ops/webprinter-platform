@@ -235,7 +235,7 @@ export async function resolveAdminTenant(): Promise<AdminTenantResolution> {
         // If no tenant yet, try owned tenant
         if (!tenantId) {
             const { data: owned } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('id')
                 .eq('owner_id', user.id)
                 .neq('id', MASTER_TENANT_ID) // FIX: Ignore Master Tenant (even if owned) to find the REAL shop

@@ -49,9 +49,6 @@ export function TemplatesDownloadSection({ currentTenantId, defaultOpen = false 
     const [searchQuery, setSearchQuery] = useState("");
     const [filterFormat, setFilterFormat] = useState<string>("all");
 
-    if (!PDF_TEMPLATES_ENABLED) {
-        return null;
-    }
 
     // Group templates by category
     const groupByCategory = (templates: PdfTemplate[]) => {
@@ -66,6 +63,7 @@ export function TemplatesDownloadSection({ currentTenantId, defaultOpen = false 
 
     // Fetch published templates (MASTER + current TENANT)
     useEffect(() => {
+        if (!PDF_TEMPLATES_ENABLED) return;
         async function fetchTemplates() {
             setIsLoading(true);
             try {
@@ -95,6 +93,10 @@ export function TemplatesDownloadSection({ currentTenantId, defaultOpen = false 
 
         fetchTemplates();
     }, [currentTenantId]);
+
+    if (!PDF_TEMPLATES_ENABLED) {
+        return null;
+    }
 
     // Apply search and format filters
     const filteredTemplates = templates.filter((t) => {

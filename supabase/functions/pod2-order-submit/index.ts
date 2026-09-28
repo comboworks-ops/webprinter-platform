@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 // POD v2: Submit a paid fulfillment job to Print.com as a single POST /orders.
 //
 // Architecture (post-rewrite):
@@ -28,6 +29,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@13.0.0?target=deno";
 
 import { requireRole } from "../_shared/auth.ts";
+import {supplierOrderFileUrl} from '../_shared/orderFileLocator.ts';
 import {
   fingerprintSubmissionPayload,
   getSubmissionEligibility,
@@ -283,7 +285,7 @@ serve(async (req) => {
 
     const serviceClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "",
     );
 
     // ---------- load job ----------
@@ -658,6 +660,18 @@ serve(async (req) => {
           : "Print.com credentials are invalid",
         uncertain: false,
       }, 409);
+    }
+
+    // Fingerprinting uses the immutable archive locator above. Only the transport
+    // URL receives a fresh access grant, so validation/retries retain one identity.
+    // Resolve before the claim: a missing file cannot strand a submission lock.
+    if (Deno.env.get('STOREFRONT_PRIVATE_FILES_ENABLED') === 'true') {
+      try {
+        item.fileUrl = await supplierOrderFileUrl(serviceClient,
+          Deno.env.get('SUPABASE_URL')!, job.order_id, primaryFile!.file_url);
+      } catch {
+        return json({error: 'The approved production file is unavailable', uncertain: false}, 409);
+      }
     }
 
     // ---------- payment proof + atomic duplicate claim ----------

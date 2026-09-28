@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { PodCatalogProduct } from "../pod2/types";
 
 import {
   classifyOrder,
@@ -29,7 +30,7 @@ const pricedCatalog = {
     needs_quote: false,
     updated_at: "2026-07-14T00:00:00Z",
   }],
-} as const;
+} satisfies PodCatalogProduct;
 
 test("ready product requires active connection, prices, image, and master import", () => {
   const result = evaluateProductReadiness({

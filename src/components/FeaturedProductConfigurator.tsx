@@ -1,3 +1,10 @@
+import { getPrintDesignPreset } from '@/lib/branding/printDesignPresets';
+import { useSharedButtonStyles } from '@/components/storefront/SharedButtonContext';
+import { FeaturedProductDeck } from '@/components/storefront/FeaturedProductDeck';
+import { FeaturedProductCanvas } from '@/components/storefront/FeaturedProductCanvas';
+import { resolveFeaturedLayout } from '@/lib/branding/featuredProductLayout';
+import { primaryButtonStyle } from "@/lib/branding/primaryButtonStyle";
+import "@/styles/storefrontPrimaryButton.css";
 /**
  * Featured Product Quick Configurator
  *
@@ -11,23 +18,27 @@
  * never mutates pricing logic or product schemas.
  */
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
+import { buildFeaturedStorformatHref } from "@/lib/storefront/featuredProductNavigation";
+import { featuredMatrixOfferPrice } from "@/lib/storefront/featuredMatrixOffer";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { getProductImage } from "@/utils/productImages";
 import { getGenericMatrixDataFromDB } from "@/utils/pricingDatabase";
 import { getProductDisplayPrice } from "@/utils/productPriceDisplay";
 import {
-    calculateStorformatPrice,
+    tryCalculateStorformatPrice,
     type StorformatConfig,
     type StorformatMaterial,
+    type StorformatProduct,
 } from "@/utils/storformatPricing";
 import {
     buildStorefrontProductHref,
     getStorefrontProductButtonLabel,
 } from "@/lib/catalog/categoryLanding";
 import { cn } from "@/lib/utils";
+import { usesStorformatSourceQuotes, getStorformatSourceQuoteFields, STORFORMAT_QUOTE_UNAVAILABLE_MESSAGE } from "@/lib/pricing/storformatQuoteUi";
 import type { FeaturedProductConfig, HeroTextAnimation } from "@/hooks/useBrandingDraft";
 
 interface FeaturedProductConfiguratorProps {
@@ -260,7 +271,17 @@ const DEFAULT_STORFORMAT_CONFIG: StorformatConfig = {
     quantities: [1],
 };
 
-export function FeaturedProductConfigurator({
+export function FeaturedProductConfigurator({ config, branding, className }: FeaturedProductConfiguratorProps) {
+    return <div className={className}><FeaturedProductDeck config={config} renderSlide={slide =>
+        <div className="featured-product-placement" style={resolveFeaturedLayout(slide.config.layout)} data-branding-id="forside.products.featured" data-click-to-edit="forside.products.featured.box">
+        <FeaturedProductCanvas fixed={slide.config.layoutBehavior !== 'compact'} minReadableWidth={getPrintDesignPreset(branding?.themeId) ? 1000 : 0}>
+            <FeaturedProductCard config={slide.config} branding={branding} />
+        </FeaturedProductCanvas>
+        </div>
+    } /></div>;
+}
+
+function FeaturedProductCard({
     config,
     branding,
     className,
@@ -282,6 +303,7 @@ export function FeaturedProductConfigurator({
     const [fallbackPriceLabel, setFallbackPriceLabel] = useState<string | null>(null);
     const [featuredStorformatConfig, setFeaturedStorformatConfig] = useState<StorformatConfig>(DEFAULT_STORFORMAT_CONFIG);
     const [featuredStorformatMaterials, setFeaturedStorformatMaterials] = useState<StorformatMaterial[]>([]);
+    const [featuredStorformatBaseProducts, setFeaturedStorformatBaseProducts] = useState<StorformatProduct[]>([]);
     const [featuredStorformatMaterialId, setFeaturedStorformatMaterialId] = useState<string>("");
     const [featuredStorformatWidthCm, setFeaturedStorformatWidthCm] = useState<number>(100);
     const [featuredStorformatHeightCm, setFeaturedStorformatHeightCm] = useState<number>(100);
@@ -289,6 +311,7 @@ export function FeaturedProductConfigurator({
     const [sidePanelProductsById, setSidePanelProductsById] = useState<Record<string, ProductData>>({});
     const [sideStorformatConfig, setSideStorformatConfig] = useState<StorformatConfig>(DEFAULT_STORFORMAT_CONFIG);
     const [sideStorformatMaterials, setSideStorformatMaterials] = useState<StorformatMaterial[]>([]);
+    const [sideStorformatBaseProducts, setSideStorformatBaseProducts] = useState<StorformatProduct[]>([]);
     const [sideStorformatMaterialId, setSideStorformatMaterialId] = useState<string>("");
     const [sideStorformatQuantity, setSideStorformatQuantity] = useState<number>(1);
     const [sideStorformatWidthCm, setSideStorformatWidthCm] = useState<number>(100);
@@ -299,6 +322,7 @@ export function FeaturedProductConfigurator({
     const [loading, setLoading] = useState(true);
 
     const primaryColor = branding?.colors?.primary || "#0EA5E9";
+    const selectionColor = config.selectionColor || primaryColor;
     const sidePanel = config.sidePanel;
     const sidePanelEnabled = Boolean(sidePanel?.enabled);
     const sidePanelBoxId = "forside.products.featured.side-panel.box";
@@ -335,7 +359,12 @@ export function FeaturedProductConfigurator({
         1800
     );
     const sidePanelOverlayBaseOpacity = sidePanel?.overlayOpacity ?? 0.35;
+    const getSharedButton = useSharedButtonStyles();
+    const sharedCta = getSharedButton('cta', 'featured');
+    const sharedSelection = getSharedButton('selection', 'featured-selection');
     const featuredCardStyle = {
+        "--print-featured-image-scale": Math.min(1.4, Math.max(0.6, (config.imageScalePct ?? 100) / 100)),
+        "--print-featured-image-fit": config.imageMode === "full" ? "cover" : "contain",
         borderRadius: `${cardRadius}px`,
         minHeight: `${featuredBoxMinHeightPx}px`,
         backgroundColor: config.backgroundColor || undefined,
@@ -345,6 +374,12 @@ export function FeaturedProductConfigurator({
         minHeight: `${sidePanelMinHeightPx}px`,
     };
     const sidePanelCtaStyles = {
+        ...primaryButtonStyle(branding),
+        ...sharedCta.style,
+        "--shop-action-bg": sidePanel?.ctaColor || config.ctaColor || primaryColor,
+        "--shop-action-hover": sidePanel?.ctaHoverColor || config.ctaHoverColor || sidePanel?.ctaColor || primaryColor,
+        "--shop-action-text": sidePanel?.ctaTextColor || config.ctaTextColor || "#FFFFFF",
+        "--shop-action-hover-text": sidePanel?.ctaTextColor || config.ctaTextColor || "#FFFFFF",
         backgroundColor: sidePanel?.ctaColor || config.ctaColor || primaryColor,
         color: sidePanel?.ctaTextColor || config.ctaTextColor || "#FFFFFF",
     };
@@ -383,7 +418,7 @@ export function FeaturedProductConfigurator({
                 ctaHref: item.ctaHref || "",
             }));
     }, [sidePanel?.items]);
-    const hasSidePanelCarousel = sidePanelCarouselItems.length > 0;
+    const hasSidePanelCarousel = (sidePanel?.contentMode ? sidePanel.contentMode === "items" : true) && sidePanelCarouselItems.length > 0;
     const activeSidePanelItem = hasSidePanelCarousel
         ? sidePanelCarouselItems[Math.min(sidePanelItemIndex, sidePanelCarouselItems.length - 1)]
         : null;
@@ -551,22 +586,24 @@ export function FeaturedProductConfigurator({
                     { data: cfg },
                     { data: materialRows },
                     { data: materialTiers },
+                    { data: sourceProducts },
                 ] = await Promise.all([
                     supabase
-                        .from("storformat_configs" as any)
+                        .from("storformat_configs")
                         .select("*")
                         .eq("product_id", product.id)
                         .maybeSingle(),
                     supabase
-                        .from("storformat_materials" as any)
+                        .from("storformat_materials")
                         .select("*")
                         .eq("product_id", product.id)
                         .order("sort_order"),
                     supabase
-                        .from("storformat_material_price_tiers" as any)
+                        .from("storformat_material_price_tiers")
                         .select("*")
                         .eq("product_id", product.id)
                         .order("sort_order"),
+                    supabase.from("storformat_products").select("*").eq("product_id", product.id),
                 ]);
 
                 if (cancelled) return;
@@ -577,12 +614,15 @@ export function FeaturedProductConfigurator({
                 })) as StorformatMaterial[];
 
                 const nextConfig: StorformatConfig = {
+                    ...getStorformatSourceQuoteFields(cfg),
                     rounding_step: cfg?.rounding_step || 1,
                     global_markup_pct: cfg?.global_markup_pct || 0,
                     quantities: cfg?.quantities?.length ? cfg.quantities : [1],
                 };
 
                 setFeaturedStorformatConfig(nextConfig);
+                const baseIds = (getStorformatSourceQuoteFields(cfg).source_quote_model as { base_product_ids?: unknown })?.base_product_ids;
+                setFeaturedStorformatBaseProducts(Array.isArray(baseIds) ? ((sourceProducts || []) as unknown as StorformatProduct[]).filter(item => baseIds.includes(item.id)) : []);
                 setFeaturedStorformatMaterials(materialsWithTiers);
                 setFeaturedStorformatMaterialId((prev) => {
                     if (prev && materialsWithTiers.some((material) => material.id === prev)) return prev;
@@ -652,22 +692,24 @@ export function FeaturedProductConfigurator({
                     { data: cfg },
                     { data: materialRows },
                     { data: materialTiers },
+                    { data: sourceProducts },
                 ] = await Promise.all([
                     supabase
-                        .from("storformat_configs" as any)
+                        .from("storformat_configs")
                         .select("*")
                         .eq("product_id", activeSideProduct.id)
                         .maybeSingle(),
                     supabase
-                        .from("storformat_materials" as any)
+                        .from("storformat_materials")
                         .select("*")
                         .eq("product_id", activeSideProduct.id)
                         .order("sort_order"),
                     supabase
-                        .from("storformat_material_price_tiers" as any)
+                        .from("storformat_material_price_tiers")
                         .select("*")
                         .eq("product_id", activeSideProduct.id)
                         .order("sort_order"),
+                    supabase.from("storformat_products").select("*").eq("product_id", activeSideProduct.id),
                 ]);
 
                 if (cancelled) return;
@@ -678,12 +720,15 @@ export function FeaturedProductConfigurator({
                 })) as StorformatMaterial[];
 
                 const nextConfig: StorformatConfig = {
+                    ...getStorformatSourceQuoteFields(cfg),
                     rounding_step: cfg?.rounding_step || 1,
                     global_markup_pct: cfg?.global_markup_pct || 0,
                     quantities: cfg?.quantities?.length ? cfg.quantities : [1],
                 };
 
                 setSideStorformatConfig(nextConfig);
+                const baseIds = (getStorformatSourceQuoteFields(cfg).source_quote_model as { base_product_ids?: unknown })?.base_product_ids;
+                setSideStorformatBaseProducts(Array.isArray(baseIds) ? ((sourceProducts || []) as unknown as StorformatProduct[]).filter(item => baseIds.includes(item.id)) : []);
                 setSideStorformatMaterials(materialsWithTiers);
                 setSideStorformatMaterialId(materialsWithTiers[0]?.id || "");
                 setSideStorformatQuantity(nextConfig.quantities[0] || 1);
@@ -810,7 +855,7 @@ export function FeaturedProductConfigurator({
 
         async function fetchValueNames() {
             const { data } = await supabase
-                .from("product_attribute_values" as any)
+                .from("product_attribute_values")
                 .select("id, name")
                 .in("id", Array.from(ids));
 
@@ -837,6 +882,7 @@ export function FeaturedProductConfigurator({
     }, [selections, options]);
 
     const selectedVariantName = useMemo(() => {
+        if (config.matrixOffer) return config.matrixOffer.variantName;
         if (genericVariantNames.length === 0) return undefined;
         if (selectedOptionLabels.length === 0) return genericVariantNames[0];
 
@@ -874,7 +920,7 @@ export function FeaturedProductConfigurator({
         });
 
         return bestScore >= 0 ? bestMatch : fallback;
-    }, [genericVariantNames, selectedOptionLabels, resolveValueName]);
+    }, [config.matrixOffer, genericVariantNames, selectedOptionLabels, resolveValueName]);
 
     useEffect(() => {
         if (!config.productId || !selectedVariantName) return;
@@ -900,6 +946,7 @@ export function FeaturedProductConfigurator({
     }, [config.productId, selectedVariantName, defaultMatrixData]);
 
     const activeRowId = useMemo(() => {
+        if (config.matrixOffer) return matrixData.rows.includes(config.matrixOffer.rowId) ? config.matrixOffer.rowId : null;
         if (matrixData.rows.length === 0) return null;
         if (selectedOptionLabels.length === 0) return matrixData.rows[0];
 
@@ -917,7 +964,7 @@ export function FeaturedProductConfigurator({
         });
 
         return bestRow;
-    }, [matrixData.rows, selectedOptionLabels, resolveValueName]);
+    }, [config.matrixOffer, matrixData.rows, selectedOptionLabels, resolveValueName]);
 
     useEffect(() => {
         if (matrixData.columns.length === 0) return;
@@ -1001,16 +1048,18 @@ export function FeaturedProductConfigurator({
     }, [options, selections]);
 
     const getFeaturedPriceForQuantity = useCallback((quantity: number) => {
+        if (config.matrixOffer) return featuredMatrixOfferPrice(config.matrixOffer, selectedVariantName, matrixData, quantity);
         if (product?.pricing_type === "STORFORMAT") {
-            if (!featuredStorformatMaterial) return 0;
-            const selection = calculateStorformatPrice({
+            if (!featuredStorformatMaterial) return null;
+            const selection = tryCalculateStorformatPrice({
                 widthMm: featuredStorformatWidthCm * 10,
                 heightMm: featuredStorformatHeightCm * 10,
                 quantity,
                 material: featuredStorformatMaterial,
                 config: featuredStorformatConfig,
+                products: featuredStorformatBaseProducts,
             });
-            return Math.round(selection.totalPrice + getOptionExtrasForQuantity(quantity));
+            return selection ? Math.round(selection.totalPrice + getOptionExtrasForQuantity(quantity)) : null;
         }
 
         if (!activeRowId || matrixData.columns.length === 0) {
@@ -1027,15 +1076,17 @@ export function FeaturedProductConfigurator({
         if (!price) return 0;
         return Math.round(price + getOptionExtrasForQuantity(quantity));
     }, [
+        config.matrixOffer,
+        selectedVariantName,
+        matrixData,
         product?.pricing_type,
         featuredStorformatMaterial,
         featuredStorformatWidthCm,
         featuredStorformatHeightCm,
         featuredStorformatConfig,
+        featuredStorformatBaseProducts,
         getOptionExtrasForQuantity,
         activeRowId,
-        matrixData.columns,
-        matrixData.cells,
     ]);
 
     const handleOptionSelect = useCallback((groupId: string, optionId: string) => {
@@ -1067,6 +1118,7 @@ export function FeaturedProductConfigurator({
     }, [sideBannerImages.length]);
 
     const displayQuantities = useMemo(() => {
+        if (config.matrixOffer) return [config.matrixOffer.quantity];
         if (product?.pricing_type === "STORFORMAT") {
             const storformatQuantities = featuredStorformatConfig.quantities || [];
             const source = storformatQuantities.length > 0
@@ -1082,7 +1134,7 @@ export function FeaturedProductConfigurator({
         );
         const source = validPresets.length > 0 ? validPresets : availableQuantities;
         return source.slice(0, 8);
-    }, [availableQuantities, config.quantityPresets, featuredStorformatConfig.quantities, product?.pricing_type]);
+    }, [availableQuantities, config.matrixOffer, config.quantityPresets, featuredStorformatConfig.quantities, product?.pricing_type]);
 
     useEffect(() => {
         if (displayQuantities.length === 0) return;
@@ -1101,18 +1153,20 @@ export function FeaturedProductConfigurator({
         }
         if (!sideStorformatMaterial) return null;
 
-        return calculateStorformatPrice({
+        return tryCalculateStorformatPrice({
             widthMm: sideStorformatWidthCm * 10,
             heightMm: sideStorformatHeightCm * 10,
             quantity: sideStorformatQuantity,
             material: sideStorformatMaterial,
             config: sideStorformatConfig,
+            products: sideStorformatBaseProducts,
         });
     }, [
         sidePanel?.enabled,
         sidePanel?.mode,
         sideProduct?.pricing_type,
         sideStorformatConfig,
+        sideStorformatBaseProducts,
         sideStorformatHeightCm,
         sideStorformatMaterial,
         sideStorformatQuantity,
@@ -1172,10 +1226,19 @@ export function FeaturedProductConfigurator({
     if (!product) return null;
 
     const selectedFeaturedPrice = getFeaturedPriceForQuantity(selectedQuantity);
-    const displayPriceLabel = selectedFeaturedPrice > 0
+    const featuredQuoteUnavailable = selectedFeaturedPrice === null && (Boolean(config.matrixOffer) || (product.pricing_type === "STORFORMAT" && usesStorformatSourceQuotes(featuredStorformatConfig)));
+    const sideQuoteUnavailable = activeSideProduct?.pricing_type === "STORFORMAT" && usesStorformatSourceQuotes(sideStorformatConfig) && !sideStorformatSelection;
+    const displayPriceLabel = featuredQuoteUnavailable ? "Pris ikke tilgængelig" : selectedFeaturedPrice > 0
         ? `${selectedFeaturedPrice.toLocaleString("da-DK")} kr`
         : fallbackPriceLabel;
-    const featuredProductHref = buildStorefrontProductHref(product);
+    const baseProductHref = buildStorefrontProductHref(product);
+    const featuredProductHref = product.pricing_type === "STORFORMAT"
+        ? buildFeaturedStorformatHref(baseProductHref, {
+            widthCm: featuredStorformatWidthCm,
+            heightCm: featuredStorformatHeightCm,
+            quantity: selectedQuantity,
+        })
+        : baseProductHref;
     const featuredProductButtonLabel = getStorefrontProductButtonLabel(product) === "Se produkter"
         ? "Se produkter"
         : (config.ctaLabel || "Bestil nu");
@@ -1205,14 +1268,14 @@ export function FeaturedProductConfigurator({
     const sideImageListVisualVisible = sidePanelFadeEnabled
         ? (activeSideBannerCurrentVisible && sidePanelContentVisible)
         : true;
-    const sharedOffsetStyle = config.position === "above" && config.overlapPx
+    const sharedOffsetStyle = config.layout?.offsetYPx === undefined && !branding?.themeId?.startsWith("print-") && config.position === "above" && config.overlapPx
         ? { marginTop: `-${config.overlapPx}px` }
         : undefined;
     const featuredTitle = (config.customTitle || "").trim() || product.name;
     const featuredDescription = (config.customDescription || "").trim() || product.description;
     const featuredImageSrc = featuredUsesGallery
-        ? (featuredGalleryImages[featuredGalleryIndex] || featuredGalleryImages[0] || (config as any).customImageUrl || getProductImage(product.slug, product.image_url))
-        : ((config as any).customImageUrl || getProductImage(product.slug, product.image_url));
+        ? (featuredGalleryImages[featuredGalleryIndex] || featuredGalleryImages[0] || config.customImageUrl || getProductImage(product.slug, product.image_url))
+        : (config.customImageUrl || getProductImage(product.slug, product.image_url));
     const renderSidePanelNavArrows = (
         onPrev: () => void,
         onNext: () => void,
@@ -1254,7 +1317,7 @@ export function FeaturedProductConfigurator({
             style={featuredCardStyle}
         >
             <div
-                className={cn("flex h-full flex-col lg:flex-row")}
+                className={cn("print-config-layout flex h-full flex-col lg:flex-row")}
                 style={config.imageMode === "full"
                     ? undefined
                     : {
@@ -1310,25 +1373,26 @@ export function FeaturedProductConfigurator({
 
                 <div
                     className={cn(
-                        "flex flex-1 flex-col gap-4",
+                        "print-config-body flex flex-1 flex-col gap-4",
                         config.imageMode === "full" ? "p-6 lg:w-[60%]" : "lg:w-3/5"
                     )}
                 >
                     <div data-branding-id="forside.products.featured.copy">
-                        <h3 className="text-3xl lg:text-4xl font-bold mb-2">{featuredTitle}</h3>
+                        <h3 style={{ color: config.titleColor || undefined }} className="text-3xl lg:text-4xl font-bold mb-2">{featuredTitle}</h3>
                         {featuredDescription && (
-                            <p className="text-muted-foreground text-sm line-clamp-2">
+                            <p style={{ color: config.descriptionColor || undefined }} className="text-muted-foreground text-sm line-clamp-2">
                                 {featuredDescription}
                             </p>
                         )}
                     </div>
 
                     {product.pricing_type === "STORFORMAT" && (
-                        <div className="grid grid-cols-2 gap-3 rounded-xl border bg-muted/30 p-3">
+                        <div className="print-dimensions grid grid-cols-2 gap-3 rounded-xl border bg-muted/30 p-3">
                             <div className="space-y-1.5">
                                 <label className="text-xs font-medium text-muted-foreground">Bredde (cm)</label>
                                 <input
                                     type="number"
+                                    aria-label="Bredde (cm)"
                                     min={1}
                                     value={featuredStorformatWidthCm}
                                     onChange={(event) => setFeaturedStorformatWidthCm(Math.max(1, Number(event.target.value) || 1))}
@@ -1339,6 +1403,7 @@ export function FeaturedProductConfigurator({
                                 <label className="text-xs font-medium text-muted-foreground">Højde (cm)</label>
                                 <input
                                     type="number"
+                                    aria-label="Højde (cm)"
                                     min={1}
                                     value={featuredStorformatHeightCm}
                                     onChange={(event) => setFeaturedStorformatHeightCm(Math.max(1, Number(event.target.value) || 1))}
@@ -1348,7 +1413,7 @@ export function FeaturedProductConfigurator({
                         </div>
                     )}
 
-                    <div className="space-y-2">
+                    <div className="print-quantities space-y-2">
                         <label className="text-sm font-medium">Antal</label>
                         <div className={cn(
                             "gap-2",
@@ -1364,22 +1429,23 @@ export function FeaturedProductConfigurator({
                                     return (
                                         <button
                                             key={qty}
+                                            {...sharedSelection}
+                                            aria-pressed={isSelected}
+                                            disabled={product.pricing_type === "STORFORMAT" && usesStorformatSourceQuotes(featuredStorformatConfig) && quantityPrice === null}
                                             onClick={() => setSelectedQuantity(qty)}
                                             className={cn(
-                                                "rounded-lg px-4 py-2 text-left transition-all",
+                                                "rounded-lg px-4 py-2 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50",
                                                 product.pricing_type === "STORFORMAT" ? "min-w-[110px]" : "w-full",
                                                 isSelected
                                                     ? "shadow-md"
                                                     : "bg-muted hover:bg-muted/80"
                                             )}
-                                            style={isSelected ? {
-                                                backgroundColor: primaryColor,
-                                                color: "#FFFFFF",
-                                            } : undefined}
+                                            style={{ ...(isSelected ? { backgroundColor: selectionColor, color: config.selectionTextColor || "#FFFFFF" } : {}), ...sharedSelection.style }}
                                         >
                                             <div className="text-sm font-semibold">
                                                 {qty.toLocaleString("da-DK")} stk
                                             </div>
+                                            {quantityPrice === null && usesStorformatSourceQuotes(featuredStorformatConfig) && <div className="text-xs mt-0.5">Pris ikke tilgængelig</div>}
                                             {quantityPrice > 0 && (
                                                 <div className={cn(
                                                     "text-xs mt-0.5",
@@ -1396,7 +1462,7 @@ export function FeaturedProductConfigurator({
                     </div>
 
                     {config.showOptions && groups.length > 0 && product.pricing_type !== "STORFORMAT" && (
-                        <div className="grid gap-4 md:grid-cols-2">
+                        <div className="print-options grid gap-4 md:grid-cols-2">
                             {groups.map((group) => {
                                 const displayType = group.display_type || "buttons";
                                 const groupOptions = options[group.id] || [];
@@ -1413,6 +1479,7 @@ export function FeaturedProductConfigurator({
                                                         <button
                                                             key={option.id}
                                                             onClick={() => handleOptionSelect(group.id, option.id)}
+                                                            style={isSelected ? { outline: `2px solid ${selectionColor}` } : undefined}
                                                             className={cn(
                                                                 "flex flex-col items-center gap-2 rounded-lg border p-2 text-center transition-all",
                                                                 isSelected
@@ -1453,8 +1520,9 @@ export function FeaturedProductConfigurator({
                                                                     : "bg-muted hover:bg-muted/80"
                                                             )}
                                                             style={isSelected ? {
-                                                                backgroundColor: `${primaryColor}15`,
-                                                                color: primaryColor,
+                                                                backgroundColor: `${selectionColor}15`,
+                                                                color: selectionColor,
+                                                                outline: `2px solid ${selectionColor}`,
                                                             } : undefined}
                                                         >
                                                             {hasIcon && (
@@ -1476,7 +1544,9 @@ export function FeaturedProductConfigurator({
                         </div>
                     )}
 
-                    <div className="mt-auto flex flex-wrap items-end justify-end gap-4 pt-4">
+                    {featuredQuoteUnavailable && <p className="text-sm text-muted-foreground" role="status">{STORFORMAT_QUOTE_UNAVAILABLE_MESSAGE}</p>}
+
+                    <div className="print-price-row mt-auto flex flex-wrap items-end justify-end gap-4 pt-4">
                         {config.showPrice && displayPriceLabel && (
                             <div className="text-right">
                                 {selectedFeaturedPrice > 0 && featuredPriceContextLabel ? (
@@ -1486,7 +1556,7 @@ export function FeaturedProductConfigurator({
                                 ) : null}
                                 <div
                                     className="text-3xl lg:text-4xl font-bold leading-none"
-                                    style={{ color: primaryColor }}
+                                    style={{ color: config.priceColor || primaryColor }}
                                 >
                                     {displayPriceLabel}
                                 </div>
@@ -1497,17 +1567,25 @@ export function FeaturedProductConfigurator({
                         )}
 
                         <Button
+                            {...sharedCta}
                             data-branding-id="forside.products.featured.button"
+                            className="bg-[var(--featured-cta-bg)] hover:bg-[var(--featured-cta-hover)] focus-visible:bg-[var(--featured-cta-hover)]"
                             size="lg"
                             style={{
-                                backgroundColor: config.ctaColor || primaryColor,
+                                ...sharedCta.style,
+                                "--featured-cta-bg": config.ctaColor || primaryColor,
+                                "--featured-cta-hover": config.ctaHoverColor || config.ctaColor || primaryColor,
                                 color: config.ctaTextColor || "#FFFFFF",
                                 borderRadius: `${config.ctaBorderRadiusPx ?? 8}px`,
-                            }}
+                                fontSize: config.ctaFontSizePx ?? branding?.forside.productsSection.button.fontSizePx ?? 16,
+                                paddingTop: config.ctaPaddingYPx ?? branding?.forside.productsSection.button.paddingYPx ?? 12,
+                                paddingBottom: config.ctaPaddingYPx ?? branding?.forside.productsSection.button.paddingYPx ?? 12,
+                                height: 'auto', minHeight: 44,
+                            } as CSSProperties}
                             asChild
                         >
-                            <Link to={featuredProductHref}>
-                                {featuredProductButtonLabel}
+                            <Link to={featuredProductHref} title={featuredQuoteUnavailable ? "Se muligheder" : featuredProductButtonLabel}>
+                                {featuredQuoteUnavailable ? "Se muligheder" : featuredProductButtonLabel}
                             </Link>
                         </Button>
                     </div>
@@ -1582,18 +1660,18 @@ export function FeaturedProductConfigurator({
                             </div>
                         )}
                         <div className="mt-auto flex items-end justify-between gap-3">
-                            {(sideProductPriceLabel || sideStorformatSelection) && (
+                            {(sideQuoteUnavailable || sideProductPriceLabel || sideStorformatSelection) && (
                                 <div className="text-right">
                                     <div
                                         className="text-2xl font-bold leading-none"
                                         style={{ color: primaryColor }}
                                     >
-                                        {activeSideProduct.pricing_type === "STORFORMAT" && sideStorformatSelection
+                                        {sideQuoteUnavailable ? "Pris ikke tilgængelig" : activeSideProduct.pricing_type === "STORFORMAT" && sideStorformatSelection
                                             ? `${sideStorformatSelection.totalPrice.toLocaleString("da-DK")} kr`
                                             : sideProductPriceLabel}
                                     </div>
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        {activeSideProduct.pricing_type === "STORFORMAT" && sideStorformatSelection
+                                        {sideQuoteUnavailable ? "Vælg et andet format eller antal" : activeSideProduct.pricing_type === "STORFORMAT" && sideStorformatSelection
                                             ? `${sideStorformatWidthCm} x ${sideStorformatHeightCm} cm`
                                             : "Fra pris"}
                                     </p>
@@ -1603,7 +1681,9 @@ export function FeaturedProductConfigurator({
                                 data-branding-id={sidePanelButtonId}
                                 data-click-to-edit={sidePanelButtonId}
                                 asChild
-                                style={sidePanelCtaStyles}
+                                {...sharedCta}
+                                data-shop-primary="true"
+                                    style={sidePanelCtaStyles}
                             >
                                 <Link
                                     to={sideProductHref}
@@ -1718,6 +1798,8 @@ export function FeaturedProductConfigurator({
                                     data-click-to-edit={sidePanelButtonId}
                                     asChild
                                     size="lg"
+                                    {...sharedCta}
+                                data-shop-primary="true"
                                     style={sidePanelCtaStyles}
                                     className="w-fit"
                                 >
@@ -1731,6 +1813,8 @@ export function FeaturedProductConfigurator({
                                     data-click-to-edit={sidePanelButtonId}
                                     asChild
                                     size="lg"
+                                    {...sharedCta}
+                                data-shop-primary="true"
                                     style={sidePanelCtaStyles}
                                     className="w-fit"
                                 >
@@ -1808,18 +1892,18 @@ export function FeaturedProductConfigurator({
                             </div>
                         )}
                         <div className="mt-auto flex items-end justify-between gap-3">
-                            {(sideProductPriceLabel || sideStorformatSelection) && (
+                            {(sideQuoteUnavailable || sideProductPriceLabel || sideStorformatSelection) && (
                                 <div className="text-right">
                                     <div
                                         className="text-2xl font-bold leading-none"
                                         style={{ color: primaryColor }}
                                     >
-                                        {activeSideProduct.pricing_type === "STORFORMAT" && sideStorformatSelection
+                                        {sideQuoteUnavailable ? "Pris ikke tilgængelig" : activeSideProduct.pricing_type === "STORFORMAT" && sideStorformatSelection
                                             ? `${sideStorformatSelection.totalPrice.toLocaleString("da-DK")} kr`
                                             : sideProductPriceLabel}
                                     </div>
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        {activeSideProduct.pricing_type === "STORFORMAT" && sideStorformatSelection
+                                        {sideQuoteUnavailable ? "Vælg et andet format eller antal" : activeSideProduct.pricing_type === "STORFORMAT" && sideStorformatSelection
                                             ? `${sideStorformatWidthCm} x ${sideStorformatHeightCm} cm`
                                             : "Fra pris"}
                                     </p>
@@ -1829,7 +1913,9 @@ export function FeaturedProductConfigurator({
                                 data-branding-id={sidePanelButtonId}
                                 data-click-to-edit={sidePanelButtonId}
                                 asChild
-                                style={sidePanelCtaStyles}
+                                {...sharedCta}
+                                data-shop-primary="true"
+                                    style={sidePanelCtaStyles}
                             >
                                 <Link
                                     to={sideProductHref}
@@ -1944,6 +2030,8 @@ export function FeaturedProductConfigurator({
                                     data-click-to-edit={sidePanelButtonId}
                                     asChild
                                     size="lg"
+                                    {...sharedCta}
+                                data-shop-primary="true"
                                     style={sidePanelCtaStyles}
                                     className="w-fit"
                                 >
@@ -1957,6 +2045,8 @@ export function FeaturedProductConfigurator({
                                     data-click-to-edit={sidePanelButtonId}
                                     asChild
                                     size="lg"
+                                    {...sharedCta}
+                                data-shop-primary="true"
                                     style={sidePanelCtaStyles}
                                     className="w-fit"
                                 >
@@ -1984,11 +2074,13 @@ export function FeaturedProductConfigurator({
         <div className={cn(className)} data-branding-id="forside.products.featured">
             <div
                 className={cn(
-                    "grid",
+                    "featured-card-grid grid",
                     sidePanelEnabled
                         ? "items-stretch gap-4 lg:grid-cols-[minmax(0,1fr)_360px]"
                         : "gap-6"
                 )}
+                data-side={sidePanelEnabled}
+                data-product-side={productFirst ? "left" : "right"}
                 style={sharedOffsetStyle}
             >
                 <div

@@ -1,0 +1,1352 @@
+{
+  "evidence": "Offline calculation against a read-only aluminum catalog snapshot; frontend assembly and formula compared with server quote; no payment or hosted function call",
+  "combinations": 192,
+  "minimumTotalDkk": 213,
+  "maximumTotalDkk": 16328,
+  "results": [
+    {
+      "selectionIndex": 0,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 213
+    },
+    {
+      "selectionIndex": 0,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 436
+    },
+    {
+      "selectionIndex": 0,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 872
+    },
+    {
+      "selectionIndex": 0,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 436
+    },
+    {
+      "selectionIndex": 0,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 872
+    },
+    {
+      "selectionIndex": 0,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1718
+    },
+    {
+      "selectionIndex": 0,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1078
+    },
+    {
+      "selectionIndex": 0,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 2140
+    },
+    {
+      "selectionIndex": 0,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 4267
+    },
+    {
+      "selectionIndex": 0,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 2140
+    },
+    {
+      "selectionIndex": 0,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 4267
+    },
+    {
+      "selectionIndex": 0,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 8531
+    },
+    {
+      "selectionIndex": 1,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 326
+    },
+    {
+      "selectionIndex": 1,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 708
+    },
+    {
+      "selectionIndex": 1,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1416
+    },
+    {
+      "selectionIndex": 1,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 708
+    },
+    {
+      "selectionIndex": 1,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1416
+    },
+    {
+      "selectionIndex": 1,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 2643
+    },
+    {
+      "selectionIndex": 1,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1669
+    },
+    {
+      "selectionIndex": 1,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 3275
+    },
+    {
+      "selectionIndex": 1,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 5962
+    },
+    {
+      "selectionIndex": 1,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 3275
+    },
+    {
+      "selectionIndex": 1,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 5962
+    },
+    {
+      "selectionIndex": 1,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 13041
+    },
+    {
+      "selectionIndex": 2,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 216
+    },
+    {
+      "selectionIndex": 2,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 503
+    },
+    {
+      "selectionIndex": 2,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1006
+    },
+    {
+      "selectionIndex": 2,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 503
+    },
+    {
+      "selectionIndex": 2,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1006
+    },
+    {
+      "selectionIndex": 2,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1855
+    },
+    {
+      "selectionIndex": 2,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1182
+    },
+    {
+      "selectionIndex": 2,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 2247
+    },
+    {
+      "selectionIndex": 2,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 4401
+    },
+    {
+      "selectionIndex": 2,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 2247
+    },
+    {
+      "selectionIndex": 2,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 4401
+    },
+    {
+      "selectionIndex": 2,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 8641
+    },
+    {
+      "selectionIndex": 3,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 329
+    },
+    {
+      "selectionIndex": 3,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 775
+    },
+    {
+      "selectionIndex": 3,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1551
+    },
+    {
+      "selectionIndex": 3,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 775
+    },
+    {
+      "selectionIndex": 3,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1551
+    },
+    {
+      "selectionIndex": 3,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 2780
+    },
+    {
+      "selectionIndex": 3,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1774
+    },
+    {
+      "selectionIndex": 3,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 3382
+    },
+    {
+      "selectionIndex": 3,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 6096
+    },
+    {
+      "selectionIndex": 3,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 3382
+    },
+    {
+      "selectionIndex": 3,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 6096
+    },
+    {
+      "selectionIndex": 3,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 13150
+    },
+    {
+      "selectionIndex": 4,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 278
+    },
+    {
+      "selectionIndex": 4,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 585
+    },
+    {
+      "selectionIndex": 4,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1169
+    },
+    {
+      "selectionIndex": 4,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 585
+    },
+    {
+      "selectionIndex": 4,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1169
+    },
+    {
+      "selectionIndex": 4,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 2234
+    },
+    {
+      "selectionIndex": 4,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1078
+    },
+    {
+      "selectionIndex": 4,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 2786
+    },
+    {
+      "selectionIndex": 4,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 6067
+    },
+    {
+      "selectionIndex": 4,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 2786
+    },
+    {
+      "selectionIndex": 4,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 6067
+    },
+    {
+      "selectionIndex": 4,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 11114
+    },
+    {
+      "selectionIndex": 5,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 391
+    },
+    {
+      "selectionIndex": 5,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 857
+    },
+    {
+      "selectionIndex": 5,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1713
+    },
+    {
+      "selectionIndex": 5,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 857
+    },
+    {
+      "selectionIndex": 5,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1713
+    },
+    {
+      "selectionIndex": 5,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 3159
+    },
+    {
+      "selectionIndex": 5,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1669
+    },
+    {
+      "selectionIndex": 5,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 3921
+    },
+    {
+      "selectionIndex": 5,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 7762
+    },
+    {
+      "selectionIndex": 5,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 3921
+    },
+    {
+      "selectionIndex": 5,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 7762
+    },
+    {
+      "selectionIndex": 5,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 15623
+    },
+    {
+      "selectionIndex": 6,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 281
+    },
+    {
+      "selectionIndex": 6,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 652
+    },
+    {
+      "selectionIndex": 6,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1303
+    },
+    {
+      "selectionIndex": 6,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 652
+    },
+    {
+      "selectionIndex": 6,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1303
+    },
+    {
+      "selectionIndex": 6,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 2371
+    },
+    {
+      "selectionIndex": 6,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1182
+    },
+    {
+      "selectionIndex": 6,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 2893
+    },
+    {
+      "selectionIndex": 6,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 6201
+    },
+    {
+      "selectionIndex": 6,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 2893
+    },
+    {
+      "selectionIndex": 6,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 6201
+    },
+    {
+      "selectionIndex": 6,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 11223
+    },
+    {
+      "selectionIndex": 7,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 393
+    },
+    {
+      "selectionIndex": 7,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 924
+    },
+    {
+      "selectionIndex": 7,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1848
+    },
+    {
+      "selectionIndex": 7,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 924
+    },
+    {
+      "selectionIndex": 7,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1848
+    },
+    {
+      "selectionIndex": 7,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 3296
+    },
+    {
+      "selectionIndex": 7,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1774
+    },
+    {
+      "selectionIndex": 7,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 4028
+    },
+    {
+      "selectionIndex": 7,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 7896
+    },
+    {
+      "selectionIndex": 7,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 4028
+    },
+    {
+      "selectionIndex": 7,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 7896
+    },
+    {
+      "selectionIndex": 7,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 15733
+    },
+    {
+      "selectionIndex": 8,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 228
+    },
+    {
+      "selectionIndex": 8,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 530
+    },
+    {
+      "selectionIndex": 8,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1060
+    },
+    {
+      "selectionIndex": 8,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 530
+    },
+    {
+      "selectionIndex": 8,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1060
+    },
+    {
+      "selectionIndex": 8,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1837
+    },
+    {
+      "selectionIndex": 8,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1152
+    },
+    {
+      "selectionIndex": 8,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 2289
+    },
+    {
+      "selectionIndex": 8,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 4569
+    },
+    {
+      "selectionIndex": 8,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 2289
+    },
+    {
+      "selectionIndex": 8,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 4569
+    },
+    {
+      "selectionIndex": 8,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 9127
+    },
+    {
+      "selectionIndex": 9,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 341
+    },
+    {
+      "selectionIndex": 9,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 802
+    },
+    {
+      "selectionIndex": 9,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1604
+    },
+    {
+      "selectionIndex": 9,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 802
+    },
+    {
+      "selectionIndex": 9,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1604
+    },
+    {
+      "selectionIndex": 9,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 2762
+    },
+    {
+      "selectionIndex": 9,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1744
+    },
+    {
+      "selectionIndex": 9,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 3424
+    },
+    {
+      "selectionIndex": 9,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 6264
+    },
+    {
+      "selectionIndex": 9,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 3424
+    },
+    {
+      "selectionIndex": 9,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 6264
+    },
+    {
+      "selectionIndex": 9,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 13637
+    },
+    {
+      "selectionIndex": 10,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 231
+    },
+    {
+      "selectionIndex": 10,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 597
+    },
+    {
+      "selectionIndex": 10,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1194
+    },
+    {
+      "selectionIndex": 10,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 597
+    },
+    {
+      "selectionIndex": 10,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1194
+    },
+    {
+      "selectionIndex": 10,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1974
+    },
+    {
+      "selectionIndex": 10,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1257
+    },
+    {
+      "selectionIndex": 10,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 2396
+    },
+    {
+      "selectionIndex": 10,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 4702
+    },
+    {
+      "selectionIndex": 10,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 2396
+    },
+    {
+      "selectionIndex": 10,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 4702
+    },
+    {
+      "selectionIndex": 10,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 9237
+    },
+    {
+      "selectionIndex": 11,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 344
+    },
+    {
+      "selectionIndex": 11,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 869
+    },
+    {
+      "selectionIndex": 11,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1738
+    },
+    {
+      "selectionIndex": 11,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 869
+    },
+    {
+      "selectionIndex": 11,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1738
+    },
+    {
+      "selectionIndex": 11,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 2899
+    },
+    {
+      "selectionIndex": 11,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1848
+    },
+    {
+      "selectionIndex": 11,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 3531
+    },
+    {
+      "selectionIndex": 11,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 6397
+    },
+    {
+      "selectionIndex": 11,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 3531
+    },
+    {
+      "selectionIndex": 11,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 6397
+    },
+    {
+      "selectionIndex": 11,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 13746
+    },
+    {
+      "selectionIndex": 12,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 293
+    },
+    {
+      "selectionIndex": 12,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 678
+    },
+    {
+      "selectionIndex": 12,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1357
+    },
+    {
+      "selectionIndex": 12,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 678
+    },
+    {
+      "selectionIndex": 12,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1357
+    },
+    {
+      "selectionIndex": 12,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 2353
+    },
+    {
+      "selectionIndex": 12,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1152
+    },
+    {
+      "selectionIndex": 12,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 2935
+    },
+    {
+      "selectionIndex": 12,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 6368
+    },
+    {
+      "selectionIndex": 12,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 2935
+    },
+    {
+      "selectionIndex": 12,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 6368
+    },
+    {
+      "selectionIndex": 12,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 11709
+    },
+    {
+      "selectionIndex": 13,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 405
+    },
+    {
+      "selectionIndex": 13,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 951
+    },
+    {
+      "selectionIndex": 13,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1901
+    },
+    {
+      "selectionIndex": 13,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 951
+    },
+    {
+      "selectionIndex": 13,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1901
+    },
+    {
+      "selectionIndex": 13,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 3278
+    },
+    {
+      "selectionIndex": 13,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1744
+    },
+    {
+      "selectionIndex": 13,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 4070
+    },
+    {
+      "selectionIndex": 13,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 8063
+    },
+    {
+      "selectionIndex": 13,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 4070
+    },
+    {
+      "selectionIndex": 13,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 8063
+    },
+    {
+      "selectionIndex": 13,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 16219
+    },
+    {
+      "selectionIndex": 14,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 295
+    },
+    {
+      "selectionIndex": 14,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 746
+    },
+    {
+      "selectionIndex": 14,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 1491
+    },
+    {
+      "selectionIndex": 14,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 746
+    },
+    {
+      "selectionIndex": 14,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1491
+    },
+    {
+      "selectionIndex": 14,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 2490
+    },
+    {
+      "selectionIndex": 14,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1257
+    },
+    {
+      "selectionIndex": 14,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 3042
+    },
+    {
+      "selectionIndex": 14,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 6502
+    },
+    {
+      "selectionIndex": 14,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 3042
+    },
+    {
+      "selectionIndex": 14,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 6502
+    },
+    {
+      "selectionIndex": 14,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 11819
+    },
+    {
+      "selectionIndex": 15,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 408
+    },
+    {
+      "selectionIndex": 15,
+      "quantity": 1,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 1018
+    },
+    {
+      "selectionIndex": 15,
+      "quantity": 1,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 2035
+    },
+    {
+      "selectionIndex": 15,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1018
+    },
+    {
+      "selectionIndex": 15,
+      "quantity": 2,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 2035
+    },
+    {
+      "selectionIndex": 15,
+      "quantity": 2,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 3415
+    },
+    {
+      "selectionIndex": 15,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 1848
+    },
+    {
+      "selectionIndex": 15,
+      "quantity": 5,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 4177
+    },
+    {
+      "selectionIndex": 15,
+      "quantity": 5,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 8197
+    },
+    {
+      "selectionIndex": 15,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 500,
+      "totalDkk": 4177
+    },
+    {
+      "selectionIndex": 15,
+      "quantity": 10,
+      "widthMm": 1000,
+      "heightMm": 1000,
+      "totalDkk": 8197
+    },
+    {
+      "selectionIndex": 15,
+      "quantity": 10,
+      "widthMm": 2000,
+      "heightMm": 1000,
+      "totalDkk": 16328
+    }
+  ]
+}

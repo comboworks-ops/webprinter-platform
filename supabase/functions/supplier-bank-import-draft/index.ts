@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -255,6 +256,12 @@ const getPriceReviewGate = (
 };
 
 const getMatrixDraftImportUnsupportedReason = (bankProduct: any) => {
+  if (bankProduct?.metadata?.operation === "append_to_existing_product") {
+    const targetName = normalizeText(bankProduct.metadata.targetProductSlug || bankProduct.metadata.targetProductId);
+    return targetName
+      ? `Denne bankpakke er en fortsættelse til ${targetName} og kan ikke importeres som et selvstændigt produkt.`
+      : "Denne bankpakke er en fortsættelse til et eksisterende produkt og kan ikke importeres som et selvstændigt produkt.";
+  }
   if (bankProduct?.supplier_product_key === PIXART_FLAT_BANK_PRODUCT_KEY) {
     return "Pixart flat-surface rows require the storformat conversion path before draft import.";
   }
@@ -704,12 +711,12 @@ serve(async (req) => {
   try {
     const authClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      readSupabaseKey((name) => Deno.env.get(name), "publishable") ?? "",
       { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } },
     );
     serviceClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "",
     );
 
     const { data: { user }, error: authError } = await authClient.auth.getUser();
@@ -734,7 +741,7 @@ serve(async (req) => {
 
     const { data: bankProduct, error: productError } = await serviceClient
       .from("supplier_bank_products")
-      .select("id,supplier_id,supplier_product_key,product_family,name_da,name_original,description_da,description_original,status,normalized_attributes,normalized_pricing_summary,raw_snapshot_path")
+      .select("id,supplier_id,supplier_product_key,product_family,name_da,name_original,description_da,description_original,status,normalized_attributes,normalized_pricing_summary,raw_snapshot_path,metadata")
       .eq("id", bankProductId)
       .single();
 

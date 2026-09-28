@@ -1,0 +1,37 @@
+/* Shared spacing and type roles. Tenant fonts, colours and chosen page layouts
+   remain owned by their existing scopes. Keep these values free of brand styling. */
+:root {
+  --ui-space-1: .25rem;
+  --ui-space-2: .5rem;
+  --ui-space-3: .75rem;
+  --ui-space-4: 1rem;
+  --ui-space-5: 1.25rem;
+  --ui-space-6: 1.5rem;
+  --ui-space-8: 2rem;
+  --ui-space-10: 2.5rem;
+  --ui-space-12: 3rem;
+  --ui-space-16: 4rem;
+  --ui-page-gutter: clamp(1.25rem, 3vw, 3rem);
+  --ui-section-gap: clamp(1.5rem, 3vw, 3rem);
+  --ui-panel-padding: clamp(1.25rem, 2vw, 2rem);
+  --ui-control-gap: .75rem;
+  --ui-control-height: 2.75rem;
+  --ui-body-size: 1rem;
+  --ui-body-leading: 1.6;
+  --ui-label-leading: 1.4;
+  --ui-heading-leading: 1.15;
+  --ui-reading-measure: 68ch;
+  --ui-title-hero: clamp(2.25rem, 4.1vw, 3.875rem);
+  --ui-title-product: clamp(2rem, 3.65vw, 3.375rem);
+  --ui-title-page: clamp(2rem, 3.25vw, 3rem);
+  --ui-title-checkout: clamp(1.875rem, 3vw, 2.625rem);
+  --ui-title-workspace: clamp(1.625rem, 2.6vw, 2.25rem);
+}
+
+/* Opt-in primitives for new screens; do not reset matrix/editor typography. */
+.ui-stack { display:flex; flex-direction:column; gap:var(--ui-space-6); min-width:0; }
+.ui-section-stack { display:flex; flex-direction:column; gap:var(--ui-section-gap); min-width:0; }
+.ui-heading-row { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:var(--ui-space-4) var(--ui-space-6); }
+.ui-heading-row > * { min-width:0; }
+.ui-reading-copy { max-width:var(--ui-reading-measure); line-height:var(--ui-body-leading); overflow-wrap:anywhere; }
+.ui-dynamic-title { min-width:0; overflow-wrap:anywhere; line-height:var(--ui-heading-leading); }

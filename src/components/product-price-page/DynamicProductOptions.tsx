@@ -1,3 +1,4 @@
+import { useSharedButtonStyles } from '@/components/storefront/SharedButtonContext';
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -35,6 +36,8 @@ interface DynamicProductOptionsProps {
 }
 
 export function DynamicProductOptions({ productId, onSelectionChange }: DynamicProductOptionsProps) {
+  const getSharedButton = useSharedButtonStyles();
+  const sharedSelection = getSharedButton('selection');
   const shopSettings = useShopSettings();
   const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
   const shouldReduceMotion = useReducedMotion();
@@ -157,7 +160,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
           .order('sort_order');
 
         if (optionsData && optionsData.length > 0) {
-          optionsMap[group.id] = optionsData;
+          optionsMap[group.id] = optionsData as ProductOption[];
           initialSelections[group.id] = optionsData[0].id;
         }
       }
@@ -250,10 +253,12 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
 
           const btn = (
             <motion.button
-              {...resolveMotionProps(btnCfg, isSelected)}
+              {...(sharedSelection.style ? {} : resolveMotionProps(btnCfg, isSelected))}
+              {...sharedSelection}
+              aria-pressed={isSelected}
               key={option.id}
               onClick={() => handleSelect(group.id, option.id)}
-              style={buttonStyle}
+              style={{ ...buttonStyle, ...sharedSelection.style }}
               className={cn(
                 "inline-flex min-h-11 min-w-[min(10rem,100%)] flex-1 touch-manipulation items-center justify-center text-center font-medium leading-tight transition-all sm:flex-none",
                 !isSelected && "hover:opacity-80",
@@ -312,7 +317,9 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
 
           const inner = (
             <motion.button
-              {...resolveMotionProps(imgCfg, isSelected)}
+              {...(sharedSelection.style ? {} : resolveMotionProps(imgCfg, isSelected))}
+              {...sharedSelection}
+              aria-pressed={isSelected}
               key={option.id}
               onClick={() => handleSelect(group.id, option.id)}
               className={cn(
@@ -320,7 +327,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
                 isSelected ? "shadow-md" : "bg-muted hover:shadow",
                 imgCfg.hoverRingEnabled && !isSelected && "hover:outline hover:outline-2 hover:outline-offset-2"
               )}
-              style={cardStyle}
+              style={{ ...cardStyle, ...sharedSelection.style }}
             >
               {option.icon_url ? (
                 <img
@@ -405,6 +412,7 @@ export function DynamicProductOptions({ productId, onSelectionChange }: DynamicP
             <button
               key={option.id}
               type="button"
+              {...sharedSelection}
               aria-pressed={isSelected}
               aria-label={`${option.label}${color?.pantone ? `, cirka Pantone ${color.pantone}` : ""}`}
               title={`${option.label}${color?.pantone ? ` · ca. Pantone ${color.pantone}` : ""}`}

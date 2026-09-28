@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { LEGACY_DROPDOWN_PRESETS, resolveDropdownPreset } from "../branding/dropdownPresets.ts";
 
 import {
   DEFAULT_SHOP_TEMPLATE,
@@ -46,11 +47,18 @@ test("the ten templates have distinct structural signatures", () => {
 });
 
 test("every shop template has a complete Open Design component recipe", () => {
-  const menuPresetIds = new Set(SHOP_NAVIGATION_OPTIONS.map((option) => option.id));
+  // The picker offers approved concepts; saved recipes also support legacy IDs.
+  const menuPresetIds = new Set<string>([
+    ...SHOP_NAVIGATION_OPTIONS.map((option) => option.id),
+    ...LEGACY_DROPDOWN_PRESETS,
+  ]);
 
   for (const template of SHOP_TEMPLATES) {
     assert.ok(template.recipe.openDesignSystem, template.name);
     assert.ok(menuPresetIds.has(template.recipe.navigation), template.name);
+    assert.equal(resolveDropdownPreset(template.recipe.navigation),
+      template.recipe.navigation === "classic" ? "search-and-discover" : template.recipe.navigation,
+      template.name);
     assert.ok(template.recipe.header.variant, template.name);
     assert.ok(template.recipe.categoryNavigation, template.name);
     assert.ok(template.recipe.productCollection, template.name);

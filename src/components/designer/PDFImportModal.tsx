@@ -1,3 +1,4 @@
+import {safePdfDocumentOptions} from '@/lib/pdfDocumentOptions';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -27,7 +28,7 @@ const cloneArrayBuffer = (buffer: ArrayBuffer): ArrayBuffer =>
     buffer.slice(0);
 
 const uint8ToArrayBuffer = (bytes: Uint8Array): ArrayBuffer =>
-    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    new Uint8Array(bytes).buffer;
 
 const hasPdfEdits = (editState: PdfEditState): boolean =>
     editState.rotation !== 0 ||
@@ -165,7 +166,7 @@ export function PDFImportModal({
         try {
             const hasEdits = hasPdfEdits(nextEditState);
             const previewPdf = hasEdits && sourceBytes
-                ? await pdfjsLib.getDocument({
+                ? await pdfjsLib.getDocument(safePdfDocumentOptions({
                     data: await buildEditedSinglePagePdfBytes(
                         cloneArrayBuffer(sourceBytes),
                         pageNum - 1,
@@ -173,7 +174,7 @@ export function PDFImportModal({
                         allowedWidthMm,
                         allowedHeightMm,
                     ),
-                }).promise
+                })).promise
                 : doc;
             const page = await previewPdf.getPage(hasEdits ? 1 : pageNum);
             const canvas = document.createElement('canvas');
@@ -225,7 +226,7 @@ export function PDFImportModal({
             // Store original bytes for vector preservation
             pdfBytesRef.current = cloneArrayBuffer(arrayBuffer);
 
-            const pdf = await pdfjsLib.getDocument({ data: cloneArrayBuffer(arrayBuffer) }).promise;
+            const pdf = await pdfjsLib.getDocument(safePdfDocumentOptions({ data: cloneArrayBuffer(arrayBuffer) })).promise;
             const safePageNumber = Math.min(Math.max(1, initialPageNumber), pdf.numPages);
 
             setPdfDoc(pdf);
@@ -413,7 +414,7 @@ export function PDFImportModal({
             const pdfSource = await getRenderablePdfSource();
             if (!pdfSource.bytes) throw new Error('Missing PDF source bytes');
 
-            const renderPdf = await pdfjsLib.getDocument({ data: cloneArrayBuffer(pdfSource.bytes) }).promise;
+            const renderPdf = await pdfjsLib.getDocument(safePdfDocumentOptions({ data: cloneArrayBuffer(pdfSource.bytes) })).promise;
             const page = await renderPdf.getPage(pdfSource.pageNumber);
 
             // Get page dimensions at scale=1 (which gives us points)
@@ -480,7 +481,7 @@ export function PDFImportModal({
             const pdfSource = await getRenderablePdfSource();
             if (!pdfSource.bytes) throw new Error('Missing PDF source bytes');
 
-            const renderPdf = await pdfjsLib.getDocument({ data: cloneArrayBuffer(pdfSource.bytes) }).promise;
+            const renderPdf = await pdfjsLib.getDocument(safePdfDocumentOptions({ data: cloneArrayBuffer(pdfSource.bytes) })).promise;
             const page = await renderPdf.getPage(pdfSource.pageNumber);
             const viewport = page.getViewport({ scale: 1 });
             const widthMm = ptToMm(viewport.width);

@@ -220,7 +220,7 @@ function ProductWorkspace({
               <TableRow className="hover:bg-transparent">
                 <TableHead className="h-10 w-[250px] px-3">Produkt</TableHead>
                 <TableHead className="h-10 w-[112px] px-3 text-right">Leverandørpris</TableHead>
-                <TableHead className="h-10 w-[112px] px-3 text-right">Salgspris</TableHead>
+                <TableHead className="h-10 w-[112px] px-3 text-right">Webprinter-pris</TableHead>
                 <TableHead className="h-10 w-[72px] px-3 text-right">Avance</TableHead>
                 <TableHead className="h-10 w-[118px] px-3">Klarhed</TableHead>
                 <TableHead className="h-10 w-[64px] px-3 text-right">Butikker</TableHead>

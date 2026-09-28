@@ -64,7 +64,7 @@ export function SEO({
 
         const fetchSEO = async () => {
             let query = supabase
-                .from('page_seo' as any)
+                .from('page_seo')
                 .select('*')
                 .eq('slug', normalizedPathname);
 

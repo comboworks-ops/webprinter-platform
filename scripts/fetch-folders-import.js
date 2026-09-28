@@ -33,7 +33,7 @@ const TARGET_QUANTITIES = [
   7000, 8000, 9000, 10000, 12500, 15000, 20000,
 ];
 
-const PAGES_ORDER = ["4 sider", "6 sider", "8 sider", "10 sider"];
+const PAGES_ORDER = ["4 sider", "6 sider", "8 sider", "10 sider", "12 sider", "16 sider"];
 const ORIENTATION_ORDER = ["Lodret", "Vandret"];
 const SURFACE_ORDER = ["Matsilk", "Glans"];
 const DIN_FORMAT_DIMS_MM = {
@@ -135,7 +135,7 @@ const SOURCE_GROUPS = [
 function usage() {
   return [
     "Usage:",
-    "  node scripts/fetch-folders-import.js import [--dry-run] [--bank-snapshot-only] [--write-bank] [--allow-partial-bank-snapshot] [--merge-existing] [--prefer-source] [--from-existing-product] [--max-detail-pages N] [--tenant <uuid>] [--name <product name>] [--slug <slug>] [--from-clean-csv <path>]",
+    "  node scripts/fetch-folders-import.js import [--dry-run] [--bank-snapshot-only] [--write-bank] [--allow-partial-bank-snapshot] [--merge-existing] [--prefer-source] [--from-existing-product] [--max-detail-pages N] [--concurrency N] [--source-group <key>] [--include-extended-wickelfalz] [--detail-inventory-jsonl <path>] [--tenant <uuid>] [--name <product name>] [--slug <slug>] [--from-clean-csv <path>]",
   ].join("\n");
 }
 
@@ -149,7 +149,11 @@ function parseArgs(argv) {
     mergeExisting: argv.includes("--merge-existing"),
     preferSource: argv.includes("--prefer-source"),
     fromExistingProduct: argv.includes("--from-existing-product"),
+    includeExtendedWickelfalz: argv.includes("--include-extended-wickelfalz"),
     maxDetailPages: null,
+    concurrency: 1,
+    sourceGroup: null,
+    detailInventoryJsonl: null,
     tenantId: DEFAULT_TENANT_ID,
     productName: DEFAULT_PRODUCT_NAME,
     productSlug: DEFAULT_PRODUCT_SLUG,
@@ -164,6 +168,25 @@ function parseArgs(argv) {
       throw new Error("--max-detail-pages must be a positive integer");
     }
     args.maxDetailPages = parsed;
+  }
+
+  const sourceGroupIdx = argv.indexOf("--source-group");
+  if (sourceGroupIdx !== -1 && argv[sourceGroupIdx + 1]) {
+    args.sourceGroup = argv[sourceGroupIdx + 1];
+  }
+
+  const concurrencyIdx = argv.indexOf("--concurrency");
+  if (concurrencyIdx !== -1) {
+    const parsed = Number(argv[concurrencyIdx + 1]);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 4) {
+      throw new Error("--concurrency must be an integer from 1 to 4");
+    }
+    args.concurrency = parsed;
+  }
+
+  const inventoryIdx = argv.indexOf("--detail-inventory-jsonl");
+  if (inventoryIdx !== -1 && argv[inventoryIdx + 1]) {
+    args.detailInventoryJsonl = argv[inventoryIdx + 1];
   }
 
   const tenantIdx = argv.indexOf("--tenant");
@@ -192,6 +215,16 @@ function parseArgs(argv) {
 
   if (args.writeBank && args.allowPartialBankSnapshot) {
     throw new Error("--allow-partial-bank-snapshot cannot be used together with --write-bank");
+  }
+
+  if (args.sourceGroup && !SOURCE_GROUPS.some((group) => group.key === args.sourceGroup)) {
+    throw new Error(
+      `Unknown --source-group '${args.sourceGroup}'. Expected one of: ${SOURCE_GROUPS.map((group) => group.key).join(", ")}`
+    );
+  }
+
+  if (args.includeExtendedWickelfalz && args.sourceGroup !== "wickelfalz") {
+    throw new Error("--include-extended-wickelfalz requires --source-group wickelfalz");
   }
 
   return args;
@@ -286,7 +319,7 @@ function formatCm(mmText) {
   return cm.toFixed(1);
 }
 
-function parseFormatFromUrl(url) {
+function parseFormatFromUrl(url, { allowAllFixedFormats = false } = {}) {
   const lower = url.toLowerCase();
 
   if (lower.includes("din-lang")) return { label: "DIN Lang", ...DIN_FORMAT_DIMS_MM["DIN Lang"] };
@@ -301,7 +334,8 @@ function parseFormatFromUrl(url) {
     const heightMm = Number(dimMatch[2]);
 
     const allowedSquares = new Set([98, 105, 148, 210]);
-    if (widthMm === heightMm && allowedSquares.has(widthMm)) {
+    const isKnownSquare = widthMm === heightMm && allowedSquares.has(widthMm);
+    if (isKnownSquare || (allowAllFixedFormats && widthMm > 0 && heightMm > 0)) {
       return {
         label: `${formatCm(dimMatch[1])} x ${formatCm(dimMatch[2])} cm`,
         widthMm,
@@ -411,44 +445,111 @@ async function collectCategoryUrlsForSource(page, source) {
   return Array.from(urls);
 }
 
-async function discoverDetailPages(page, maxDetailPages) {
+function selectedSourceGroups(args = {}) {
+  if (!args.sourceGroup) return SOURCE_GROUPS;
+  return SOURCE_GROUPS.filter((source) => source.key === args.sourceGroup);
+}
+
+function includeDetailForRun(source, detailUrl, name, args = {}) {
+  const normalizedUrl = String(detailUrl || "").toLowerCase();
+  const normalizedName = String(name || "").toLowerCase();
+  if (normalizedUrl.includes("freie-groesse") || normalizedName.includes("freier größe")) {
+    return false;
+  }
+
+  if (source.key !== "wickelfalz" || !args.includeExtendedWickelfalz) {
+    return source.includeDetail(detailUrl);
+  }
+
+  const isRollFold = /(?:wickelfalz|wickefalz)/.test(normalizedUrl)
+    || normalizedName.includes("wickelfalz");
+  const sides = extractSides(normalizedUrl);
+  return isRollFold && [6, 8, 10, 12, 16].includes(sides);
+}
+
+function loadDetailInventory(inventoryPath) {
+  const resolvedPath = path.resolve(inventoryPath);
+  const source = fs.readFileSync(resolvedPath, "utf8");
+  return source
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      try {
+        return JSON.parse(line);
+      } catch (error) {
+        throw new Error(`Invalid JSONL at ${resolvedPath}:${index + 1}: ${error.message}`);
+      }
+    });
+}
+
+async function discoverDetailPages(page, maxDetailPages, args = {}) {
   const discovered = [];
   const debug = process.env.FOLDERS_FETCH_DEBUG === "1";
+  const sourceGroups = selectedSourceGroups(args);
 
-  for (const source of SOURCE_GROUPS) {
-    const categoryUrls = await collectCategoryUrlsForSource(page, source);
+  const addDiscoveredDetail = ({ source, categoryUrl, detailUrl, name = "", image = "" }) => {
+    if (!includeDetailForRun(source, detailUrl, name, args)) return;
 
-    if (debug) {
-      console.log(`[discover] ${source.key} category URLs: ${categoryUrls.length}`);
-    }
+    const format = parseFormatFromUrl(detailUrl, {
+      allowAllFixedFormats: source.key === "wickelfalz" && args.includeExtendedWickelfalz,
+    });
+    if (!format) return;
 
-    for (const categoryUrl of categoryUrls) {
-      const detailUrls = await collectDetailUrlsFromCategory(page, categoryUrl);
+    const selection = source.selectionInfo(detailUrl);
+    if (!selection) return;
+
+    discovered.push({
+      sourceKey: source.key,
+      foldLabel: source.foldLabel,
+      categoryUrl,
+      detailUrl,
+      sourceName: normalizeLabel(name),
+      sourceImage: image ? new URL(image, categoryUrl).toString() : "",
+      pagesLabel: selection.pagesLabel,
+      orientationLabel: selection.orientationLabel,
+      formatLabel: format.label,
+      widthMm: format.widthMm,
+      heightMm: format.heightMm,
+    });
+  };
+
+  if (args.detailInventoryJsonl) {
+    const inventory = loadDetailInventory(args.detailInventoryJsonl);
+    inventory.forEach((item) => {
+      const categoryUrl = String(item.source_page_url || "");
+      const detailUrl = new URL(String(item.detail_url || ""), categoryUrl).toString();
+      const source = sourceGroups.find((candidate) =>
+        detailUrl.toLowerCase().includes(candidate.categoryKeyword.toLowerCase())
+          || String(item.name || "").toLowerCase().includes(candidate.categoryKeyword.toLowerCase())
+      ) || (sourceGroups.length === 1 ? sourceGroups[0] : null);
+      if (!source) return;
+      addDiscoveredDetail({
+        source,
+        categoryUrl,
+        detailUrl,
+        name: item.name,
+        image: item.image,
+      });
+    });
+  } else {
+    for (const source of sourceGroups) {
+      const categoryUrls = await collectCategoryUrlsForSource(page, source);
+
       if (debug) {
-        console.log(`[discover] ${source.key} ${categoryUrl} -> ${detailUrls.length} candidates`);
+        console.log(`[discover] ${source.key} category URLs: ${categoryUrls.length}`);
       }
 
-      detailUrls.forEach((detailUrl) => {
-        if (!source.includeDetail(detailUrl)) return;
+      for (const categoryUrl of categoryUrls) {
+        const detailUrls = await collectDetailUrlsFromCategory(page, categoryUrl);
+        if (debug) {
+          console.log(`[discover] ${source.key} ${categoryUrl} -> ${detailUrls.length} candidates`);
+        }
 
-        const format = parseFormatFromUrl(detailUrl);
-        if (!format) return;
-
-        const selection = source.selectionInfo(detailUrl);
-        if (!selection) return;
-
-        discovered.push({
-          sourceKey: source.key,
-          foldLabel: source.foldLabel,
-          categoryUrl,
-          detailUrl,
-          pagesLabel: selection.pagesLabel,
-          orientationLabel: selection.orientationLabel,
-          formatLabel: format.label,
-          widthMm: format.widthMm,
-          heightMm: format.heightMm,
+        detailUrls.forEach((detailUrl) => {
+          addDiscoveredDetail({ source, categoryUrl, detailUrl });
         });
-      });
+      }
     }
   }
 
@@ -461,8 +562,11 @@ async function discoverDetailPages(page, maxDetailPages) {
     if (url.includes("vertikaler")) score += 20;
     if (url.includes("horizontaler")) score += 5;
     if (!url.includes("-quer-")) score += 10;
-    // For 10-page roll-folded folders, use Sonderwickelfalz as the intended supplier source.
-    if (item?.foldLabel === "Rullefalset" && item?.pagesLabel === "10 sider") {
+    // Prefer the supplier's special roll-fold source when both variants map to one matrix choice.
+    if (
+      item?.foldLabel === "Rullefalset"
+      && ["10 sider", "12 sider", "16 sider"].includes(item?.pagesLabel)
+    ) {
       if (url.includes("sonderwickelfalz")) score += 100;
       else score -= 100;
     }
@@ -1970,9 +2074,11 @@ async function runImport(args) {
 
   try {
     const page = await browser.newPage();
-    await page.goto("https://www.wir-machen-druck.de", { waitUntil: "domcontentloaded", timeout: 90_000 });
+    if (!args.detailInventoryJsonl) {
+      await page.goto("https://www.wir-machen-druck.de", { waitUntil: "domcontentloaded", timeout: 90_000 });
+    }
 
-    const discovered = await discoverDetailPages(page, args.maxDetailPages);
+    const discovered = await discoverDetailPages(page, args.maxDetailPages, args);
 
     if (discovered.length === 0) {
       throw new Error("No detail pages discovered");
@@ -1980,24 +2086,42 @@ async function runImport(args) {
 
     await page.close().catch(() => {});
 
-    const extractedRows = [];
-    const failedDetails = [];
+    const detailResults = new Array(discovered.length);
+    let nextDetailIndex = 0;
 
-    for (const detail of discovered) {
-      try {
-        const rows = await extractRowsForDetailPageWithRetry(browser, detail);
-        extractedRows.push(...rows);
-        console.log(
-          `Fetched ${rows.length.toString().padStart(4, " ")} rows | ${detail.foldLabel} | ${detail.pagesLabel} | ${detail.orientationLabel} | ${detail.formatLabel}`
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        failedDetails.push({ ...detail, error: message });
-        console.warn(
-          `Skipped detail page | ${detail.foldLabel} | ${detail.pagesLabel} | ${detail.orientationLabel} | ${detail.formatLabel} | ${message}`
-        );
+    const extractWorker = async () => {
+      while (nextDetailIndex < discovered.length) {
+        const index = nextDetailIndex;
+        nextDetailIndex += 1;
+        const detail = discovered[index];
+
+        try {
+          const rows = await extractRowsForDetailPageWithRetry(browser, detail);
+          detailResults[index] = { detail, rows, error: null };
+          console.log(
+            `Fetched ${rows.length.toString().padStart(4, " ")} rows | ${detail.foldLabel} | ${detail.pagesLabel} | ${detail.orientationLabel} | ${detail.formatLabel}`
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          detailResults[index] = { detail, rows: [], error: message };
+          console.warn(
+            `Skipped detail page | ${detail.foldLabel} | ${detail.pagesLabel} | ${detail.orientationLabel} | ${detail.formatLabel} | ${message}`
+          );
+        }
       }
-    }
+    };
+
+    await Promise.all(
+      Array.from(
+        { length: Math.min(args.concurrency, discovered.length) },
+        () => extractWorker()
+      )
+    );
+
+    const extractedRows = detailResults.flatMap((result) => result?.rows || []);
+    const failedDetails = detailResults
+      .filter((result) => result?.error)
+      .map((result) => ({ ...result.detail, error: result.error }));
 
     if (args.bankSnapshotOnly && failedDetails.length > 0 && (args.writeBank || !args.allowPartialBankSnapshot)) {
       const failures = failedDetails
@@ -2063,12 +2187,17 @@ async function runImport(args) {
         {
           timestamp,
           product: { name: args.productName, slug: args.productSlug, tenant_id: args.tenantId },
-          source_groups: SOURCE_GROUPS.map((group) => ({
+          source_groups: selectedSourceGroups(args).map((group) => ({
             key: group.key,
             fold_label: group.foldLabel,
             category_keyword: group.categoryKeyword,
             seed_category_urls: group.seedCategoryUrls,
           })),
+          detail_inventory_jsonl: args.detailInventoryJsonl
+            ? path.resolve(args.detailInventoryJsonl)
+            : null,
+          include_extended_wickelfalz: args.includeExtendedWickelfalz,
+          concurrency: args.concurrency,
           target_quantities: TARGET_QUANTITIES,
           material_patterns: MATERIAL_PATTERNS.map((p) => p.source),
           discovered_detail_pages: discovered,

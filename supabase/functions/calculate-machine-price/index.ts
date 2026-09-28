@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
@@ -159,7 +160,7 @@ Deno.serve(async (req) => {
         const matIds = material_ids || [material_id || body.materialId];
 
         const supabaseUrl = Deno.env.get("SUPABASE_URL")!
-        const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+        const supabaseServiceKey = readSupabaseKey((name) => Deno.env.get(name), "secret")!
         const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
         // 1. Fetch Config

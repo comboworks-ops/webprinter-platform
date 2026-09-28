@@ -69,7 +69,7 @@ export function PriceHierarchyFilter({ prices, productSlug, onFilterChange }: Pr
           { key: 'side_type', label: 'Sidetype', values: [...new Set(prices.map(p => p.side_type))].sort() },
           { key: 'paper', label: 'Papir', values: [...new Set(prices.map(p => p.paper))].sort() },
         ];
-      default:
+      default: {
         // Dynamic filter generation for generic products or unlisted products
         if (prices.length === 0) return [];
 
@@ -118,6 +118,7 @@ export function PriceHierarchyFilter({ prices, productSlug, onFilterChange }: Pr
         }
 
         return filterLevels;
+      }
     }
   }, [prices, productSlug]);
 

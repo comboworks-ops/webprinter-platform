@@ -1,0 +1,162 @@
+{
+  "date": "2026-09-10",
+  "project": "ziattmsmiirfweiuunfo",
+  "branch": "ui-cleanup",
+  "migration": {
+    "version": "20260910154637",
+    "name": "restrict_public_catalog_views_to_reads",
+    "file": "supabase/migrations/20260910154637_restrict_public_catalog_views_to_reads.sql"
+  },
+  "functions": [
+    {
+      "name": "create-admin-user",
+      "version": 14,
+      "verify_jwt": true,
+      "allSourceFilesMatch": true,
+      "previousVersion": 13,
+      "previousVerifyJwt": false
+    },
+    {
+      "name": "seed-product-prices",
+      "version": 18,
+      "verify_jwt": true,
+      "allSourceFilesMatch": true,
+      "previousVersion": 17,
+      "previousVerifyJwt": false
+    },
+    {
+      "name": "seed-folder-prices",
+      "version": 15,
+      "verify_jwt": true,
+      "allSourceFilesMatch": true,
+      "previousVersion": 14,
+      "previousVerifyJwt": false
+    },
+    {
+      "name": "seed-generic-prices",
+      "version": 14,
+      "verify_jwt": true,
+      "allSourceFilesMatch": true,
+      "previousVersion": 13,
+      "previousVerifyJwt": false
+    },
+    {
+      "name": "setup-schema",
+      "version": 16,
+      "verify_jwt": true,
+      "allSourceFilesMatch": true,
+      "previousVersion": 15,
+      "previousVerifyJwt": false
+    },
+    {
+      "name": "test-env",
+      "version": 7,
+      "verify_jwt": true,
+      "allSourceFilesMatch": true,
+      "previousVersion": 6,
+      "previousVerifyJwt": true
+    }
+  ],
+  "hostedChecks": {
+    "unauthorizedRequests": {
+      "count": 6,
+      "status": 401
+    },
+    "publicAnonKeyRequests": {
+      "count": 6,
+      "status": 403,
+      "message": "Function disabled"
+    },
+    "catalogs": [
+      {
+        "name": "pod_catalog_public",
+        "publishedBefore": 3,
+        "publishedAfter": 3
+      },
+      {
+        "name": "pod2_catalog_public",
+        "publishedBefore": 4,
+        "publishedAfter": 4
+      }
+    ],
+    "catalogRoles": [
+      "anon",
+      "authenticated"
+    ],
+    "selectAllowed": true,
+    "tableAndColumnWritesAllowed": false
+  },
+  "localChecks": {
+    "nodeTests": {
+      "files": 90,
+      "passed": 524,
+      "failed": 0
+    },
+    "numberInputBrowserTests": {
+      "passed": 6,
+      "failed": 0
+    },
+    "migrationFixture": {
+      "synthetic": true,
+      "writeRejections": 12,
+      "publishedReadsPreserved": true,
+      "serviceGrantsPreserved": true
+    },
+    "denoEntrypointsChecked": 6,
+    "grantCheckFiles": 9,
+    "functionExposureChecks": 59,
+    "buildPassed": true,
+    "appTypeScriptDiagnostics": 401
+  },
+  "advisors": [
+    {
+      "name": "rls_enabled_no_policy",
+      "level": "INFO",
+      "count": 5,
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+    },
+    {
+      "name": "security_definer_view",
+      "level": "ERROR",
+      "count": 2,
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0010_security_definer_view"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "level": "WARN",
+      "count": 32,
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable"
+    },
+    {
+      "name": "extension_in_public",
+      "level": "WARN",
+      "count": 1,
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public"
+    },
+    {
+      "name": "anon_security_definer_function_executable",
+      "level": "WARN",
+      "count": 27,
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable"
+    },
+    {
+      "name": "authenticated_security_definer_function_executable",
+      "level": "WARN",
+      "count": 36,
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+    },
+    {
+      "name": "auth_leaked_password_protection",
+      "level": "WARN",
+      "count": 1,
+      "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"
+    }
+  ],
+  "scope": "Only six maintenance functions and one catalog privilege migration deployed. No payment, email, order, supplier, customer record, frontend deployment or price data change.",
+  "nextBlockers": [
+    "Choose isolated backend organization and confirm provider cost before creation",
+    "Stripe test dashboard sign-in",
+    "Verify historical service-role key rotation",
+    "Configure controlled email sender and inboxes during matched acceptance"
+  ]
+}

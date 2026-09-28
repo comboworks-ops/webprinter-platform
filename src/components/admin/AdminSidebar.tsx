@@ -196,21 +196,21 @@ export function AdminSidebar() {
         // 1. Order Messages (Customer Support)
         // 1. Customer Messages (Unread)
         const { count: customerCount } = await supabase
-          .from('order_messages' as any)
+          .from('order_messages')
           .select('*', { count: 'exact', head: true })
           .eq('is_read', false)
           .eq('sender_type', 'customer');
 
         // 2. Support Messages (Unread)
         const { count: supportCount } = await supabase
-          .from('platform_messages' as any)
+          .from('platform_messages')
           .select('*', { count: 'exact', head: true })
           .eq('is_read', false)
           .eq('sender_role', isMasterAdmin ? 'tenant' : 'master');
 
         const { count: platformLeadCount } = isMasterAdmin
           ? await supabase
-            .from('platform_messages' as any)
+            .from('platform_messages')
             .select('*', { count: 'exact', head: true })
             .eq('tenant_id', MASTER_TENANT_ID)
             .eq('is_read', false)
@@ -226,7 +226,7 @@ export function AdminSidebar() {
 
           if (tenantId && tenantId !== '00000000-0000-0000-0000-000000000000') {
             const { data: notiRows } = await supabase
-              .from('tenant_notifications' as any)
+              .from('tenant_notifications')
               .select('id, type, data, is_read')
               .eq('tenant_id', tenantId)
               .eq('is_read', false);
@@ -303,11 +303,11 @@ export function AdminSidebar() {
     .admin-sidebar {
       backdrop-filter: blur(8px);
     }
-    
+
     .admin-sidebar .admin-nav-link {
       position: relative;
     }
-    
+
     .admin-sidebar .admin-nav-link:hover {
       background-color: ${sidebarStyles.bgHover} !important;
     }
@@ -317,34 +317,34 @@ export function AdminSidebar() {
       outline: 2px solid ${sidebarStyles.accentBorder};
       outline-offset: 2px;
     }
-    
+
     .admin-sidebar .admin-nav-link:active {
       transform: scale(0.995);
     }
-    
+
     .admin-sidebar .admin-nav-link svg {
       transition: transform 0.2s ease;
     }
-    
+
     .admin-sidebar .admin-nav-link:hover svg {
       transform: scale(1.04);
     }
-    
+
     .admin-sidebar .admin-section-header {
       color: ${sidebarStyles.textDefault};
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       font-weight: 500;
       letter-spacing: 0.01em;
     }
-    
+
     .admin-sidebar .admin-section-header:hover {
       background-color: ${sidebarStyles.bgHover};
     }
-    
+
     .admin-sidebar .admin-section-header svg {
       transition: transform 0.2s ease;
     }
-    
+
     .admin-sidebar .admin-section-header:hover svg:first-child {
       transform: scale(1.04);
     }
@@ -490,16 +490,9 @@ export function AdminSidebar() {
 
                   {/* Site Design */}
                   <SidebarMenuItem>
-                    <AdminNavLink to="/admin/branding-v2">
-                      <Palette className="h-4 w-4" />
-                      {!collapsed && <span>Site Design</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
-
-                  <SidebarMenuItem>
                     <AdminNavLink to="/admin/site-design-v2">
                       <Palette className="h-4 w-4" />
-                      {!collapsed && <span>Site Design V2</span>}
+                      {!collapsed && <span>Site Design</span>}
                     </AdminNavLink>
                   </SidebarMenuItem>
 
@@ -748,7 +741,7 @@ export function AdminSidebar() {
                     <SidebarMenuItem>
                       <AdminNavLink to="/admin/branding-template">
                         <Palette className="h-4 w-4" />
-                        {!collapsed && <span>Platform Master Design</span>}
+                        {!collapsed && <span>Designskabeloner</span>}
                       </AdminNavLink>
                     </SidebarMenuItem>
                     <SidebarMenuItem>

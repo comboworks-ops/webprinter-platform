@@ -54,7 +54,7 @@ export function MachineConfigurator({ productId, width, height, onPriceUpdate, e
         try {
             setLoading(true);
             const { data: cfg, error: cfgErr } = await supabase
-                .from('product_pricing_configs' as any)
+                .from('product_pricing_configs')
                 .select(`
           *,
           pricing_profiles(*, machines(*), ink_sets(*)),
@@ -74,10 +74,10 @@ export function MachineConfigurator({ productId, width, height, onPriceUpdate, e
             }
 
             const [matRes, finRes, optGroupRes] = await Promise.all([
-                supabase.from('materials' as any).select('*').in('tenant_id', tenantIds),
-                supabase.from('finish_options' as any).select('*').in('tenant_id', tenantIds),
+                supabase.from('materials').select('*').in('tenant_id', tenantIds),
+                supabase.from('finish_options').select('*').in('tenant_id', tenantIds),
                 // Fetch option groups assigned to this product
-                supabase.from('product_option_group_assignments' as any)
+                supabase.from('product_option_group_assignments')
                     .select('option_group_id, product_option_groups(*, product_options(*))')
                     .eq('product_id', productId)
             ]);

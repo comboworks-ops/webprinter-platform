@@ -47,8 +47,8 @@ export function DesignLibrarySelector({
     const fetchItems = async () => {
       setLoading(true);
       try {
-        let query = supabase
-          .from("design_library_items" as any)
+        const query = supabase
+          .from("design_library_items")
           .select("id, name, kind, tags, preview_path, storage_path, visibility")
           .in("kind", filterKinds)
           .order("name");

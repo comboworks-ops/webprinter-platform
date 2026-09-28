@@ -1,5 +1,7 @@
 # Commercial Release Packet Index
 
+This July index is historical. Use the [8 September implementation and release review](remaining-issues-2026-09-08/README.md) for the current candidate manifest, verification and remaining holds. The actual Git index is still incomplete; the PASS entries below are not current release proof.
+
 Generated: 2026-07-10T01:28:30.907Z
 Git status command: `git status --short --branch`
 Git staged command: `git diff --cached --name-status`

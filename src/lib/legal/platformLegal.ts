@@ -1,3 +1,4 @@
+import type { Json } from "../../integrations/supabase/types.js";
 export type PlatformLegalDocumentType = "platform_terms" | "privacy_policy";
 
 export const PLATFORM_TERMS_VERSION = "2026-03-23";
@@ -16,7 +17,7 @@ export interface PlatformLegalAcceptanceRow {
   source: string;
   ip_address: string | null;
   user_agent: string | null;
-  metadata: Record<string, unknown>;
+  metadata: Record<string, Json | undefined>;
 }
 
 export function buildPlatformLegalAcceptanceRows(input: {

@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { readTransientString, removeTransientKey, writeTransientString } from "@/lib/storage/transientStorage";
+import { DEFAULT_PRINT_DESIGN_ID, inheritSystemPrintDesign } from "@/lib/branding/printDesignPresets";
+import { DEFAULT_DROPDOWN_PRESET, resolveDropdownPreset } from "@/lib/branding/dropdownPresets";
+import type { HeaderDropdownPreset } from "@/lib/branding/dropdownPresets";
 import {
     DEFAULT_STOREFRONT_LAYOUT,
     type StorefrontLayoutSettings,
@@ -94,6 +97,11 @@ export interface HeroImage {
     buttons?: HeroButton[];
     /** Text animation effect for this slide */
     textAnimation?: HeroTextAnimation;
+    /** Optional styling when the saved per-banner styling switch is enabled. */
+    titleColor?: string;
+    subtitleColor?: string;
+    titleFontId?: string;
+    subtitleFontId?: string;
 }
 
 // Hero video interface
@@ -124,6 +132,9 @@ export interface HeroVideoSettings {
 
 // Overlay settings interface (with text color customization)
 export interface HeroOverlaySettings {
+    titleFontId?: string;
+    subtitleFontId?: string;
+    usePerBannerStyling?: boolean;
     title: string;
     subtitle: string;
     /** Custom title text color */
@@ -136,6 +147,10 @@ export interface HeroOverlaySettings {
 
 // Complete hero settings interface
 export interface HeroSettings {
+    /** Optional rendered height; omitted keeps the selected theme composition. */
+    heightPx?: number;
+    /** Print themes default to shared copy; legacy themes retain per-slide copy. */
+    textSource?: 'shared' | 'slides';
     recommendedWidthPx: number;
     recommendedHeightPx: number;
     mediaType: HeroMediaType;
@@ -302,13 +317,14 @@ export interface HeaderCtaSettings {
     textColor?: string;
     /** Custom hover background color for the CTA button */
     hoverBgColor?: string;
+    hoverTextColor?: string;
 }
 
 // Header style settings
 export type HeaderStyleType = 'auto' | 'solid' | 'glass';
 export type HeaderHeightType = 'sm' | 'md' | 'lg';
 export type HeaderAlignmentType = 'left' | 'center' | 'right';
-export type HeaderDropdownPreset = 'classic' | 'showcase-bar' | 'split-preview' | 'compact-columns' | 'gallery-cards';
+export type { HeaderDropdownPreset } from "@/lib/branding/dropdownPresets";
 export type HeaderSplitPreviewSource = 'featured-product' | 'featured-side-panel';
 
 // Complete header settings
@@ -326,6 +342,7 @@ export interface HeaderSettings {
     navItems: HeaderNavItem[];
     dropdownMode: HeaderDropdownMode;
     dropdownPreset?: HeaderDropdownPreset;
+    dropdownMotionStyle?: 'precision' | 'liquid' | 'gallery-rise' | 'soft-slide' | 'focus-slide';
     dropdownSplitPreviewSource?: HeaderSplitPreviewSource;
 
     // Styling
@@ -418,7 +435,7 @@ const DEFAULT_HEADER: HeaderSettings = {
     logoLink: '/',
     navItems: DEFAULT_NAV_ITEMS,
     dropdownMode: 'IMAGE_AND_TEXT',
-    dropdownPreset: 'classic',
+    dropdownPreset: DEFAULT_DROPDOWN_PRESET,
     dropdownSplitPreviewSource: 'featured-product',
     menuFontSizePx: 14,
     fontId: 'Inter',
@@ -535,6 +552,10 @@ const DEFAULT_FOOTER: FooterSettings = {
 
 // Content block for front page sections
 export interface ContentBlock {
+    placement?: 'above_products' | 'below_products';
+    mediaType?: 'none' | 'single' | 'gallery';
+    gallery?: string[];
+    cta?: { enabled?: boolean; label?: string; href?: string; size?: 'sm' | 'md' | 'lg'; bgColor?: string; textColor?: string; hoverBgColor?: string; hoverTextColor?: string; font?: string; style?: 'solid' | 'outline'; };
     id: string;
     enabled: boolean;
     heading?: string;           // Renders as H2 for SEO
@@ -591,6 +612,8 @@ export interface Banner2BackgroundSettings {
 }
 
 export interface Banner2Settings {
+    /** Retained interval setting used by the glass theme. */
+    autoPlayInterval?: number;
     enabled: boolean;
     mode: Banner2Mode;
     autoPlay: boolean;
@@ -619,6 +642,20 @@ export interface FeaturedSidePanelItem {
 }
 
 export interface FeaturedProductConfig {
+    /** Optional single advertised matrix combination; leaves product defaults unchanged. */
+    matrixOffer?: import('@/lib/storefront/featuredMatrixOffer').FeaturedMatrixOffer;
+    layout?: import('@/lib/branding/featuredProductLayout').FeaturedProductLayout;
+    /** Additional complete product banners. The existing fields remain the first banner. */
+    slides?: FeaturedProductSlide[];
+    presentation?: { mode: 'carousel'; autoPlay?: boolean; intervalMs?: number };
+    layoutBehavior?: 'fixed' | 'compact';
+    titleColor?: string;
+    descriptionColor?: string;
+    priceColor?: string;
+    selectionColor?: string;
+    selectionTextColor?: string;
+    ctaFontSizePx?: number;
+    ctaPaddingYPx?: number;
     enabled: boolean;
     productId?: string;
     showInProductList?: boolean;
@@ -642,10 +679,12 @@ export interface FeaturedProductConfig {
     galleryIntervalMs?: number;
     ctaLabel?: string;
     ctaColor?: string;
+    ctaHoverColor?: string;
     ctaTextColor?: string;
     ctaBorderRadiusPx?: number;
     sidePanel?: {
         enabled: boolean;
+        contentMode?: 'banner' | 'product' | 'items';
         mode?: 'banner' | 'product';
         items?: FeaturedSidePanelItem[];
         imageUrl?: string | null;
@@ -667,12 +706,21 @@ export interface FeaturedProductConfig {
         ctaLabel?: string;
         ctaHref?: string;
         ctaColor?: string;
+        ctaHoverColor?: string;
         ctaTextColor?: string;
         productId?: string;
     };
 }
 
+export type FeaturedProductSlideConfig = Omit<FeaturedProductConfig, 'slides' | 'presentation'>;
+export interface FeaturedProductSlide { id: string; config: FeaturedProductSlideConfig; }
+
 export interface ForsideProductsSection {
+    /** Selected homepage and catalogue presentation; absent keeps the current theme. */
+    presentation?: import("@/lib/branding/productPresentations").ProductPresentationId;
+    presentationMotion?: boolean;
+    presentationTitle?: string;
+    presentationSubtitle?: string;
     enabled: boolean;
     columns: 3 | 4 | 5;
     layoutStyle: 'cards' | 'flat' | 'grouped' | 'slim';
@@ -699,6 +747,22 @@ export interface ForsideProductsSection {
         priceColor?: string;
     };
     button: {
+        borderRadiusPx?: number;
+        fontSizePx?: number;
+        paddingYPx?: number;
+        shadow?: string;
+        hoverShadow?: string;
+        hoverScale?: number;
+        hoverY?: number;
+        tapScale?: number;
+        transitionMs?: number;
+        surfaceStyle?: string;
+        gradientStart?: string;
+        gradientEnd?: string;
+        hoverGradientStart?: string;
+        hoverGradientEnd?: string;
+        innerShadow?: string;
+        sheenColor?: string;
         style: 'default' | 'bar' | 'center' | 'hidden';
         bgColor: string;
         hoverBgColor: string;
@@ -769,8 +833,44 @@ const DEFAULT_FEATURED_PRODUCT_CONFIG: FeaturedProductConfig = {
     },
 };
 
+export interface LowerInfoItem {
+    id: string;
+    enabled: boolean;
+    title: string;
+    description: string;
+    titleFont: string;
+    titleColor: string;
+    descriptionFont: string;
+    descriptionColor: string;
+    textAlign: 'left' | 'center' | 'right';
+    mediaType: 'none' | 'single' | 'gallery';
+    icon?: string;
+    mediaAlign: 'left' | 'center' | 'right';
+    imageUrl?: string;
+    gallery: string[];
+}
+
+export interface LowerInfoSettings {
+    cardStyle?: 'elevated' | 'flat' | 'bordered';
+    iconBgColor?: string;
+    iconColor?: string;
+    enabled: boolean;
+    layout: 'grid' | 'stacked';
+    background: { type: 'solid' | 'gradient'; color: string; gradientStart: string; gradientEnd: string; gradientAngle: number };
+    items: LowerInfoItem[];
+}
+
+// A missing optional section stays hidden; authored sections are retained.
+export const DEFAULT_LOWER_INFO: LowerInfoSettings = {
+    enabled: false,
+    layout: 'grid',
+    background: { type: 'solid', color: '#F8FAFC', gradientStart: '#F8FAFC', gradientEnd: '#E2E8F0', gradientAngle: 135 },
+    items: [],
+};
+
 // Forside (front page) settings
 export interface ForsideSettings {
+    lowerInfo?: LowerInfoSettings;
     showBanner: boolean;
     layout: StorefrontLayoutSettings;
     banner2: Banner2Settings;
@@ -1738,6 +1838,10 @@ const DEFAULT_BRANDING = {
             paddingYPx: 16,
             animation: "none",
             primary: {
+                gradientStart: "",
+                gradientEnd: "",
+                hoverGradientStart: "",
+                hoverGradientEnd: "",
                 bgColor: "",
                 hoverBgColor: "",
                 textColor: "",
@@ -1815,7 +1919,7 @@ const DEFAULT_BRANDING = {
         saturate: 100,
     },
     // Theme selection (Site Designer V2)
-    themeId: 'classic',
+    themeId: DEFAULT_PRINT_DESIGN_ID,
     themeSettings: {} as Record<string, unknown>,
     selectedIconPackId: "classic",
     // Favicon (browser tab icon)
@@ -1827,7 +1931,71 @@ const DEFAULT_BRANDING = {
     },
 };
 
-export type BrandingData = typeof DEFAULT_BRANDING;
+// Optional authored styling is wider than the defaults. Declaring it must not
+// add values to existing designs or change the defaults applied on load.
+export interface ButtonSurfaceSettings {
+    shadow?: string;
+    hoverShadow?: string;
+    selectedShadow?: string;
+    hoverScale?: number;
+    hoverY?: number;
+    tapScale?: number;
+    transitionMs?: number;
+    motionStyle?: string;
+    surfaceStyle?: string;
+    gradientStart?: string;
+    gradientEnd?: string;
+    hoverGradientStart?: string;
+    hoverGradientEnd?: string;
+    innerShadow?: string;
+    sheenColor?: string;
+}
+
+type DefaultProductPage = typeof DEFAULT_BRANDING.productPage;
+type ProductPageSettings = Omit<DefaultProductPage, 'matrix' | 'pricePanel' | 'orderButtons' | 'optionSelectors'> & {
+    matrix: Omit<DefaultProductPage['matrix'], 'textButtons' | 'pictureButtons'> & {
+        textButtons: DefaultProductPage['matrix']['textButtons'] & { fontFamily?: string };
+        pictureButtons: Omit<DefaultProductPage['matrix']['pictureButtons'], 'size' | 'displayMode'> & ButtonSurfaceSettings & {
+            size: 'small' | 'medium' | 'large';
+            displayMode: 'text_and_image' | 'image_only' | 'text_only';
+            backgroundColor?: string;
+            textColor?: string;
+            hoverTextColor?: string;
+            borderWidthPx?: number;
+            borderColor?: string;
+            hoverBorderColor?: string;
+            selectedBorderColor?: string;
+            selectedRingColor?: string;
+            hoverEffect?: string;
+            selectedEffect?: string;
+        };
+    };
+    pricePanel: DefaultProductPage['pricePanel'] & {
+        shadow?: string;
+        downloadButtonSurfaceStyle?: string;
+        downloadButtonGradientStart?: string;
+        downloadButtonGradientEnd?: string;
+        downloadButtonHoverGradientStart?: string;
+        downloadButtonHoverGradientEnd?: string;
+        downloadButtonShadow?: string;
+        downloadButtonHoverShadow?: string;
+    };
+    orderButtons: DefaultProductPage['orderButtons'] & ButtonSurfaceSettings & {
+        primary: DefaultProductPage['orderButtons']['primary'] & ButtonSurfaceSettings;
+        secondary: DefaultProductPage['orderButtons']['secondary'] & ButtonSurfaceSettings;
+        selected: DefaultProductPage['orderButtons']['selected'] & ButtonSurfaceSettings;
+    };
+    optionSelectors: DefaultProductPage['optionSelectors'] & {
+        button: DefaultProductPage['optionSelectors']['button'] & ButtonSurfaceSettings;
+        image: DefaultProductPage['optionSelectors']['image'] & ButtonSurfaceSettings;
+    };
+};
+
+export type BrandingData = Omit<typeof DEFAULT_BRANDING, 'productPage'> & {
+    productPage: ProductPageSettings;
+    shop_name?: string;
+    contactPage?: { contactInfo?: { email?: string; phone?: string } };
+};
 
 // Export defaults for use in components
 export {
@@ -1852,7 +2020,7 @@ export {
 
 // Helper to deep merge branding with defaults
 export function mergeBrandingWithDefaults(data?: any): BrandingData {
-    if (!data) return DEFAULT_BRANDING;
+    if (!data) return inheritSystemPrintDesign(DEFAULT_BRANDING, DEFAULT_BRANDING);
 
     // Start with defaults
     const merged = { ...DEFAULT_BRANDING, ...data };
@@ -1862,6 +2030,7 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
         merged.header = {
             ...DEFAULT_BRANDING.header,
             ...data.header,
+            dropdownPreset: resolveDropdownPreset(data.header.dropdownPreset),
             scroll: { ...DEFAULT_BRANDING.header.scroll, ...(data.header.scroll || {}) },
             cta: { ...DEFAULT_BRANDING.header.cta, ...(data.header.cta || {}) },
             // Keep arrays from data if present, otherwise use default
@@ -2055,7 +2224,7 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
     }
     if (data.navigation) merged.navigation = { ...DEFAULT_BRANDING.navigation, ...data.navigation };
 
-    return merged;
+    return inheritSystemPrintDesign(merged, DEFAULT_BRANDING);
 }
 
 interface UseBrandingDraftReturn {
@@ -2140,7 +2309,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
             if (!user) return;
 
             const { data: tenant } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('id, name, settings')
                 .eq('owner_id', user.id)
                 .maybeSingle();
@@ -2383,7 +2552,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
 
             // 2. Update tenant settings (current draft state)
             const { data: tenant } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -2446,7 +2615,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
 
             // 2. Update tenant settings
             const { data: tenant } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -2509,7 +2678,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
 
             // Update to defaults
             const { data: tenant } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();

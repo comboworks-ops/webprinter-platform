@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { execFileSync } from "child_process";
 import { componentTagger } from "lovable-tagger";
+import { localColorProfileAssets } from "./scripts/local-color-profile-plugin";
 
 function cleanDistBeforeBuild() {
   return {
@@ -30,18 +31,18 @@ export default defineConfig(({ mode }) => ({
   },
   // Keep Vite cache outside node_modules to avoid cache corruption
   // when dependencies change during local tooling/import runs.
-  cacheDir: ".vite",
+  cacheDir: process.env.WEBPRINTER_VITE_CACHE_DIR || ".vite",
   server: {
     host: "::",
     port: 8080,
     watch: {
       // Avoid HMR storms from backup/docs churn (common in synced folders)
-      ignored: ["**/src/backup-*/**", "**/docs/**", "**/tmp/**", "**/.git/**"],
+      ignored: ["**/src/backup-*/**", "**/docs/**", "**/tmp/**", "**/output/**", "**/.git/**"],
       usePolling: true,
       interval: 1000,
     },
   },
-  plugins: [cleanDistBeforeBuild(), react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [cleanDistBeforeBuild(), localColorProfileAssets(), react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

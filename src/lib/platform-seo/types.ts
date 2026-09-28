@@ -1,18 +1,19 @@
+import type { Json } from "../../integrations/supabase/types.js";
 /**
  * Platform SEO Types
- * 
+ *
  * Types for the Platform SEO & Analytics Center.
  * Only applies to webprinter.dk / www.webprinter.dk
  */
 
-export interface PlatformSeoLocale {
+export type PlatformSeoLocale = {
     locale: string;      // e.g. "da-DK"
     lang: string;        // e.g. "da"
     isDefault: boolean;
     pathPrefix: string;  // e.g. "" or "/en"
 }
 
-export interface PlatformSeoSettings {
+export type PlatformSeoSettings = {
     id: string;
     tenant_id: string;
     primary_domain: string;
@@ -22,13 +23,13 @@ export interface PlatformSeoSettings {
     default_description: string;
     default_robots: string;
     default_og_image_url: string | null;
-    organization_jsonld: Record<string, unknown> | null;
-    website_jsonld: Record<string, unknown> | null;
+    organization_jsonld: Record<string, Json | undefined> | null;
+    website_jsonld: Record<string, Json | undefined> | null;
     locales: PlatformSeoLocale[];
     updated_at: string;
 }
 
-export interface PlatformSeoPage {
+export type PlatformSeoPage = {
     id: string;
     tenant_id: string;
     path: string;
@@ -40,12 +41,12 @@ export interface PlatformSeoPage {
     og_title: string | null;
     og_description: string | null;
     og_image_url: string | null;
-    jsonld: Record<string, unknown> | null;
+    jsonld: Record<string, Json | undefined> | null;
     lastmod: string | null;
     updated_at: string;
 }
 
-export interface PlatformSeoPagespeedSnapshot {
+export type PlatformSeoPagespeedSnapshot = {
     id: string;
     tenant_id: string;
     url: string;
@@ -56,7 +57,7 @@ export interface PlatformSeoPagespeedSnapshot {
         bestPractices?: number;
         seo?: number;
         pwa?: number;
-        audits?: Record<string, unknown>;
+        audits?: Record<string, Json | undefined>;
     };
     created_at: string;
 }

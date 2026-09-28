@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, jsonResponse, optionsResponse } from "../_shared/http.ts";
 import { requireUser } from "../_shared/auth.ts";
@@ -17,7 +18,7 @@ Deno.serve(async (req) => {
     if (!auth.ok) return auth.response;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const supabaseServiceKey = readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "";
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     const { data: roles, error } = await serviceClient

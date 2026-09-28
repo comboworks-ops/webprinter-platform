@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -1700,7 +1701,7 @@ function chunkArray<T>(items: T[], size: number) {
 }
 
 async function fetchExistingProductMatchData() {
-  const productResult = await fetchAllSupabaseRows<ExistingProductRow>(() => (supabase.from("products" as any) as any)
+  const productResult = await fetchAllSupabaseRows<ExistingProductRow>(() => (supabase.from("products") as any)
     .select("id,name,slug,category,pricing_type,is_published")
     .order("name"));
 
@@ -1717,7 +1718,7 @@ async function fetchExistingProductMatchData() {
   const optionGroups: ExistingProductOptionGroup[] = [];
 
   for (const productIdChunk of chunkArray(productIds, 150)) {
-    const groupResult = await fetchAllSupabaseRows<ExistingProductOptionGroup>(() => (supabase.from("product_attribute_groups" as any) as any)
+    const groupResult = await fetchAllSupabaseRows<ExistingProductOptionGroup>(() => (supabase.from("product_attribute_groups") as any)
       .select("id,product_id,name,kind,sort_order,values:product_attribute_values(id,name,enabled,sort_order)")
       .in("product_id", productIdChunk)
       .order("sort_order"));
@@ -1846,20 +1847,20 @@ export default function SupplierBank() {
         || "Det sikre admin-endpoint returnerede ingen supplier-bank data.";
 
       const [supplierResult, productResult, importJobResult, deltaReviewResult, refreshJobResult] = await Promise.all([
-        fetchAllSupabaseRows<SupplierRow>(() => (supabase.from("supplier_bank_suppliers" as any) as any)
+        fetchAllSupabaseRows<SupplierRow>(() => (supabase.from("supplier_bank_suppliers") as any)
           .select("id,name,slug,enabled,integration_type,country_code,currency,metadata")
           .order("name")),
-        fetchAllSupabaseRows<BankProductRow>(() => (supabase.from("supplier_bank_products" as any) as any)
+        fetchAllSupabaseRows<BankProductRow>(() => (supabase.from("supplier_bank_products") as any)
           .select("id,supplier_id,supplier_product_key,name_da,name_original,product_family,status,scrape_status,source_url,last_scraped_at,last_price_checked_at,raw_snapshot_path,normalized_attributes,normalized_pricing_summary,updated_at")
           .neq("status", "archived")
           .order("updated_at", { ascending: false })),
-        fetchAllSupabaseRows<ImportJobRow>(() => (supabase.from("supplier_bank_import_jobs" as any) as any)
+        fetchAllSupabaseRows<ImportJobRow>(() => (supabase.from("supplier_bank_import_jobs") as any)
           .select("id,bank_product_id,target_tenant_id,target_product_id,import_mode,status,import_summary,rollback_note,created_at")
           .order("created_at", { ascending: false })),
-        fetchAllSupabaseRows<DeltaReviewRow>(() => (supabase.from("supplier_bank_price_delta_reviews" as any) as any)
+        fetchAllSupabaseRows<DeltaReviewRow>(() => (supabase.from("supplier_bank_price_delta_reviews") as any)
           .select("id,bank_product_id,new_price_snapshot_id,status,threshold_pct,change_summary,notes,created_at")
           .order("created_at", { ascending: false })),
-        fetchAllSupabaseRows<RefreshJobRow>(() => (supabase.from("supplier_bank_refresh_jobs" as any) as any)
+        fetchAllSupabaseRows<RefreshJobRow>(() => (supabase.from("supplier_bank_refresh_jobs") as any)
           .select("id,supplier_id,bank_product_id,mode,tool,status,request_summary,result_summary,error,queued_at,started_at,finished_at")
           .order("queued_at", { ascending: false })),
       ]);
@@ -1888,7 +1889,7 @@ export default function SupplierBank() {
         let importedTargetRowCounts: Record<string, ImportedTargetRowCounts> = {};
 
         if (productRows.length > 0) {
-          const { data: snapshotRows, error: snapshotStatsError } = await fetchAllSupabaseRows<any>(() => (supabase.from("supplier_bank_price_snapshots" as any) as any)
+          const { data: snapshotRows, error: snapshotStatsError } = await fetchAllSupabaseRows<any>(() => (supabase.from("supplier_bank_price_snapshots") as any)
             .select("id,bank_product_id,created_at,quantity_min,quantity_max,price_min_dkk,price_max_dkk")
             .in("bank_product_id", productRows.map((product) => product.id))
             .order("created_at", { ascending: false }));
@@ -1927,7 +1928,7 @@ export default function SupplierBank() {
         ));
 
         if (targetProductIds.length > 0) {
-          const { data: targetProducts, error: targetProductsError } = await (supabase.from("products" as any) as any)
+          const { data: targetProducts, error: targetProductsError } = await (supabase.from("products") as any)
             .select("id,name,slug,pricing_type,is_published")
             .in("id", targetProductIds);
 
@@ -3361,7 +3362,7 @@ export default function SupplierBank() {
     if (!allowed) return;
 
     setUpdatingDeltaReviewId(review.id);
-    const { error: updateError } = await (supabase.from("supplier_bank_price_delta_reviews" as any) as any)
+    const { error: updateError } = await (supabase.from("supplier_bank_price_delta_reviews") as any)
       .update({
         status: nextStatus,
         updated_at: new Date().toISOString(),
@@ -3400,7 +3401,7 @@ export default function SupplierBank() {
     const supplier = supplierById.get(product.supplier_id);
     setQueueingRefreshProductId(product.id);
 
-    const { data, error: insertError } = await (supabase.from("supplier_bank_refresh_jobs" as any) as any)
+    const { data, error: insertError } = await (supabase.from("supplier_bank_refresh_jobs") as any)
       .insert({
         supplier_id: product.supplier_id,
         bank_product_id: product.id,
@@ -3443,7 +3444,7 @@ export default function SupplierBank() {
     setPreviewDraftImport(null);
     setPreviewLoading(true);
 
-    const { data, error: snapshotError } = await (supabase.from("supplier_bank_price_snapshots" as any) as any)
+    const { data, error: snapshotError } = await (supabase.from("supplier_bank_price_snapshots") as any)
       .select("id,currency,created_at,quantity_min,quantity_max,price_min_dkk,price_max_dkk")
       .eq("bank_product_id", product.id)
       .order("created_at", { ascending: false })
@@ -3495,7 +3496,7 @@ export default function SupplierBank() {
     let approvedProduct = product;
 
     if (product.status !== "approved") {
-      const { error: approveError } = await (supabase.from("supplier_bank_products" as any) as any)
+      const { error: approveError } = await (supabase.from("supplier_bank_products") as any)
         .update({
           status: "approved",
           updated_at: new Date().toISOString(),
@@ -5160,7 +5161,7 @@ export default function SupplierBank() {
               </p>
             </div>
           ) : (
-            <div className="grid gap-3 2xl:grid-cols-2">
+            <WorkspaceCollection label="Produkter i leverandørbanken" items={filteredProducts.map(product => ({ id: product.id, title: product.name_da, subtitle: product.name_original }))}>
               {filteredProducts.map((product) => {
                 const supplier = supplierById.get(product.supplier_id);
                 const pricing = resolveProductPricingSummary(
@@ -5446,7 +5447,7 @@ export default function SupplierBank() {
                   </div>
                 );
               })}
-            </div>
+            </WorkspaceCollection>
           )}
         </CardContent>
         </Card>

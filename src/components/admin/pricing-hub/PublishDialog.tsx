@@ -28,6 +28,7 @@ import {
 import { Loader2, Package, AlertCircle, Check, ArrowRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveAdminTenant } from "@/lib/adminTenant";
+import { publishGenericPricesSafely } from "@/lib/pricing/safeGenericPricePublish";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -132,13 +133,13 @@ export function PublishDialog({
 
             // 1. Fetch existing attribute groups and values
             const { data: existingGroupsData, error: groupsError } = await supabase
-                .from('product_attribute_groups' as any)
+                .from('product_attribute_groups')
                 .select('*, values:product_attribute_values(*)')
                 .eq('product_id', selectedProductId);
 
             if (groupsError) throw groupsError;
 
-            let currentGroups = (existingGroupsData || []) as any[];
+            const currentGroups = (existingGroupsData || []) as any[];
 
             // Helper to ensure group exists
             const ensureGroup = async (kind: string, name: string) => {
@@ -146,7 +147,7 @@ export function PublishDialog({
                 if (!group) {
                     // Create group
                     const { data: newGroup, error } = await supabase
-                        .from('product_attribute_groups' as any)
+                        .from('product_attribute_groups')
                         .insert({
                             product_id: selectedProductId,
                             tenant_id: tenantId,
@@ -196,7 +197,7 @@ export function PublishDialog({
                     const meta = imageUrl ? { image: imageUrl } : null;
                     // Create value
                     const { data: newValue, error } = await supabase
-                        .from('product_attribute_values' as any)
+                        .from('product_attribute_values')
                         .insert({
                             group_id: group.id,
                             product_id: selectedProductId,
@@ -233,7 +234,7 @@ export function PublishDialog({
 
                 if (Object.keys(updatePayload).length > 0) {
                     const { data: updatedValue, error: updateError } = await supabase
-                        .from('product_attribute_values' as any)
+                        .from('product_attribute_values')
                         .update(updatePayload)
                         .eq('id', value.id)
                         .select()
@@ -440,39 +441,55 @@ export function PublishDialog({
                 quantities
             };
 
-            const { error: productError } = await supabase
-                .from('products')
-                .update({
-                    pricing_structure: pricingStructure,
-                    pricing_type: 'matrix'
-                } as any)
-                .eq('id', selectedProductId);
-
-            if (productError) throw productError;
-
-            // 6. Delete existing prices
-            const { error: deleteError } = await supabase
-                .from('generic_product_prices' as any)
-                .delete()
-                .eq('product_id', selectedProductId);
-
-            if (deleteError) throw new Error("Delete failed: " + deleteError.message);
-
-            // 7. Insert new prices in batches
-            const batchSize = 500;
-            let insertedCount = 0;
-
-            for (let i = 0; i < priceRows.length; i += batchSize) {
-                const batch = priceRows.slice(i, i + batchSize);
-                const { error: insertError } = await supabase
-                    .from('generic_product_prices' as any)
-                    .insert(batch);
-
-                if (insertError) throw new Error("Insert failed: " + insertError.message);
-                insertedCount += batch.length;
+            const existingPriceRows: any[] = [];
+            const pageSize = 1000;
+            for (let offset = 0; ; offset += pageSize) {
+                const { data, error } = await supabase
+                    .from('generic_product_prices')
+                    .select('id,product_id,variant_name,variant_value,quantity')
+                    .eq('product_id', selectedProductId)
+                    .order('id', { ascending: true })
+                    .range(offset, offset + pageSize - 1);
+                if (error) throw error;
+                existingPriceRows.push(...(data || []));
+                if (!data || data.length < pageSize) break;
             }
 
-            console.log('[Publish] Published', insertedCount, 'prices');
+            const publishResult = await publishGenericPricesSafely({
+                existingRows: existingPriceRows,
+                desiredRows: priceRows,
+                batchSize: 500,
+                upsertBatch: async (batch) => {
+                    const { error } = await supabase
+                        .from('generic_product_prices')
+                        .upsert(batch, {
+                            onConflict: 'product_id,variant_name,variant_value,quantity'
+                        });
+                    if (error) throw error;
+                },
+                updateProduct: async () => {
+                    const { error } = await supabase
+                        .from('products')
+                        .update({
+                            pricing_structure: pricingStructure,
+                            pricing_type: 'matrix'
+                        } as any)
+                        .eq('id', selectedProductId)
+                        .eq('tenant_id', tenantId);
+                    if (error) throw error;
+                },
+                deleteStaleBatch: async (ids) => {
+                    const { error } = await supabase
+                        .from('generic_product_prices')
+                        .delete()
+                        .eq('product_id', selectedProductId)
+                        .in('id', ids);
+                    if (error) throw error;
+                },
+            });
+
+            const insertedCount = publishResult.saved;
+            console.log('[Publish] Published', insertedCount, 'prices safely');
             try {
                 localStorage.removeItem(`product_config_${selectedProductId}`);
             } catch {

@@ -1,8 +1,12 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 // POD Shipping Possibilities - Fetch delivery options from Print.com
 // Uses stored supplier connection credentials to avoid exposing API keys.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {validatePodShippingInput} from '../_shared/podShippingAccess.ts';
+import {boundedExplorerText} from '../_shared/podExplorerAccess.ts';
+import {checkRateLimit} from '../_shared/rateLimit.ts';
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -19,21 +23,18 @@ serve(async (req) => {
     if (req.method === "OPTIONS") {
         return new Response("ok", { headers: corsHeaders });
     }
+    if (req.method !== 'POST') return new Response('{}', {status:405,headers:corsHeaders});
+    const limited=checkRateLimit(req,{keyPrefix:'pod-shipping',limit:20,windowMs:60000});
+    if (limited) return limited;
 
     try {
-        const body = await req.json();
+        const body = validatePodShippingInput(JSON.parse(await boundedExplorerText(req.body,8192)));
         const {
             productId,
             quantity,
             variantKey,
             verticalValueId,
-            selectionMap,
             address,
-            dateFrom,
-            numberOfDays,
-            respectUrgency,
-            respectDeliveryPromise,
-            deliveryPromise,
         } = body || {};
 
         const qty = Number(quantity);
@@ -45,13 +46,14 @@ serve(async (req) => {
         }
 
         const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const serviceKey = readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "";
         const serviceClient = createClient(supabaseUrl, serviceKey);
 
         const { data: product } = await serviceClient
             .from("products")
             .select("id, technical_specs")
             .eq("id", productId)
+            .eq('is_published', true)
             .maybeSingle();
 
         if (!product?.technical_specs?.is_pod) {
@@ -87,8 +89,10 @@ serve(async (req) => {
             });
         }
 
-        let resolvedSelectionMap = selectionMap as Record<string, string> | undefined;
-        if (!resolvedSelectionMap) {
+        // Access is limited to the exact published product/price row displayed
+        // in the storefront. Callers cannot supply arbitrary supplier options.
+        let resolvedSelectionMap: Record<string, string> | undefined;
+        {
             let priceQuery = serviceClient
                 .from("generic_product_prices")
                 .select("extra_data")
@@ -163,6 +167,7 @@ serve(async (req) => {
         const { data: connection } = await serviceClient
             .from("pod_supplier_connections")
             .select("*")
+            .eq('tenant_id', '00000000-0000-0000-0000-000000000000')
             .eq("is_active", true)
             .limit(1)
             .maybeSingle();
@@ -173,6 +178,8 @@ serve(async (req) => {
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
         }
+        if (String(connection.provider_key || '').toLowerCase().replace(/[^a-z0-9]/g,'') !== 'printcom'
+            || !allowedBaseUrls.has(connection.base_url)) throw new Error('Invalid supplier configuration');
 
         const baseUrl = allowedBaseUrls.has(connection.base_url)
             ? connection.base_url
@@ -208,26 +215,18 @@ serve(async (req) => {
             },
             address: {
                 country: address.country,
-                postcode: address.postcode,
-                vatNr: address.vatNr,
             },
-            dateFrom,
-            numberOfDays,
-            respectUrgency,
-            respectDeliveryPromise,
         };
-
-        if (typeof deliveryPromise === "number") {
-            requestBody.item.deliveryPromise = deliveryPromise;
-        }
 
         const response = await fetch(new URL("/shipping/shipping-possibilities", baseUrl).toString(), {
             method: "POST",
             headers,
             body: JSON.stringify(requestBody),
+            redirect: 'error',
+            signal: AbortSignal.timeout(15000),
         });
 
-        const responseText = await response.text();
+        const responseText = await boundedExplorerText(response.body,1024*1024);
         let responseJson: any = null;
         try {
             responseJson = responseText ? JSON.parse(responseText) : null;
@@ -239,7 +238,6 @@ serve(async (req) => {
             return new Response(JSON.stringify({
                 error: "Levering kunne ikke hentes.",
                 status: response.status,
-                details: responseJson || responseText,
             }), {
                 status: 200,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -270,14 +268,13 @@ serve(async (req) => {
 
         return new Response(JSON.stringify({
             options: optionsList,
-            raw: responseJson,
         }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
     } catch (error) {
-        return new Response(JSON.stringify({ error: error.message || "Unknown error" }), {
-            status: 500,
+        return new Response(JSON.stringify({ error: 'Levering kunne ikke hentes for den valgte variant.' }), {
+            status: 400,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
     }

@@ -1,12 +1,12 @@
 /**
  * Tenant Branding Storage Adapter
- * 
+ *
  * Handles branding data operations for tenant shop owners.
  * Data is stored in the tenant's settings in the tenants table.
  */
 
 import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
+import { extractDraftBranding, extractPublishedBranding, normalizedBrandingContainer, persistBrandingSettings } from './settings-persistence';
 import {
     type BrandingStorageAdapter,
     type BrandingData,
@@ -28,7 +28,7 @@ export function createTenantAdapter(
 
         async loadDraft(): Promise<BrandingData> {
             const { data, error } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -39,30 +39,12 @@ export function createTenantAdapter(
             }
 
             const settings = (data as any)?.settings || {};
-            const branding = settings.branding || {};
-
-            // Check for older legacy format (root level keys in settings)
-            if (settings.branding_draft) {
-                return mergeBrandingWithDefaults(settings.branding_draft);
-            }
-
-            // Check for legacy format (branding object is the data itself, not a container)
-            // If it doesn't have explicit 'draft' or 'published' keys, assume it's the branding data
-            if (branding && !branding.draft && !branding.published) {
-                // If it's an empty object, mergeBrandingWithDefaults returns defaults, which is fine
-                return mergeBrandingWithDefaults(branding);
-            }
-
-            // Standard new format
-            return mergeBrandingWithDefaults({
-                ...branding.published, // Spread published first to get baseline
-                ...branding.draft,     // Overlay draft updates
-            });
+            return mergeBrandingWithDefaults(extractDraftBranding(settings));
         },
 
         async loadPublished(): Promise<BrandingData> {
             const { data, error } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -73,25 +55,13 @@ export function createTenantAdapter(
             }
 
             const settings = (data as any)?.settings || {};
-            const branding = settings.branding || {};
-
-            // Check for older legacy format
-            if (settings.branding_published) {
-                return mergeBrandingWithDefaults(settings.branding_published);
-            }
-
-            // Check for legacy format
-            if (branding && !branding.draft && !branding.published) {
-                return mergeBrandingWithDefaults(branding);
-            }
-
-            return mergeBrandingWithDefaults(branding.published || {});
+            return mergeBrandingWithDefaults(extractPublishedBranding(settings) || {});
         },
 
         async saveDraft(data: BrandingData): Promise<void> {
             // Get current settings first
             const { data: current, error: fetchError } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -99,7 +69,7 @@ export function createTenantAdapter(
             if (fetchError) throw fetchError;
 
             const currentSettings = (current as any)?.settings || {};
-            const currentBranding = currentSettings.branding || {};
+            const currentBranding = normalizedBrandingContainer(currentSettings);
 
             const newSettings = {
                 ...currentSettings,
@@ -109,18 +79,13 @@ export function createTenantAdapter(
                 }
             };
 
-            const { error } = await supabase
-                .from('tenants' as any)
-                .update({ settings: newSettings })
-                .eq('id', tenantId);
-
-            if (error) throw error;
+            await persistBrandingSettings(supabase, tenantId, (current as any)?.settings, newSettings);
         },
 
         async publish(data: BrandingData, label?: string): Promise<void> {
             // Get current settings
             const { data: current, error: fetchError } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -128,7 +93,7 @@ export function createTenantAdapter(
             if (fetchError) throw fetchError;
 
             const currentSettings = (current as any)?.settings || {};
-            const currentBranding = currentSettings.branding || {};
+            const currentBranding = normalizedBrandingContainer(currentSettings);
 
             const historyEntry: BrandingHistoryEntry = {
                 id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -149,12 +114,7 @@ export function createTenantAdapter(
                 }
             };
 
-            const { error } = await supabase
-                .from('tenants' as any)
-                .update({ settings: newSettings })
-                .eq('id', tenantId);
-
-            if (error) throw error;
+            await persistBrandingSettings(supabase, tenantId, (current as any)?.settings, newSettings);
         },
 
         async discardDraft(): Promise<BrandingData> {
@@ -166,7 +126,7 @@ export function createTenantAdapter(
         async resetToDefault(): Promise<BrandingData> {
             // Get current settings to preserve history and auto-save current state
             const { data: current, error: fetchError } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -174,7 +134,7 @@ export function createTenantAdapter(
             if (fetchError) throw fetchError;
 
             const currentSettings = (current as any)?.settings || {};
-            const currentBranding = currentSettings.branding || {};
+            const currentBranding = normalizedBrandingContainer(currentSettings);
             const currentDraft = currentBranding.draft || currentBranding.published || {};
 
             // Auto-save current state before reset
@@ -188,20 +148,16 @@ export function createTenantAdapter(
             };
 
             // Attempt to fetch Master Tenant branding to use as default
-            let newDefault = DEFAULT_BRANDING;
+            let newDefault: BrandingData = DEFAULT_BRANDING;
             try {
                 const { data: masterTenant } = await supabase
-                    .from('tenants' as any)
+                    .from('tenants')
                     .select('settings')
                     .eq('id', '00000000-0000-0000-0000-000000000000') // Master ID
                     .maybeSingle();
 
-                if (masterTenant?.settings?.branding?.published) {
-                    newDefault = mergeBrandingWithDefaults(masterTenant.settings.branding.published);
-                } else if (masterTenant?.settings?.branding) {
-                    // Legacy master format
-                    newDefault = mergeBrandingWithDefaults(masterTenant.settings.branding);
-                }
+                const masterPublished = extractPublishedBranding((masterTenant as any)?.settings);
+                if (masterPublished) newDefault = mergeBrandingWithDefaults(masterPublished);
             } catch (e) {
                 console.warn('Could not fetch master branding, using built-in defaults:', e);
             }
@@ -217,19 +173,14 @@ export function createTenantAdapter(
                 }
             };
 
-            const { error } = await supabase
-                .from('tenants' as any)
-                .update({ settings: newSettings })
-                .eq('id', tenantId);
-
-            if (error) throw error;
+            await persistBrandingSettings(supabase, tenantId, (current as any)?.settings, newSettings);
 
             return newDefault;
         },
 
         async loadHistory(): Promise<BrandingHistoryEntry[]> {
             const { data, error } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -257,7 +208,7 @@ export function createTenantAdapter(
 
         async saveDesign(name: string, data: BrandingData, isAutoSave?: boolean, overwriteId?: string): Promise<SavedDesign> {
             const { data: current, error: fetchError } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -265,7 +216,7 @@ export function createTenantAdapter(
             if (fetchError) throw fetchError;
 
             const currentSettings = (current as any)?.settings || {};
-            const currentBranding = currentSettings.branding || {};
+            const currentBranding = normalizedBrandingContainer(currentSettings);
             const savedDesigns = currentBranding.savedDesigns || [];
 
             const existingDesign = overwriteId
@@ -291,19 +242,14 @@ export function createTenantAdapter(
                 }
             };
 
-            const { error } = await supabase
-                .from('tenants' as any)
-                .update({ settings: newSettings })
-                .eq('id', tenantId);
-
-            if (error) throw error;
+            await persistBrandingSettings(supabase, tenantId, (current as any)?.settings, newSettings);
 
             return newDesign;
         },
 
         async loadSavedDesigns(): Promise<SavedDesign[]> {
             const { data, error } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -328,7 +274,7 @@ export function createTenantAdapter(
 
         async deleteSavedDesign(id: string): Promise<void> {
             const { data: current, error: fetchError } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -336,7 +282,7 @@ export function createTenantAdapter(
             if (fetchError) throw fetchError;
 
             const currentSettings = (current as any)?.settings || {};
-            const currentBranding = currentSettings.branding || {};
+            const currentBranding = normalizedBrandingContainer(currentSettings);
             const savedDesigns = (currentBranding.savedDesigns || []).filter((d: SavedDesign) => d.id !== id);
 
             const newSettings = {
@@ -347,15 +293,10 @@ export function createTenantAdapter(
                 }
             };
 
-            const { error } = await supabase
-                .from('tenants' as any)
-                .update({ settings: newSettings })
-                .eq('id', tenantId);
-
-            if (error) throw error;
+            await persistBrandingSettings(supabase, tenantId, (current as any)?.settings, newSettings);
         },
 
-        async uploadAsset(file: File, type: 'logo' | 'hero-image' | 'hero-video'): Promise<string> {
+        async uploadAsset(file: File, type: 'logo' | 'hero-image' | 'hero-video' | 'usp-icon'): Promise<string> {
             const fileExt = file.name.split('.').pop();
             const fileName = `${type}-${Date.now()}.${fileExt}`;
             const filePath = `branding/${tenantId}/${fileName}`;

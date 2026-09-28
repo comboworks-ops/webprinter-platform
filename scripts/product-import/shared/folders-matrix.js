@@ -6,8 +6,20 @@ const FORMAT_ORDER = [
   "DIN A6",
   "DIN A5",
   "DIN A4",
+  "10.5 x 29.7 cm",
+  "12 x 18 cm",
+  "14 x 29.7 cm",
+  "15 x 26.5 cm",
+  "26.5 x 15 cm",
+  "12.5 x 23.5 cm",
+  "29.7 x 10.5 cm",
+  "18 x 12 cm",
+  "29.7 x 14 cm",
+  "23.5 x 12.5 cm",
   "9.8 x 9.8 cm",
+  "10 x 10 cm",
   "10.5 x 10.5 cm",
+  "12 x 12 cm",
   "14.8 x 14.8 cm",
   "21 x 21 cm",
 ];
@@ -22,7 +34,7 @@ const MATERIAL_ORDER = [
 
 const SURFACE_ORDER = ["Matsilk", "Glans"];
 const FOLD_ORDER = ["Folder midterfalset", "Rullefalset", "zigzag falset"];
-const PAGES_ORDER = ["4 sider", "6 sider", "8 sider", "10 sider"];
+const PAGES_ORDER = ["4 sider", "6 sider", "8 sider", "10 sider", "12 sider", "16 sider"];
 const ORIENTATION_ORDER = ["Lodret", "Vandret"];
 
 function normalizeText(value) {

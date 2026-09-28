@@ -1,0 +1,593 @@
+{
+  "date": "2026-09-08",
+  "scope": "Supporting admin surfaces only; shell/product/order/designer work is owned by other agents.",
+  "selected_reference_count": 57,
+  "reference_validity": "All 57 keys and PNG files were validated against gallery-data.json.",
+  "implemented_surface_count": 42,
+  "status_counts": {
+    "adapted_existing_workflow": 24,
+    "implemented_layout": 18
+  },
+  "shared_files": [
+    "src/components/admin/WorkspaceCollection.tsx",
+    "src/components/admin/WorkspaceJobSummary.tsx",
+    "src/styles/adminSurfacesWorkspace.css"
+  ],
+  "proof_boundary": {
+    "syntax": "46 TSX ledger files transpiled with TypeScript transpileModule and CSS parsed with PostCSS, zero syntax errors.",
+    "project_typecheck": "Full project tsc exits 2 with existing generated-schema/editor typing errors. No IconStudioPage or Pod2Betaling errors. PrintProductionOrders retains pre-existing zero-argument mutateAsync typing error (line 370 after layout edit; baseline line 344).",
+    "browser": "Root agent conducts synthetic fixture desktop/tablet/mobile QA; no authenticated production proof.",
+    "mutations": "No network writes, payments, supplier submissions, production deploys, dependency changes or database migrations performed.",
+    "production_regression": "14 existing src/lib/print-production/orderSubmission.test.ts tests passed using node --experimental-strip-types --test. They cover original validation, confirmation binding and reconciliation contract, not browser filters."
+  },
+  "records": [
+    {
+      "id": "companyhub",
+      "selection_key": "companyhub_2",
+      "reference": "tmp/admin-design-review-20260908/images/companyhub_2.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/components/companyhub/v2/AdminCompanyWorkspace.tsx",
+        "src/components/companyhub/AdminCompanyHubManager.tsx"
+      ],
+      "changes": "Company selector becomes a horizontal group band; setup links become a two-column row overview; existing offices/members/catalogue/template tabs and mutations retained.",
+      "limits": "Reference summary is adapted to existing v2/classic company workspaces; no synthetic company activity or money.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "modules",
+      "selection_key": "modules_1",
+      "reference": "tmp/admin-design-review-20260908/images/modules_1.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/ShopModules.tsx"
+      ],
+      "changes": "Grouped free/premium selection list and selected module detail retain original ModuleCard actions. Internal admin navigation retains force_domain via withAdminWorkspaceContext.",
+      "limits": "No installation or activation was executed.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "sitedesign",
+      "selection_key": "sitedesign_0",
+      "reference": "tmp/admin-design-review-20260908/images/sitedesign_0.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/components/admin/TenantSiteDesignV2.tsx",
+        "src/components/admin/SiteDesignEditorV2.tsx"
+      ],
+      "changes": "Workspace-height left tools and central live preview; obsolete global-sidebar effect removed; original draft/save/publish controls retained.",
+      "limits": "Existing two-panel editor retained; extra mockup inspector is not a separate new feature.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "branding",
+      "selection_key": "branding_0",
+      "reference": "tmp/admin-design-review-20260908/images/branding_0.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/components/admin/TenantBrandingSettingsV2.tsx",
+        "src/components/admin/BrandingEditorV2.tsx"
+      ],
+      "changes": "Wider form pane with narrower live preview and workspace sizing; removed obsolete sidebar effect.",
+      "limits": "Section tools remain existing controls, not the reduced mockup fields.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "brandingclassic",
+      "selection_key": "brandingclassic_1",
+      "reference": "tmp/admin-design-review-20260908/images/brandingclassic_1.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/UnifiedBrandingEditor.tsx"
+      ],
+      "changes": "Classic settings and sticky live preview now render beside each other; responsive stack.",
+      "limits": "Draft persistence/publishing not exercised.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "icons",
+      "selection_key": "icons_0",
+      "reference": "tmp/admin-design-review-20260908/images/icons_0.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/pages/admin/IconStudioPage.tsx"
+      ],
+      "changes": "Three-column reference/product, real generator settings and generated proposals workspace. Reuses the exact existing job output, approval and apply/download UI in both current results and history; generation remains on this workspace. Actual reference thumbnails and missing-image product context are visible.",
+      "limits": "Existing single-product generator, optional exact logo placement and output settings take precedence over mockup-only batch selection, free instruction, background and lighting controls. Image generation/approval/application not executed; test-engine fallback remains visibly disclosed.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "sites",
+      "selection_key": "sites_0",
+      "reference": "tmp/admin-design-review-20260908/images/sites_0.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/pages/admin/SitesAdmin.tsx"
+      ],
+      "changes": "Site package selector and existing selected package actions form a list/detail workspace; semantic h1.",
+      "limits": "Existing package workflow/status area retained; no new site activation or dependency install.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "designlibrary",
+      "selection_key": "designlibrary_1",
+      "reference": "tmp/admin-design-review-20260908/images/designlibrary_1.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/DesignResources.tsx"
+      ],
+      "changes": "Six resource tabs use local list/detail selection with existing cards and actions retained.",
+      "limits": "Only real source thumbnails are shown; absent thumbnails use a file/image icon.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "formattemplates",
+      "selection_key": "formattemplates_0",
+      "reference": "tmp/admin-design-review-20260908/images/formattemplates_0.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/components/admin/DesignerTemplateManager.tsx"
+      ],
+      "changes": "Template detail appears left and selected template list right; existing edit dialog remains; semantic h1.",
+      "limits": "Selected open-form mockup is adapted to the existing modal editor, which was not replaced.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "colorprofiles",
+      "selection_key": "colorprofiles_1",
+      "reference": "tmp/admin-design-review-20260908/images/colorprofiles_1.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/ColorProfilesManager.tsx"
+      ],
+      "changes": "Profile register gains local selection and read-only metadata inspector.",
+      "limits": "No profile upload/activation or proofing logic changes.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "seomanager",
+      "selection_key": "seomanager_0",
+      "reference": "tmp/admin-design-review-20260908/images/seomanager_0.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/SeoManager.tsx"
+      ],
+      "changes": "Page selection left, metadata editing centre and existing search preview right.",
+      "limits": "No Search Console statuses invented; persistence not exercised.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "aiseo",
+      "selection_key": "aiseo_2",
+      "reference": "tmp/admin-design-review-20260908/images/aiseo_2.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/components/admin/AiSeoManager.tsx"
+      ],
+      "changes": "Existing identity cards use horizontal label/form sections and open spacing.",
+      "limits": "Other tab workflows retained; AI requests not run.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "domain",
+      "selection_key": "domain_1",
+      "reference": "tmp/admin-design-review-20260908/images/domain_1.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/DomainSettings.tsx"
+      ],
+      "changes": "Current-domain priority strip; domain setup and guide side by side.",
+      "limits": "DNS/domain changes not executed.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "subscription",
+      "selection_key": "subscription_2",
+      "reference": "tmp/admin-design-review-20260908/images/subscription_2.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/SubscriptionSettings.tsx"
+      ],
+      "changes": "Current subscription summary beside available plan options.",
+      "limits": "No billing or subscription changes executed.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "settings",
+      "selection_key": "settings_0",
+      "reference": "tmp/admin-design-review-20260908/images/settings_0.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/ShopSettings.tsx"
+      ],
+      "changes": "Open settings form with read-only live draft contact summary on the right.",
+      "limits": "Summary is local form state, not saved confirmation.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "payment",
+      "selection_key": "payment_0",
+      "reference": "tmp/admin-design-review-20260908/images/payment_0.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/components/admin/TenantPaymentSettings.tsx"
+      ],
+      "changes": "Existing connection and configuration status becomes an open vertical register.",
+      "limits": "Stripe setup was not exercised.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "tenants",
+      "selection_key": "tenants_0",
+      "reference": "tmp/admin-design-review-20260908/images/tenants_0.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/TenantOverview.tsx"
+      ],
+      "changes": "Searchable shop register with local selection and actual tenant ID/domain/date inspector; existing contact/visit links retained. Internal admin navigation retains force_domain via withAdminWorkspaceContext.",
+      "limits": "No new impersonation action; synthetic QA does not prove RLS or tenant administration.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "updates",
+      "selection_key": "updates_1",
+      "reference": "tmp/admin-design-review-20260908/images/updates_1.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/components/admin/AdminUpdates.tsx"
+      ],
+      "changes": "Versions register plus selected current form preview and original publish dialog.",
+      "limits": "Existing workflow publishes directly; no new durable draft feature invented.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "tenantupdates",
+      "selection_key": "tenantupdates_0",
+      "reference": "tmp/admin-design-review-20260908/images/tenantupdates_0.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/TenantUpdates.tsx"
+      ],
+      "changes": "Notification list/detail selection retains original read and update actions.",
+      "limits": "Notification mutations not exercised.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "assets",
+      "selection_key": "assets_1",
+      "reference": "tmp/admin-design-review-20260908/images/assets_1.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/AssetsLibrary.tsx"
+      ],
+      "changes": "Existing pack selection, visual asset grid and selected icon inspector; original delete action visible.",
+      "limits": "No insert/download actions invented where source lacked them.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "resources",
+      "selection_key": "resources_1",
+      "reference": "tmp/admin-design-review-20260908/images/resources_1.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/MasterResources.tsx"
+      ],
+      "changes": "Resource category list/detail selection, actual media preview and visible keyboard/touch actions; original upload/publish/delete handlers retained.",
+      "limits": "Deletion/publishing not executed.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "masterbranding",
+      "selection_key": "masterbranding_0",
+      "reference": "tmp/admin-design-review-20260908/images/masterbranding_0.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/components/admin/MasterBrandingTemplate.tsx",
+        "src/components/admin/BrandingEditorV2.tsx"
+      ],
+      "changes": "Narrower master tool pane and existing preview canvas under workspace chrome; obsolete sidebar hook removed.",
+      "limits": "Three-pane screenshot adapted to existing two-pane editor; no new controls or template propagation semantics.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "mastertemplates",
+      "selection_key": "mastertemplates_1",
+      "reference": "tmp/admin-design-review-20260908/images/mastertemplates_1.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/components/admin/TemplatesManager.tsx"
+      ],
+      "changes": "Template list and selected document detail with actual PDF open/download link, metadata, publication switch and delete action.",
+      "limits": "Source has no template preview raster, so an honest file icon is shown rather than a fabricated design.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "tenanttemplates",
+      "selection_key": "tenanttemplates_1",
+      "reference": "tmp/admin-design-review-20260908/images/tenanttemplates_1.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/components/admin/TemplatesManager.tsx"
+      ],
+      "changes": "Shared template list/detail UI also applies to tenant route.",
+      "limits": "Source has no preview raster/user activity; no invented usage, authorship or team permissions.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "platformseo",
+      "selection_key": "platformseo_1",
+      "reference": "tmp/admin-design-review-20260908/images/platformseo_1.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/components/admin/platform-seo/PlatformSeoAdmin.tsx"
+      ],
+      "changes": "Existing scope notice becomes priority strip; active SEO editor left and quick guide right.",
+      "limits": "Mockup Search Console connection/health claims were not added; existing analytics workflows retained.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "supplierbank",
+      "selection_key": "supplierbank_1",
+      "reference": "tmp/admin-design-review-20260908/images/supplierbank_1.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/pages/admin/SupplierBank.tsx"
+      ],
+      "changes": "Actual bank-product list/detail selection retains the existing evidence, review and import workflow.",
+      "limits": "No source thumbnails available on BankProduct; import/scans/writes not run.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "production",
+      "selection_key": "production_0",
+      "reference": "tmp/admin-design-review-20260908/images/production_0.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/print-production/PrintProductionShell.tsx",
+        "src/components/admin/print-production/PrintProductionOrders.tsx"
+      ],
+      "changes": "Production orders view now has local search, production/file/job-status filters, date sorting, selectable order register and right-side context plus the original guarded validation/submission/reconciliation UI.",
+      "limits": "Existing production module tabs/default overview remain. Register appears on view=orders. Jobstatus and source-derived file status replace unsupported separate payment/file-version claims; no file preview URL invented. Supplier validation/submission not executed. Existing 14 orderSubmission tests pass.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "podadmin",
+      "selection_key": "podadmin_1",
+      "reference": "tmp/admin-design-review-20260908/images/podadmin_1.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/pages/admin/PodAdmin.tsx"
+      ],
+      "changes": "Supplier product browser becomes list/detail selection with original configure/import wizard control.",
+      "limits": "Legacy API/pricing/curation/publish tabs and handlers unchanged; no supplier request executed.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "podcatalog",
+      "selection_key": "podcatalog_1",
+      "reference": "tmp/admin-design-review-20260908/images/podcatalog_1.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/pages/admin/PodKatalog.tsx"
+      ],
+      "changes": "Actual published catalogue list/detail with original import action and images.",
+      "limits": "POD v1 import behavior unchanged and not executed.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "podorders",
+      "selection_key": "podorders_1",
+      "reference": "tmp/admin-design-review-20260908/images/podorders_1.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/pages/admin/PodOrdrer.tsx"
+      ],
+      "changes": "Existing status groups now sit beside selected-job read-only summary; job IDs select locally; original approval/payment dialogs retained.",
+      "limits": "No customer/product art invented when v1 job data lacks it; no payment/production action executed.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "podbilling",
+      "selection_key": "podbilling_1",
+      "reference": "tmp/admin-design-review-20260908/images/podbilling_1.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/pages/admin/PodBetaling.tsx"
+      ],
+      "changes": "Priority payment status and split setup/guide; pm_demo payment IDs explicitly labelled demo; placeholder transaction section now says not connected.",
+      "limits": "Legacy-only limitation: handleSetupPayment creates pm_demo_ IDs and marks is_ready without Stripe confirmation. Live verification found zero v1 products, imports, jobs and billing profiles. Current checkout and Printproduktion use POD v2; see ADMIN_LIVE_VERIFICATION_2026-09-08.md.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "pod2admin",
+      "selection_key": "pod2admin_0",
+      "reference": "tmp/admin-design-review-20260908/images/pod2admin_0.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/pages/admin/Pod2Admin.tsx"
+      ],
+      "changes": "Actual supplier product browser list/detail selection with existing configure and supplier links.",
+      "limits": "No fixture-only supplier/pricing fields or new input model.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "pod2wizard",
+      "selection_key": "pod2wizard_2",
+      "reference": "tmp/admin-design-review-20260908/images/pod2wizard_2.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/pages/admin/Pod2Admin.tsx"
+      ],
+      "changes": "Variant selections use horizontal focused rows while preserving actual Vælg/Layout pricing-matrix controls.",
+      "limits": "Generated selected image incorrectly depicts artwork composition; source POD2 row/column placement takes precedence.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "pod2catalog",
+      "selection_key": "pod2catalog_1",
+      "reference": "tmp/admin-design-review-20260908/images/pod2catalog_1.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/pages/admin/Pod2Katalog.tsx"
+      ],
+      "changes": "Actual catalogue list/detail selection with original images/import controls.",
+      "limits": "Mockup extra import options are not invented; existing import workflow retained.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "pod2orders",
+      "selection_key": "pod2orders_2",
+      "reference": "tmp/admin-design-review-20260908/images/pod2orders_2.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/pages/admin/Pod2Ordrer.tsx"
+      ],
+      "changes": "Existing approval/paid/submitted groups with local selected-job inspector and actual source metadata.",
+      "limits": "Existing master forwarding, dry-run, confirmation and submission dialogs retained and not executed.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "pod2billing",
+      "selection_key": "pod2billing_1",
+      "reference": "tmp/admin-design-review-20260908/images/pod2billing_1.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/pages/admin/Pod2Betaling.tsx"
+      ],
+      "changes": "Payment status priority strip, actual Stripe setup area left and existing process guide right; master context guard retained. Billing copy now consistently states Webprinter-prisen, following POD2_README tenant-price contract; calculations and Stripe handlers unchanged.",
+      "limits": "Stripe requests/setup/payment not exercised.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "pod3",
+      "selection_key": "pod3_2",
+      "reference": "tmp/admin-design-review-20260908/images/pod3_2.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/pages/admin/Pod3FlyerAlarm.tsx"
+      ],
+      "changes": "Open status summary and link rail replacing card-heavy parked view. Internal admin navigation retains force_domain via withAdminWorkspaceContext.",
+      "limits": "Intentionally parked placeholder; no automatic supplier integration or storefront feature added.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "readiness",
+      "selection_key": "readiness_1",
+      "reference": "tmp/admin-design-review-20260908/images/readiness_1.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/pages/admin/CommercialReadiness.tsx"
+      ],
+      "changes": "Existing next-safe-action evidence section moved above metrics and styled as priority strip; read-only evidence sections separated.",
+      "limits": "Large existing evidence report retained; does not become the small synthetic shop status mockup. No new readiness claims.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "pricingmodules",
+      "selection_key": "pricingmodules_0",
+      "reference": "tmp/admin-design-review-20260908/images/pricingmodules_0.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/PricingModules.tsx"
+      ],
+      "changes": "Module options become an open row register with labels and controls side by side.",
+      "limits": "No pricing schema/calculation changes.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "machines",
+      "selection_key": "machines_0",
+      "reference": "tmp/admin-design-review-20260908/images/machines_0.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/MachinePricingManager.tsx"
+      ],
+      "changes": "Gradient heading replaced by open heading; compact stats strip and row registers for machines/materials/inks/finishes/fees; existing edit actions retained.",
+      "limits": "Pricing data and calculations unchanged.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "costtest",
+      "selection_key": "costtest_2",
+      "reference": "tmp/admin-design-review-20260908/images/costtest_2.png",
+      "reference_exists": true,
+      "status": "implemented_layout",
+      "files": [
+        "src/components/admin/MachineCostWorkbench.tsx"
+      ],
+      "changes": "Actual current job context left, parameter editor centre and existing calculation results right.",
+      "limits": "Advisory calculation only; no data writes or pricing model changes.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    },
+    {
+      "id": "jobpool",
+      "selection_key": "jobpool_1",
+      "reference": "tmp/admin-design-review-20260908/images/jobpool_1.png",
+      "reference_exists": true,
+      "status": "adapted_existing_workflow",
+      "files": [
+        "src/components/admin/MachineJobPoolWorkbench.tsx"
+      ],
+      "changes": "Existing production settings and jobs left, sticky advisory production proposal right.",
+      "limits": "Existing draft planning retained; no actual orders or production releases invented.",
+      "verification": "Source implementation and TSX/CSS syntax checked; integration behavior unverified. Parent fixture browser QA recorded separately."
+    }
+  ],
+  "parent_pending": [
+    {
+      "id": "designer",
+      "selection_key": "designer_1",
+      "status": "parent_scope",
+      "note": "Root investigating protected embedded Designer presentation; this agent leaves existing direct redirect and Designer.tsx unchanged."
+    }
+  ],
+  "blocking_findings": [],
+  "legacy_findings": [
+    {
+      "file": "src/pages/admin/PodBetaling.tsx",
+      "line": 29,
+      "severity": "inactive_legacy_workflow_limitation",
+      "finding": "Legacy POD v1 handleSetupPayment simulates readiness with pm_demo_ without Stripe confirmation. Live verification found no v1 products, imports, jobs or billing profiles; current checkout and Printproduktion use POD v2. This is a legacy-screen limitation, not a demonstrated blocker for the current v2 path. See ADMIN_LIVE_VERIFICATION_2026-09-08.md."
+    }
+  ]
+}

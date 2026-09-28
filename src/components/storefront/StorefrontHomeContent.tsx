@@ -1,5 +1,14 @@
-import { useMemo, type CSSProperties, type ReactNode } from "react";
+import type { HeaderSettings } from "@/hooks/useBrandingDraft";
+import { useLayoutEffect, useMemo, type CSSProperties, type ReactNode } from "react";
+import { getPrintDesignPreset, resolvePrintDesignBranding } from '@/lib/branding/printDesignPresets';
+import { useLocation } from 'react-router-dom';
+import { usePreviewBranding } from '@/contexts/PreviewBrandingContext';
+import { isPrintCatalogRoute } from '@/lib/storefront/printCatalogNavigation';
 import { Helmet } from "react-helmet-async";
+import { ConnectedProductPresentation } from "./ProductPresentation";
+import { FeaturedProductConfigurator } from "@/components/FeaturedProductConfigurator";
+import { hasFeaturedProducts } from "@/lib/branding/featuredProductPresentation";
+import { PRODUCT_PRESENTATIONS, resolveProductPresentation } from "@/lib/branding/productPresentations";
 
 import { Truck, Award, Phone, Shield, Clock, Star, Heart, Check } from "lucide-react";
 
@@ -405,11 +414,27 @@ export function StorefrontHomeContent({
   isPreviewMode = false,
 }: StorefrontHomeContentProps) {
   const { components: Theme } = useTheme();
-  const resolvedBranding = mergeBrandingWithDefaults(branding || {});
+  const location = useLocation();
+  const preview = usePreviewBranding();
+  const resolvedBranding = resolvePrintDesignBranding(mergeBrandingWithDefaults(branding || {}));
+  const catalogPath = preview.isPreviewMode && preview.previewPath ? preview.previewPath : location.pathname + location.search;
+  const isPrintTheme = Boolean(getPrintDesignPreset(resolvedBranding.themeId));
+  // Development-only direct review links never alter saved branding.
+  const reviewNumber = import.meta.env.DEV ? new URLSearchParams(location.search).get('productPresentation') : null;
+  const reviewPresentation = PRODUCT_PRESENTATIONS.find(item => String(item.number) === reviewNumber);
+  const presentation = reviewPresentation?.id || resolveProductPresentation(resolvedBranding.forside?.productsSection?.presentation);
+  const isCatalog = (isPrintTheme || presentation !== 'standard') && isPrintCatalogRoute(catalogPath);
+  const storefrontUrl = new URL(catalogPath, 'http://storefront.local');
+  const navigationKey = JSON.stringify([storefrontUrl.pathname, ...['overview', 'category', 'subcategory'].map(key => storefrontUrl.searchParams.get(key))]);
+  useLayoutEffect(() => {
+    // Route navigation starts at the page heading; typing in search keeps its position.
+    if (isPrintTheme) window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [navigationKey, isPrintTheme]);
   const resolvedTenantName = String(
     resolvedBranding.shop_name || tenantName || "Din Shop",
   ).trim() || "Din Shop";
   const shopLayout = resolveStorefrontLayout(resolvedBranding.forside?.layout);
+  const sectionOrder = reviewPresentation ? ['products' as const, ...shopLayout.sectionOrder.filter(section => section !== 'products')] : shopLayout.sectionOrder;
 
   const productsSection = resolvedBranding.forside?.productsSection;
   const banner2 = resolvedBranding.forside?.banner2;
@@ -432,7 +457,7 @@ export function StorefrontHomeContent({
     [criticalImageUrls],
   );
 
-  const headerSettings = resolvedBranding.header || {};
+  const headerSettings: Partial<HeaderSettings> = resolvedBranding.header || {};
   const transparentOverHero = headerSettings.transparentOverHero ?? true;
   const headerHeight = headerSettings.height === "sm" ? 56 : headerSettings.height === "lg" ? 96 : 72;
   const sectionVisibility: Record<StorefrontSectionId, boolean> = {
@@ -443,7 +468,7 @@ export function StorefrontHomeContent({
     content: contentBlocks.length > 0,
     seo: resolvedBranding.seoContent?.enabled !== false && seoItems.length > 0,
   };
-  const firstVisibleSection = shopLayout.sectionOrder.find((sectionId) => sectionVisibility[sectionId]);
+  const firstVisibleSection = sectionOrder.find((sectionId) => sectionVisibility[sectionId]);
   const headerOverHero = transparentOverHero && firstVisibleSection === "hero";
   const mainMargin = headerOverHero ? -headerHeight : 0;
   const mainPaddingTop = transparentOverHero && !headerOverHero ? headerHeight : 0;
@@ -456,7 +481,16 @@ export function StorefrontHomeContent({
         isPreviewMode={isPreviewMode}
       />
     ) : null,
-    products: (
+    products: presentation !== 'standard' ? ((showProducts || isCatalog) ? <>
+      {presentation === 'print-studio' && <ConnectedProductPresentation branding={resolvedBranding} layout={presentation} />}
+      {/* Alternate catalog layouts still retain the shop's configured home banner. */}
+      {!isCatalog && featuredProductConfig && hasFeaturedProducts(featuredProductConfig) && (
+        <div className={isPrintTheme ? 'print-container print-featured' : 'container'}>
+          <FeaturedProductConfigurator config={featuredProductConfig} branding={resolvedBranding} />
+        </div>
+      )}
+      {presentation !== 'print-studio' && <ConnectedProductPresentation branding={resolvedBranding} layout={presentation} />}
+    </> : null) : (
       <Theme.ProductsSection
         branding={resolvedBranding}
         tenantName={resolvedTenantName}
@@ -504,7 +538,7 @@ export function StorefrontHomeContent({
         ))}
       </Helmet>
 
-      {shopLayout.sectionOrder.map((sectionId) => (
+      {(isCatalog ? ['products' as const] : sectionOrder).map((sectionId) => (
         <div key={sectionId} data-shop-section={sectionId}>
           {sectionNodes[sectionId]}
         </div>

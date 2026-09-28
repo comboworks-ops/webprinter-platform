@@ -1,5 +1,11 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import '@/styles/productEditorConsolidation.css';
+import { requestAdminWorkspaceExit } from '@/lib/admin/workspaceExit';
+import { saveProductTooltips } from "@/lib/products/saveProductTooltips";
+import { ProductCardLivePreview } from "./ProductCardLivePreview";
+import { IMAGE_HOVER_EFFECTS, CARD_HOVER_EFFECTS, type ImageHoverEffect, type CardHoverEffect } from "@/lib/products/productPresentation";
+import { ProductWorkspace } from './ProductWorkspace';
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,8 +41,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { STANDARD_FORMATS, getDimensionsFromVariant } from "@/utils/formatStandards";
 import { ProductColorProfileSelector } from "./ProductColorProfileSelector";
+import { mergeProductColorSettings, readProductColorRecipe, sameProductColorSettings, type ProductColorRecipe } from "@/lib/color/profileGuidance";
+import { resolveColorProfile } from "@/lib/color/profileResolver";
 import { ProductSeoTab } from "./ProductSeoTab";
-import { ProductPreviewCard } from "./ProductPreviewCard";
 import { PRODUCT_PRESETS, getPresetLabel } from "./ProductPresetSelector";
 import { ProductAttributeBuilder } from "./ProductAttributeBuilder";
 import { SpecialBadgeEditor } from "./SpecialBadgeEditor";
@@ -59,6 +66,7 @@ import {
   writeSiteExclusiveProduct,
 } from "@/lib/sites/productSiteFrontends";
 import { type ProductCategoryRecord, type ProductOverviewRecord } from "@/utils/productCategories";
+import "@/styles/adminProductsWorkspace.css";
 
 
 interface BasePrice {
@@ -321,7 +329,13 @@ function getPricingTypeLabel(type: string | undefined): string {
 export function ProductPriceManager() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const withAdminContext = (path: string) => {
+    const domain = new URLSearchParams(location.search).get("force_domain");
+    return domain ? `${path}?force_domain=${encodeURIComponent(domain)}` : path;
+  };
   const [product, setProduct] = useState<any>(null);
+  const imageOnlyRefreshRef = useRef<object | null>(null);
   const [prices, setPrices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -341,6 +355,8 @@ export function ProductPriceManager() {
   const [editedPriceFont, setEditedPriceFont] = useState("inherit");
   const [editedHoverImageUrl, setEditedHoverImageUrl] = useState<string | null>(null);
   const [editedImageScalePct, setEditedImageScalePct] = useState<number>(100);
+  const [imageHoverEffect, setImageHoverEffect] = useState<ImageHoverEffect>("zoom");
+  const [cardHoverEffect, setCardHoverEffect] = useState<CardHoverEffect>("shadow");
   const [editedSpecialBadge, setEditedSpecialBadge] = useState<ProductBadgeConfig | undefined>(undefined);
   const [editedCategoryLanding, setEditedCategoryLanding] = useState<CategoryLandingConfig>(createDefaultCategoryLandingConfig());
   const [configSectionThumbs, setConfigSectionThumbs] = useState({
@@ -370,11 +386,16 @@ export function ProductPriceManager() {
   const [hasProductEdits, setHasProductEdits] = useState(false);
   const [hasSpecEdits, setHasSpecEdits] = useState(false);
   const [editedOutputColorProfileId, setEditedOutputColorProfileId] = useState<string | null>(null);
+  const [editedColorRecipe, setEditedColorRecipe] = useState<ProductColorRecipe | null>(null);
+  const [hasColorEdits, setHasColorEdits] = useState(false);
+  const [savingColor, setSavingColor] = useState(false);
+  const colorOnlyRefreshRef = useRef<string | null>(null);
+  const colorDraftBaseRef = useRef<any>(null);
   const [hasMachineEdits, setHasMachineEdits] = useState(false);
-  // Removed local color profile state as it is now handled in ProductAboutSection
 
   // MPA (Machine Pricing Add-On) State
   const [pricingType, setPricingType] = useState<'STANDARD' | 'MACHINE_PRICED'>('STANDARD');
+  const [loadedMpaProductId, setLoadedMpaProductId] = useState<string | null>(null);
   const [mpaConfig, setMpaConfig] = useState<any>({
     pricing_profile_id: "",
     margin_profile_id: "",
@@ -410,6 +431,22 @@ export function ProductPriceManager() {
   const [pricesLoadedAsSummary, setPricesLoadedAsSummary] = useState(false);
   const [priceFingerprintHint, setPriceFingerprintHint] = useState("");
   const [activeTab, setActiveTab] = useState("about");
+  const [machinePreviewRevision, setMachinePreviewRevision] = useState(0);
+  useEffect(() => {
+    const requestedTab = location.hash.slice(1);
+    if (["about", "workspace", "produkt", "order-delivery", "options", "custom-fields", "seo", "tooltips"].includes(requestedTab)) {
+      setActiveTab(requestedTab);
+    } else if (!requestedTab) {
+      setActiveTab("about");
+    } else if (requestedTab === "storformat") {
+      setActiveTab("produkt");
+      // A deep link only reveals an existing pricing mode. Switching modes
+      // remains an explicit action through handleSelectConfigSection.
+      if (product?.pricing_type === "STORFORMAT") {
+        setActiveConfigSection("storformat");
+      }
+    }
+  }, [location.hash, product?.id, product?.pricing_type]);
   const [orderDeliveryConfig, setOrderDeliveryConfig] = useState<OrderDeliveryConfig>(DEFAULT_ORDER_DELIVERY_CONFIG);
   const [hasOrderDeliveryEdits, setHasOrderDeliveryEdits] = useState(false);
   const [isMasterAdmin, setIsMasterAdmin] = useState(false);
@@ -496,15 +533,15 @@ export function ProductPriceManager() {
     return {
       tone: "success" as const,
       Icon: CheckCircle2,
-      label: pricesLoadedAsSummary ? "Pris-preview har mange rækker" : "Pris-preview har prisrækker",
+      label: pricesLoadedAsSummary ? "Pris-preview har mange rækker" : "Eksisterende priser er klar",
       detail: pricesLoadedAsSummary
         ? "Rækkerne er indlæst som opsummering i admin for at holde siden hurtig, men previewgrundlaget findes."
-        : "Produktet har Matrix-prisrækker, så previewet har et prisgrundlag at vise.",
+        : "Produktets eksisterende prisrækker er tilgængelige for prisredigering.",
       rows: formattedRows,
     };
   }, [activeConfigSection, priceRowCount, pricesLoadedAsSummary, pricingType, product?.pricing_type]);
 
-  const normalizeDeliveryMethods = (methods?: DeliveryMethod[], fallbackTimeline?: OrderDeliveryConfig["delivery"]["customer_timeline"]) => {
+  const normalizeDeliveryMethods = (methods?: DeliveryMethod[], fallbackTimeline?: OrderDeliveryConfig["delivery"]["customer_timeline"]): DeliveryMethod[] => {
     if (!methods || methods.length === 0) return DEFAULT_DELIVERY_METHODS.map(method => ({ ...method }));
     return methods.map((method) => {
       const productionDays = typeof method.production_days === "number"
@@ -670,12 +707,12 @@ export function ProductPriceManager() {
 
         const [overviewsResponse, categoriesResponse] = await Promise.all([
           supabase
-            .from("product_overviews" as any)
+            .from("product_overviews")
             .select("id, name, slug, sort_order")
             .eq("tenant_id", tenantId)
             .order("sort_order", { ascending: true }),
           supabase
-            .from("product_categories" as any)
+            .from("product_categories")
             .select("id, name, slug, sort_order, overview_id, parent_category_id, navigation_mode")
             .eq("tenant_id", tenantId)
             .order("sort_order", { ascending: true }),
@@ -709,6 +746,20 @@ export function ProductPriceManager() {
 
   useEffect(() => {
     if (product) {
+      // Image saves must not reinitialize unrelated unsaved product fields.
+      if (imageOnlyRefreshRef.current === product) {
+        imageOnlyRefreshRef.current = null;
+        return;
+      }
+      // Refresh only the saved color fields; other sections may have unsaved edits.
+      if (colorOnlyRefreshRef.current === product.id) {
+        colorOnlyRefreshRef.current = null;
+        setEditedOutputColorProfileId(product.output_color_profile_id || null);
+        setEditedColorRecipe(readProductColorRecipe(product.technical_specs));
+        colorDraftBaseRef.current = product;
+        setHasColorEdits(false);
+        return;
+      }
       fetchPrices();
       setEditedName(product.name);
       setEditedIconText(product.icon_text || product.name || "");
@@ -723,6 +774,8 @@ export function ProductPriceManager() {
       setEditedHoverImageUrl(bc.hover_image_url || null);
       setEditedImageScalePct(Math.max(60, Math.min(140, Number(bc.image_scale_pct) || 100)));
       setEditedSpecialBadge(bc.special_badge || undefined);
+      setImageHoverEffect(bc.image_hover_effect || "zoom");
+      setCardHoverEffect(bc.card_hover_effect || "shadow");
       setEditedPromoPrice(bc.promo_price?.toString() || "");
       setEditedOriginalPrice(bc.original_price?.toString() || "");
       setEditedShowSavingsBadge(bc.show_savings_badge || false);
@@ -764,38 +817,57 @@ export function ProductPriceManager() {
       setHasSpecEdits(false);
       setHasMachineEdits(false);
       setHasSiteFrontendEdits(false);
-      setEditedOutputColorProfileId(product.output_color_profile_id || null);
+      // Other section saves may refresh the product while color changes remain a draft.
+      if (colorDraftBaseRef.current?.id !== product.id || !hasColorEdits) {
+        setEditedOutputColorProfileId(product.output_color_profile_id || null);
+        setEditedColorRecipe(readProductColorRecipe(product.technical_specs));
+        colorDraftBaseRef.current = product;
+        setHasColorEdits(false);
+      }
       setOrderDeliveryConfig(applyOrderDeliveryDefaults((bc as any).order_delivery));
       setHasOrderDeliveryEdits(false);
-      fetchMpaConfig(product.id);
+      fetchMpaConfig(product.id, product.pricing_type);
 
     }
   }, [product]);
 
   useEffect(() => {
+    if (!hasColorEdits) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    const beforeLink = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const link = event.target instanceof Element ? event.target.closest('a[href]') as HTMLAnchorElement | null : null;
+      if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+      const destination = new URL(link.href, window.location.href);
+      if (destination.pathname === location.pathname && destination.search === location.search) return;
+      if (!window.confirm('Farveindstillingerne er ikke gemt. Vil du forlade produktet og kassere ændringerne?')) {
+        event.preventDefault(); event.stopPropagation();
+      }
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    document.addEventListener('click', beforeLink, true);
+    return () => { window.removeEventListener('beforeunload', beforeUnload); document.removeEventListener('click', beforeLink, true); };
+  }, [hasColorEdits, location.pathname, location.search]);
+
+  useEffect(() => {
     if (!product || activeConfigSection) return;
-    const bc = (product.banner_config as any) || {};
-    const storedChoice = bc.config_section_choice as
-      | "format"
-      | "storformat"
-      | "machine"
-      | undefined;
-    if (storedChoice) {
-      setActiveConfigSection(storedChoice);
-      return;
-    }
+    // Open the product's actual price source. The legacy banner setting only
+    // remembers a visited panel and can say "machine" for a standard product.
     if (product.pricing_type === "STORFORMAT") {
       setActiveConfigSection("storformat");
       return;
     }
-    if (pricingType === "MACHINE_PRICED") {
+    // The machine configuration arrives asynchronously. Do not lock the panel
+    // to the standard matrix while that product's price source is still loading.
+    if (loadedMpaProductId !== product.id) return;
+    if (pricingType === "MACHINE_PRICED" || product.pricing_type === "MACHINE_PRICED") {
       setActiveConfigSection("machine");
       return;
     }
     if (product) {
       setActiveConfigSection("format");
     }
-  }, [product, pricingType, activeConfigSection]);
+  }, [product, pricingType, activeConfigSection, loadedMpaProductId]);
 
   useEffect(() => {
     let active = true;
@@ -810,12 +882,12 @@ export function ProductPriceManager() {
       try {
         const [{ data: finishRows }, { data: productRows }] = await Promise.all([
           supabase
-            .from("storformat_finishes" as any)
+            .from("storformat_finishes")
             .select("id, name")
             .eq("product_id", product.id)
             .order("sort_order", { ascending: true }),
           supabase
-            .from("storformat_products" as any)
+            .from("storformat_products")
             .select("id, name")
             .eq("product_id", product.id)
             .order("sort_order", { ascending: true }),
@@ -848,18 +920,18 @@ export function ProductPriceManager() {
     };
   }, [product?.id]);
 
-  const fetchMpaConfig = async (productId: string) => {
+  const fetchMpaConfig = async (productId: string, productPricingType?: string) => {
     try {
       const { tenantId } = await resolveAdminTenant();
       if (!tenantId) return;
 
       // Fetch Profiles/Materials for selects
       const [pp, mp, mat, fin, cfg] = await Promise.all([
-        supabase.from('pricing_profiles' as any).select('*').eq('tenant_id', tenantId),
-        supabase.from('margin_profiles' as any).select('*').eq('tenant_id', tenantId),
-        supabase.from('materials' as any).select('*').eq('tenant_id', tenantId),
-        supabase.from('finish_options' as any).select('*').eq('tenant_id', tenantId),
-        supabase.from('product_pricing_configs' as any).select('*').eq('product_id', productId).maybeSingle()
+        supabase.from('pricing_profiles').select('*').eq('tenant_id', tenantId),
+        supabase.from('margin_profiles').select('*').eq('tenant_id', tenantId),
+        supabase.from('materials').select('*').eq('tenant_id', tenantId),
+        supabase.from('finish_options').select('*').eq('tenant_id', tenantId),
+        supabase.from('product_pricing_configs').select('*').eq('product_id', productId).maybeSingle()
       ]);
 
       setAvailableMpaData({
@@ -873,8 +945,8 @@ export function ProductPriceManager() {
 
       // Refined fetch to include machines and inkSets
       const [allMachines, allInk] = await Promise.all([
-        supabase.from('machines' as any).select('*').eq('tenant_id', tenantId),
-        supabase.from('ink_sets' as any).select('*').eq('tenant_id', tenantId)
+        supabase.from('machines').select('*').eq('tenant_id', tenantId),
+        supabase.from('ink_sets').select('*').eq('tenant_id', tenantId)
       ]);
 
       setAvailableMpaData(prev => ({
@@ -886,9 +958,13 @@ export function ProductPriceManager() {
       if (cfg.data) {
         setPricingType((cfg.data as any).pricing_type);
         setMpaConfig(cfg.data);
+      } else {
+        setPricingType(productPricingType === 'MACHINE_PRICED' ? 'MACHINE_PRICED' : 'STANDARD');
       }
     } catch (e) {
       console.error("Error fetching MPA config:", e);
+    } finally {
+      setLoadedMpaProductId(productId);
     }
   };
 
@@ -937,17 +1013,18 @@ export function ProductPriceManager() {
       };
 
       // Check if exists
-      const { data: existing } = await supabase.from('product_pricing_configs' as any).select('id').eq('product_id', product.id).maybeSingle();
+      const { data: existing } = await supabase.from('product_pricing_configs').select('id').eq('product_id', product.id).maybeSingle();
 
       let error;
       if (existing) {
-        ({ error } = await supabase.from('product_pricing_configs' as any).update(data).eq('product_id', product.id));
+        ({ error } = await supabase.from('product_pricing_configs').update(data).eq('product_id', product.id));
       } else {
-        ({ error } = await supabase.from('product_pricing_configs' as any).insert(data));
+        ({ error } = await supabase.from('product_pricing_configs').insert(data));
       }
 
       if (error) throw error;
       toast.success("Maskin-konfiguration gemt");
+      setMachinePreviewRevision(value => value + 1);
       setHasMachineEdits(false);
     } catch (err: any) {
       toast.error("Fejl: " + err.message);
@@ -993,7 +1070,7 @@ export function ProductPriceManager() {
 
     try {
       setLoading(true);
-      const tableName = 'generic_product_prices';
+      const tableName: string = 'generic_product_prices';
 
       let data: any[] = [];
 
@@ -1148,7 +1225,9 @@ export function ProductPriceManager() {
   };
 
   const handleImageUpdate = (newImageUrl: string) => {
-    setProduct({ ...product, image_url: newImageUrl });
+    const nextProduct = { ...product, image_url: newImageUrl };
+    imageOnlyRefreshRef.current = nextProduct;
+    setProduct(nextProduct);
   };
 
   const handleFilterChange = useCallback((filtered: any[]) => {
@@ -1201,6 +1280,8 @@ export function ProductPriceManager() {
           price_font: editedPriceFont,
           hover_image_url: hoverImg,
           image_scale_pct: editedImageScalePct,
+          image_hover_effect: imageHoverEffect,
+          card_hover_effect: cardHoverEffect,
           special_badge: editedSpecialBadge
         }
       };
@@ -1224,8 +1305,19 @@ export function ProductPriceManager() {
   };
 
   const handleHoverImageUpdate = async (url: string | null) => {
+    if (!product) throw new Error('Produktet kunne ikke findes.');
+    // Save only this image, preserving unsaved fields elsewhere in the editor.
+    const {data: current, error: readError} = await supabase.from('products')
+      .select('banner_config').eq('id', product.id).single();
+    if (readError || !current) throw new Error('Produktbilledet kunne ikke læses.');
+    const bannerConfig = {...((current.banner_config || {}) as Record<string, unknown>), hover_image_url: url};
+    const {data, error} = await supabase.from('products').update({banner_config: bannerConfig})
+      .eq('id', product.id).select('id,banner_config').single();
+    if (error || !data) throw new Error('Produktbilledet kunne ikke gemmes.');
     setEditedHoverImageUrl(url);
-    await handleSaveProductDetails({ hover_image_url: url });
+    const nextProduct = {...product, banner_config: data.banner_config};
+    imageOnlyRefreshRef.current = nextProduct;
+    setProduct(nextProduct);
   };
 
   const handleSelectConfigSection = async (next: "format" | "storformat" | "machine") => {
@@ -1255,12 +1347,57 @@ export function ProductPriceManager() {
     }
   };
 
+  const handleSaveColorSettings = async () => {
+    if (!product || !hasColorEdits || saving || savingColor) return;
+    setSavingColor(true);
+    setSaving(true);
+    try {
+      const { tenantId } = await resolveAdminTenant();
+      if (!tenantId || tenantId !== product.tenant_id) throw new Error('Produktet tilhører ikke den aktive butik.');
+      const { data: currentData, error: readError } = await supabase.from('products')
+        .select('id, tenant_id, technical_specs, output_color_profile_id, updated_at')
+        .eq('id', product.id).eq('tenant_id', tenantId).single();
+      if (readError || !currentData) throw new Error('Produktets aktuelle farveindstillinger kunne ikke hentes.');
+      // output_color_profile_id exists in the migration but is absent from generated types.
+      type ColorProductRow = { id: string; technical_specs: unknown; output_color_profile_id: string | null; updated_at: string | null };
+      const current = currentData as unknown as ColorProductRow;
+      if (!sameProductColorSettings(current, colorDraftBaseRef.current || product)) throw new Error('Farveindstillingerne er ændret siden siden blev åbnet. Genindlæs produktet før du gemmer.');
+      const selectedId = editedColorRecipe?.outputProfileId || editedOutputColorProfileId;
+      if (selectedId) await resolveColorProfile({ id: selectedId, tenantId });
+      const patch = mergeProductColorSettings(current.technical_specs, editedColorRecipe, editedOutputColorProfileId);
+      let update = supabase.from('products').update(patch as any).eq('id', product.id).eq('tenant_id', tenantId);
+      update = current.updated_at ? update.eq('updated_at', current.updated_at) : update.is('updated_at', null);
+      const { data: savedData, error: saveError } = await update
+        .select('id, technical_specs, output_color_profile_id, updated_at').maybeSingle();
+      if (saveError) throw saveError;
+      if (!savedData) throw new Error('Produktet blev ændret under gemning. Genindlæs og prøv igen.');
+      const saved = savedData as unknown as ColorProductRow;
+      setProduct((previous: any) => {
+        if (!previous || previous.id !== saved.id) return previous;
+        colorOnlyRefreshRef.current = saved.id;
+        return { ...previous, ...saved };
+      });
+      setHasColorEdits(false);
+      toast.success('Produktets farveprofil og trykmetode er gemt');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Farveindstillingerne kunne ikke gemmes.');
+    } finally {
+      setSavingColor(false);
+      setSaving(false);
+    }
+  };
+
   const handleSaveTechnicalSpecs = async () => {
-    if (!product || !hasSpecEdits) return;
+    if (!product || !hasSpecEdits || saving || savingColor) return;
 
     setSaving(true);
     try {
-      const existingSpecs = (product.technical_specs as any) || {};
+      const { tenantId } = await resolveAdminTenant();
+      if (!tenantId || tenantId !== product.tenant_id) throw new Error('Produktet tilhører ikke den aktive butik.');
+      const { data: current, error: readError } = await supabase.from('products')
+        .select('technical_specs, updated_at').eq('id', product.id).eq('tenant_id', tenantId).single();
+      if (readError || !current) throw new Error('Produktets aktuelle indstillinger kunne ikke hentes.');
+      const existingSpecs = (current.technical_specs as any) || {};
       const isPodProduct = Boolean(existingSpecs.is_pod || existingSpecs.is_pod_v2);
       const nextSpecs: any = {
         ...existingSpecs,
@@ -1283,22 +1420,21 @@ export function ProductPriceManager() {
         nextSpecs.pod_preflight_auto_fix = editedPodPreflightAutoFix;
       }
 
-      const { error } = await supabase
-        .from('products')
-        .update({
-          output_color_profile_id: editedOutputColorProfileId,
-          technical_specs: nextSpecs
-        })
-        .eq('id', product.id);
+      // This section preserves the saved color recipe. Only its own save button persists a color draft.
+      let update = supabase.from('products').update({ technical_specs: nextSpecs })
+        .eq('id', product.id).eq('tenant_id', tenantId);
+      update = current.updated_at ? update.eq('updated_at', current.updated_at) : update.is('updated_at', null);
+      const { data: saved, error } = await update.select('id').maybeSingle();
 
       if (error) throw error;
+      if (!saved) throw new Error('Produktet blev ændret under gemning. Genindlæs og prøv igen.');
 
       toast.success('Tekniske specifikationer opdateret');
       setHasSpecEdits(false);
       await fetchProduct();
     } catch (error) {
       console.error('Error updating technical specs:', error);
-      toast.error('Kunne ikke opdatere tekniske specifikationer');
+      toast.error(error instanceof Error ? error.message : 'Kunne ikke opdatere tekniske specifikationer');
     } finally {
       setSaving(false);
     }
@@ -1431,7 +1567,7 @@ export function ProductPriceManager() {
     if (!confirm('Er du sikker på, at du vil slette denne pris?')) return;
 
     try {
-      const tableName = 'generic_product_prices';
+      const tableName: string = 'generic_product_prices';
       if (!tableName) return;
 
       const { error } = await supabase
@@ -1455,7 +1591,7 @@ export function ProductPriceManager() {
 
     setSaving(true);
     try {
-      const tableName = 'generic_product_prices';
+      const tableName: string = 'generic_product_prices';
       if (!tableName) return;
 
       const updates: any = {};
@@ -1548,12 +1684,13 @@ export function ProductPriceManager() {
   };
 
   const handleSaveAll = async () => {
-    const hasEdits = Object.keys(editedPrices).length > 0 || Object.keys(editedListPrices).length > 0 || Object.keys(editedPricePerUnit).length > 0;
+
+  const hasEdits = Object.keys(editedPrices).length > 0 || Object.keys(editedListPrices).length > 0 || Object.keys(editedPricePerUnit).length > 0;
     if (!hasEdits) return;
 
     setSaving(true);
     try {
-      const tableName = 'generic_product_prices';
+      const tableName: string = 'generic_product_prices';
       if (!tableName) return;
 
       const isRateTable = ['poster_rates', 'sign_prices', 'banner_prices', 'foil_prices'].includes(tableName);
@@ -1623,1817 +1760,7 @@ export function ProductPriceManager() {
     );
   }
 
-  const hasEdits = Object.keys(editedPrices).length > 0 || Object.keys(editedListPrices).length > 0 || Object.keys(editedPricePerUnit).length > 0 || Object.keys(editedVariantNames).length > 0 || Object.keys(editedVariantValues).length > 0 || Object.keys(editedQuantities).length > 0;
-  const PricePreviewIcon = pricePreviewHealth.Icon;
-
-  return (
-    <div className="space-y-6">
-      {/* Sticky back button */}
-      <div className="sticky top-0 z-30 bg-background py-3 border-b">
-        <Button
-          variant="outline"
-          onClick={() => navigate('/admin')}
-          className="mb-0"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Tilbage til Produktoversigt
-        </Button>
-      </div>
-
-      <div>
-        <h1 className="text-3xl font-bold">Produktkonfiguration</h1>
-        <p className="text-muted-foreground text-sm">Konfigurer produktets indhold, attributter og priser</p>
-      </div>
-
-
-
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="flex w-full justify-start overflow-x-auto h-auto p-1 gap-1 bg-muted/50 rounded-lg">
-          <TabsTrigger value="about" className="flex-shrink-0">Produktinfo</TabsTrigger>
-          <TabsTrigger value="produkt" className="flex-shrink-0">Produkt & Priser</TabsTrigger>
-          <TabsTrigger value="order-delivery" className="flex-shrink-0">Bestilling og levering</TabsTrigger>
-          <TabsTrigger value="options" className="flex-shrink-0">Valgmuligheder</TabsTrigger>
-          <TabsTrigger value="custom-fields" className="flex-shrink-0">Felter</TabsTrigger>
-          <TabsTrigger value="seo" className="flex-shrink-0">SEO & Meta</TabsTrigger>
-          <TabsTrigger value="tooltips" className="flex-shrink-0">Tooltips</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="details" className="space-y-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <div className="space-y-1">
-                <CardTitle>SEO & Meta Information</CardTitle>
-                <CardDescription>Rediger produktets navn og meta-beskrivelse. Dette bruges primært til SEO og lister.</CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left Column: Info & Settings */}
-                <div className="lg:col-span-2 space-y-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="product-name">Produktnavn</Label>
-                    <Input
-                      id="product-name"
-                      value={editedName}
-                      onChange={(e) => handleProductNameChange(e.target.value)}
-                      placeholder="Indtast produktnavn"
-                      className="max-w-md"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="product-description">Kort beskrivelse (Meta / Lister)</Label>
-                    <Textarea
-                      id="product-description"
-                      value={editedDescription}
-                      onChange={(e) => handleProductDescriptionChange(e.target.value)}
-                      placeholder="Kort tekst til produktoversigter og SEO..."
-                      className="min-h-[80px]"
-                      rows={3}
-                    />
-                  </div>
-
-
-                </div>
-
-                {/* Right Column: Image */}
-                <div className="lg:col-span-1">
-                  <div className="bg-muted/10 p-4 rounded-lg border">
-                    <Label className="mb-4 block">Produktbillede</Label>
-                    <ProductImageUpload
-                      productId={product.id}
-                      currentImageUrl={product.image_url}
-                      onImageUpdate={handleImageUpdate}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Consolidated Actions */}
-              <div className="flex justify-end pt-6 mt-6 border-t">
-                <Button
-                  onClick={handleSaveProductDetails}
-                  disabled={!hasProductEdits || saving}
-                >
-                  {saving ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="mr-2 h-4 w-4" />
-                  )}
-                  Gem SEO & Meta
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Produkt Tab - Attribute Builder */}
-        <TabsContent value="produkt" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold">{product.name}</h2>
-              <p className="text-muted-foreground">Definer formater, materialer og andre valgmuligheder for dette produkt</p>
-            </div>
-          </div>
-          <Card className={cn(
-            "border-l-4",
-            pricePreviewHealth.tone === "danger" && "border-l-destructive bg-destructive/5",
-            pricePreviewHealth.tone === "success" && "border-l-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/20",
-            pricePreviewHealth.tone === "info" && "border-l-sky-500 bg-sky-50/60 dark:bg-sky-950/20",
-          )}>
-            <CardContent className="flex flex-col gap-4 pt-6 md:flex-row md:items-center md:justify-between">
-              <div className="flex gap-3">
-                <div className={cn(
-                  "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border",
-                  pricePreviewHealth.tone === "danger" && "border-destructive/30 bg-destructive/10 text-destructive",
-                  pricePreviewHealth.tone === "success" && "border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300",
-                  pricePreviewHealth.tone === "info" && "border-sky-200 bg-sky-100 text-sky-700 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-300",
-                )}>
-                  <PricePreviewIcon className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-sm font-semibold">Pris-preview status</h3>
-                    <Badge variant={pricePreviewHealth.tone === "danger" ? "destructive" : "outline"}>
-                      {pricePreviewHealth.rows} prisrækker
-                    </Badge>
-                  </div>
-                  <p className="mt-1 text-sm font-medium">{pricePreviewHealth.label}</p>
-                  <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{pricePreviewHealth.detail}</p>
-                  {pricePreviewHealth.tone === "danger" && (
-                    <p className="mt-2 text-xs text-destructive">
-                      Kontroller importen eller tilføj Matrix-priser, før produktet bruges som aktivt salgsprodukt.
-                    </p>
-                  )}
-                </div>
-              </div>
-              <Button variant="outline" size="sm" onClick={fetchPrices} disabled={loading}>
-                <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
-                Genindlæs status
-              </Button>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Prisopsætning</CardTitle>
-              <CardDescription>
-                Vælg hvilken prisopsætning du vil arbejde med. Kun én metode kan være aktiv ad gangen.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-3">
-                {([
-                  {
-                    key: "format",
-                    title: "Format / formatpriser",
-                    description: "Standard matrix og formatopsætning.",
-                    icon: LayoutGrid
-                  },
-                  {
-                    key: "storformat",
-                    title: "Storformat priser",
-                    description: "Storformat-materialer og prislogik.",
-                    icon: Printer
-                  },
-                  {
-                    key: "machine",
-                    title: "Maskin-beregning",
-                    description: "Avanceret MPA-beregning.",
-                    icon: Cpu
-                  }
-                ] as const).map((option) => {
-                  const isActive = activeConfigSection === option.key;
-                  const thumbUrl = configSectionThumbs[option.key];
-                  const fallbackImage = option.key === "format"
-                    ? "/Webprinter_Offset.png"
-                    : option.key === "storformat"
-                      ? "/Web Printer_storformat.png"
-                      : option.key === "machine"
-                        ? "/Web Printer_maskineberegner.png"
-                        : null;
-                  const imageUrl = thumbUrl || fallbackImage;
-                  const Icon = option.icon;
-                  return (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => handleSelectConfigSection(option.key)}
-                      className={cn(
-                        "rounded-lg border p-3 text-left transition-all flex flex-col gap-3",
-                        "hover:border-primary/60 hover:bg-primary/5",
-                        isActive && "border-primary/70 bg-primary/10"
-                      )}
-                    >
-                      <div className="w-full rounded-md border bg-muted/30 flex items-center justify-center overflow-hidden h-32">
-                        {imageUrl ? (
-                          <img src={imageUrl} alt={option.title} className="h-full w-full object-contain" />
-                        ) : (
-                          <Icon className="h-6 w-6 text-muted-foreground" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold">{option.title}</p>
-                        <p className="text-xs text-muted-foreground">{option.description}</p>
-                      </div>
-                      {isActive && (
-                        <div className="pt-3 text-xs font-medium text-primary">Valgt</div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
-          {activeConfigSection === "format" && (
-            <ProductAttributeBuilder
-              productId={product.id}
-              tenantId={product.tenant_id}
-              productName={product.name}
-              tableName="generic_product_prices"
-              productSlug={product.slug}
-              publishedPricesFingerprint={publishedPricesFingerprint}
-              onPricesUpdated={fetchPrices}
-            />
-          )}
-
-          {activeConfigSection === "storformat" && (
-            <div className="space-y-6">
-              <StorformatManager
-                productId={product.id}
-                tenantId={product.tenant_id}
-                productName={product.name}
-                pricingType={product.pricing_type}
-                onPricingTypeChange={handlePricingTypeChange}
-              />
-            </div>
-          )}
-
-          {activeConfigSection === "machine" && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <div>
-                    <CardTitle>Maskin-baseret Prisberegning</CardTitle>
-                    <CardDescription>Aktiver avanceret prisberegning baseret på maskiner, blæk og materialer.</CardDescription>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <Label htmlFor="pricing-type">Metode:</Label>
-                      <Select value={pricingType} onValueChange={(v: any) => { setPricingType(v); setHasMachineEdits(true); }}>
-                        <SelectTrigger className="w-[160px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="STANDARD">Matrix</SelectItem>
-                          <SelectItem value="MACHINE_PRICED">Maskin (MPA)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {pricingType === 'MACHINE_PRICED' && (
-                      <div className="flex items-center gap-2">
-                        <Label>Visning:</Label>
-                        <Select value={mpaConfig.display_mode || 'SELECTION'} onValueChange={v => { setMpaConfig({ ...mpaConfig, display_mode: v }); setHasMachineEdits(true); }}>
-                          <SelectTrigger className="w-[160px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="SELECTION">Valgmenu</SelectItem>
-                            <SelectItem value="MATRIX">Pris-tabel</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {pricingType === 'MACHINE_PRICED' ? (
-                    <div className="grid gap-6">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Pris-profil</Label>
-                          <Select value={mpaConfig.pricing_profile_id} onValueChange={v => { setMpaConfig({ ...mpaConfig, pricing_profile_id: v }); setHasMachineEdits(true); }}>
-                            <SelectTrigger><SelectValue placeholder="Vælg profil" /></SelectTrigger>
-                            <SelectContent>
-                              {availableMpaData.pricingProfiles.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                          {mpaConfig.pricing_profile_id && (
-                            <div className="text-[10px] bg-muted p-1.5 rounded border">
-                              {(() => {
-                                const p = availableMpaData.pricingProfiles.find(x => x.id === mpaConfig.pricing_profile_id);
-                                if (!p) return null;
-                                const m = availableMpaData.machines?.find(x => x.id === (p as any).machine_id);
-                                const i = availableMpaData.inkSets?.find(x => x.id === (p as any).ink_set_id);
-                                return `Maskine: ${m?.name || '?'}, Blæk: ${i?.name || '?'}`;
-                              })()}
-                            </div>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Margin-profil</Label>
-                          <Select value={mpaConfig.margin_profile_id} onValueChange={v => { setMpaConfig({ ...mpaConfig, margin_profile_id: v }); setHasMachineEdits(true); }}>
-                            <SelectTrigger><SelectValue placeholder="Vælg margin-profil" /></SelectTrigger>
-                            <SelectContent>
-                              {availableMpaData.marginProfiles.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                          <p className="text-xs text-muted-foreground">Bestemmer avance og pris-trapper.</p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Tryk-sider</Label>
-                        <Select value={mpaConfig.allowed_sides} onValueChange={v => { setMpaConfig({ ...mpaConfig, allowed_sides: v }); setHasMachineEdits(true); }}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="4+0_ONLY">Kun 4+0 (En-sidet)</SelectItem>
-                            <SelectItem value="4+4_ONLY">Kun 4+4 (To-sidet)</SelectItem>
-                            <SelectItem value="4+0_AND_4+4">Valgfrit (4+0 eller 4+4)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Beskæring (bleed) mm</Label>
-                          <Input
-                            type="number"
-                            value={mpaConfig.bleed_mm}
-                            onChange={e => { setMpaConfig({ ...mpaConfig, bleed_mm: parseInt(e.target.value) }); setHasMachineEdits(true); }}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Mellemrum (gap) mm</Label>
-                          <Input
-                            type="number"
-                            value={mpaConfig.gap_mm}
-                            onChange={e => { setMpaConfig({ ...mpaConfig, gap_mm: parseInt(e.target.value) }); setHasMachineEdits(true); }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        <Label>Tilgængelige Materialer</Label>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-3 border rounded-md max-h-[150px] overflow-y-auto bg-muted/20">
-                          {availableMpaData.materials.map(m => (
-                            <div key={m.id} className="flex items-center space-x-2">
-                              <Switch
-                                checked={mpaConfig.material_ids?.includes(m.id)}
-                                onCheckedChange={checked => {
-                                  const ids = checked
-                                    ? [...(mpaConfig.material_ids || []), m.id]
-                                    : (mpaConfig.material_ids || []).filter((id: string) => id !== m.id);
-                                  setMpaConfig({ ...mpaConfig, material_ids: ids });
-                                  setHasMachineEdits(true);
-                                }}
-                              />
-                              <span className="text-xs">{m.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        <Label>Tilgængelige Efterbehandlinger</Label>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-3 border rounded-md max-h-[150px] overflow-y-auto bg-muted/20">
-                          {availableMpaData.finishes.map(f => (
-                            <div key={f.id} className="flex items-center space-x-2">
-                              <Switch
-                                checked={mpaConfig.finish_ids?.includes(f.id)}
-                                onCheckedChange={checked => {
-                                  const ids = checked
-                                    ? [...(mpaConfig.finish_ids || []), f.id]
-                                    : (mpaConfig.finish_ids || []).filter((id: string) => id !== f.id);
-                                  setMpaConfig({ ...mpaConfig, finish_ids: ids });
-                                  setHasMachineEdits(true);
-                                }}
-                              />
-                              <span className="text-xs">{f.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Mængder (komma-separeret)</Label>
-                        <Input
-                          value={mpaConfig.quantities?.join(', ')}
-                          onChange={e => {
-                            const q = e.target.value.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v));
-                            setMpaConfig({ ...mpaConfig, quantities: q });
-                            setHasMachineEdits(true);
-                          }}
-                        />
-                        <p className="text-xs text-muted-foreground">De mængder kunden kan vælge (f.eks. 100, 250, 500).</p>
-                      </div>
-
-                      <div className="space-y-4 p-4 border rounded-md bg-muted/10">
-                        <div className="flex items-center space-x-2">
-                          <Switch
-                            checked={mpaConfig.numbering_enabled}
-                            onCheckedChange={v => { setMpaConfig({ ...mpaConfig, numbering_enabled: v }); setHasMachineEdits(true); }}
-                          />
-                          <Label className="font-semibold">Tillad numerering</Label>
-                        </div>
-
-                        {mpaConfig.numbering_enabled && (
-                          <div className="grid grid-cols-3 gap-4 pt-2">
-                            <div className="space-y-2">
-                              <Label className="text-xs">Opstarts-gebyr</Label>
-                              <Input
-                                type="number"
-                                size={1}
-                                value={mpaConfig.numbering_setup_fee}
-                                onChange={e => { setMpaConfig({ ...mpaConfig, numbering_setup_fee: parseFloat(e.target.value) }); setHasMachineEdits(true); }}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label className="text-xs">Pris pr. enhed</Label>
-                              <Input
-                                type="number"
-                                size={1}
-                                value={mpaConfig.numbering_price_per_unit}
-                                onChange={e => { setMpaConfig({ ...mpaConfig, numbering_price_per_unit: parseFloat(e.target.value) }); setHasMachineEdits(true); }}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label className="text-xs">Antal positioner</Label>
-                              <Input
-                                type="number"
-                                size={1}
-                                value={mpaConfig.numbering_positions}
-                                onChange={e => { setMpaConfig({ ...mpaConfig, numbering_positions: parseInt(e.target.value) }); setHasMachineEdits(true); }}
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="space-y-3">
-                        <Label>Størrelses-presets (valgfrit)</Label>
-                        <div className="space-y-2">
-                          {(mpaConfig.sizes || []).map((s: any, idx: number) => (
-                            <div key={idx} className="flex items-center gap-2">
-                              <Input placeholder="Navn (f.eks. A4)" value={s.name} onChange={e => {
-                                const newSizes = [...mpaConfig.sizes];
-                                newSizes[idx].name = e.target.value;
-                                setMpaConfig({ ...mpaConfig, sizes: newSizes });
-                                setHasMachineEdits(true);
-                              }} />
-                              <Input type="number" placeholder="Bredde" value={s.width} onChange={e => {
-                                const newSizes = [...mpaConfig.sizes];
-                                newSizes[idx].width = parseInt(e.target.value);
-                                setMpaConfig({ ...mpaConfig, sizes: newSizes });
-                                setHasMachineEdits(true);
-                              }} />
-                              <Input type="number" placeholder="Højde" value={s.height} onChange={e => {
-                                const newSizes = [...mpaConfig.sizes];
-                                newSizes[idx].height = parseInt(e.target.value);
-                                setMpaConfig({ ...mpaConfig, sizes: newSizes });
-                                setHasMachineEdits(true);
-                              }} />
-                              <Button variant="ghost" size="icon" onClick={() => {
-                                const newSizes = mpaConfig.sizes.filter((_: any, i: number) => i !== idx);
-                                setMpaConfig({ ...mpaConfig, sizes: newSizes });
-                                setHasMachineEdits(true);
-                              }}><X className="h-4 w-4" /></Button>
-                            </div>
-                          ))}
-                          <Button variant="outline" size="sm" onClick={() => {
-                            setMpaConfig({ ...mpaConfig, sizes: [...(mpaConfig.sizes || []), { name: "", width: 210, height: 297 }] });
-                            setHasMachineEdits(true);
-                          }}>
-                            Tilføj størrelse
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-end">
-                        <Button
-                          onClick={handleSaveMachineConfig}
-                          disabled={!hasMachineEdits || saving}
-                        >
-                          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                          Gem Maskin-indstillinger
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <p className="text-muted-foreground">Dette produkt bruger standard matrix-prisberegning.</p>
-                      <Button variant="outline" className="mt-4" onClick={() => setPricingType('MACHINE_PRICED')}>
-                        Skift til Maskin-beregning
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          )}
-        </TabsContent>
-
-
-        <TabsContent value="order-delivery" className="space-y-6">
-          <div>
-            <h2 className="text-2xl font-bold">Bestilling og levering</h2>
-            <p className="text-muted-foreground">Konfigurer bestillingsflow og leveringsmetoder for dette produkt.</p>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Bestillingsmuligheder</CardTitle>
-              <CardDescription>Vælg hvordan dette produkt bestilles hos leverandor.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-3">
-                <Label>Bestillingsmetode</Label>
-                <RadioGroup
-                  value={orderDeliveryConfig.ordering.type}
-                  onValueChange={(value: OrderingType) => updateOrderDeliveryConfig(prev => ({
-                    ...prev,
-                    ordering: { ...prev.ordering, type: value }
-                  }))}
-                  className="grid gap-3 md:grid-cols-3"
-                >
-                  {[
-                    { value: "standard", title: "Standard", description: "Webprinter standard workflow." },
-                    { value: "semi", title: "Semi-automatiseret", description: "Assisteret bestilling uden API." },
-                    { value: "email", title: "Email-bestilling", description: "Generer en leverandor-email." }
-                  ].map(option => (
-                    <label
-                      key={option.value}
-                      htmlFor={`ordering-${option.value}`}
-                      className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/40 transition"
-                    >
-                      <RadioGroupItem value={option.value} id={`ordering-${option.value}`} className="mt-1" />
-                      <div>
-                        <div className="font-medium text-sm">{option.title}</div>
-                        <div className="text-xs text-muted-foreground">{option.description}</div>
-                      </div>
-                    </label>
-                  ))}
-                </RadioGroup>
-              </div>
-
-              {orderDeliveryConfig.ordering.type === "standard" && (
-                <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
-                  Ingen ekstra felter for standard bestilling.
-                </div>
-              )}
-
-              {orderDeliveryConfig.ordering.type === "semi" && (
-                <div className="space-y-4 rounded-lg border bg-muted/10 p-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>Leverandor navn</Label>
-                      <Input
-                        value={orderDeliveryConfig.ordering.supplier_name}
-                        onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          ordering: { ...prev.ordering, supplier_name: e.target.value }
-                        }))}
-                        placeholder="F.eks. Trykkeri A/S"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Start URL</Label>
-                      <Input
-                        type="url"
-                        value={orderDeliveryConfig.ordering.supplier_url}
-                        onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          ordering: { ...prev.ordering, supplier_url: e.target.value }
-                        }))}
-                        placeholder="https://leverandor.dk/login"
-                      />
-                      {orderDeliveryConfig.ordering.supplier_url &&
-                        !/^https?:\/\//i.test(orderDeliveryConfig.ordering.supplier_url) && (
-                          <p className="text-xs text-red-500">Brug en URL der starter med http/https.</p>
-                        )}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Instruktioner til operator (valgfri)</Label>
-                    <Textarea
-                      value={orderDeliveryConfig.ordering.operator_notes}
-                      onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                        ...prev,
-                        ordering: { ...prev.ordering, operator_notes: e.target.value }
-                      }))}
-                      placeholder="Noter til den der udfører bestillingen..."
-                      rows={3}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={orderDeliveryConfig.ordering.stop_before_payment}
-                        onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          ordering: { ...prev.ordering, stop_before_payment: checked }
-                        }))}
-                      />
-                      <span className="text-sm">Stop for betaling (kraver godkendelse)</span>
-                    </div>
-                    <label className="flex items-center gap-2 text-sm">
-                      <Checkbox
-                        checked={orderDeliveryConfig.ordering.requires_login}
-                        onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          ordering: { ...prev.ordering, requires_login: Boolean(checked) }
-                        }))}
-                      />
-                      Kraver login/2FA (information)
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              {orderDeliveryConfig.ordering.type === "email" && (
-                <div className="space-y-4 rounded-lg border bg-muted/10 p-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>Leverandor email</Label>
-                      <Input
-                        type="email"
-                        value={orderDeliveryConfig.ordering.email_settings.supplier_email}
-                        onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          ordering: {
-                            ...prev.ordering,
-                            email_settings: { ...prev.ordering.email_settings, supplier_email: e.target.value }
-                          }
-                        }))}
-                        placeholder="orders@leverandor.dk"
-                      />
-                      {orderDeliveryConfig.ordering.email_settings.supplier_email &&
-                        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(orderDeliveryConfig.ordering.email_settings.supplier_email) && (
-                          <p className="text-xs text-red-500">Ugyldigt email-format.</p>
-                        )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Emne-skabelon</Label>
-                      <Input
-                        value={orderDeliveryConfig.ordering.email_settings.subject_template}
-                        onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          ordering: {
-                            ...prev.ordering,
-                            email_settings: { ...prev.ordering.email_settings, subject_template: e.target.value }
-                          }
-                        }))}
-                        placeholder="Order: {productName} - {orderNumber}"
-                      />
-                      <p className="text-xs text-muted-foreground">Tilgængelige felter: {`{productName}`} {`{orderNumber}`}</p>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Body-skabelon</Label>
-                    <Textarea
-                      value={orderDeliveryConfig.ordering.email_settings.body_template}
-                      onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                        ...prev,
-                        ordering: {
-                          ...prev.ordering,
-                          email_settings: { ...prev.ordering.email_settings, body_template: e.target.value }
-                        }
-                      }))}
-                      rows={5}
-                    />
-                    <p className="text-xs text-muted-foreground">Brug felter som {`{quantity}`} og {`{customerName}`}. Ingen automatisk udsendelse endnu.</p>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={orderDeliveryConfig.ordering.email_settings.attach_print_files}
-                        onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          ordering: {
-                            ...prev.ordering,
-                            email_settings: { ...prev.ordering.email_settings, attach_print_files: checked }
-                          }
-                        }))}
-                      />
-                      <span className="text-sm">Vedhaeft printfiler</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={orderDeliveryConfig.ordering.email_settings.attach_spec_sheet}
-                        onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          ordering: {
-                            ...prev.ordering,
-                            email_settings: { ...prev.ordering.email_settings, attach_spec_sheet: checked }
-                          }
-                        }))}
-                      />
-                      <span className="text-sm">Vedhaeft specifikation (PDF)</span>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Default afsender-identitet</Label>
-                    <Select
-                      value={orderDeliveryConfig.ordering.email_settings.sender_identity}
-                      onValueChange={(value: SenderIdentity) => updateOrderDeliveryConfig(prev => ({
-                        ...prev,
-                        ordering: {
-                          ...prev.ordering,
-                          email_settings: { ...prev.ordering.email_settings, sender_identity: value }
-                        }
-                      }))}
-                    >
-                      <SelectTrigger className="w-full md:w-[260px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="platform">Platform afsender</SelectItem>
-                        <SelectItem value="tenant">Tenant afsender</SelectItem>
-                        <SelectItem value="customer">Kunde afsender (senere)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">Kunde-afsender kan aktiveres senere.</p>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Levering</CardTitle>
-              <CardDescription>Administrer leveringsmetoder og tracking-indstillinger.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-3">
-                <Label>Leveringsmode</Label>
-                <RadioGroup
-                  value={orderDeliveryConfig.delivery.mode}
-                  onValueChange={(value: DeliveryMode) => updateOrderDeliveryConfig(prev => ({
-                    ...prev,
-                    delivery: { ...prev.delivery, mode: value }
-                  }))}
-                  className="grid gap-3 md:grid-cols-2"
-                >
-                  {[
-                    { value: "manual", title: "Manuel levering", description: "Du styrer levering og tider." },
-                    { value: "carrier", title: "Carrier tracking", description: "Fremtidig integration til fragtfirma." }
-                  ].map(option => (
-                    <label
-                      key={option.value}
-                      htmlFor={`delivery-${option.value}`}
-                      className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/40 transition"
-                    >
-                      <RadioGroupItem value={option.value} id={`delivery-${option.value}`} className="mt-1" />
-                      <div>
-                        <div className="font-medium text-sm">{option.title}</div>
-                        <div className="text-xs text-muted-foreground">{option.description}</div>
-                      </div>
-                    </label>
-                  ))}
-                </RadioGroup>
-              </div>
-
-              {isMasterAdmin && product?.technical_specs?.is_pod && (
-                <div className="space-y-4 rounded-lg border bg-muted/10 p-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <h3 className="text-sm font-semibold">POD levering (master)</h3>
-                      <p className="text-xs text-muted-foreground">
-                        Tilpas hvilke leveringsvalg der vises til kunderne på POD produkter.
-                      </p>
-                    </div>
-                    <Switch
-                      checked={orderDeliveryConfig.delivery.pod_settings?.enabled ?? true}
-                      onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
-                        ...prev,
-                        delivery: {
-                          ...prev.delivery,
-                          pod_settings: {
-                            ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
-                            enabled: checked
-                          }
-                        }
-                      }))}
-                    />
-                  </div>
-
-                  {(orderDeliveryConfig.delivery.pod_settings?.enabled ?? true) && (
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Antal valg i prisberegner</Label>
-                        <Select
-                          value={String(orderDeliveryConfig.delivery.pod_settings?.max_options ?? 3)}
-                          onValueChange={(value) => updateOrderDeliveryConfig(prev => ({
-                            ...prev,
-                            delivery: {
-                              ...prev.delivery,
-                              pod_settings: {
-                                ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
-                                max_options: Number(value)
-                              }
-                            }
-                          }))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="2">2 valg</SelectItem>
-                            <SelectItem value="3">3 valg</SelectItem>
-                            <SelectItem value="4">4 valg</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="flex flex-col gap-3">
-                        <label className="flex items-center gap-2 text-sm">
-                          <Switch
-                            checked={orderDeliveryConfig.delivery.pod_settings?.show_deadline ?? true}
-                            onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
-                              ...prev,
-                              delivery: {
-                                ...prev.delivery,
-                                pod_settings: {
-                                  ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
-                                  show_deadline: checked
-                                }
-                              }
-                            }))}
-                          />
-                          Vis deadline for fil-aflevering
-                        </label>
-                        <label className="flex items-center gap-2 text-sm">
-                          <Switch
-                            checked={orderDeliveryConfig.delivery.pod_settings?.show_carrier ?? false}
-                            onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
-                              ...prev,
-                              delivery: {
-                                ...prev.delivery,
-                                pod_settings: {
-                                  ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
-                                  show_carrier: checked
-                                }
-                              }
-                            }))}
-                          />
-                          Vis fragtfirma-logo
-                        </label>
-                      </div>
-                    </div>
-                  )}
-
-                  {(orderDeliveryConfig.delivery.pod_settings?.enabled ?? true) && (
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Navn: Bedste balance</Label>
-                        <Input
-                          value={orderDeliveryConfig.delivery.pod_settings?.labels?.best || ""}
-                          onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                            ...prev,
-                            delivery: {
-                              ...prev.delivery,
-                              pod_settings: {
-                                ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
-                                labels: {
-                                  ...(prev.delivery.pod_settings?.labels || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings?.labels),
-                                  best: e.target.value
-                                }
-                              }
-                            }
-                          }))}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Navn: Bedste pris</Label>
-                        <Input
-                          value={orderDeliveryConfig.delivery.pod_settings?.labels?.cheapest || ""}
-                          onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                            ...prev,
-                            delivery: {
-                              ...prev.delivery,
-                              pod_settings: {
-                                ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
-                                labels: {
-                                  ...(prev.delivery.pod_settings?.labels || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings?.labels),
-                                  cheapest: e.target.value
-                                }
-                              }
-                            }
-                          }))}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Navn: Hurtigst</Label>
-                        <Input
-                          value={orderDeliveryConfig.delivery.pod_settings?.labels?.fastest || ""}
-                          onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                            ...prev,
-                            delivery: {
-                              ...prev.delivery,
-                              pod_settings: {
-                                ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
-                                labels: {
-                                  ...(prev.delivery.pod_settings?.labels || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings?.labels),
-                                  fastest: e.target.value
-                                }
-                              }
-                            }
-                          }))}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {(orderDeliveryConfig.delivery.pod_settings?.enabled ?? true) && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <Label className="text-xs">Fragtlogoer (valgfrit)</Label>
-                          <p className="text-[11px] text-muted-foreground">
-                            Match Print.com carrier-navne, fx DHL, UPS.
-                          </p>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            const current = orderDeliveryConfig.delivery.pod_settings?.carrier_logos || [];
-                            updatePodCarrierLogos([...current, { carrier: "", logo_url: "" }]);
-                          }}
-                        >
-                          Tilfoj logo
-                        </Button>
-                      </div>
-
-                      {(orderDeliveryConfig.delivery.pod_settings?.carrier_logos || []).length === 0 && (
-                        <p className="text-xs text-muted-foreground">Ingen logoer endnu.</p>
-                      )}
-
-                      {(orderDeliveryConfig.delivery.pod_settings?.carrier_logos || []).map((entry, index) => (
-                        <div key={`pod-carrier-${index}`} className="rounded-md border p-3 space-y-3">
-                          <div className="grid gap-3 md:grid-cols-[1.2fr,1.4fr,1fr,auto] items-end">
-                            <div className="space-y-1">
-                              <Label className="text-xs">Carrier navn</Label>
-                              <Input
-                                value={entry?.carrier || ""}
-                                onChange={(e) => {
-                                  const next = [...(orderDeliveryConfig.delivery.pod_settings?.carrier_logos || [])];
-                                  next[index] = { ...(next[index] || { logo_url: "" }), carrier: e.target.value };
-                                  updatePodCarrierLogos(next);
-                                }}
-                                placeholder="DHL"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Logo URL</Label>
-                              <Input
-                                value={entry?.logo_url || ""}
-                                onChange={(e) => {
-                                  const next = [...(orderDeliveryConfig.delivery.pod_settings?.carrier_logos || [])];
-                                  next[index] = { ...(next[index] || { carrier: "" }), logo_url: e.target.value };
-                                  updatePodCarrierLogos(next);
-                                }}
-                                placeholder="https://..."
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Upload logo</Label>
-                              <Input
-                                type="file"
-                                accept="image/*,.svg"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    handlePodCarrierLogoUpload(index, file);
-                                  }
-                                  e.currentTarget.value = "";
-                                }}
-                                disabled={podCarrierUploadIndex === index}
-                              />
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {podCarrierUploadIndex === index && <Loader2 className="h-4 w-4 animate-spin" />}
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  const next = [...(orderDeliveryConfig.delivery.pod_settings?.carrier_logos || [])];
-                                  next.splice(index, 1);
-                                  updatePodCarrierLogos(next);
-                                }}
-                                aria-label="Fjern logo"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                          {entry?.logo_url && (
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                              <img
-                                src={entry.logo_url}
-                                alt={entry.carrier || "Carrier"}
-                                className="h-6 w-auto object-contain border rounded px-1 py-0.5 bg-background"
-                                loading="lazy"
-                              />
-                              <span>Forhaandsvisning</span>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {orderDeliveryConfig.delivery.mode === "manual" && (
-                <div className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold">Leveringsmetoder</h3>
-                      <p className="text-xs text-muted-foreground">Tilfoj eller rediger metoder per produkt.</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          delivery: { ...prev.delivery, methods: DEFAULT_DELIVERY_METHODS.map(m => ({ ...m })) }
-                        }))}
-                      >
-                        Nulstil til standard
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          delivery: {
-                            ...prev.delivery,
-                            methods: [
-                              ...prev.delivery.methods,
-                              {
-                                id: `method-${Math.random().toString(36).slice(2, 9)}`,
-                                name: "Ny levering",
-                                description: "",
-                                lead_time_days: 0,
-                                production_days: 0,
-                                shipping_days: 0,
-                                delivery_window_days: 0,
-                                auto_mark_delivered: false,
-                                auto_mark_days: 0,
-                                price: 0,
-                                cutoff_time: "",
-                                cutoff_label: "deadline",
-                                cutoff_text: ""
-                              }
-                            ]
-                          }
-                        }))}
-                      >
-                        Tilfoj leveringsmetode
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    {orderDeliveryConfig.delivery.methods.map((method) => {
-                      const totalDays = (method.production_days ?? 0) + (method.shipping_days ?? 0);
-                      const cutoffLabelText = method.cutoff_label === "latest" ? "Senest bestilling" : "Deadline";
-                      const cutoffTimeLabel = method.cutoff_time ? `${cutoffLabelText} kl. ${method.cutoff_time}` : cutoffLabelText;
-                      const previewText = totalDays > 0
-                        ? `${cutoffTimeLabel}. Levering om ${totalDays} dage.`
-                        : `${cutoffTimeLabel}. Angiv produktion og forsendelse for at vise leveringstid.`;
-
-                      return (
-                        <div key={method.id} className="border rounded-lg p-4 space-y-4">
-                          <div className="flex items-center justify-between gap-3">
-                            <Input
-                              value={method.name}
-                              onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                                ...prev,
-                                delivery: {
-                                  ...prev.delivery,
-                                  methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, name: e.target.value } : m)
-                                }
-                              }))}
-                              className="max-w-xs"
-                            />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => updateOrderDeliveryConfig(prev => ({
-                                ...prev,
-                                delivery: {
-                                  ...prev.delivery,
-                                  methods: prev.delivery.methods.filter(m => m.id !== method.id)
-                                }
-                              }))}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          <Textarea
-                            value={method.description || ""}
-                            onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                              ...prev,
-                              delivery: {
-                                ...prev.delivery,
-                                methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, description: e.target.value } : m)
-                              }
-                            }))}
-                            placeholder="Kort beskrivelse"
-                            rows={2}
-                          />
-                          <div className="space-y-2">
-                            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Kunde-status display</Label>
-                            <div className="grid gap-3 md:grid-cols-4">
-                              <div className="space-y-1">
-                                <Label className="text-xs">Produktion (dage)</Label>
-                                <Input
-                                  type="number"
-                                  value={method.production_days ?? 0}
-                                  onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                                    ...prev,
-                                    delivery: {
-                                      ...prev.delivery,
-                                      methods: prev.delivery.methods.map(m => m.id === method.id ? {
-                                        ...m,
-                                        production_days: Number(e.target.value),
-                                        lead_time_days: Number(e.target.value) + (m.shipping_days ?? 0)
-                                      } : m)
-                                    }
-                                  }))}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Forsendelse (dage)</Label>
-                                <Input
-                                  type="number"
-                                  value={method.shipping_days ?? 0}
-                                  onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                                    ...prev,
-                                    delivery: {
-                                      ...prev.delivery,
-                                      methods: prev.delivery.methods.map(m => m.id === method.id ? {
-                                        ...m,
-                                        shipping_days: Number(e.target.value),
-                                        lead_time_days: (m.production_days ?? 0) + Number(e.target.value)
-                                      } : m)
-                                    }
-                                  }))}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">+/- dage</Label>
-                                <Input
-                                  type="number"
-                                  value={method.delivery_window_days ?? 0}
-                                  onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                                    ...prev,
-                                    delivery: {
-                                      ...prev.delivery,
-                                      methods: prev.delivery.methods.map(m => m.id === method.id ? {
-                                        ...m,
-                                        delivery_window_days: Number(e.target.value)
-                                      } : m)
-                                    }
-                                  }))}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Auto-leveret efter (dage)</Label>
-                                <Input
-                                  type="number"
-                                  value={method.auto_mark_days ?? 0}
-                                  onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                                    ...prev,
-                                    delivery: {
-                                      ...prev.delivery,
-                                      methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, auto_mark_days: Number(e.target.value) } : m)
-                                    }
-                                  }))}
-                                  disabled={!method.auto_mark_delivered}
-                                />
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Switch
-                                checked={method.auto_mark_delivered ?? false}
-                                onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
-                                  ...prev,
-                                  delivery: {
-                                    ...prev.delivery,
-                                    methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, auto_mark_delivered: checked } : m)
-                                  }
-                                }))}
-                              />
-                              <span className="text-sm">Auto-mark delivered</span>
-                            </div>
-                          </div>
-                          <div className="grid gap-3 md:grid-cols-4">
-                            <div className="space-y-1">
-                              <Label className="text-xs">Pris (kr)</Label>
-                              <Input
-                                type="number"
-                                value={method.price ?? 0}
-                                onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                                  ...prev,
-                                  delivery: {
-                                    ...prev.delivery,
-                                    methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, price: Number(e.target.value) } : m)
-                                  }
-                                }))}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Cut-off tidspunkt</Label>
-                              <Input
-                                type="time"
-                                value={method.cutoff_time || ""}
-                                onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                                  ...prev,
-                                  delivery: {
-                                    ...prev.delivery,
-                                    methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, cutoff_time: e.target.value } : m)
-                                  }
-                                }))}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Cut-off label</Label>
-                              <Select
-                                value={method.cutoff_label || "deadline"}
-                                onValueChange={(value: "deadline" | "latest") => updateOrderDeliveryConfig(prev => ({
-                                  ...prev,
-                                  delivery: {
-                                    ...prev.delivery,
-                                    methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, cutoff_label: value } : m)
-                                  }
-                                }))}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="deadline">Deadline</SelectItem>
-                                  <SelectItem value="latest">Senest bestilling</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Samlet leveringstid</Label>
-                              <Input value={`${totalDays} dage`} readOnly />
-                            </div>
-                          </div>
-                          <div className="text-xs text-muted-foreground">{previewText}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {orderDeliveryConfig.delivery.mode === "carrier" && (
-                <div className="space-y-4 rounded-lg border bg-muted/10 p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold">Carrier tracking</h3>
-                      <p className="text-xs text-muted-foreground">Status opdateres automatisk fra fragtfirma.</p>
-                    </div>
-                    <Switch
-                      checked={orderDeliveryConfig.delivery.carrier_settings.enabled}
-                      onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
-                        ...prev,
-                        delivery: {
-                          ...prev.delivery,
-                          carrier_settings: { ...prev.delivery.carrier_settings, enabled: checked }
-                        }
-                      }))}
-                    />
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>Carrier</Label>
-                      <Select
-                        value={orderDeliveryConfig.delivery.carrier_settings.carrier}
-                        onValueChange={(value) => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          delivery: {
-                            ...prev.delivery,
-                            carrier_settings: { ...prev.delivery.carrier_settings, carrier: value }
-                          }
-                        }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="UPS">UPS</SelectItem>
-                          <SelectItem value="DHL">DHL</SelectItem>
-                          <SelectItem value="GLS">GLS</SelectItem>
-                          <SelectItem value="PostNord">PostNord</SelectItem>
-                          <SelectItem value="Other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>API key / konto</Label>
-                      <Input
-                        type="password"
-                        value={orderDeliveryConfig.delivery.carrier_settings.api_key}
-                        onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          delivery: {
-                            ...prev.delivery,
-                            carrier_settings: { ...prev.delivery.carrier_settings, api_key: e.target.value }
-                          }
-                        }))}
-                        placeholder="Gemmes som konfiguration (coming later)"
-                        disabled={!orderDeliveryConfig.delivery.carrier_settings.enabled}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Konto ID</Label>
-                      <Input
-                        value={orderDeliveryConfig.delivery.carrier_settings.account_id}
-                        onChange={(e) => updateOrderDeliveryConfig(prev => ({
-                          ...prev,
-                          delivery: {
-                            ...prev.delivery,
-                            carrier_settings: { ...prev.delivery.carrier_settings, account_id: e.target.value }
-                          }
-                        }))}
-                        disabled={!orderDeliveryConfig.delivery.carrier_settings.enabled}
-                      />
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Ingen API-kald implementeret endnu.</p>
-                </div>
-              )}
-
-              <div className="flex justify-end pt-2 border-t">
-                <Button
-                  onClick={handleSaveOrderDelivery}
-                  disabled={!hasOrderDeliveryEdits || saving}
-                >
-                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Gem bestilling og levering
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="options" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Valgmuligheder</CardTitle>
-              <CardDescription>
-                Opret og administrer valgmuligheder som vises på produktsiden. Disse kan have ekstra pris og ikon.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <OptionGroupManager productId={product.id} tenantId={product.tenant_id} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="custom-fields" className="space-y-6">
-          <CustomFieldsManager
-            productId={product.id}
-            tenantId={product.tenant_id}
-            onFieldsUpdate={fetchPrices}
-          />
-        </TabsContent>
-
-        <TabsContent value="tooltips" className="space-y-6">
-          <VisualTooltipDesigner
-            productId={product.id}
-            productName={editedName || product.name}
-            productImage={product.image_url || undefined}
-            tooltips={(product.banner_config as any)?.visual_tooltips || []}
-            onTooltipsChange={(tooltips: TooltipConfig[]) => {
-              // Save tooltips to banner_config
-              const currentConfig = (product.banner_config as any) || {};
-              const newConfig = { ...currentConfig, visual_tooltips: tooltips };
-              supabase
-                .from('products' as any)
-                .update({ banner_config: newConfig })
-                .eq('id', product.id)
-                .then(() => {
-                  fetchProduct();
-                  toast.success("Tooltips gemt");
-                });
-            }}
-          />
-          <div className="border-t pt-6 mt-6">
-            <h4 className="text-sm font-medium mb-4 text-muted-foreground">Legacy Tooltips (Tekst)</h4>
-            <ProductTooltipEditor
-              productId={product.id}
-              tooltipProduct={product.tooltip_product}
-              tooltipPrice={product.tooltip_price}
-              tooltipQuickTilbud={product.tooltip_quick_tilbud}
-              onUpdate={fetchProduct}
-            />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="about">
-          <div className="space-y-6">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-md font-medium">Produktnavn (system)</CardTitle>
-                <CardDescription>
-                  Dette navn bruges i hele bestillingsflowet og vises som produktets officielle navn.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2 max-w-xl">
-                  <Label htmlFor="product-system-name" className="text-xs">Produktnavn</Label>
-                  <Input
-                    id="product-system-name"
-                    value={editedName}
-                    onChange={(e) => handleProductNameChange(e.target.value)}
-                    placeholder="Indtast produktnavn"
-                    className="h-9"
-                  />
-                </div>
-                <div className="flex justify-end pt-3">
-                  <Button
-                    onClick={() => handleSaveProductDetails()}
-                    size="sm"
-                    disabled={!hasProductEdits || saving}
-                  >
-                    {saving ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Save className="mr-2 h-3 w-3" />}
-                    Gem produktnavn
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-              {/* Sektion 1 (Was Section 2): Forside Information */}
-              <div className="space-y-3">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-md font-medium flex items-center gap-2">
-                        <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span>
-                        Forside Produkter
-                      </CardTitle>
-                      {/* Preset Info Badge */}
-                      {(product as any).preset_key && (product as any).preset_key !== 'custom' && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded">
-                          <span>Skabelon:</span>
-                          <span className="font-medium text-foreground">
-                            {getPresetLabel((product as any).preset_key)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
-                      {/* Left Column: Inputs */}
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <Label htmlFor="product-icon-text" className="text-xs">Ikon-tekst (forside)</Label>
-                            <Input
-                              id="product-icon-text"
-                              value={editedIconText}
-                              onChange={(e) => handleProductIconTextChange(e.target.value)}
-                              placeholder="Kort navn til produktkort"
-                              className="h-9"
-                            />
-                            <p className="text-[10px] text-muted-foreground">Vises på produktkort i oversigter.</p>
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <Label htmlFor="product-price-from" className="text-xs">Fra-pris</Label>
-                            <Input
-                              id="product-price-from"
-                              type="number"
-                              value={editedPriceFrom}
-                              onChange={(e) => {
-                                setEditedPriceFrom(e.target.value);
-                                setHasProductEdits(true);
-                              }}
-                              placeholder="395"
-                              className="h-9 w-32"
-                            />
-                            <p className="text-[10px] text-muted-foreground">Vises som "Fra X,-"</p>
-                          </div>
-                        </div>
-
-                        {/* Promotional Pricing Section */}
-                        <div className="space-y-1.5 pt-3 border-t">
-                          <Label className="text-xs font-medium">Kampagnepris</Label>
-                          <p className="text-[10px] text-muted-foreground mb-2">Vis tilbudspris med overstreget originalpris og besparelse.</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1">
-                              <Label htmlFor="original-price" className="text-[10px] text-muted-foreground">Original pris (kr)</Label>
-                              <Input
-                                id="original-price"
-                                type="number"
-                                value={editedOriginalPrice}
-                                onChange={(e) => {
-                                  setEditedOriginalPrice(e.target.value);
-                                  setHasProductEdits(true);
-                                }}
-                                placeholder="399"
-                                className="h-9"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label htmlFor="promo-price" className="text-[10px] text-muted-foreground">Kampagnepris (kr)</Label>
-                              <Input
-                                id="promo-price"
-                                type="number"
-                                value={editedPromoPrice}
-                                onChange={(e) => {
-                                  setEditedPromoPrice(e.target.value);
-                                  setHasProductEdits(true);
-                                }}
-                                placeholder="199"
-                                className="h-9"
-                              />
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-between pt-2">
-                            <Label htmlFor="savings-badge" className="text-xs cursor-pointer">Vis "SPAR X%" badge</Label>
-                            <Switch
-                              id="savings-badge"
-                              checked={editedShowSavingsBadge}
-                              onCheckedChange={(checked) => {
-                                setEditedShowSavingsBadge(checked);
-                                setHasProductEdits(true);
-                              }}
-                            />
-                          </div>
-                          {editedPromoPrice && editedOriginalPrice && parseFloat(editedOriginalPrice) > parseFloat(editedPromoPrice) && (
-                            <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-950/30 rounded-md mt-2">
-                              <span className="text-sm text-muted-foreground line-through">{editedOriginalPrice} kr</span>
-                              <span className="text-sm font-bold text-green-600 dark:text-green-400">{editedPromoPrice} kr</span>
-                              {editedShowSavingsBadge && (
-                                <span className="text-xs font-bold text-white bg-green-500 px-2 py-0.5 rounded-full">
-                                  SPAR {Math.round((1 - parseFloat(editedPromoPrice) / parseFloat(editedOriginalPrice)) * 100)}%
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Description */}
-                        <div className="space-y-1.5">
-                          <div className="flex justify-between items-center">
-                            <Label htmlFor="product-description" className="text-xs">Kort beskrivelse (Max 50 tegn anbefales)</Label>
-                            <span className={`text-[10px] ${editedDescription.length > 60 ? 'text-red-500 font-bold' : 'text-muted-foreground'}`}>
-                              {editedDescription.length} tegn
-                            </span>
-                          </div>
-                          <Textarea
-                            id="product-description"
-                            value={editedDescription}
-                            onChange={(e) => handleProductDescriptionChange(e.target.value)}
-                            placeholder="Kort tekst til produktoversigter..."
-                            className="min-h-[80px] text-sm resize-none"
-                            rows={3}
-                          />
-                          {editedDescription.length > 60 && (
-                            <p className="text-[10px] text-red-500 animate-pulse">
-                              Beskrivelsen er lidt lang. Hold den kort for bedste visning.
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Image Uploads */}
-                        <div className="bg-muted/10 p-3 rounded-md border space-y-4">
-                          <div>
-                            <ProductImageUpload
-                              productId={product.id}
-                              currentImageUrl={product.image_url}
-                              onImageUpdate={handleImageUpdate}
-                              label="Forside Ikon / Billede"
-                            />
-                          </div>
-                          <div className="pt-2 border-t">
-                            <ProductImageUpload
-                              productId={product.id}
-                              currentImageUrl={editedHoverImageUrl}
-                              onImageUpdate={(url) => setEditedHoverImageUrl(url)}
-                              onUploadComplete={handleHoverImageUpdate}
-                              label="Mouseover Billede (Brugereffekt)"
-                            />
-                            <p className="text-[10px] text-muted-foreground mt-1">
-                              Vises når musen holdes over produktkortet. Valgfrit.
-                            </p>
-                          </div>
-                          <div className="pt-2 border-t space-y-2">
-                            <div className="flex items-center justify-between">
-                              <Label className="text-xs">Billedstørrelse på produktkort</Label>
-                              <span className="text-[10px] text-muted-foreground">{editedImageScalePct}%</span>
-                            </div>
-                            <Slider
-                              value={[editedImageScalePct]}
-                              min={60}
-                              max={140}
-                              step={5}
-                              onValueChange={([value]) => {
-                                setEditedImageScalePct(value);
-                                setHasProductEdits(true);
-                              }}
-                            />
-                            <p className="text-[10px] text-muted-foreground">
-                              Justerer billedets størrelse på forsidens produktkort uden at ændre selve kort-layoutet.
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="bg-muted/10 p-3 rounded-md border space-y-4">
-                          <div className="flex items-center justify-between gap-4">
-                            <div>
-                              <Label className="text-sm">Brug kortet som kategori-link</Label>
-                              <p className="text-[10px] text-muted-foreground mt-1">
-                                Beholder billede, titel og tekst som normalt, men klik går til en kategori-side i stedet for produktets prisliste.
-                              </p>
-                            </div>
-                            <Switch
-                              checked={editedCategoryLanding.enabled}
-                              onCheckedChange={(checked) =>
-                                updateCategoryLanding({
-                                  enabled: checked,
-                                  overviewId: checked
-                                    ? (editedCategoryLanding.overviewId || catalogOverviews[0]?.id || FALLBACK_OVERVIEW_ID)
-                                    : null,
-                                  overviewSlug: checked
-                                    ? (editedCategoryLanding.overviewSlug || catalogOverviews[0]?.slug || "produkter")
-                                    : null,
-                                  categoryId: checked ? editedCategoryLanding.categoryId || null : null,
-                                  categorySlug: checked ? editedCategoryLanding.categorySlug || null : null,
-                                  subcategoryId: checked ? editedCategoryLanding.subcategoryId || null : null,
-                                  subcategorySlug: checked ? editedCategoryLanding.subcategorySlug || null : null,
-                                })
-                              }
-                            />
-                          </div>
-
-                          {editedCategoryLanding.enabled && (
-                            <div className="grid gap-4 md:grid-cols-2">
-                              <div className="space-y-2">
-                                <Label>Hovedgruppe</Label>
-                                <Select
-                                  value={editedCategoryLanding.overviewId || FALLBACK_OVERVIEW_ID}
-                                  onValueChange={(value) => {
-                                    const nextOverview = catalogOverviews.find((overview) => overview.id === value);
-                                    updateCategoryLanding({
-                                      overviewId: value,
-                                      overviewSlug: nextOverview?.slug || "produkter",
-                                      categoryId: null,
-                                      categorySlug: null,
-                                      subcategoryId: null,
-                                      subcategorySlug: null,
-                                    });
-                                  }}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Vælg hovedgruppe" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {catalogOverviews.map((overview) => (
-                                      <SelectItem key={overview.id} value={overview.id}>
-                                        {overview.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label>Kategori</Label>
-                                <Select
-                                  value={editedCategoryLanding.categoryId || "__none__"}
-                                  onValueChange={(value) => {
-                                    if (value === "__none__") {
-                                      updateCategoryLanding({
-                                        categoryId: null,
-                                        categorySlug: null,
-                                        subcategoryId: null,
-                                        subcategorySlug: null,
-                                      });
-                                      return;
-                                    }
-                                    const nextCategory = rootLandingCategories.find((category) => category.id === value);
-                                    updateCategoryLanding({
-                                      categoryId: value,
-                                      categorySlug: nextCategory?.slug || null,
-                                      subcategoryId: null,
-                                      subcategorySlug: null,
-                                    });
-                                  }}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Vælg kategori" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="__none__">Ingen kategori valgt</SelectItem>
-                                    {rootLandingCategories.map((category) => (
-                                      <SelectItem key={category.id} value={category.id as string}>
-                                        {category.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-
-                              <div className="space-y-2 md:col-span-2">
-                                <Label>Underkategori</Label>
-                                <Select
-                                  value={editedCategoryLanding.subcategoryId || "__none__"}
-                                  onValueChange={(value) => {
-                                    if (value === "__none__") {
-                                      updateCategoryLanding({
-                                        subcategoryId: null,
-                                        subcategorySlug: null,
-                                      });
-                                      return;
-                                    }
-                                    const nextSubcategory = subcategoryLandingOptions.find((category) => category.id === value);
-                                    updateCategoryLanding({
-                                      subcategoryId: value,
-                                      subcategorySlug: nextSubcategory?.slug || null,
-                                    });
-                                  }}
-                                  disabled={!editedCategoryLanding.categoryId || subcategoryLandingOptions.length === 0}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Vælg underkategori (valgfrit)" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="__none__">Vis hele kategorien</SelectItem>
-                                    {subcategoryLandingOptions.map((category) => (
-                                      <SelectItem key={category.id} value={category.id as string}>
-                                        {category.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <p className="text-[10px] text-muted-foreground">
-                                  Hvis du vælger en underkategori, åbner kortet direkte på den. Hvis ikke, åbner det på hele kategorien.
-                                </p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Special Badge Editor */}
-                        <SpecialBadgeEditor
-                          value={editedSpecialBadge}
-                          onChange={(config) => {
-                            setEditedSpecialBadge(config);
-                            setHasProductEdits(true);
-                          }}
-                        />
-
-                      </div>
-
-                      {/* Right Column: Preview */}
-                      <div className="bg-gray-50/50 p-6 rounded-xl border border-dashed flex flex-col items-center justify-center min-h-[300px]">
-                        <ProductPreviewCard
-                          name={editedIconText || editedName}
-                          priceFrom={editedPriceFrom}
-                          description={editedDescription}
-                          imageUrl={product.image_url}
-                          priceColor={editedPriceColor}
-                          priceBgColor={editedPriceBgColor}
-                          priceBgEnabled={editedPriceBgEnabled}
-                          priceFont={editedPriceFont}
-                          hoverImageUrl={editedHoverImageUrl}
-                          imageScalePct={editedImageScalePct}
-                          specialBadge={editedSpecialBadge}
-                          promoPrice={editedPromoPrice}
-                          originalPrice={editedOriginalPrice}
-                          showSavingsBadge={editedShowSavingsBadge}
-                          actionLabel={editedCategoryLanding.enabled ? "Se produkter" : "Priser"}
-                        />
-                        <div className="pt-4 w-full">
-                          <Button
-                            onClick={() => handleSaveProductDetails()}
-                            size="sm"
-                            disabled={!hasProductEdits || saving}
-                            className="w-full"
-                          >
-                            {saving ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Save className="mr-2 h-3 w-3" />}
-                            Gem Forside Info
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
+    const productPageDetails = <div className="grid grid-cols-1 gap-6">
               {/* Sektion 2 (Was Section 1): Produktside Information */}
               <div className="space-y-3">
                 <Card>
@@ -3446,7 +1773,7 @@ export function ProductPriceManager() {
                   <CardContent>
                     <ProductAboutSection
                       productId={product.id}
-                      productSlug={product.slug}
+                      tenantId={product.tenant_id}
                       aboutTitle={product.about_title}
                       aboutDescription={product.about_description}
                       aboutImageUrl={product.about_image_url}
@@ -3826,6 +2153,31 @@ export function ProductPriceManager() {
               <div className="space-y-3">
                 <Card>
                   <CardHeader className="pb-3">
+                    <CardTitle className="text-md font-medium">Farveprofil og trykmetode</CardTitle>
+                    <CardDescription>Produktets anbefalede soft proof-profil og vejledning til produktionen.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <ProductColorProfileSelector
+                      productId={product.id}
+                      currentProfileId={editedOutputColorProfileId}
+                      recipe={editedColorRecipe}
+                      onProfileChange={(id) => { setEditedOutputColorProfileId(id); setHasColorEdits(true); }}
+                      onRecipeChange={(recipe) => { setEditedColorRecipe(recipe); setHasColorEdits(true); }}
+                      disabled={saving || savingColor}
+                    />
+                    <div className="flex justify-end">
+                      <Button onClick={handleSaveColorSettings} size="sm" disabled={!hasColorEdits || saving || savingColor}>
+                        {savingColor ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Save className="mr-2 h-3 w-3" />}
+                        Gem farveindstillinger
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="space-y-3">
+                <Card>
+                  <CardHeader className="pb-3">
                     <CardTitle className="text-md font-medium flex items-center gap-2">
                       <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">5</span>
                       Konturskæring (CutContour)
@@ -3926,7 +2278,1838 @@ export function ProductPriceManager() {
                   </Card>
                 </div>
               )}
+  </div>;
+
+  const hasEdits = Object.keys(editedPrices).length > 0 || Object.keys(editedListPrices).length > 0 || Object.keys(editedPricePerUnit).length > 0 || Object.keys(editedVariantNames).length > 0 || Object.keys(editedVariantValues).length > 0 || Object.keys(editedQuantities).length > 0;
+  const PricePreviewIcon = pricePreviewHealth.Icon;
+
+  return (
+    <div className="admin-product-editor product-editor-unified space-y-6">
+      {/* Sticky back button */}
+      <div className="admin-product-breadcrumb">
+
+        <Button
+          variant="outline"
+          onClick={() => {
+            if (!requestAdminWorkspaceExit()) return;
+            if (!hasColorEdits || window.confirm('Farveindstillingerne er ikke gemt. Vil du forlade produktet og kassere ændringerne?')) navigate(withAdminContext('/admin/products'));
+          }}
+          className="mb-0"
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Tilbage til Produktoversigt
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">{editedName || product.name}</h1>
+          <p className="mt-2 text-muted-foreground text-sm">{product.is_published ? 'Publiceret i webshoppen' : 'Kladde'} · Konfigurer indhold, valgmuligheder og priser</p>
+        </div>
+        <Button variant="outline" asChild>
+          <a href={withAdminContext(`/produkt/${product.slug}`)} target="_blank" rel="noopener noreferrer">Se på webshop</a>
+        </Button>
+      </div>
+
+
+
+      <Tabs value={activeTab} onValueChange={(value) => {
+        if (!requestAdminWorkspaceExit()) return;
+        setActiveTab(value);
+        navigate({ pathname: location.pathname, search: location.search, hash: value }, { replace: true, preventScrollReset: true });
+      }} className="w-full">
+        <TabsList className="flex w-full justify-start overflow-x-auto h-auto p-1 gap-1 bg-muted/50 rounded-lg">
+          <TabsTrigger value="about" className="flex-shrink-0">Produktkort</TabsTrigger>
+          <TabsTrigger value="workspace" className="flex-shrink-0">Produktside</TabsTrigger>
+          <TabsTrigger value="produkt" className="flex-shrink-0">Priser</TabsTrigger>
+          <TabsTrigger value="order-delivery" className="flex-shrink-0">Levering</TabsTrigger>
+          <TabsTrigger value="tooltips" className="flex-shrink-0">Tooltips</TabsTrigger>
+          <TabsTrigger value="options" className="flex-shrink-0">Valgmuligheder</TabsTrigger>
+          <TabsTrigger value="custom-fields" className="flex-shrink-0">Felter</TabsTrigger>
+          <TabsTrigger value="seo" className="flex-shrink-0">SEO & Meta</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="workspace">
+          {product.pricing_type === 'STORFORMAT' ? <StorformatManager key={product.id} productId={product.id} tenantId={product.tenant_id} productName={product.name} imageUrl={product.image_url} pricingType={product.pricing_type} onPricingTypeChange={handlePricingTypeChange} surface="product" /> : pricingType === 'MACHINE_PRICED' || product.pricing_type === 'MACHINE_PRICED' ? <div className="space-y-4">
+            <Card><CardHeader><CardTitle>Maskinproduktets kundeside</CardTitle><CardDescription>Vælg hvordan kunden ser beregneren. Maskine, materialer, avancer og beregning opsættes under Priser.</CardDescription></CardHeader><CardContent className="flex flex-wrap items-end gap-4"><div className="space-y-2"><Label>Kundens visning</Label><Select value={mpaConfig.display_mode || 'SELECTION'} onValueChange={value => { setMpaConfig({ ...mpaConfig, display_mode: value }); setHasMachineEdits(true); }}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="SELECTION">Valgmenu</SelectItem><SelectItem value="MATRIX">Pristabel</SelectItem></SelectContent></Select></div><Button disabled={!hasMachineEdits || saving} onClick={handleSaveMachineConfig}>Gem visning</Button></CardContent></Card>
+            <iframe key={machinePreviewRevision} className="w-full min-h-[800px] rounded-lg border" title="Maskinproduktets kundeside" src={`/preview-shop?tenantId=${encodeURIComponent(product.tenant_id)}&page=${encodeURIComponent(`/produkt/${product.slug}`)}&preview_mode=1`} />
+          </div> : <>
+            {product.pricing_structure?.mode !== 'matrix_layout_v1' ? <ProductAttributeBuilder productId={product.id} tenantId={product.tenant_id} productName={product.name} productSlug={product.slug} tableName="generic_product_prices" surface="product" publishedPricesFingerprint={publishedPricesFingerprint} onPricesUpdated={async () => { await fetchProduct(); await fetchPrices(); }} /> : <ProductWorkspace key={product.id} embedded product={product} onProductSaved={(structure, content) => setProduct((previous: any) => ({ ...previous, ...content, pricing_structure: structure }))} />}
+          </>}
+          <details className="mt-5 rounded-lg border bg-white p-5"><summary className="cursor-pointer font-semibold">Produkttekst, billeder, skabeloner og øvrige indstillinger</summary><div className="pt-5">{productPageDetails}</div></details>
+        </TabsContent>
+        <TabsContent value="details" className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <div className="space-y-1">
+                <CardTitle>SEO & Meta Information</CardTitle>
+                <CardDescription>Rediger produktets navn og meta-beskrivelse. Dette bruges primært til SEO og lister.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Left Column: Info & Settings */}
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="product-name">Produktnavn</Label>
+                    <Input
+                      id="product-name"
+                      value={editedName}
+                      onChange={(e) => handleProductNameChange(e.target.value)}
+                      placeholder="Indtast produktnavn"
+                      className="max-w-md"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="product-description">Kort beskrivelse (Meta / Lister)</Label>
+                    <Textarea
+                      id="product-description"
+                      value={editedDescription}
+                      onChange={(e) => handleProductDescriptionChange(e.target.value)}
+                      placeholder="Kort tekst til produktoversigter og SEO..."
+                      className="min-h-[80px]"
+                      rows={3}
+                    />
+                  </div>
+
+
+                </div>
+
+                {/* Right Column: Image */}
+                <div className="lg:col-span-1">
+                  <div className="bg-muted/10 p-4 rounded-lg border">
+                    <Label className="mb-4 block">Produktbillede</Label>
+                    <ProductImageUpload
+                      productId={product.id}
+                      currentImageUrl={product.image_url}
+                      onImageUpdate={handleImageUpdate}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Consolidated Actions */}
+              <div className="flex justify-end pt-6 mt-6 border-t">
+                <Button
+                  onClick={handleSaveProductDetails}
+                  disabled={!hasProductEdits || saving}
+                >
+                  {saving ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  Gem SEO & Meta
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Produkt Tab - Attribute Builder */}
+        <TabsContent value="produkt" className="admin-product-pricing space-y-6" data-design-choice={activeConfigSection === 'storformat' ? 'storformat_preview' : 'matrix_context'}>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold">{product.name}</h2>
+              <p className="text-muted-foreground">Arbejd med produktets priser, kombinationer og avancer. Udseende og valg opsættes under Produktside.</p>
             </div>
+          </div>
+          <Card className={cn(
+            "border-l-4",
+            pricePreviewHealth.tone === "danger" && "border-l-destructive bg-destructive/5",
+            pricePreviewHealth.tone === "success" && "border-l-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/20",
+            pricePreviewHealth.tone === "info" && "border-l-sky-500 bg-sky-50/60 dark:bg-sky-950/20",
+          )}>
+            <CardContent className="flex flex-col gap-4 pt-6 md:flex-row md:items-center md:justify-between">
+              <div className="flex gap-3">
+                <div className={cn(
+                  "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border",
+                  pricePreviewHealth.tone === "danger" && "border-destructive/30 bg-destructive/10 text-destructive",
+                  pricePreviewHealth.tone === "success" && "border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300",
+                  pricePreviewHealth.tone === "info" && "border-sky-200 bg-sky-100 text-sky-700 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-300",
+                )}>
+                  <PricePreviewIcon className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold">Prisgrundlag</h3>
+                    <Badge variant={pricePreviewHealth.tone === "danger" ? "destructive" : "outline"}>
+                      {pricePreviewHealth.rows} prisrækker
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-sm font-medium">{pricePreviewHealth.label}</p>
+                  <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{pricePreviewHealth.detail}</p>
+                  {pricePreviewHealth.tone === "danger" && (
+                    <p className="mt-2 text-xs text-destructive">
+                      Kontroller importen eller tilføj Matrix-priser, før produktet bruges som aktivt salgsprodukt.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={fetchPrices} disabled={loading}>
+                <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
+                Genindlæs status
+              </Button>
+            </CardContent>
+          </Card>
+          <details className="rounded-lg border p-4"><summary className="cursor-pointer font-medium">Prisgrundlag: {activeConfigSection === "storformat" ? "Storformat" : activeConfigSection === "machine" ? "Maskinberegning" : "Faste formater"} · Skift opsætning</summary>
+          <Card className="admin-product-pricing-method mt-4">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Prisopsætning</CardTitle>
+              <CardDescription>
+                Vælg hvilken prisopsætning du vil arbejde med. Kun én metode kan være aktiv ad gangen.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-3">
+                {([
+                  {
+                    key: "format",
+                    title: "Format / formatpriser",
+                    description: "Standard matrix og formatopsætning.",
+                    icon: LayoutGrid
+                  },
+                  {
+                    key: "storformat",
+                    title: "Storformat priser",
+                    description: "Storformat-materialer og prislogik.",
+                    icon: Printer
+                  },
+                  {
+                    key: "machine",
+                    title: "Maskin-beregning",
+                    description: "Avanceret MPA-beregning.",
+                    icon: Cpu
+                  }
+                ] as const).map((option) => {
+                  const isActive = activeConfigSection === option.key;
+                  const thumbUrl = configSectionThumbs[option.key];
+                  const Icon = option.icon;
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => handleSelectConfigSection(option.key)}
+                      className={cn(
+                        "rounded-lg border p-3 text-left transition-all flex flex-col gap-3",
+                        "hover:border-primary/60 hover:bg-primary/5",
+                        isActive && "border-primary/70 bg-primary/10"
+                      )}
+                    >
+                      <div className="h-8 w-8 flex items-center justify-center overflow-hidden">
+                        {thumbUrl ? (
+                          <img src={thumbUrl} alt={option.title} className="h-full w-full object-contain" />
+                        ) : (
+                          <Icon className="h-6 w-6 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold">{option.title}</p>
+                        <p className="text-xs text-muted-foreground">{option.description}</p>
+                      </div>
+                      {isActive && (
+                        <div className="pt-3 text-xs font-medium text-primary">Valgt</div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          </details>
+
+          {activeConfigSection === "format" && (
+            <ProductAttributeBuilder
+              surface="prices"
+              productId={product.id}
+              tenantId={product.tenant_id}
+              productName={product.name}
+              tableName="generic_product_prices"
+              productSlug={product.slug}
+              publishedPricesFingerprint={publishedPricesFingerprint}
+              onPricesUpdated={async () => { await fetchProduct(); await fetchPrices(); }}
+            />
+          )}
+
+          {activeConfigSection === "storformat" && (
+            <div className="space-y-6">
+              <StorformatManager
+                surface="prices"
+                productId={product.id}
+                tenantId={product.tenant_id}
+                productName={product.name}
+                pricingType={product.pricing_type}
+                onPricingTypeChange={handlePricingTypeChange}
+              />
+            </div>
+          )}
+
+          {activeConfigSection === "machine" && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle>Maskin-baseret Prisberegning</CardTitle>
+                    <CardDescription>Aktiver avanceret prisberegning baseret på maskiner, blæk og materialer.</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="pricing-type">Metode:</Label>
+                      <Select value={pricingType} onValueChange={(v: any) => { setPricingType(v); setHasMachineEdits(true); }}>
+                        <SelectTrigger className="w-[160px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="STANDARD">Matrix</SelectItem>
+                          <SelectItem value="MACHINE_PRICED">Maskin (MPA)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {pricingType === 'MACHINE_PRICED' ? (
+                    <div className="grid gap-6">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Pris-profil</Label>
+                          <Select value={mpaConfig.pricing_profile_id} onValueChange={v => { setMpaConfig({ ...mpaConfig, pricing_profile_id: v }); setHasMachineEdits(true); }}>
+                            <SelectTrigger><SelectValue placeholder="Vælg profil" /></SelectTrigger>
+                            <SelectContent>
+                              {availableMpaData.pricingProfiles.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          {mpaConfig.pricing_profile_id && (
+                            <div className="text-[10px] bg-muted p-1.5 rounded border">
+                              {(() => {
+                                const p = availableMpaData.pricingProfiles.find(x => x.id === mpaConfig.pricing_profile_id);
+                                if (!p) return null;
+                                const m = availableMpaData.machines?.find(x => x.id === (p as any).machine_id);
+                                const i = availableMpaData.inkSets?.find(x => x.id === (p as any).ink_set_id);
+                                return `Maskine: ${m?.name || '?'}, Blæk: ${i?.name || '?'}`;
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Margin-profil</Label>
+                          <Select value={mpaConfig.margin_profile_id} onValueChange={v => { setMpaConfig({ ...mpaConfig, margin_profile_id: v }); setHasMachineEdits(true); }}>
+                            <SelectTrigger><SelectValue placeholder="Vælg margin-profil" /></SelectTrigger>
+                            <SelectContent>
+                              {availableMpaData.marginProfiles.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">Bestemmer avance og pris-trapper.</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Tryk-sider</Label>
+                        <Select value={mpaConfig.allowed_sides} onValueChange={v => { setMpaConfig({ ...mpaConfig, allowed_sides: v }); setHasMachineEdits(true); }}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="4+0_ONLY">Kun 4+0 (En-sidet)</SelectItem>
+                            <SelectItem value="4+4_ONLY">Kun 4+4 (To-sidet)</SelectItem>
+                            <SelectItem value="4+0_AND_4+4">Valgfrit (4+0 eller 4+4)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Beskæring (bleed) mm</Label>
+                          <Input
+                            type="number"
+                            value={mpaConfig.bleed_mm}
+                            onChange={e => { setMpaConfig({ ...mpaConfig, bleed_mm: parseInt(e.target.value) }); setHasMachineEdits(true); }}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Mellemrum (gap) mm</Label>
+                          <Input
+                            type="number"
+                            value={mpaConfig.gap_mm}
+                            onChange={e => { setMpaConfig({ ...mpaConfig, gap_mm: parseInt(e.target.value) }); setHasMachineEdits(true); }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <Label>Tilgængelige Materialer</Label>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-3 border rounded-md max-h-[150px] overflow-y-auto bg-muted/20">
+                          {availableMpaData.materials.map(m => (
+                            <div key={m.id} className="flex items-center space-x-2">
+                              <Switch
+                                checked={mpaConfig.material_ids?.includes(m.id)}
+                                onCheckedChange={checked => {
+                                  const ids = checked
+                                    ? [...(mpaConfig.material_ids || []), m.id]
+                                    : (mpaConfig.material_ids || []).filter((id: string) => id !== m.id);
+                                  setMpaConfig({ ...mpaConfig, material_ids: ids });
+                                  setHasMachineEdits(true);
+                                }}
+                              />
+                              <span className="text-xs">{m.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <Label>Tilgængelige Efterbehandlinger</Label>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-3 border rounded-md max-h-[150px] overflow-y-auto bg-muted/20">
+                          {availableMpaData.finishes.map(f => (
+                            <div key={f.id} className="flex items-center space-x-2">
+                              <Switch
+                                checked={mpaConfig.finish_ids?.includes(f.id)}
+                                onCheckedChange={checked => {
+                                  const ids = checked
+                                    ? [...(mpaConfig.finish_ids || []), f.id]
+                                    : (mpaConfig.finish_ids || []).filter((id: string) => id !== f.id);
+                                  setMpaConfig({ ...mpaConfig, finish_ids: ids });
+                                  setHasMachineEdits(true);
+                                }}
+                              />
+                              <span className="text-xs">{f.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Mængder (komma-separeret)</Label>
+                        <Input
+                          value={mpaConfig.quantities?.join(', ')}
+                          onChange={e => {
+                            const q = e.target.value.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v));
+                            setMpaConfig({ ...mpaConfig, quantities: q });
+                            setHasMachineEdits(true);
+                          }}
+                        />
+                        <p className="text-xs text-muted-foreground">De mængder kunden kan vælge (f.eks. 100, 250, 500).</p>
+                      </div>
+
+                      <div className="space-y-4 p-4 border rounded-md bg-muted/10">
+                        <div className="flex items-center space-x-2">
+                          <Switch
+                            checked={mpaConfig.numbering_enabled}
+                            onCheckedChange={v => { setMpaConfig({ ...mpaConfig, numbering_enabled: v }); setHasMachineEdits(true); }}
+                          />
+                          <Label className="font-semibold">Tillad numerering</Label>
+                        </div>
+
+                        {mpaConfig.numbering_enabled && (
+                          <div className="grid grid-cols-3 gap-4 pt-2">
+                            <div className="space-y-2">
+                              <Label className="text-xs">Opstarts-gebyr</Label>
+                              <Input
+                                type="number"
+                                size={1}
+                                value={mpaConfig.numbering_setup_fee}
+                                onChange={e => { setMpaConfig({ ...mpaConfig, numbering_setup_fee: parseFloat(e.target.value) }); setHasMachineEdits(true); }}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label className="text-xs">Pris pr. enhed</Label>
+                              <Input
+                                type="number"
+                                size={1}
+                                value={mpaConfig.numbering_price_per_unit}
+                                onChange={e => { setMpaConfig({ ...mpaConfig, numbering_price_per_unit: parseFloat(e.target.value) }); setHasMachineEdits(true); }}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label className="text-xs">Antal positioner</Label>
+                              <Input
+                                type="number"
+                                size={1}
+                                value={mpaConfig.numbering_positions}
+                                onChange={e => { setMpaConfig({ ...mpaConfig, numbering_positions: parseInt(e.target.value) }); setHasMachineEdits(true); }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-3">
+                        <Label>Størrelses-presets (valgfrit)</Label>
+                        <div className="space-y-2">
+                          {(mpaConfig.sizes || []).map((s: any, idx: number) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <Input placeholder="Navn (f.eks. A4)" value={s.name} onChange={e => {
+                                const newSizes = [...mpaConfig.sizes];
+                                newSizes[idx].name = e.target.value;
+                                setMpaConfig({ ...mpaConfig, sizes: newSizes });
+                                setHasMachineEdits(true);
+                              }} />
+                              <Input type="number" placeholder="Bredde" value={s.width} onChange={e => {
+                                const newSizes = [...mpaConfig.sizes];
+                                newSizes[idx].width = parseInt(e.target.value);
+                                setMpaConfig({ ...mpaConfig, sizes: newSizes });
+                                setHasMachineEdits(true);
+                              }} />
+                              <Input type="number" placeholder="Højde" value={s.height} onChange={e => {
+                                const newSizes = [...mpaConfig.sizes];
+                                newSizes[idx].height = parseInt(e.target.value);
+                                setMpaConfig({ ...mpaConfig, sizes: newSizes });
+                                setHasMachineEdits(true);
+                              }} />
+                              <Button variant="ghost" size="icon" onClick={() => {
+                                const newSizes = mpaConfig.sizes.filter((_: any, i: number) => i !== idx);
+                                setMpaConfig({ ...mpaConfig, sizes: newSizes });
+                                setHasMachineEdits(true);
+                              }}><X className="h-4 w-4" /></Button>
+                            </div>
+                          ))}
+                          <Button variant="outline" size="sm" onClick={() => {
+                            setMpaConfig({ ...mpaConfig, sizes: [...(mpaConfig.sizes || []), { name: "", width: 210, height: 297 }] });
+                            setHasMachineEdits(true);
+                          }}>
+                            Tilføj størrelse
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end">
+                        <Button
+                          onClick={handleSaveMachineConfig}
+                          disabled={!hasMachineEdits || saving}
+                        >
+                          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                          Gem Maskin-indstillinger
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-muted-foreground">Dette produkt bruger standard matrix-prisberegning.</p>
+                      <Button variant="outline" className="mt-4" onClick={() => setPricingType('MACHINE_PRICED')}>
+                        Skift til Maskin-beregning
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </TabsContent>
+
+
+        <TabsContent value="order-delivery" className="admin-product-delivery space-y-6" data-design-choice="delivery_methods">
+          <div>
+            <h2 className="text-2xl font-bold">Bestilling og levering</h2>
+            <p className="text-muted-foreground">Konfigurer bestillingsflow og leveringsmetoder for dette produkt.</p>
+          </div>
+
+          <Card className="admin-delivery-ordering">
+            <CardHeader>
+              <CardTitle>Bestillingsmuligheder</CardTitle>
+              <CardDescription>Vælg hvordan dette produkt bestilles hos leverandor.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-3">
+                <Label>Bestillingsmetode</Label>
+                <RadioGroup
+                  value={orderDeliveryConfig.ordering.type}
+                  onValueChange={(value: OrderingType) => updateOrderDeliveryConfig(prev => ({
+                    ...prev,
+                    ordering: { ...prev.ordering, type: value }
+                  }))}
+                  className="grid gap-3 md:grid-cols-3"
+                >
+                  {[
+                    { value: "standard", title: "Standard", description: "Webprinter standard workflow." },
+                    { value: "semi", title: "Semi-automatiseret", description: "Assisteret bestilling uden API." },
+                    { value: "email", title: "Email-bestilling", description: "Generer en leverandor-email." }
+                  ].map(option => (
+                    <label
+                      key={option.value}
+                      htmlFor={`ordering-${option.value}`}
+                      className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/40 transition"
+                    >
+                      <RadioGroupItem value={option.value} id={`ordering-${option.value}`} className="mt-1" />
+                      <div>
+                        <div className="font-medium text-sm">{option.title}</div>
+                        <div className="text-xs text-muted-foreground">{option.description}</div>
+                      </div>
+                    </label>
+                  ))}
+                </RadioGroup>
+              </div>
+
+              {orderDeliveryConfig.ordering.type === "standard" && (
+                <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+                  Ingen ekstra felter for standard bestilling.
+                </div>
+              )}
+
+              {orderDeliveryConfig.ordering.type === "semi" && (
+                <div className="space-y-4 rounded-lg border bg-muted/10 p-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Leverandor navn</Label>
+                      <Input
+                        value={orderDeliveryConfig.ordering.supplier_name}
+                        onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          ordering: { ...prev.ordering, supplier_name: e.target.value }
+                        }))}
+                        placeholder="F.eks. Trykkeri A/S"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Start URL</Label>
+                      <Input
+                        type="url"
+                        value={orderDeliveryConfig.ordering.supplier_url}
+                        onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          ordering: { ...prev.ordering, supplier_url: e.target.value }
+                        }))}
+                        placeholder="https://leverandor.dk/login"
+                      />
+                      {orderDeliveryConfig.ordering.supplier_url &&
+                        !/^https?:\/\//i.test(orderDeliveryConfig.ordering.supplier_url) && (
+                          <p className="text-xs text-red-500">Brug en URL der starter med http/https.</p>
+                        )}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Instruktioner til operator (valgfri)</Label>
+                    <Textarea
+                      value={orderDeliveryConfig.ordering.operator_notes}
+                      onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                        ...prev,
+                        ordering: { ...prev.ordering, operator_notes: e.target.value }
+                      }))}
+                      placeholder="Noter til den der udfører bestillingen..."
+                      rows={3}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={orderDeliveryConfig.ordering.stop_before_payment}
+                        onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          ordering: { ...prev.ordering, stop_before_payment: checked }
+                        }))}
+                      />
+                      <span className="text-sm">Stop for betaling (kraver godkendelse)</span>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={orderDeliveryConfig.ordering.requires_login}
+                        onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          ordering: { ...prev.ordering, requires_login: Boolean(checked) }
+                        }))}
+                      />
+                      Kraver login/2FA (information)
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {orderDeliveryConfig.ordering.type === "email" && (
+                <div className="space-y-4 rounded-lg border bg-muted/10 p-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Leverandor email</Label>
+                      <Input
+                        type="email"
+                        value={orderDeliveryConfig.ordering.email_settings.supplier_email}
+                        onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          ordering: {
+                            ...prev.ordering,
+                            email_settings: { ...prev.ordering.email_settings, supplier_email: e.target.value }
+                          }
+                        }))}
+                        placeholder="orders@leverandor.dk"
+                      />
+                      {orderDeliveryConfig.ordering.email_settings.supplier_email &&
+                        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(orderDeliveryConfig.ordering.email_settings.supplier_email) && (
+                          <p className="text-xs text-red-500">Ugyldigt email-format.</p>
+                        )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Emne-skabelon</Label>
+                      <Input
+                        value={orderDeliveryConfig.ordering.email_settings.subject_template}
+                        onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          ordering: {
+                            ...prev.ordering,
+                            email_settings: { ...prev.ordering.email_settings, subject_template: e.target.value }
+                          }
+                        }))}
+                        placeholder="Order: {productName} - {orderNumber}"
+                      />
+                      <p className="text-xs text-muted-foreground">Tilgængelige felter: {`{productName}`} {`{orderNumber}`}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Body-skabelon</Label>
+                    <Textarea
+                      value={orderDeliveryConfig.ordering.email_settings.body_template}
+                      onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                        ...prev,
+                        ordering: {
+                          ...prev.ordering,
+                          email_settings: { ...prev.ordering.email_settings, body_template: e.target.value }
+                        }
+                      }))}
+                      rows={5}
+                    />
+                    <p className="text-xs text-muted-foreground">Brug felter som {`{quantity}`} og {`{customerName}`}. Ingen automatisk udsendelse endnu.</p>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={orderDeliveryConfig.ordering.email_settings.attach_print_files}
+                        onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          ordering: {
+                            ...prev.ordering,
+                            email_settings: { ...prev.ordering.email_settings, attach_print_files: checked }
+                          }
+                        }))}
+                      />
+                      <span className="text-sm">Vedhaeft printfiler</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={orderDeliveryConfig.ordering.email_settings.attach_spec_sheet}
+                        onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          ordering: {
+                            ...prev.ordering,
+                            email_settings: { ...prev.ordering.email_settings, attach_spec_sheet: checked }
+                          }
+                        }))}
+                      />
+                      <span className="text-sm">Vedhaeft specifikation (PDF)</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Default afsender-identitet</Label>
+                    <Select
+                      value={orderDeliveryConfig.ordering.email_settings.sender_identity}
+                      onValueChange={(value: SenderIdentity) => updateOrderDeliveryConfig(prev => ({
+                        ...prev,
+                        ordering: {
+                          ...prev.ordering,
+                          email_settings: { ...prev.ordering.email_settings, sender_identity: value }
+                        }
+                      }))}
+                    >
+                      <SelectTrigger className="w-full md:w-[260px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="platform">Platform afsender</SelectItem>
+                        <SelectItem value="tenant">Tenant afsender</SelectItem>
+                        <SelectItem value="customer">Kunde afsender (senere)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">Kunde-afsender kan aktiveres senere.</p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="admin-delivery-methods">
+            <CardHeader>
+              <CardTitle>Levering</CardTitle>
+              <CardDescription>Administrer leveringsmetoder og tracking-indstillinger.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-3">
+                <Label>Leveringsmode</Label>
+                <RadioGroup
+                  value={orderDeliveryConfig.delivery.mode}
+                  onValueChange={(value: DeliveryMode) => updateOrderDeliveryConfig(prev => ({
+                    ...prev,
+                    delivery: { ...prev.delivery, mode: value }
+                  }))}
+                  className="grid gap-3 md:grid-cols-2"
+                >
+                  {[
+                    { value: "manual", title: "Manuel levering", description: "Du styrer levering og tider." },
+                    { value: "carrier", title: "Carrier tracking", description: "Fremtidig integration til fragtfirma." }
+                  ].map(option => (
+                    <label
+                      key={option.value}
+                      htmlFor={`delivery-${option.value}`}
+                      className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/40 transition"
+                    >
+                      <RadioGroupItem value={option.value} id={`delivery-${option.value}`} className="mt-1" />
+                      <div>
+                        <div className="font-medium text-sm">{option.title}</div>
+                        <div className="text-xs text-muted-foreground">{option.description}</div>
+                      </div>
+                    </label>
+                  ))}
+                </RadioGroup>
+              </div>
+
+              {isMasterAdmin && product?.technical_specs?.is_pod && (
+                <div className="space-y-4 rounded-lg border bg-muted/10 p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-sm font-semibold">POD levering (master)</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Tilpas hvilke leveringsvalg der vises til kunderne på POD produkter.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={orderDeliveryConfig.delivery.pod_settings?.enabled ?? true}
+                      onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
+                        ...prev,
+                        delivery: {
+                          ...prev.delivery,
+                          pod_settings: {
+                            ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
+                            enabled: checked
+                          }
+                        }
+                      }))}
+                    />
+                  </div>
+
+                  {(orderDeliveryConfig.delivery.pod_settings?.enabled ?? true) && (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Antal valg i prisberegner</Label>
+                        <Select
+                          value={String(orderDeliveryConfig.delivery.pod_settings?.max_options ?? 3)}
+                          onValueChange={(value) => updateOrderDeliveryConfig(prev => ({
+                            ...prev,
+                            delivery: {
+                              ...prev.delivery,
+                              pod_settings: {
+                                ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
+                                max_options: Number(value)
+                              }
+                            }
+                          }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="2">2 valg</SelectItem>
+                            <SelectItem value="3">3 valg</SelectItem>
+                            <SelectItem value="4">4 valg</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="flex flex-col gap-3">
+                        <label className="flex items-center gap-2 text-sm">
+                          <Switch
+                            checked={orderDeliveryConfig.delivery.pod_settings?.show_deadline ?? true}
+                            onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
+                              ...prev,
+                              delivery: {
+                                ...prev.delivery,
+                                pod_settings: {
+                                  ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
+                                  show_deadline: checked
+                                }
+                              }
+                            }))}
+                          />
+                          Vis deadline for fil-aflevering
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <Switch
+                            checked={orderDeliveryConfig.delivery.pod_settings?.show_carrier ?? false}
+                            onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
+                              ...prev,
+                              delivery: {
+                                ...prev.delivery,
+                                pod_settings: {
+                                  ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
+                                  show_carrier: checked
+                                }
+                              }
+                            }))}
+                          />
+                          Vis fragtfirma-logo
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {(orderDeliveryConfig.delivery.pod_settings?.enabled ?? true) && (
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Navn: Bedste balance</Label>
+                        <Input
+                          value={orderDeliveryConfig.delivery.pod_settings?.labels?.best || ""}
+                          onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                            ...prev,
+                            delivery: {
+                              ...prev.delivery,
+                              pod_settings: {
+                                ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
+                                labels: {
+                                  ...(prev.delivery.pod_settings?.labels || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings?.labels),
+                                  best: e.target.value
+                                }
+                              }
+                            }
+                          }))}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Navn: Bedste pris</Label>
+                        <Input
+                          value={orderDeliveryConfig.delivery.pod_settings?.labels?.cheapest || ""}
+                          onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                            ...prev,
+                            delivery: {
+                              ...prev.delivery,
+                              pod_settings: {
+                                ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
+                                labels: {
+                                  ...(prev.delivery.pod_settings?.labels || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings?.labels),
+                                  cheapest: e.target.value
+                                }
+                              }
+                            }
+                          }))}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Navn: Hurtigst</Label>
+                        <Input
+                          value={orderDeliveryConfig.delivery.pod_settings?.labels?.fastest || ""}
+                          onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                            ...prev,
+                            delivery: {
+                              ...prev.delivery,
+                              pod_settings: {
+                                ...(prev.delivery.pod_settings || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings),
+                                labels: {
+                                  ...(prev.delivery.pod_settings?.labels || DEFAULT_ORDER_DELIVERY_CONFIG.delivery.pod_settings?.labels),
+                                  fastest: e.target.value
+                                }
+                              }
+                            }
+                          }))}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {(orderDeliveryConfig.delivery.pod_settings?.enabled ?? true) && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <Label className="text-xs">Fragtlogoer (valgfrit)</Label>
+                          <p className="text-[11px] text-muted-foreground">
+                            Match Print.com carrier-navne, fx DHL, UPS.
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const current = orderDeliveryConfig.delivery.pod_settings?.carrier_logos || [];
+                            updatePodCarrierLogos([...current, { carrier: "", logo_url: "" }]);
+                          }}
+                        >
+                          Tilfoj logo
+                        </Button>
+                      </div>
+
+                      {(orderDeliveryConfig.delivery.pod_settings?.carrier_logos || []).length === 0 && (
+                        <p className="text-xs text-muted-foreground">Ingen logoer endnu.</p>
+                      )}
+
+                      {(orderDeliveryConfig.delivery.pod_settings?.carrier_logos || []).map((entry, index) => (
+                        <div key={`pod-carrier-${index}`} className="rounded-md border p-3 space-y-3">
+                          <div className="grid gap-3 md:grid-cols-[1.2fr,1.4fr,1fr,auto] items-end">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Carrier navn</Label>
+                              <Input
+                                value={entry?.carrier || ""}
+                                onChange={(e) => {
+                                  const next = [...(orderDeliveryConfig.delivery.pod_settings?.carrier_logos || [])];
+                                  next[index] = { ...(next[index] || { logo_url: "" }), carrier: e.target.value };
+                                  updatePodCarrierLogos(next);
+                                }}
+                                placeholder="DHL"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Logo URL</Label>
+                              <Input
+                                value={entry?.logo_url || ""}
+                                onChange={(e) => {
+                                  const next = [...(orderDeliveryConfig.delivery.pod_settings?.carrier_logos || [])];
+                                  next[index] = { ...(next[index] || { carrier: "" }), logo_url: e.target.value };
+                                  updatePodCarrierLogos(next);
+                                }}
+                                placeholder="https://..."
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Upload logo</Label>
+                              <Input
+                                type="file"
+                                accept="image/*,.svg"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    handlePodCarrierLogoUpload(index, file);
+                                  }
+                                  e.currentTarget.value = "";
+                                }}
+                                disabled={podCarrierUploadIndex === index}
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {podCarrierUploadIndex === index && <Loader2 className="h-4 w-4 animate-spin" />}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  const next = [...(orderDeliveryConfig.delivery.pod_settings?.carrier_logos || [])];
+                                  next.splice(index, 1);
+                                  updatePodCarrierLogos(next);
+                                }}
+                                aria-label="Fjern logo"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                          {entry?.logo_url && (
+                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                              <img
+                                src={entry.logo_url}
+                                alt={entry.carrier || "Carrier"}
+                                className="h-6 w-auto object-contain border rounded px-1 py-0.5 bg-background"
+                                loading="lazy"
+                              />
+                              <span>Forhaandsvisning</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {orderDeliveryConfig.delivery.mode === "manual" && (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold">Leveringsmetoder</h3>
+                      <p className="text-xs text-muted-foreground">Tilfoj eller rediger metoder per produkt.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          delivery: { ...prev.delivery, methods: DEFAULT_DELIVERY_METHODS.map(m => ({ ...m })) }
+                        }))}
+                      >
+                        Nulstil til standard
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          delivery: {
+                            ...prev.delivery,
+                            methods: [
+                              ...prev.delivery.methods,
+                              {
+                                id: `method-${Math.random().toString(36).slice(2, 9)}`,
+                                name: "Ny levering",
+                                description: "",
+                                lead_time_days: 0,
+                                production_days: 0,
+                                shipping_days: 0,
+                                delivery_window_days: 0,
+                                auto_mark_delivered: false,
+                                auto_mark_days: 0,
+                                price: 0,
+                                cutoff_time: "",
+                                cutoff_label: "deadline",
+                                cutoff_text: ""
+                              }
+                            ]
+                          }
+                        }))}
+                      >
+                        Tilfoj leveringsmetode
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {orderDeliveryConfig.delivery.methods.map((method) => {
+                      const totalDays = (method.production_days ?? 0) + (method.shipping_days ?? 0);
+                      const cutoffLabelText = method.cutoff_label === "latest" ? "Senest bestilling" : "Deadline";
+                      const cutoffTimeLabel = method.cutoff_time ? `${cutoffLabelText} kl. ${method.cutoff_time}` : cutoffLabelText;
+                      const previewText = totalDays > 0
+                        ? `${cutoffTimeLabel}. Levering om ${totalDays} dage.`
+                        : `${cutoffTimeLabel}. Angiv produktion og forsendelse for at vise leveringstid.`;
+
+                      return (
+                        <details key={method.id} open={method.id === orderDeliveryConfig.delivery.methods[0]?.id} className="border rounded-lg p-4 space-y-4">
+                          <summary className="cursor-pointer font-medium text-sm">{method.name || "Leveringsmetode"}<span className="ml-3 font-normal text-muted-foreground">{totalDays > 0 ? `${totalDays} dage` : "Leveringstid ikke angivet"}</span></summary>
+                          <div className="flex items-center justify-between gap-3">
+                            <Input
+                              aria-label="Leveringsmetodens navn"
+                              value={method.name}
+                              onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                                ...prev,
+                                delivery: {
+                                  ...prev.delivery,
+                                  methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, name: e.target.value } : m)
+                                }
+                              }))}
+                              className="max-w-xs"
+                            />
+                            <Button
+                              aria-label={`Slet leveringsmetoden ${method.name || 'uden navn'}`}
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => updateOrderDeliveryConfig(prev => ({
+                                ...prev,
+                                delivery: {
+                                  ...prev.delivery,
+                                  methods: prev.delivery.methods.filter(m => m.id !== method.id)
+                                }
+                              }))}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={method.description || ""}
+                            onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                              ...prev,
+                              delivery: {
+                                ...prev.delivery,
+                                methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, description: e.target.value } : m)
+                              }
+                            }))}
+                            placeholder="Kort beskrivelse"
+                            rows={2}
+                          />
+                          <div className="space-y-2">
+                            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Kunde-status display</Label>
+                            <div className="grid gap-3 md:grid-cols-4">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Produktion (dage)</Label>
+                                <Input
+                                  type="number"
+                                  value={method.production_days ?? 0}
+                                  onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                                    ...prev,
+                                    delivery: {
+                                      ...prev.delivery,
+                                      methods: prev.delivery.methods.map(m => m.id === method.id ? {
+                                        ...m,
+                                        production_days: Number(e.target.value),
+                                        lead_time_days: Number(e.target.value) + (m.shipping_days ?? 0)
+                                      } : m)
+                                    }
+                                  }))}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Forsendelse (dage)</Label>
+                                <Input
+                                  type="number"
+                                  value={method.shipping_days ?? 0}
+                                  onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                                    ...prev,
+                                    delivery: {
+                                      ...prev.delivery,
+                                      methods: prev.delivery.methods.map(m => m.id === method.id ? {
+                                        ...m,
+                                        shipping_days: Number(e.target.value),
+                                        lead_time_days: (m.production_days ?? 0) + Number(e.target.value)
+                                      } : m)
+                                    }
+                                  }))}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">+/- dage</Label>
+                                <Input
+                                  type="number"
+                                  value={method.delivery_window_days ?? 0}
+                                  onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                                    ...prev,
+                                    delivery: {
+                                      ...prev.delivery,
+                                      methods: prev.delivery.methods.map(m => m.id === method.id ? {
+                                        ...m,
+                                        delivery_window_days: Number(e.target.value)
+                                      } : m)
+                                    }
+                                  }))}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Auto-leveret efter (dage)</Label>
+                                <Input
+                                  type="number"
+                                  value={method.auto_mark_days ?? 0}
+                                  onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                                    ...prev,
+                                    delivery: {
+                                      ...prev.delivery,
+                                      methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, auto_mark_days: Number(e.target.value) } : m)
+                                    }
+                                  }))}
+                                  disabled={!method.auto_mark_delivered}
+                                />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Switch
+                                checked={method.auto_mark_delivered ?? false}
+                                onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
+                                  ...prev,
+                                  delivery: {
+                                    ...prev.delivery,
+                                    methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, auto_mark_delivered: checked } : m)
+                                  }
+                                }))}
+                              />
+                              <span className="text-sm">Auto-mark delivered</span>
+                            </div>
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-4">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Pris (kr)</Label>
+                              <Input
+                                type="number"
+                                value={method.price ?? 0}
+                                onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                                  ...prev,
+                                  delivery: {
+                                    ...prev.delivery,
+                                    methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, price: Number(e.target.value) } : m)
+                                  }
+                                }))}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Cut-off tidspunkt</Label>
+                              <Input
+                                type="time"
+                                value={method.cutoff_time || ""}
+                                onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                                  ...prev,
+                                  delivery: {
+                                    ...prev.delivery,
+                                    methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, cutoff_time: e.target.value } : m)
+                                  }
+                                }))}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Cut-off label</Label>
+                              <Select
+                                value={method.cutoff_label || "deadline"}
+                                onValueChange={(value: "deadline" | "latest") => updateOrderDeliveryConfig(prev => ({
+                                  ...prev,
+                                  delivery: {
+                                    ...prev.delivery,
+                                    methods: prev.delivery.methods.map(m => m.id === method.id ? { ...m, cutoff_label: value } : m)
+                                  }
+                                }))}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="deadline">Deadline</SelectItem>
+                                  <SelectItem value="latest">Senest bestilling</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Samlet leveringstid</Label>
+                              <Input value={`${totalDays} dage`} readOnly />
+                            </div>
+                          </div>
+                          <div className="text-xs text-muted-foreground">{previewText}</div>
+                        </details>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {orderDeliveryConfig.delivery.mode === "carrier" && (
+                <div className="space-y-4 rounded-lg border bg-muted/10 p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold">Carrier tracking</h3>
+                      <p className="text-xs text-muted-foreground">Status opdateres automatisk fra fragtfirma.</p>
+                    </div>
+                    <Switch
+                      checked={orderDeliveryConfig.delivery.carrier_settings.enabled}
+                      onCheckedChange={(checked) => updateOrderDeliveryConfig(prev => ({
+                        ...prev,
+                        delivery: {
+                          ...prev.delivery,
+                          carrier_settings: { ...prev.delivery.carrier_settings, enabled: checked }
+                        }
+                      }))}
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Carrier</Label>
+                      <Select
+                        value={orderDeliveryConfig.delivery.carrier_settings.carrier}
+                        onValueChange={(value) => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          delivery: {
+                            ...prev.delivery,
+                            carrier_settings: { ...prev.delivery.carrier_settings, carrier: value }
+                          }
+                        }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="UPS">UPS</SelectItem>
+                          <SelectItem value="DHL">DHL</SelectItem>
+                          <SelectItem value="GLS">GLS</SelectItem>
+                          <SelectItem value="PostNord">PostNord</SelectItem>
+                          <SelectItem value="Other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>API key / konto</Label>
+                      <Input
+                        type="password"
+                        value={orderDeliveryConfig.delivery.carrier_settings.api_key}
+                        onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          delivery: {
+                            ...prev.delivery,
+                            carrier_settings: { ...prev.delivery.carrier_settings, api_key: e.target.value }
+                          }
+                        }))}
+                        placeholder="Gemmes som konfiguration (coming later)"
+                        disabled={!orderDeliveryConfig.delivery.carrier_settings.enabled}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Konto ID</Label>
+                      <Input
+                        value={orderDeliveryConfig.delivery.carrier_settings.account_id}
+                        onChange={(e) => updateOrderDeliveryConfig(prev => ({
+                          ...prev,
+                          delivery: {
+                            ...prev.delivery,
+                            carrier_settings: { ...prev.delivery.carrier_settings, account_id: e.target.value }
+                          }
+                        }))}
+                        disabled={!orderDeliveryConfig.delivery.carrier_settings.enabled}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Ingen API-kald implementeret endnu.</p>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-2 border-t">
+                <Button
+                  onClick={handleSaveOrderDelivery}
+                  disabled={!hasOrderDeliveryEdits || saving}
+                >
+                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Gem bestilling og levering
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+          <aside className="admin-delivery-summary rounded-md border p-6">
+            <h3 className="text-lg font-semibold">Opsummering</h3>
+            <div className="mt-5 border-t pt-4">
+              <p className="mb-4 text-sm font-medium">Leveringsmetoder · {orderDeliveryConfig.delivery.methods.length}</p>
+              <dl className="space-y-3 text-sm">
+                {orderDeliveryConfig.delivery.methods.map(method => <div key={method.id} className="flex justify-between gap-4"><dt>{method.name}</dt><dd className="text-muted-foreground">{(method.production_days ?? 0) + (method.shipping_days ?? 0)} dage</dd></div>)}
+              </dl>
+            </div>
+            <div className="mt-5 space-y-3 border-t pt-4 text-sm">
+              <p className="font-medium">Bestillingsvalg</p>
+              <p>{orderDeliveryConfig.ordering.type === 'standard' ? 'Standard bestilling' : orderDeliveryConfig.ordering.type === 'semi' ? 'Assisteret bestilling' : 'Email-bestilling'}</p>
+              <p className="text-muted-foreground">{orderDeliveryConfig.delivery.mode === 'manual' ? 'Manuel levering og tracking' : 'Fragtfirma-konfiguration · integration ikke aktiv'}</p>
+            </div>
+            <Button className="mt-6 w-full" onClick={handleSaveOrderDelivery} disabled={!hasOrderDeliveryEdits || saving}>{saving ? 'Gemmer…' : 'Gem bestilling og levering'}</Button>
+          </aside>
+        </TabsContent>
+
+        <TabsContent value="options" className="space-y-6" data-design-choice="options_workspace">
+          <Card>
+            <CardHeader>
+              <CardTitle>Valgmuligheder</CardTitle>
+              <CardDescription>
+                Opret og administrer valgmuligheder som vises på produktsiden. Disse kan have ekstra pris og ikon.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <OptionGroupManager productId={product.id} tenantId={product.tenant_id} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="custom-fields" className="space-y-6" data-design-choice="fields_preview">
+          <CustomFieldsManager
+            productId={product.id}
+            tenantId={product.tenant_id}
+            productName={editedName || product.name}
+            productImage={product.image_url}
+            onFieldsUpdate={fetchPrices}
+          />
+        </TabsContent>
+
+        <TabsContent value="tooltips" className="space-y-6" data-design-choice="tooltips_split">
+          <VisualTooltipDesigner
+            productId={product.id}
+            tenantId={product.tenant_id}
+            productSlug={product.slug}
+            productName={editedName || product.name}
+            productImage={product.image_url || undefined}
+            tooltips={(product.banner_config as any)?.visual_tooltips || []}
+            onTooltipsChange={async (tooltips: TooltipConfig[]) => {
+              await saveProductTooltips(supabase, product.tenant_id, product.id, product.banner_config?.visual_tooltips || [], tooltips);
+              setProduct((previous: any) => ({...previous, banner_config: {...previous.banner_config, visual_tooltips: tooltips}}));
+            }}
+          />
+          <div className="border-t pt-6 mt-6">
+            <h4 className="text-sm font-medium mb-4 text-muted-foreground">Legacy Tooltips (Tekst)</h4>
+            <ProductTooltipEditor
+              productId={product.id}
+              tooltipProduct={product.tooltip_product}
+              tooltipPrice={product.tooltip_price}
+              tooltipQuickTilbud={product.tooltip_quick_tilbud}
+              onUpdate={fetchProduct}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="about" data-design-choice="product_info_editorial">
+          <div className="admin-product-editorial">
+          <div className="admin-product-editorial-controls space-y-6">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-md font-medium">Produktnavn (system)</CardTitle>
+                <CardDescription>
+                  Dette navn bruges i hele bestillingsflowet og vises som produktets officielle navn.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-w-xl">
+                  <Label htmlFor="product-system-name" className="text-xs">Produktnavn</Label>
+                  <Input
+                    id="product-system-name"
+                    value={editedName}
+                    onChange={(e) => handleProductNameChange(e.target.value)}
+                    placeholder="Indtast produktnavn"
+                    className="h-9"
+                  />
+                </div>
+                <div className="flex justify-end pt-3">
+                  <Button
+                    onClick={() => handleSaveProductDetails()}
+                    size="sm"
+                    disabled={!hasProductEdits || saving}
+                  >
+                    {saving ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Save className="mr-2 h-3 w-3" />}
+                    Gem produktnavn
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="admin-product-editorial-sections grid grid-cols-1 gap-6 items-start">
+              {/* Sektion 1 (Was Section 2): Forside Information */}
+              <div className="space-y-3">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-md font-medium flex items-center gap-2">
+                        <span className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span>
+                        Produktkort i oversigten
+                      </CardTitle>
+                      {/* Preset Info Badge */}
+                      {(product as any).preset_key && (product as any).preset_key !== 'custom' && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded">
+                          <span>Skabelon:</span>
+                          <span className="font-medium text-foreground">
+                            {getPresetLabel((product as any).preset_key)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="admin-product-front-editor grid grid-cols-1 gap-6 items-start">
+                      {/* Left Column: Inputs */}
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <Label htmlFor="product-icon-text" className="text-xs">Ikon-tekst (forside)</Label>
+                            <Input
+                              id="product-icon-text"
+                              value={editedIconText}
+                              onChange={(e) => handleProductIconTextChange(e.target.value)}
+                              placeholder="Kort navn til produktkort"
+                              className="h-9"
+                            />
+                            <p className="text-[10px] text-muted-foreground">Vises på produktkort i oversigter.</p>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <Label htmlFor="product-price-from" className="text-xs">Fra-pris</Label>
+                            <Input
+                              id="product-price-from"
+                              type="number"
+                              value={editedPriceFrom}
+                              onChange={(e) => {
+                                setEditedPriceFrom(e.target.value);
+                                setHasProductEdits(true);
+                              }}
+                              placeholder="395"
+                              className="h-9 w-32"
+                            />
+                            <p className="text-[10px] text-muted-foreground">Vises som "Fra X,-"</p>
+                          </div>
+                        </div>
+
+                        {/* Promotional Pricing Section */}
+                        <div className="space-y-1.5 pt-3 border-t">
+                          <Label className="text-xs font-medium">Kampagnepris</Label>
+                          <p className="text-[10px] text-muted-foreground mb-2">Vis tilbudspris med overstreget originalpris og besparelse.</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label htmlFor="original-price" className="text-[10px] text-muted-foreground">Original pris (kr)</Label>
+                              <Input
+                                id="original-price"
+                                type="number"
+                                value={editedOriginalPrice}
+                                onChange={(e) => {
+                                  setEditedOriginalPrice(e.target.value);
+                                  setHasProductEdits(true);
+                                }}
+                                placeholder="399"
+                                className="h-9"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor="promo-price" className="text-[10px] text-muted-foreground">Kampagnepris (kr)</Label>
+                              <Input
+                                id="promo-price"
+                                type="number"
+                                value={editedPromoPrice}
+                                onChange={(e) => {
+                                  setEditedPromoPrice(e.target.value);
+                                  setHasProductEdits(true);
+                                }}
+                                placeholder="199"
+                                className="h-9"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between pt-2">
+                            <Label htmlFor="savings-badge" className="text-xs cursor-pointer">Vis "SPAR X%" badge</Label>
+                            <Switch
+                              id="savings-badge"
+                              checked={editedShowSavingsBadge}
+                              onCheckedChange={(checked) => {
+                                setEditedShowSavingsBadge(checked);
+                                setHasProductEdits(true);
+                              }}
+                            />
+                          </div>
+                          {editedPromoPrice && editedOriginalPrice && parseFloat(editedOriginalPrice) > parseFloat(editedPromoPrice) && (
+                            <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-950/30 rounded-md mt-2">
+                              <span className="text-sm text-muted-foreground line-through">{editedOriginalPrice} kr</span>
+                              <span className="text-sm font-bold text-green-600 dark:text-green-400">{editedPromoPrice} kr</span>
+                              {editedShowSavingsBadge && (
+                                <span className="text-xs font-bold text-white bg-green-500 px-2 py-0.5 rounded-full">
+                                  SPAR {Math.round((1 - parseFloat(editedPromoPrice) / parseFloat(editedOriginalPrice)) * 100)}%
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Description */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between items-center">
+                            <Label htmlFor="product-description" className="text-xs">Kort beskrivelse (Max 50 tegn anbefales)</Label>
+                            <span className={`text-[10px] ${editedDescription.length > 60 ? 'text-red-500 font-bold' : 'text-muted-foreground'}`}>
+                              {editedDescription.length} tegn
+                            </span>
+                          </div>
+                          <Textarea
+                            id="product-description"
+                            value={editedDescription}
+                            onChange={(e) => handleProductDescriptionChange(e.target.value)}
+                            placeholder="Kort tekst til produktoversigter..."
+                            className="min-h-[80px] text-sm resize-none"
+                            rows={3}
+                          />
+                          {editedDescription.length > 60 && (
+                            <p className="text-[10px] text-red-500 animate-pulse">
+                              Beskrivelsen er lidt lang. Hold den kort for bedste visning.
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Image Uploads */}
+                        <div className="bg-muted/10 p-3 rounded-md border space-y-4">
+                          <div>
+                            <ProductImageUpload
+                              productId={product.id}
+                              currentImageUrl={product.image_url}
+                              onImageUpdate={handleImageUpdate}
+                              label="Forside Ikon / Billede"
+                            />
+                          </div>
+                          <div className="pt-2 border-t">
+                            <ProductImageUpload
+                              productId={product.id}
+                              currentImageUrl={editedHoverImageUrl}
+                              onImageUpdate={(url) => setEditedHoverImageUrl(url)}
+                              onUploadComplete={handleHoverImageUpdate}
+                              label="Mouseover Billede (Brugereffekt)"
+                            />
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Vises når musen holdes over produktkortet. Valgfrit.
+                            </p>
+                          </div>
+                          <div className="pt-2 border-t space-y-2">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-xs">Billedstørrelse på produktkort</Label>
+                              <span className="text-[10px] text-muted-foreground">{editedImageScalePct}%</span>
+                            </div>
+                            <Slider
+                              value={[editedImageScalePct]}
+                              min={60}
+                              max={140}
+                              step={5}
+                              onValueChange={([value]) => {
+                                setEditedImageScalePct(value);
+                                setHasProductEdits(true);
+                              }}
+                            />
+                            <p className="text-[10px] text-muted-foreground">
+                              Justerer billedets størrelse på forsidens produktkort uden at ændre selve kort-layoutet.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="bg-muted/10 p-3 rounded-md border space-y-4">
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <Label className="text-sm">Brug kortet som kategori-link</Label>
+                              <p className="text-[10px] text-muted-foreground mt-1">
+                                Beholder billede, titel og tekst som normalt, men klik går til en kategori-side i stedet for produktets prisliste.
+                              </p>
+                            </div>
+                            <Switch
+                              checked={editedCategoryLanding.enabled}
+                              onCheckedChange={(checked) =>
+                                updateCategoryLanding({
+                                  enabled: checked,
+                                  overviewId: checked
+                                    ? (editedCategoryLanding.overviewId || catalogOverviews[0]?.id || FALLBACK_OVERVIEW_ID)
+                                    : null,
+                                  overviewSlug: checked
+                                    ? (editedCategoryLanding.overviewSlug || catalogOverviews[0]?.slug || "produkter")
+                                    : null,
+                                  categoryId: checked ? editedCategoryLanding.categoryId || null : null,
+                                  categorySlug: checked ? editedCategoryLanding.categorySlug || null : null,
+                                  subcategoryId: checked ? editedCategoryLanding.subcategoryId || null : null,
+                                  subcategorySlug: checked ? editedCategoryLanding.subcategorySlug || null : null,
+                                })
+                              }
+                            />
+                          </div>
+
+                          {editedCategoryLanding.enabled && (
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <div className="space-y-2">
+                                <Label>Hovedgruppe</Label>
+                                <Select
+                                  value={editedCategoryLanding.overviewId || FALLBACK_OVERVIEW_ID}
+                                  onValueChange={(value) => {
+                                    const nextOverview = catalogOverviews.find((overview) => overview.id === value);
+                                    updateCategoryLanding({
+                                      overviewId: value,
+                                      overviewSlug: nextOverview?.slug || "produkter",
+                                      categoryId: null,
+                                      categorySlug: null,
+                                      subcategoryId: null,
+                                      subcategorySlug: null,
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Vælg hovedgruppe" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {catalogOverviews.map((overview) => (
+                                      <SelectItem key={overview.id} value={overview.id}>
+                                        {overview.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="space-y-2">
+                                <Label>Kategori</Label>
+                                <Select
+                                  value={editedCategoryLanding.categoryId || "__none__"}
+                                  onValueChange={(value) => {
+                                    if (value === "__none__") {
+                                      updateCategoryLanding({
+                                        categoryId: null,
+                                        categorySlug: null,
+                                        subcategoryId: null,
+                                        subcategorySlug: null,
+                                      });
+                                      return;
+                                    }
+                                    const nextCategory = rootLandingCategories.find((category) => category.id === value);
+                                    updateCategoryLanding({
+                                      categoryId: value,
+                                      categorySlug: nextCategory?.slug || null,
+                                      subcategoryId: null,
+                                      subcategorySlug: null,
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Vælg kategori" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__none__">Ingen kategori valgt</SelectItem>
+                                    {rootLandingCategories.map((category) => (
+                                      <SelectItem key={category.id} value={category.id as string}>
+                                        {category.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="space-y-2 md:col-span-2">
+                                <Label>Underkategori</Label>
+                                <Select
+                                  value={editedCategoryLanding.subcategoryId || "__none__"}
+                                  onValueChange={(value) => {
+                                    if (value === "__none__") {
+                                      updateCategoryLanding({
+                                        subcategoryId: null,
+                                        subcategorySlug: null,
+                                      });
+                                      return;
+                                    }
+                                    const nextSubcategory = subcategoryLandingOptions.find((category) => category.id === value);
+                                    updateCategoryLanding({
+                                      subcategoryId: value,
+                                      subcategorySlug: nextSubcategory?.slug || null,
+                                    });
+                                  }}
+                                  disabled={!editedCategoryLanding.categoryId || subcategoryLandingOptions.length === 0}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Vælg underkategori (valgfrit)" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__none__">Vis hele kategorien</SelectItem>
+                                    {subcategoryLandingOptions.map((category) => (
+                                      <SelectItem key={category.id} value={category.id as string}>
+                                        {category.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <p className="text-[10px] text-muted-foreground">
+                                  Hvis du vælger en underkategori, åbner kortet direkte på den. Hvis ikke, åbner det på hele kategorien.
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Special Badge Editor */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-lg border p-4">
+                          <label className="space-y-2 text-sm">Billedets hover-effekt<select aria-label="Billedets hover-effekt" className="block w-full rounded border p-2" value={imageHoverEffect} onChange={e => {setImageHoverEffect(e.target.value as ImageHoverEffect); setHasProductEdits(true);}}>{IMAGE_HOVER_EFFECTS.map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+                          <label className="space-y-2 text-sm">Kortets hover-effekt<select aria-label="Kortets hover-effekt" className="block w-full rounded border p-2" value={cardHoverEffect} onChange={e => {setCardHoverEffect(e.target.value as CardHoverEffect); setHasProductEdits(true);}}>{CARD_HOVER_EFFECTS.map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+                        </div>
+                        <SpecialBadgeEditor tenantId={product.tenant_id} productId={product.id}
+                          value={editedSpecialBadge}
+                          onChange={(config) => {
+                            setEditedSpecialBadge(config);
+                            setHasProductEdits(true);
+                          }}
+                        />
+
+                      </div>
+
+                      {/* Right Column: Preview */}
+                      <div className="admin-product-front-save">
+
+                        <div className="pt-4 w-full">
+                          <Button
+                            onClick={() => handleSaveProductDetails()}
+                            size="sm"
+                            disabled={!hasProductEdits || saving}
+                            className="w-full"
+                          >
+                            {saving ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Save className="mr-2 h-3 w-3" />}
+                            Gem produktkort
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+            </div>
+          </div>
+          <aside className="admin-product-editorial-preview">
+            <ProductCardLivePreview productId={product.id} tenantId={product.tenant_id} slug={product.slug} pricingStructure={product.pricing_structure || {}} content={{
+              name: editedName, icon_text: editedIconText, description: editedDescription, image_url: product.image_url,
+              banner_config: {...product.banner_config, price_from: Number(editedPriceFrom) || null, promo_price: Number(editedPromoPrice) || null,
+                original_price: Number(editedOriginalPrice) || null, show_savings_badge: editedShowSavingsBadge, hover_image_url: editedHoverImageUrl,
+                image_scale_pct: editedImageScalePct, special_badge: editedSpecialBadge, image_hover_effect: imageHoverEffect, card_hover_effect: cardHoverEffect}
+            }} />
+          </aside>
           </div>
         </TabsContent>
 
@@ -4184,7 +4367,7 @@ export function ProductPriceManager() {
             </CardContent>
           </Card>
         </TabsContent>
-        <TabsContent value="seo" className="space-y-6">
+        <TabsContent value="seo" className="space-y-6" data-design-choice="productseo_first">
           <ProductSeoTab
             productSlug={product.slug}
             productName={product.name}

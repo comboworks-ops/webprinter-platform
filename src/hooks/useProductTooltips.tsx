@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { ProductTooltipIcon, type TooltipConfig } from './ProductTooltipIcon';
+import { ProductTooltipIcon, type TooltipConfig } from '@/components/ProductTooltipIcon';
 
 interface UseProductTooltipsProps {
     bannerConfig?: Record<string, any> | null;

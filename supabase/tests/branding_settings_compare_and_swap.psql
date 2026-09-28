@@ -1,0 +1,98 @@
+-- Run only in a disposable empty database, as postgres. This synthetic harness
+-- creates minimal auth/tenants fixtures and rolls all database objects back.
+\set ON_ERROR_STOP on
+BEGIN;
+CREATE SCHEMA auth;
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
+$$ SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+GRANT USAGE ON SCHEMA auth TO authenticated, anon;
+CREATE TABLE public.tenants (id uuid PRIMARY KEY, owner_id uuid, settings jsonb);
+ALTER TABLE public.tenants ENABLE ROW LEVEL SECURITY;
+GRANT SELECT ON public.tenants TO authenticated, anon;
+GRANT UPDATE ON public.tenants TO authenticated;
+CREATE POLICY read_tenants ON public.tenants FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY owner_updates ON public.tenants FOR UPDATE TO authenticated
+    USING (owner_id = auth.uid()) WITH CHECK (owner_id = auth.uid());
+INSERT INTO public.tenants VALUES
+ ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
+   jsonb_build_object('branding', jsonb_build_object('published', jsonb_build_object('name', 'Shop A live')),
+       'shipping', 'Keep this address', 'large_archive', repeat('x', 300000))),
+ ('10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002',
+   '{"branding":{"published":{"name":"Shop B live"}}}'::jsonb),
+ ('10000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', NULL);
+
+\ir ../migrations/20260908172146_tenant_branding_settings_compare_and_swap.sql
+
+DO $$ BEGIN
+    IF has_function_privilege('anon', 'public.tenant_branding_settings_compare_and_swap(uuid,jsonb,jsonb)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'Anonymous role must not execute branding writes';
+    END IF;
+    IF (SELECT prosecdef FROM pg_proc WHERE oid = 'public.tenant_branding_settings_compare_and_swap(uuid,jsonb,jsonb)'::regprocedure) THEN
+        RAISE EXCEPTION 'RPC must remain SECURITY INVOKER';
+    END IF;
+END $$;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-000000000001', false);
+DO $$
+DECLARE expected jsonb; other_expected jsonb; after_save jsonb; affected integer; rejected boolean := false;
+BEGIN
+    SELECT settings INTO expected FROM public.tenants WHERE id = '10000000-0000-0000-0000-000000000001';
+    SELECT count(*) INTO affected FROM public.tenant_branding_settings_compare_and_swap(
+        '10000000-0000-0000-0000-000000000001', expected,
+        '{"branding":{"published":{"name":"Shop A live"},"draft":{"name":"Private draft"}}}'::jsonb);
+    IF affected <> 1 THEN RAISE EXCEPTION 'Owner save must return exactly one row'; END IF;
+    SELECT settings INTO after_save FROM public.tenants WHERE id = '10000000-0000-0000-0000-000000000001';
+    IF after_save->>'shipping' <> 'Keep this address' OR length(after_save->>'large_archive') <> 300000
+        OR after_save#>>'{branding,published,name}' <> 'Shop A live'
+        OR after_save#>>'{branding,draft,name}' <> 'Private draft' THEN
+        RAISE EXCEPTION 'Draft save must preserve published and unrelated large settings';
+    END IF;
+
+    SELECT count(*) INTO affected FROM public.tenant_branding_settings_compare_and_swap(
+        '10000000-0000-0000-0000-000000000001', expected, '{"branding":{"published":{"name":"Stale write"}}}');
+    IF affected <> 0 THEN RAISE EXCEPTION 'Stale snapshot must not overwrite newer settings'; END IF;
+
+    SELECT settings INTO other_expected FROM public.tenants WHERE id = '10000000-0000-0000-0000-000000000002';
+    SELECT count(*) INTO affected FROM public.tenant_branding_settings_compare_and_swap(
+        '10000000-0000-0000-0000-000000000002', other_expected, '{"branding":{"published":{"name":"Wrong owner"}}}');
+    IF affected <> 0 THEN RAISE EXCEPTION 'RLS must prevent another customer changing shop B'; END IF;
+
+    BEGIN
+        PERFORM public.tenant_branding_settings_compare_and_swap(
+            '10000000-0000-0000-0000-000000000001', after_save, '{"shipping":"Unrelated edit"}');
+    EXCEPTION WHEN invalid_parameter_value THEN rejected := true;
+    END;
+    IF NOT rejected THEN RAISE EXCEPTION 'Non-branding keys must be rejected'; END IF;
+
+    SELECT count(*) INTO affected FROM public.tenant_branding_settings_compare_and_swap(
+        '10000000-0000-0000-0000-000000000003', NULL, '{"branding":{"published":null,"draft":{"name":"First draft"}}}');
+    IF affected <> 1 THEN RAISE EXCEPTION 'Null settings must support first draft'; END IF;
+END $$;
+
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-000000000002', false);
+DO $$
+DECLARE expected jsonb; affected integer;
+BEGIN
+    SELECT settings INTO expected FROM public.tenants WHERE id = '10000000-0000-0000-0000-000000000002';
+    SELECT count(*) INTO affected FROM public.tenant_branding_settings_compare_and_swap(
+        '10000000-0000-0000-0000-000000000002', expected, '{"branding":{"published":{"name":"Shop B changed by owner B"}}}');
+    IF affected <> 1 THEN RAISE EXCEPTION 'Second owner must update their own shop'; END IF;
+    SELECT settings INTO expected FROM public.tenants WHERE id = '10000000-0000-0000-0000-000000000001';
+    SELECT count(*) INTO affected FROM public.tenant_branding_settings_compare_and_swap(
+        '10000000-0000-0000-0000-000000000001', expected, '{"branding":{"published":{"name":"Wrong owner B"}}}');
+    IF affected <> 0 THEN RAISE EXCEPTION 'Second owner must not update shop A'; END IF;
+END $$;
+
+SELECT set_config('request.jwt.claim.sub', '', false);
+DO $$ DECLARE rejected boolean := false;
+BEGIN
+    BEGIN
+        PERFORM public.tenant_branding_settings_compare_and_swap('10000000-0000-0000-0000-000000000001', NULL, '{}');
+    EXCEPTION WHEN insufficient_privilege THEN rejected := true;
+    END;
+    IF NOT rejected THEN RAISE EXCEPTION 'Missing identity must be rejected'; END IF;
+END $$;
+RESET ROLE;
+ROLLBACK;
+\echo Branding RPC: owner writes, two-owner isolation, stale snapshots, null settings, 300 KB settings, grants and invalid keys PASS

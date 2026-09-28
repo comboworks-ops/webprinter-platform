@@ -1,4 +1,22 @@
+import { SharedButtonLocalControls } from './SharedButtonsControls';
+import { FeaturedProductInspector } from './FeaturedProductInspector';
+import { FIRST_FEATURED_SLIDE, getFeaturedSlides } from '@/lib/branding/featuredProductPresentation';
+import type { USPIconType, BrandingData } from "@/hooks/useBrandingDraft";
+import { requestPreviewScreenshot } from '@/lib/preview/previewScreenshot';
+import { assignDesignToShop, loadShopDesignLibrary } from '@/lib/branding/premadeDesignLibrary';
+import { HeroQuickControls, HeaderQuickControls, MainButtonsControls } from './SiteDesignQuickControls';
+import { standardSiteDesign, applyMainButtonSettings, getMainButtonSettings } from '@/lib/branding/siteDesignControls';
+import { ProductPresentationPicker } from "@/components/admin/ProductPresentationPicker";
+import { applyProductPresentation, PRODUCT_PRESENTATIONS, resolveProductPresentation } from "@/lib/branding/productPresentations";
+import { resolveDropdownPreset } from "@/lib/branding/dropdownPresets";
 
+import { OrderFlowDesignInspector } from "@/components/admin/OrderFlowDesignInspector";
+import { SiteDesignWorkspace, SiteDesignNavigation } from "@/components/admin/SiteDesignWorkspace";
+import { applyOrderFlowDesign, ORDER_FLOW_DESIGNS, resolveOrderFlowDesign, type OrderFlowPage } from "@/lib/branding/orderFlowDesigns";
+import { getOrderFlowPreviewPage, getOrderFlowPreviewPath } from "@/lib/preview/orderFlowPreview";
+import { getSiteDesignPreviewPathname } from "@/lib/preview/siteDesignPreviewNavigation";
+import { PrintDesignPicker } from "@/components/admin/PrintDesignPicker";
+import { applyPrintDesignPreset, getPrintDesignPreset, selectPrintDesignPreset } from "@/lib/branding/printDesignPresets";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -6,7 +24,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-    Loader2, Save, RotateCcw, Send, Trash2, List,
+    Loader2, Save, RotateCcw, Undo2, Redo2, Send, Trash2, List,
     X, Layout, Type, Palette, Sparkles, Image as ImageIcon,
     ExternalLink, Monitor, Smartphone, Tablet, FolderUp, LayoutTemplate, ShoppingCart,
     Pencil, Eye, EyeOff, Check, History, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
@@ -69,6 +87,7 @@ import { ShopTemplatePicker } from "@/components/admin/ShopTemplatePicker";
 import { ProduktvalgknapperSection } from "@/components/admin/ProduktvalgknapperSection";
 import { ProductOptionButtonEditor } from "@/components/admin/ProductOptionButtonEditor";
 import { ProductOptionSectionBoxEditor } from "@/components/admin/ProductOptionSectionBoxEditor";
+import { mergeProductStylingChange, persistProductStylingPatches, type ProductStylingChange, type ProductStylingPreview } from "@/lib/preview/productStylingSave";
 import { ProductDescriptionSection } from "@/components/admin/ProductDescriptionSection";
 import { supabase } from "@/integrations/supabase/client";
 import { usePaidItems } from "@/hooks/usePaidItems";
@@ -96,9 +115,7 @@ import {
     type ProductSiteModes,
 } from "@/lib/sites/productSiteModes";
 import {
-    getShopTemplate,
     resolveStorefrontLayout,
-    type ShopNavigationPreset,
     type ShopTemplateDefinition,
 } from "@/lib/storefront/shopTemplates";
 
@@ -1386,9 +1403,9 @@ const VISUAL_THEME_PRESETS: VisualThemePreset[] = [
 ];
 
 const buildColorPresetThemePatch = (
-    draft: typeof DEFAULT_BRANDING,
+    draft: BrandingData,
     presetColors: BrandingColorPresetColors,
-): Partial<typeof DEFAULT_BRANDING> => {
+): Partial<BrandingData> => {
     const colors = {
         ...draft.colors,
         ...presetColors,
@@ -1703,9 +1720,9 @@ const buildColorPresetThemePatch = (
 };
 
 const buildVisualThemePresetPatch = (
-    draft: typeof DEFAULT_BRANDING,
+    draft: BrandingData,
     preset: VisualThemePreset,
-): Partial<typeof DEFAULT_BRANDING> => {
+): Partial<BrandingData> => {
     const basePatch = buildColorPresetThemePatch(draft, preset.colors);
     const primary = preset.colors.primary;
     const secondary = preset.colors.secondary;
@@ -1799,7 +1816,7 @@ const buildVisualThemePresetPatch = (
             activeTextColor: primary,
             actionHoverBgColor: softPrimary,
             actionHoverTextColor: hover,
-            dropdownPreset: preset.dropdownPreset,
+            dropdownPreset: resolveDropdownPreset(draft.header?.dropdownPreset),
             dropdownBgColor: dropdown,
             dropdownBgOpacity: preset.headerStyle === "glass" ? 0.86 : 0.98,
             dropdownShowBorder: true,
@@ -2246,9 +2263,9 @@ const buildVisualThemePresetPatch = (
 };
 
 const buildFontPresetThemePatch = (
-    draft: typeof DEFAULT_BRANDING,
+    draft: BrandingData,
     presetFonts: BrandingFontPresetFonts,
-): Partial<typeof DEFAULT_BRANDING> => {
+): Partial<BrandingData> => {
     const fonts = {
         ...draft.fonts,
         ...presetFonts,
@@ -2360,7 +2377,10 @@ interface BrandingColorFieldConfig {
     description: string;
 }
 
-type MatrixColorKey = Exclude<keyof typeof DEFAULT_BRANDING.productPage.matrix, "font" | "pictureButtons">;
+type MatrixSettings = typeof DEFAULT_BRANDING.productPage.matrix;
+type MatrixColorKey = Exclude<{
+    [Key in keyof MatrixSettings]: MatrixSettings[Key] extends string ? Key : never;
+}[keyof MatrixSettings], "font">;
 
 interface MatrixColorFieldConfig {
     key: MatrixColorKey;
@@ -2577,7 +2597,7 @@ const PREVIEW_PAGE_LINKS: PreviewPageLink[] = [
     { label: "Om os", path: "/om-os" },
 ];
 
-const USP_ICON_OPTIONS: Array<{ value: string; label: string; icon: LucideIcon }> = [
+const USP_ICON_OPTIONS: Array<{ value: USPIconType; label: string; icon: LucideIcon }> = [
     { value: "truck", label: "Lastbil", icon: Truck },
     { value: "award", label: "Pris", icon: Award },
     { value: "phone", label: "Support", icon: Phone },
@@ -2592,7 +2612,7 @@ function resolveContextualEditor(rawId?: string | null): ContextualEditorState |
     if (!rawId) return null;
 
     // Product option button click: product-option.<productId>.<sectionId>.<valueId>.<valueName>
-    const productOptionMatch = /^product-option\.([^\.]+)\.([^\.]+)\.([^\.]+)\.(.+)$/.exec(rawId);
+    const productOptionMatch = /^product-option\.([^.]+)\.([^.]+)\.([^.]+)\.(.+)$/.exec(rawId);
     if (productOptionMatch) {
         const [, productId, sectionId, valueId, valueName] = productOptionMatch;
         return {
@@ -2607,7 +2627,7 @@ function resolveContextualEditor(rawId?: string | null): ContextualEditorState |
     }
 
     // Product selector box click: product-selector-box.<productId>.<sectionId>.<sectionName>
-    const productSelectorBoxMatch = /^product-selector-box\.([^\.]+)\.([^\.]+)\.(.+)$/.exec(rawId);
+    const productSelectorBoxMatch = /^product-selector-box\.([^.]+)\.([^.]+)\.(.+)$/.exec(rawId);
     if (productSelectorBoxMatch) {
         const [, productId, sectionId, sectionName] = productSelectorBoxMatch;
         const decodedSectionName = decodeURIComponent(sectionName);
@@ -2634,11 +2654,12 @@ const SECTION_LABELS: Record<string, string> = {
     "page-background": "Sidebaggrund",
     colors: "Farver",
     banner: "Banner (Hero)",
-    showcase: "Banner 2 / Showcase",
+    showcase: "Ekstra banner / galleri",
     "lower-info": "Nedre infobokse",
-    "usp-strip": "USP Strip (Fordele)",
+    "usp-strip": "Fordelsbjælke",
     "seo-content": "SEO Tekst",
-    products: "Forside produkter",
+    products: "Produktvisning",
+    "featured-products": "Fremhævede produkter",
     "product-page-matrix": "Produktside matrix, prisberegner & knapper",
     "produktvalgknapper": "Produktvalgknapper",
     "product-description": "Produktbeskrivelse",
@@ -2802,6 +2823,10 @@ const SECTION_BUTTON_CONFIGS: SectionButtonConfig[] = [
         iconClassName: "h-4 w-4",
     },
     {
+        id: "featured-products", label: "Fremhævede produkter", group: "home", icon: ShoppingCart,
+        buttonClassName: "bg-blue-50/70", iconWrapperClassName: "bg-blue-100/70", iconClassName: "h-4 w-4",
+    },
+    {
         id: "products",
         label: "Forside produkter",
         group: "home",
@@ -2920,30 +2945,15 @@ const BRANDING_COLOR_GROUPS: BrandingColorGroupConfig[] = [
             },
         ],
     },
-    {
-        title: "Avanceret / reserveret",
-        description: "Disse felter er ikke de primære storefront-farver. Brug dem kun ved særlige behov.",
-        badge: "Avanceret",
-        fields: [
-            {
-                key: "dropdown",
-                label: "Dropdown base",
-                description: "Reserveret farvefelt. Headerens rigtige dropdown-farver styres i Header-sektionen.",
-            },
-            {
-                key: "hover",
-                label: "Generisk hover-accent",
-                description: "Reserveret hover-farve. Bruges ikke som den primære hover-styring i hele sitet.",
-            },
-        ],
-    },
+
 ];
 
 export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: SiteDesignEditorV2Props) {
     const editor = useBrandingEditor({ adapter, capabilities });
     const isDraftLive = brandingEquals(editor.draft, editor.published);
-    const [activeSection, setActiveSection] = useState<string | null>(null);
-    const [sidebarOpen, setSidebarOpen] = useState(false); // Start collapsed for full-screen preview
+    const [activeSection, setActiveSection] = useState<string | null>("theme");
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [sectionFocusRequest, setSectionFocusRequest] = useState<{ id: number; target: string } | null>(null);
     const [previewEditMode, setPreviewEditMode] = useState(false);
     const [clearSelectionSignal, setClearSelectionSignal] = useState(0);
     const [currentPreviewPage, setCurrentPreviewPage] = useState<string>("/");
@@ -2970,12 +2980,34 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     const [showSaveToResourcesDialog, setShowSaveToResourcesDialog] = useState(false);
     const [resourceDesignName, setResourceDesignName] = useState("");
     const [resourceDesignDescription, setResourceDesignDescription] = useState("");
-    const [resourceDesignPrice, setResourceDesignPrice] = useState(0);
+
     const [resourceDesignVisible, setResourceDesignVisible] = useState(true);
     const [showPremadeDesignsDialog, setShowPremadeDesignsDialog] = useState(false);
     const [availablePremadeDesigns, setAvailablePremadeDesigns] = useState<any[]>([]);
     const [loadingPremadeDesigns, setLoadingPremadeDesigns] = useState(false);
     const [capturingThumbnail, setCapturingThumbnail] = useState(false);
+    const designLibraryRequest = useRef(0);
+    useEffect(() => {
+        designLibraryRequest.current += 1;
+        setAvailablePremadeDesigns([]);
+        return () => { designLibraryRequest.current += 1; };
+    }, [editor.entityId]);
+    const loadPremadeDesigns = useCallback(async () => {
+        const request = ++designLibraryRequest.current;
+        setLoadingPremadeDesigns(true);
+        try {
+            const designs = await loadShopDesignLibrary(editor.entityId);
+            if (request === designLibraryRequest.current) setAvailablePremadeDesigns(designs);
+        } catch (error) {
+            if (request === designLibraryRequest.current) {
+                setAvailablePremadeDesigns([]);
+                toast.error('Kunne ikke hente designskabeloner. Prøv igen.');
+            }
+        } finally {
+            if (request === designLibraryRequest.current) setLoadingPremadeDesigns(false);
+        }
+    }, [editor.entityId]);
+
 
     // Saved Premade Designs management (Master)
     const [showSavedPremadeDesignsDialog, setShowSavedPremadeDesignsDialog] = useState(false);
@@ -2999,21 +3031,14 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     const [focusedTargetId, setFocusedTargetId] = useState<string | null>(null);
     const [contextualEditor, setContextualEditor] = useState<ContextualEditorState | null>(null);
     const [focusedProductOption, setFocusedProductOption] = useState<{ productId: string; sectionId: string | null; valueId?: string | null; valueName?: string | null } | null>(null);
-    const [persistedProductPricing, setPersistedProductPricing] = useState<{ productId: string; pricingStructure: unknown } | null>(null);
-    const [productPricingPreview, setProductPricingPreview] = useState<{
-        productId: string;
-        pricingStructure: unknown;
-        isDirty: boolean;
-    } | null>(null);
+    const [persistedProductPricing, setPersistedProductPricing] = useState<ProductStylingPreview | null>(null);
+    const [productPricingPreview, setProductPricingPreview] = useState<ProductStylingPreview | null>(null);
     const [focusRequestId, setFocusRequestId] = useState(0);
+    const [selectedFeaturedSlideId, setSelectedFeaturedSlideId] = useState(FIRST_FEATURED_SLIDE);
     const [featuredProducts, setFeaturedProducts] = useState<FeaturedProductOption[]>([]);
     const [loadingFeaturedProducts, setLoadingFeaturedProducts] = useState(false);
-    const [featuredQuantityOptions, setFeaturedQuantityOptions] = useState<number[]>([]);
-    const [loadingFeaturedQuantities, setLoadingFeaturedQuantities] = useState(false);
     const [uploadingPageBackgroundImage, setUploadingPageBackgroundImage] = useState(false);
-    const [uploadingFeaturedSideImage, setUploadingFeaturedSideImage] = useState(false);
     const [uploadingFeaturedMainImage, setUploadingFeaturedMainImage] = useState(false);
-    const [uploadingFeaturedGalleryImage, setUploadingFeaturedGalleryImage] = useState(false);
     const [colorPresetName, setColorPresetName] = useState("");
     const [tenantSettings, setTenantSettings] = useState<any>(null);
     const [siteReadinessById, setSiteReadinessById] = useState<Record<string, SiteReadinessStats>>({});
@@ -3021,8 +3046,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     const [loadingSitePackages, setLoadingSitePackages] = useState(false);
     const [workingSiteId, setWorkingSiteId] = useState<string | null>(null);
 
-    // Ref for screenshot capture promise resolution
-    const screenshotResolverRef = useRef<{ resolve: (url: string | null) => void; reject: (err: any) => void } | null>(null);
+    // Keep preview selection and capture scoped to this editor instance.
+    const workspaceRef = useRef<HTMLDivElement>(null);
     const siteState = useMemo(() => parseSiteFrontendState(tenantSettings), [tenantSettings]);
     const activeSitePackage = useMemo(
         () => SITE_PACKAGES.find((sitePackage) => sitePackage.id === siteState.activeSiteId) || null,
@@ -3043,7 +3068,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         setLoadingSitePackages(true);
         try {
             const { data: tenantRow, error: tenantError } = await supabase
-                .from("tenants" as any)
+                .from("tenants")
                 .select("settings")
                 .eq("id", editor.entityId)
                 .maybeSingle();
@@ -3074,7 +3099,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
 
             if (mappedProductIds.length > 0) {
                 const { data: priceRows, error: priceError } = await supabase
-                    .from("generic_product_prices" as any)
+                    .from("generic_product_prices")
                     .select("product_id")
                     .in("product_id", mappedProductIds);
 
@@ -3359,7 +3384,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         const selection = resolveSiteDesignTarget(rawSectionId);
         const contextualSelection = resolveContextualEditor(rawSectionId);
         console.log('[Editor] Resolved selection:', selection, 'contextual:', contextualSelection);
-        
+
         // For product option clicks, open the sidebar instead of the floating contextual popup.
         const isProductOptionButton = contextualSelection?.kind === 'product-option-button';
         const isProductOptionSectionBox = contextualSelection?.kind === 'product-option-section-box';
@@ -3388,7 +3413,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         } else if (selection?.sectionId !== "produktvalgknapper") {
             setFocusedProductOption(null);
         }
-        
+
         if (selection) {
             console.log('[Editor] Setting active section to:', selection.sectionId);
             setActiveSection(selection.sectionId);
@@ -3427,23 +3452,36 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         setFocusedProductOption(null);
         setFocusRequestId((current) => current + 1);
     }, []);
-    
+
     const closeSection = useCallback(() => {
+        if (activeSection === "produktvalgknapper") {
+            setProductPricingPreview(current => current?.isDirty ? current : null);
+        }
         setActiveSection(null);
         setFocusedBlockId(null);
         setFocusedTargetId(null);
         setContextualEditor(null);
         setClearSelectionSignal(prev => prev + 1);
-    }, []);
+    }, [activeSection]);
 
     useEffect(() => {
         if (!activeSection || !focusedTargetId) return;
 
         const timeoutId = window.setTimeout(() => {
-            const element = document.getElementById(focusedTargetId);
+            const sharedPrintText = Boolean(getPrintDesignPreset(editor.draft.themeId)) && editor.draft.hero.textSource !== 'slides';
+            const targetId = sharedPrintText && focusedTargetId === 'site-design-focus-banner-title' ? 'sd-hero-title'
+                : sharedPrintText && focusedTargetId === 'site-design-focus-banner-subtitle' ? 'sd-hero-subtitle' : focusedTargetId;
+            const element = document.getElementById(targetId);
             if (!element) return;
+            const details = element.closest('details');
+            if (details) details.open = true;
 
-            element.scrollIntoView({ behavior: "smooth", block: "center" });
+            const inspector = element.closest('.sd-workspace-inspector-content');
+            if (inspector && getComputedStyle(inspector).overflowY === 'auto') {
+                inspector.scrollTo({ top: inspector.scrollTop + element.getBoundingClientRect().top - inspector.getBoundingClientRect().top - 24, behavior: 'smooth' });
+            } else {
+                element.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
             element.classList.add("ring-2", "ring-primary", "ring-offset-2");
 
             window.setTimeout(() => {
@@ -3452,7 +3490,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         }, 120);
 
         return () => window.clearTimeout(timeoutId);
-    }, [activeSection, focusedTargetId, focusRequestId]);
+    }, [activeSection, focusedTargetId, focusRequestId, editor.draft.themeId, editor.draft.hero.textSource]);
 
     useEffect(() => {
         if (!previewEditMode) {
@@ -3464,11 +3502,16 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         setContextualEditor(null);
     }, [currentPreviewPage]);
 
-    // Listen for click events from preview AND screenshot responses
+    // Only this workspace's iframe may select controls or change preview navigation.
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
-            console.log('[Editor] Received message:', event.data);
-            
+            const iframe = workspaceRef.current?.querySelector<HTMLIFrameElement>('iframe[title="Branding Preview"]');
+            if (event.origin !== window.location.origin || !iframe?.contentWindow || event.source !== iframe.contentWindow) return;
+
+            if (event.data?.type === 'FEATURED_PRODUCT_SELECTED' && typeof event.data.slideId === 'string') {
+                const config = editor.draft.forside.productsSection.featuredProductConfig;
+                if (getFeaturedSlides(config).some(slide => slide.id === event.data.slideId)) setSelectedFeaturedSlideId(event.data.slideId);
+            }
             if (
                 isSiteDesignSelectionMessage(event.data)
                 || event.data?.type === 'EDIT_SECTION'
@@ -3484,22 +3527,11 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 const path = typeof event.data.path === 'string' ? event.data.path : '/';
                 setCurrentPreviewPage(path);
             }
-
-            // Handle screenshot capture response
-            if (event.data?.type === 'SCREENSHOT_CAPTURED' && screenshotResolverRef.current) {
-                screenshotResolverRef.current.resolve(event.data.dataUrl);
-                screenshotResolverRef.current = null;
-            }
-            if (event.data?.type === 'SCREENSHOT_ERROR' && screenshotResolverRef.current) {
-                console.error('Screenshot error:', event.data.error);
-                screenshotResolverRef.current.resolve(null); // Resolve with null instead of rejecting
-                screenshotResolverRef.current = null;
-            }
         };
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, [openPreviewSelection, previewEditMode]);
+    }, [openPreviewSelection, previewEditMode, editor.draft.forside.productsSection.featuredProductConfig]);
 
     useEffect(() => {
         let cancelled = false;
@@ -3533,81 +3565,24 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         };
     }, [editor.entityId]);
 
-    useEffect(() => {
-        const featuredProductId = editor.draft.forside?.productsSection?.featuredProductConfig?.productId;
-        const selectedFeaturedProduct = featuredProducts.find((product) => product.id === featuredProductId);
 
-        if (!featuredProductId || selectedFeaturedProduct?.pricing_type === "STORFORMAT") {
-            setFeaturedQuantityOptions([]);
-            setLoadingFeaturedQuantities(false);
-            return;
-        }
-
-        let cancelled = false;
-
-        async function loadFeaturedQuantities() {
-            setLoadingFeaturedQuantities(true);
-
-            const { data, error } = await supabase
-                .from('generic_product_prices')
-                .select('quantity')
-                .eq('product_id', featuredProductId)
-                .order('quantity');
-
-            if (cancelled) return;
-
-            if (error) {
-                console.error('Error loading featured product quantities:', error);
-                setFeaturedQuantityOptions([]);
-            } else {
-                const quantities = Array.from(
-                    new Set(
-                        (data || [])
-                            .map((row: any) => Number(row.quantity))
-                            .filter((value) => Number.isFinite(value) && value > 0)
-                    )
-                ).sort((a, b) => a - b);
-                setFeaturedQuantityOptions(quantities);
-            }
-
-            setLoadingFeaturedQuantities(false);
-        }
-
-        loadFeaturedQuantities();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [editor.draft.forside?.productsSection?.featuredProductConfig?.productId, featuredProducts]);
 
     // Capture and upload a thumbnail from the preview iframe
     const capturePreviewThumbnail = useCallback(async (): Promise<string | null> => {
         setCapturingThumbnail(true);
         try {
             // Find the preview iframe
-            const iframe = document.querySelector('iframe[title="Branding Preview"]') as HTMLIFrameElement;
+            const iframe = workspaceRef.current?.querySelector<HTMLIFrameElement>('iframe[title="Branding Preview"]');
             if (!iframe || !iframe.contentWindow) {
                 console.warn('Preview iframe not found');
                 return null;
             }
 
-            // Request screenshot from iframe
-            const requestId = Date.now().toString();
-            const screenshotPromise = new Promise<string | null>((resolve, reject) => {
-                screenshotResolverRef.current = { resolve, reject };
-
-                // Timeout after 10 seconds
-                setTimeout(() => {
-                    if (screenshotResolverRef.current) {
-                        screenshotResolverRef.current.resolve(null);
-                        screenshotResolverRef.current = null;
-                    }
-                }, 10000);
+            const dataUrl = await requestPreviewScreenshot({
+                target: iframe.contentWindow,
+                host: window,
+                origin: window.location.origin,
             });
-
-            iframe.contentWindow.postMessage({ type: 'CAPTURE_SCREENSHOT', requestId }, '*');
-
-            const dataUrl = await screenshotPromise;
             if (!dataUrl) {
                 console.warn('Screenshot capture failed or timed out');
                 return null;
@@ -3643,34 +3618,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         }
     }, []);
 
-    const uploadFeaturedSidePanelImage = useCallback(async (file: File): Promise<string | null> => {
-        try {
-            setUploadingFeaturedSideImage(true);
-            const fileExt = file.name.split('.').pop() || 'png';
-            const fileName = `featured-side-panel-${Date.now()}.${fileExt}`;
-            const filePath = `branding/${editor.entityId || 'master'}/${fileName}`;
 
-            const { error: uploadError } = await supabase.storage
-                .from('product-images')
-                .upload(filePath, file, { upsert: true });
-
-            if (uploadError) {
-                console.error('Featured side panel upload error:', uploadError);
-                return null;
-            }
-
-            const { data: { publicUrl } } = supabase.storage
-                .from('product-images')
-                .getPublicUrl(filePath);
-
-            return publicUrl;
-        } catch (error) {
-            console.error('Error uploading featured side panel image:', error);
-            return null;
-        } finally {
-            setUploadingFeaturedSideImage(false);
-        }
-    }, [editor.entityId]);
 
     const uploadFeaturedMainImage = useCallback(async (file: File): Promise<string | null> => {
         try {
@@ -3701,34 +3649,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         }
     }, [editor.entityId]);
 
-    const uploadFeaturedGalleryImage = useCallback(async (file: File): Promise<string | null> => {
-        try {
-            setUploadingFeaturedGalleryImage(true);
-            const fileExt = file.name.split('.').pop() || 'png';
-            const fileName = `featured-gallery-${Date.now()}.${fileExt}`;
-            const filePath = `branding/${editor.entityId || 'master'}/${fileName}`;
 
-            const { error: uploadError } = await supabase.storage
-                .from('product-images')
-                .upload(filePath, file, { upsert: true });
-
-            if (uploadError) {
-                console.error('Featured gallery upload error:', uploadError);
-                return null;
-            }
-
-            const { data: { publicUrl } } = supabase.storage
-                .from('product-images')
-                .getPublicUrl(filePath);
-
-            return publicUrl;
-        } catch (error) {
-            console.error('Error uploading featured gallery image:', error);
-            return null;
-        } finally {
-            setUploadingFeaturedGalleryImage(false);
-        }
-    }, [editor.entityId]);
 
     const navigatePreviewTo = useCallback((path: string) => {
         setCurrentPreviewPage(path);
@@ -3749,12 +3670,27 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         });
     }, []);
 
-    const isHomePreviewPage = currentPreviewPage === "/"
-        || currentPreviewPage === "/shop"
-        || currentPreviewPage === "/produkter"
-        || currentPreviewPage === "/prisberegner";
-    const isProductPreviewPage = currentPreviewPage === "/produkt" || currentPreviewPage.startsWith("/produkt/");
-    const isCheckoutPreviewPage = currentPreviewPage === "/checkout";
+    const lastOrderPreviewProduct = useRef<string | null>(null);
+    useEffect(() => {
+        if (currentPreviewProduct?.slug) lastOrderPreviewProduct.current = currentPreviewProduct.slug;
+    }, [currentPreviewProduct?.slug]);
+
+    const navigatePreviewToOrderStep = (page: OrderFlowPage) => {
+        const slug = currentPreviewProduct?.slug || lastOrderPreviewProduct.current || featuredProducts.find(item => item.slug)?.slug;
+        if (page === 'calculator' && !slug) {
+            setPreviewNavigationRequest({ id: Date.now(), type: 'first-product' });
+        } else {
+            navigatePreviewTo(getOrderFlowPreviewPath(page, slug));
+        }
+    };
+
+    const previewPathname = getSiteDesignPreviewPathname(currentPreviewPage);
+    const isHomePreviewPage = previewPathname === "/"
+        || previewPathname === "/shop"
+        || previewPathname === "/produkter"
+        || previewPathname === "/prisberegner";
+    const isProductPreviewPage = previewPathname === "/produkt" || previewPathname.startsWith("/produkt/");
+    const isCheckoutPreviewPage = previewPathname === "/checkout";
 
     const currentPreviewPageLabel = useMemo(() => {
         if (currentPreviewPage.startsWith("/produkt/") || currentPreviewPage === "/produkt") {
@@ -3777,7 +3713,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
             : "Indholdsside";
 
     const allowedSections = useMemo(() => {
-        const sections = new Set<string>(["shop-layout", "site-package", "theme"]);
+        const sections = new Set<string>(["shop-layout", "site-package", "theme", "products", "featured-products", "order-flow", "main-buttons"]);
         if (capabilities.sections.logo) sections.add("logo");
         if (capabilities.sections.header) sections.add("header");
         if (capabilities.sections.footer) sections.add("footer");
@@ -3835,34 +3771,30 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     // ... existing publish/save handlers ...
 
     const persistCurrentProductPricingPreview = useCallback(async () => {
-        if (!productPricingPreview?.productId || !productPricingPreview.isDirty) {
+        if (!productPricingPreview?.productId || !productPricingPreview.isDirty) return true;
+        const submitted = productPricingPreview;
+        try {
+            const pricingStructure = await persistProductStylingPatches(supabase, editor.entityId, submitted.productId, submitted.patches);
+            const saved = { ...submitted, pricingStructure, isDirty: false };
+            setProductPricingPreview(current => {
+                if (current?.productId !== submitted.productId) return current;
+                return mergeProductStylingChange(current, saved);
+            });
+            setPersistedProductPricing(saved);
             return true;
-        }
-
-        const { error } = await supabase
-            .from('products')
-            .update({ pricing_structure: productPricingPreview.pricingStructure })
-            .eq('id', productPricingPreview.productId)
-            .eq('tenant_id', editor.entityId);
-
-        if (error) {
-            console.error('Error saving Produktvalgknapper settings:', error);
+        } catch (error) {
+            console.error('Error saving tenant-owned Produktvalgknapper settings:', error);
             toast.error('Kunne ikke gemme produktvalg-indstillinger');
             return false;
         }
-
-        setProductPricingPreview((current) => (
-            current?.productId === productPricingPreview.productId
-                ? { ...current, isDirty: false }
-                : current
-        ));
-        setPersistedProductPricing({
-            productId: productPricingPreview.productId,
-            pricingStructure: productPricingPreview.pricingStructure,
-        });
-
-        return true;
     }, [editor.entityId, productPricingPreview]);
+
+    const handleProductOptionPricingStructureChange = useCallback((change: ProductStylingChange | null) => {
+        if (!change) return;
+        setProductPricingPreview(current => !change.isDirty && current && current.productId !== change.productId
+            ? current : mergeProductStylingChange(current, change));
+        if (!change.isDirty && change.patches.length) setPersistedProductPricing(change);
+    }, []);
 
     const saveDraftWithProductSettings = useCallback(async () => {
         const productSettingsSaved = await persistCurrentProductPricingPreview();
@@ -4005,14 +3937,21 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         }
 
         switch (activeSection) {
+            case 'main-buttons':
+                return <MainButtonsControls draft={editor.draft} updateDraft={editor.updateDraft} designDefaults={(() => {
+                    const preset = VISUAL_THEME_PRESETS.find(item => item.id === String(editor.draft.themeSettings.visualThemePresetId || editor.draft.themeId));
+                    if (preset) return { ...DEFAULT_BRANDING, ...buildVisualThemePresetPatch(DEFAULT_BRANDING, preset) };
+                    if (getPrintDesignPreset(editor.draft.themeId)) {
+                        const base = applyPrintDesignPreset(DEFAULT_BRANDING, editor.draft.themeId);
+                        return { ...base, ...applyMainButtonSettings(base, { bgColor: '#087FC5', hoverBgColor: '#066BA8', textColor: '#FFFFFF', radiusPx: 6, fontSizePx: 16, paddingYPx: 14 }) };
+                    }
+                    return DEFAULT_BRANDING;
+                })()} />;
             case 'shop-layout': {
                 const selectedTemplateId = resolveStorefrontLayout(
                     editor.draft.forside?.layout,
                 ).templateId;
-                const selectedNavigationPreset = (
-                    editor.draft.header?.dropdownPreset
-                    || getShopTemplate(selectedTemplateId).recipe.navigation
-                ) as ShopNavigationPreset;
+                const selectedNavigationPreset = resolveDropdownPreset(editor.draft.header?.dropdownPreset);
 
                 const applyShopTemplate = (template: ShopTemplateDefinition) => {
                     const currentForside = editor.draft.forside || DEFAULT_BRANDING.forside;
@@ -4028,7 +3967,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             alignment: template.recipe.header.alignment,
                             height: template.recipe.header.height,
                             style: template.recipe.header.style,
-                            dropdownPreset: template.recipe.navigation,
+                            dropdownPreset: resolveDropdownPreset(editor.draft.header?.dropdownPreset),
                         },
                         footer: {
                             ...editor.draft.footer,
@@ -4404,6 +4343,13 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     </div>
                 );
             }
+            case 'order-flow':
+                return <OrderFlowDesignInspector branding={editor.draft}
+                    page={getOrderFlowPreviewPage(currentPreviewPage) || 'calculator'}
+                    onPageChange={navigatePreviewToOrderStep} onChange={(page, design) => {
+                    editor.updateDraft(applyOrderFlowDesign(editor.draft, page, design));
+                    if (getOrderFlowPreviewPage(currentPreviewPage) !== page) navigatePreviewToOrderStep(page);
+                }} />;
             case 'theme': {
                 const activeVisualThemePresetId = String((editor.draft.themeSettings as Record<string, unknown> | undefined)?.visualThemePresetId || "");
                 const applyVisualThemePreset = (preset: VisualThemePreset) => {
@@ -4416,6 +4362,14 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             <h3 className="text-sm font-medium">Tema</h3>
                             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                         </div>
+                        <PrintDesignPicker compact value={editor.draft.themeId} presentation={editor.draft.forside.productsSection.presentation} onChange={(id) => {
+                            editor.updateDraft(selectPrintDesignPreset(editor.draft, id));
+                            navigatePreviewTo('/');
+                            toast.success("Shopdesign anvendt i kladden");
+                        }} />
+                        <details className="rounded-lg border p-3">
+                            <summary className="cursor-pointer text-xs font-medium">Tidligere temaer og effekter</summary>
+                            <div className="mt-3 space-y-3">
                         <Card className="overflow-hidden">
                             <CardHeader className="space-y-1 p-2.5 pb-0">
                                 <div className="flex items-center gap-2">
@@ -4488,6 +4442,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 editor.updateDraft({ themeSettings });
                             }}
                         />
+                            </div>
+                        </details>
                     </div>
                 );
             }
@@ -4556,9 +4512,12 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
+                        <HeaderQuickControls draft={editor.draft} updateDraft={editor.updateDraft} />
+                        <details className="sd-banner-details" open={Boolean(focusedTargetId)} key={focusedTargetId || 'header-details'}>
+                            <summary>Menulayout, links og detaljer</summary>
                         <HeaderSection
                             header={editor.draft.header}
-                            onChange={(header) => editor.updateDraft({ header })}
+                            onChange={(header) => editor.updateDraft({ header, themeSettings: { ...editor.draft.themeSettings, dropdownColorsCustomized: true } })}
                             focusTargetId={focusedTargetId}
                             savedSwatches={editor.draft.savedSwatches}
                             onSaveSwatch={(color) => {
@@ -4573,6 +4532,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 });
                             }}
                         />
+                        </details>
                     </div>
                 );
             case 'banner':
@@ -4587,6 +4547,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
+                        <HeroQuickControls draft={editor.draft} updateDraft={editor.updateDraft} />
+                        <details className="sd-banner-details" open={Boolean(focusedTargetId) && !(getPrintDesignPreset(editor.draft.themeId) && editor.draft.hero.textSource !== 'slides' && ['site-design-focus-banner-title', 'site-design-focus-banner-subtitle'].includes(focusedTargetId!))}>
+                            <summary>Billeder, video og detaljer</summary>
                         <BannerEditor
                             draft={editor.draft}
                             updateDraft={editor.updateDraft}
@@ -4605,6 +4568,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 });
                             }}
                         />
+                        </details>
                     </div>
                 );
             case 'showcase':
@@ -4704,10 +4668,26 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         />
                     </div>
                 );
+            case 'featured-products': {
+                const productsSection = editor.draft.forside.productsSection;
+                const config = productsSection.featuredProductConfig;
+                return <FeaturedProductInspector config={config} products={featuredProducts}
+                    selectedSlideId={selectedFeaturedSlideId} onSelectSlide={setSelectedFeaturedSlideId}
+                    onChange={featuredProductConfig => editor.updateDraft({ forside: { ...editor.draft.forside, productsSection: { ...productsSection, featuredProductConfig } } })}
+                    disabled={!productsSection.enabled} loadingProducts={loadingFeaturedProducts}
+                    printDesign={Boolean(getPrintDesignPreset(editor.draft.themeId))}
+                    primaryColor={editor.draft.colors.primary || '#0EA5E9'}
+                    backgroundColor={editor.draft.themeId === 'print-nordic' ? '#f4f7f9' : editor.draft.themeId === 'print-product' ? '#f0f6fc' : '#ffffff'}
+                    titleColor={editor.draft.colors.headingText || '#0b1933'} bodyColor={editor.draft.colors.bodyText || '#4b5565'}
+                    buttonFontSize={productsSection.button.fontSizePx || 16} buttonPadding={productsSection.button.paddingYPx || 12}
+                    focusTarget={focusedTargetId} uploadImage={uploadFeaturedMainImage} uploading={uploadingFeaturedMainImage}
+                />;
+            }
             case 'products': {
                 const forside = editor.draft.forside;
                 const productsSection = forside.productsSection || DEFAULT_BRANDING.forside.productsSection;
                 const layoutStyle = productsSection.layoutStyle || 'cards';
+                const isPrintDesign = Boolean(getPrintDesignPreset(editor.draft.themeId));
                 const buttonConfig = productsSection.button || {
                     style: 'default',
                     bgColor: '#0EA5E9',
@@ -4738,55 +4718,6 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     opacity: 1,
                 };
                 const cardConfig = productsSection.card || {};
-                const featuredProductConfig = productsSection.featuredProductConfig || {
-                    enabled: false,
-                    productId: undefined,
-                    quantityPresets: [200, 500, 1000, 2500, 5000],
-                    showOptions: true,
-                    showPrice: true,
-                    overlapPx: 45,
-                    boxScalePct: 80,
-                    imageScalePct: 100,
-                    borderRadiusPx: 24,
-                    position: 'above',
-                    productSide: 'left',
-                    imageMode: 'contain',
-                    cardStyle: 'default',
-                    customTitle: '',
-                    customDescription: '',
-                    backgroundColor: '',
-                    galleryEnabled: false,
-                    galleryImages: [],
-                    galleryIntervalMs: 6000,
-                    ctaLabel: 'Bestil nu',
-                    ctaColor: '#0EA5E9',
-                    ctaTextColor: '#FFFFFF',
-                    sidePanel: {
-                        enabled: false,
-                        mode: 'banner',
-                        imageUrl: null,
-                        images: [],
-                        slideshowIntervalMs: 6000,
-                        showNavigationArrows: false,
-                        fadeTransition: true,
-                        transitionDurationMs: 700,
-                        borderRadiusPx: 24,
-                        boxScalePct: 80,
-                        imageScalePct: 100,
-                        title: 'Fremhæv din kampagne',
-                        subtitle: 'Brug denne flade til CTA, billede og ekstra budskab ved siden af det fremhævede produkt.',
-                        textAnimation: 'slide-up',
-                        overlayColor: '#000000',
-                        overlayOpacity: 0.35,
-                        titleColor: '#FFFFFF',
-                        subtitleColor: 'rgba(255, 255, 255, 0.9)',
-                        ctaLabel: 'Læs mere',
-                        ctaHref: '/shop',
-                        ctaColor: '#0EA5E9',
-                        ctaTextColor: '#FFFFFF',
-                        productId: undefined,
-                    },
-                };
                 const updateProductsSection = (updates: Partial<typeof productsSection>) => {
                     editor.updateDraft({
                         forside: {
@@ -4821,115 +4752,11 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
                     });
                 };
-                const updateFeaturedProductConfig = (updates: Partial<typeof featuredProductConfig>) => {
-                    updateProductsSection({
-                        featuredProductConfig: {
-                            ...featuredProductConfig,
-                            ...updates,
-                        },
-                    });
-                };
-                const updateFeaturedSidePanel = (updates: Partial<NonNullable<typeof featuredProductConfig.sidePanel>>) => {
-                    updateFeaturedProductConfig({
-                        sidePanel: {
-                            ...featuredProductConfig.sidePanel,
-                            ...updates,
-                        },
-                    });
-                };
-                const selectedFeaturedProduct = featuredProducts.find((product) => product.id === featuredProductConfig.productId);
-                const isFeaturedStorformat = selectedFeaturedProduct?.pricing_type === "STORFORMAT";
-                const quantityPresetSlots = Array.from({ length: 8 }, (_, index) => featuredProductConfig.quantityPresets?.[index] || null);
-                const updateQuantityPresetSlot = (index: number, value: string) => {
-                    const nextSlots = [...quantityPresetSlots];
-                    nextSlots[index] = value === "none" ? null : Number(value);
-                    const nextPresets = nextSlots.filter((entry): entry is number => Number.isFinite(entry) && entry > 0);
-                    updateFeaturedProductConfig({ quantityPresets: nextPresets });
-                };
-                const featuredSidePanelItems = (featuredProductConfig.sidePanel?.items || []).slice(0, 5);
-                const featuredSidePanelMode = featuredProductConfig.sidePanel?.mode || "banner";
-                const hasFeaturedSidePanelItems = featuredSidePanelItems.length > 0;
-                const isSimpleSideProductMode = !hasFeaturedSidePanelItems && featuredSidePanelMode === "product";
-                const isSimpleSideBannerMode = !hasFeaturedSidePanelItems && featuredSidePanelMode === "banner";
-                const showSidePanelTransitionControls = hasFeaturedSidePanelItems || featuredSidePanelMode === "banner";
-                const updateFeaturedSidePanelItems = (items: typeof featuredSidePanelItems) => {
-                    updateFeaturedSidePanel({ items: items.slice(0, 5) });
-                };
-                const createFeaturedSidePanelItemId = () => {
-                    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-                        return crypto.randomUUID();
-                    }
-                    return `side-panel-item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                };
-                const addFeaturedSidePanelItem = (mode: "banner" | "product") => {
-                    if (featuredSidePanelItems.length >= 5) return;
-                    updateFeaturedSidePanelItems([
-                        ...featuredSidePanelItems,
-                        {
-                            id: createFeaturedSidePanelItemId(),
-                            mode,
-                            productId: undefined,
-                            imageUrl: null,
-                            title: mode === "banner" ? "Nyt banner" : "",
-                            subtitle: "",
-                            ctaLabel: mode === "banner" ? "Læs mere" : "",
-                            ctaHref: mode === "banner" ? "/shop" : "",
-                        },
-                    ]);
-                };
-                const updateFeaturedSidePanelItem = (
-                    itemId: string,
-                    updates: Partial<(typeof featuredSidePanelItems)[number]>
-                ) => {
-                    updateFeaturedSidePanelItems(
-                        featuredSidePanelItems.map((item) => (
-                            item.id === itemId ? { ...item, ...updates } : item
-                        ))
-                    );
-                };
-                const removeFeaturedSidePanelItem = (itemId: string) => {
-                    updateFeaturedSidePanelItems(
-                        featuredSidePanelItems.filter((item) => item.id !== itemId)
-                    );
-                };
-                const featuredSideImages = Array.from(
-                    new Set(
-                        [
-                            ...(featuredProductConfig.sidePanel?.imageUrl ? [featuredProductConfig.sidePanel.imageUrl] : []),
-                            ...((featuredProductConfig.sidePanel?.images || []).filter(Boolean)),
-                        ].filter(Boolean)
-                    )
-                ).slice(0, 5) as string[];
-                const appendFeaturedSidePanelImage = (imageUrl: string) => {
-                    const nextImages = [...featuredSideImages, imageUrl].slice(0, 5);
-                    updateFeaturedSidePanel({
-                        imageUrl: nextImages[0] || null,
-                        images: nextImages,
-                    });
-                };
-                const removeFeaturedSidePanelImage = (imageUrl: string) => {
-                    const nextImages = featuredSideImages.filter((existing) => existing !== imageUrl);
-                    updateFeaturedSidePanel({
-                        imageUrl: nextImages[0] || null,
-                        images: nextImages,
-                    });
-                };
-                const featuredGalleryImages = Array.from(
-                    new Set((featuredProductConfig.galleryImages || []).filter(Boolean))
-                ).slice(0, 8) as string[];
-                const appendFeaturedGalleryImage = (imageUrl: string) => {
-                    const nextImages = [...featuredGalleryImages, imageUrl].slice(0, 8);
-                    updateFeaturedProductConfig({ galleryImages: nextImages });
-                };
-                const removeFeaturedGalleryImage = (imageUrl: string) => {
-                    const nextImages = featuredGalleryImages.filter((existing) => existing !== imageUrl);
-                    updateFeaturedProductConfig({ galleryImages: nextImages });
-                };
 
                 return (
                     <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-medium">Forside produkter</h3>
+                            <h3 className="text-sm font-medium">Forside og produktoversigt</h3>
                             <div className="flex items-center gap-2">
                                 {focusedTargetId?.startsWith("site-design-focus-products") && (
                                     <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFocusedSelection}>Vis alt</Button>
@@ -4937,11 +4764,30 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
+                        <Card>
+                            <CardContent className="space-y-4 pt-5">
+                                <ProductPresentationPicker value={productsSection.presentation} onChange={(presentation) => {
+                                    const updated = applyProductPresentation(editor.draft, presentation);
+                                    editor.updateDraft({ forside: updated.forside });
+                                    if (!isHomePreviewPage) navigatePreviewTo('/produkter');
+                                }} />
+                                {resolveProductPresentation(productsSection.presentation) !== 'standard' && <div className="space-y-4 border-t pt-4">
+                                    <div className="flex items-center justify-between gap-3"><Label htmlFor="product-presentation-enabled">Vis produkter på forsiden</Label><Switch id="product-presentation-enabled" checked={productsSection.enabled} onCheckedChange={checked => updateProductsSection({ enabled: checked })} /></div>
+                                    <div className="space-y-2"><Label htmlFor="product-presentation-title">Overskrift</Label><Input id="product-presentation-title" value={productsSection.presentationTitle || ''} placeholder={PRODUCT_PRESENTATIONS.find(item => item.id === productsSection.presentation)?.title} onChange={event => updateProductsSection({ presentationTitle: event.target.value })} /></div>
+                                    <div className="space-y-2"><Label htmlFor="product-presentation-subtitle">Undertekst</Label><Input id="product-presentation-subtitle" value={productsSection.presentationSubtitle || ''} placeholder="Vælg et produkt. Gør det til dit eget." onChange={event => updateProductsSection({ presentationSubtitle: event.target.value })} /></div>
+                                    <div className="flex items-center justify-between gap-3"><Label htmlFor="product-presentation-motion">Animation ved hover og tastaturfokus</Label><Switch id="product-presentation-motion" checked={productsSection.presentationMotion !== false} onCheckedChange={checked => updateProductsSection({ presentationMotion: checked })} /></div>
+                                    <p className="text-xs leading-relaxed text-muted-foreground">Visningen bruger shoppens produktbilleder og navne. Skift billeder under Produkter eller Ikoner. Kunder med reduceret bevægelse får rolige overgange.</p>
+                                    <Button variant="outline" size="sm" onClick={() => navigatePreviewTo('/produkter')}>Se produktoversigten i preview</Button>
+                                    <div className="sd-control-note"><p className="text-xs leading-relaxed">Det fremhævede produkt med prisberegner og billedgalleri hører til standardvisningen. De fire produktpræsentationer viser kataloget.</p><Button className="mt-3" variant="outline" size="sm" onClick={() => editor.updateDraft({ forside: applyProductPresentation(editor.draft, 'standard').forside })}>Brug standard med fremhævet produkt</Button></div>
+                                </div>}
+                            </CardContent>
+                        </Card>
+                        {resolveProductPresentation(productsSection.presentation) === 'standard' && <>
                         <Card id="site-design-focus-products-layout">
                             <CardHeader className="space-y-1">
-                                <CardTitle className="text-sm">Produktbokse på forsiden</CardTitle>
+                                <CardTitle className="text-sm">{isPrintDesign ? "Produktbokse i kataloget" : "Produktbokse på forsiden"}</CardTitle>
                                 <CardDescription className="text-xs text-muted-foreground">
-                                    Vælg hvor mange produktbokse der skal vises pr. række.
+                                    {isPrintDesign ? "Kolonner og kort gælder standardkataloget. Forsidens kategorier og fremhævede produkt følger shopdesignet." : "Vælg hvor mange produktbokse der skal vises pr. række."}
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
@@ -4970,7 +4816,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     </Select>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Forside produkt layout</Label>
+                                    <Label>{isPrintDesign ? "Produktkort i kataloget" : "Forside produkt layout"}</Label>
                                     <Select
                                         value={layoutStyle}
                                         onValueChange={(value) => updateProductsSection({ layoutStyle: value as typeof layoutStyle })}
@@ -4987,7 +4833,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <div className="flex items-center justify-between">
+                                <div hidden={isPrintDesign} className={isPrintDesign ? "hidden" : "flex items-center justify-between"}>
                                     <div>
                                         <Label>Vis kategori knap</Label>
                                         <p className="text-xs text-muted-foreground">Skjuler fanen “Storformat print”</p>
@@ -4998,7 +4844,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         disabled={!productsSection.enabled}
                                     />
                                 </div>
-                                <div id="site-design-focus-products-category-tabs" className="space-y-4 border-t pt-4">
+                                <div hidden={isPrintDesign} id="site-design-focus-products-category-tabs" className="space-y-4 border-t pt-4">
                                     <div>
                                         <Label className="text-sm font-semibold">Kategori-knapper</Label>
                                         <p className="text-xs text-muted-foreground">
@@ -5435,1468 +5281,11 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             />
                                         </div>
                                     </div>
-                                    <div id="site-design-focus-products-featured" className="space-y-4 border-t pt-4">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <Label className="text-sm font-semibold">Fremhævet produkt</Label>
-                                                <p className="text-xs text-muted-foreground">
-                                                    Stor produktboks med valgfri sidebanner eller sideprodukt.
-                                                </p>
-                                            </div>
-                                            <Switch
-                                                checked={featuredProductConfig.enabled}
-                                                onCheckedChange={(checked) => updateFeaturedProductConfig({ enabled: checked })}
-                                                disabled={!productsSection.enabled}
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>Produkt</Label>
-                                            <Select
-                                                value={featuredProductConfig.productId || "none"}
-                                                onValueChange={(value) => updateFeaturedProductConfig({
-                                                    productId: value === "none" ? undefined : value,
-                                                })}
-                                                disabled={!productsSection.enabled || loadingFeaturedProducts}
-                                            >
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder={loadingFeaturedProducts ? "Indlæser produkter..." : "Vælg produkt"} />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="none">Ingen valgt</SelectItem>
-                                                    {featuredProducts.map((product) => (
-                                                        <SelectItem key={product.id} value={product.id}>
-                                                            {product.name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                            {featuredProductConfig.productId && (
-                                                <p className="text-xs text-muted-foreground">
-                                                    Den store produktboks vises kun på forsiden.
-                                                </p>
-                                            )}
-                                        </div>
-
-                                        {/* Focused Box Styling Panel */}
-                                        <div id="site-design-focus-products-featured-box" className="space-y-4 rounded-lg border border-dashed border-orange-200 bg-orange-50/30 p-4">
-                                            <div className="flex items-center gap-2">
-                                                <div className="h-4 w-4 rounded-full bg-orange-500" />
-                                                <Label className="text-sm font-semibold">Boks styling</Label>
-                                                <span className="text-xs text-muted-foreground">- Klik på boksen i preview</span>
-                                            </div>
-                                            
-                                            {/* Box Background Color */}
-                                            <div className="grid gap-3 md:grid-cols-2">
-                                                <ColorPickerWithSwatches
-                                                    label="Boks farve"
-                                                    value={featuredProductConfig.backgroundColor || '#FFFFFF'}
-                                                    onChange={(value) => updateFeaturedProductConfig({ backgroundColor: value })}
-                                                    savedSwatches={editor.draft.savedSwatches}
-                                                    onSaveSwatch={(color) => {
-                                                        const swatches = editor.draft.savedSwatches || [];
-                                                        if (!swatches.includes(color) && swatches.length < 20) {
-                                                            editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                        }
-                                                    }}
-                                                    onRemoveSwatch={(color) => {
-                                                        editor.updateDraft({
-                                                            savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                        });
-                                                    }}
-                                                />
-                                            </div>
-
-                                            {/* Border Radius */}
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Runding på hjørner</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.borderRadiusPx ?? 24}px
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.borderRadiusPx ?? 24]}
-                                                    onValueChange={([value]) => updateFeaturedProductConfig({ borderRadiusPx: value })}
-                                                    min={0}
-                                                    max={48}
-                                                    step={2}
-                                                    className="py-1"
-                                                />
-                                            </div>
-
-                                            {/* Box Scale */}
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Størrelse på boks</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.boxScalePct ?? 80}%
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.boxScalePct ?? 80]}
-                                                    onValueChange={([value]) => updateFeaturedProductConfig({ boxScalePct: value })}
-                                                    min={60}
-                                                    max={140}
-                                                    step={5}
-                                                    className="py-1"
-                                                />
-                                            </div>
-
-                                            {/* Margin to Banner */}
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Margin til banner</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.overlapPx || 0}px
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.overlapPx || 0]}
-                                                    onValueChange={([value]) => updateFeaturedProductConfig({ overlapPx: value })}
-                                                    min={0}
-                                                    max={140}
-                                                    step={5}
-                                                    className="py-1"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="grid gap-4 xl:grid-cols-2">
-                                            <div className="space-y-2">
-                                                <Label>Placering</Label>
-                                                <div className="flex flex-wrap gap-2">
-                                                    <Button
-                                                        type="button"
-                                                        variant={featuredProductConfig.position === 'above' ? 'default' : 'outline'}
-                                                        size="sm"
-                                                        className="h-8 px-3 text-xs"
-                                                        onClick={() => updateFeaturedProductConfig({ position: 'above' })}
-                                                        disabled={!productsSection.enabled}
-                                                    >
-                                                        <ArrowUp className="h-4 w-4" />
-                                                        Over kategorier
-                                                    </Button>
-                                                    <Button
-                                                        type="button"
-                                                        variant={featuredProductConfig.position === 'below' ? 'default' : 'outline'}
-                                                        size="sm"
-                                                        className="h-8 px-3 text-xs"
-                                                        onClick={() => updateFeaturedProductConfig({ position: 'below' })}
-                                                        disabled={!productsSection.enabled}
-                                                    >
-                                                        <ArrowDown className="h-4 w-4" />
-                                                        Under kategorier
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Produktside</Label>
-                                                <div className="flex flex-wrap gap-2">
-                                                    <Button
-                                                        type="button"
-                                                        variant={featuredProductConfig.productSide === 'left' ? 'default' : 'outline'}
-                                                        size="sm"
-                                                        className="h-8 px-3 text-xs"
-                                                        onClick={() => updateFeaturedProductConfig({ productSide: 'left' })}
-                                                        disabled={!productsSection.enabled}
-                                                    >
-                                                        <ArrowLeft className="h-4 w-4" />
-                                                        Produkt venstre
-                                                    </Button>
-                                                    <Button
-                                                        type="button"
-                                                        variant={featuredProductConfig.productSide === 'right' ? 'default' : 'outline'}
-                                                        size="sm"
-                                                        className="h-8 px-3 text-xs"
-                                                        onClick={() => updateFeaturedProductConfig({ productSide: 'right' })}
-                                                        disabled={!productsSection.enabled}
-                                                    >
-                                                        <ArrowRight className="h-4 w-4" />
-                                                        Produkt højre
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="grid gap-3 md:grid-cols-2">
-                                            <div className="space-y-2">
-                                                <Label>Vis optioner</Label>
-                                                <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                                                    <span className="text-sm text-muted-foreground">
-                                                        Viser de første option-knapper i boksen
-                                                    </span>
-                                                    <Switch
-                                                        checked={featuredProductConfig.showOptions}
-                                                        onCheckedChange={(checked) => updateFeaturedProductConfig({ showOptions: checked })}
-                                                        disabled={!productsSection.enabled}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Vis pris</Label>
-                                                <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                                                    <span className="text-sm text-muted-foreground">
-                                                        Viser stor prisvisning i boksen
-                                                    </span>
-                                                    <Switch
-                                                        checked={featuredProductConfig.showPrice}
-                                                        onCheckedChange={(checked) => updateFeaturedProductConfig({ showPrice: checked })}
-                                                        disabled={!productsSection.enabled}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Vis også i produktliste</Label>
-                                                <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                                                    <span className="text-sm text-muted-foreground">
-                                                        Vis det fremhævede produkt igen i den normale produktliste
-                                                    </span>
-                                                    <Switch
-                                                        checked={featuredProductConfig.showInProductList ?? false}
-                                                        onCheckedChange={(checked) => updateFeaturedProductConfig({ showInProductList: checked })}
-                                                        disabled={!productsSection.enabled}
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div id="site-design-focus-products-featured-basics" className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                                            <div className="space-y-2">
-                                                <Label>Kort stil</Label>
-                                                <Select
-                                                    value={featuredProductConfig.cardStyle || "default"}
-                                                    onValueChange={(value) => updateFeaturedProductConfig({
-                                                        cardStyle: value as "default" | "glass",
-                                                    })}
-                                                    disabled={!productsSection.enabled}
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="default">Standard med let skygge</SelectItem>
-                                                        <SelectItem value="glass">Ingen skygge</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Produktbillede</Label>
-                                                <Select
-                                                    value={featuredProductConfig.imageMode || "contain"}
-                                                    onValueChange={(value) => updateFeaturedProductConfig({
-                                                        imageMode: value as "contain" | "full",
-                                                    })}
-                                                    disabled={!productsSection.enabled}
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="contain">Indsat billede</SelectItem>
-                                                        <SelectItem value="full">Fuldt billede i side</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>CTA tekst</Label>
-                                                <Input
-                                                    value={featuredProductConfig.ctaLabel || ""}
-                                                    onChange={(event) => updateFeaturedProductConfig({ ctaLabel: event.target.value })}
-                                                    placeholder="Bestil nu"
-                                                    disabled={!productsSection.enabled}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div id="site-design-focus-products-featured-copy" className="grid gap-3 md:grid-cols-2">
-                                            <div className="space-y-2">
-                                                <Label>Alternativ titel</Label>
-                                                <Input
-                                                    value={featuredProductConfig.customTitle || ""}
-                                                    onChange={(event) => updateFeaturedProductConfig({ customTitle: event.target.value })}
-                                                    placeholder="Vises kun i fremhævet boks"
-                                                    disabled={!productsSection.enabled}
-                                                />
-                                            </div>
-                                            <div className="space-y-2 md:col-span-2">
-                                                <Label>Alternativ beskrivelse</Label>
-                                                <Textarea
-                                                    value={featuredProductConfig.customDescription || ""}
-                                                    onChange={(event) => updateFeaturedProductConfig({ customDescription: event.target.value })}
-                                                    placeholder="Denne tekst påvirker ikke selve produktet"
-                                                    disabled={!productsSection.enabled}
-                                                    rows={3}
-                                                />
-                                            </div>
-                                        </div>
-                                        {/* CTA Button Styling Panel */}
-                                        <div id="site-design-focus-products-featured-cta" className="space-y-4 rounded-lg border border-dashed border-blue-200 bg-blue-50/30 p-4">
-                                            <div className="flex items-center gap-2">
-                                                <div className="h-4 w-4 rounded-full bg-blue-500" />
-                                                <Label className="text-sm font-semibold">CTA Knap</Label>
-                                                <span className="text-xs text-muted-foreground">- Klik på knappen i preview</span>
-                                            </div>
-
-                                            {/* Button Text */}
-                                            <div className="space-y-2">
-                                                <Label>Knap tekst</Label>
-                                                <Input
-                                                    value={featuredProductConfig.ctaLabel || ""}
-                                                    onChange={(event) => updateFeaturedProductConfig({ ctaLabel: event.target.value })}
-                                                    placeholder="Bestil nu"
-                                                    disabled={!productsSection.enabled}
-                                                />
-                                            </div>
-
-                                            {/* Button Colors */}
-                                            <div className="grid gap-3 md:grid-cols-2">
-                                                <ColorPickerWithSwatches
-                                                    label="Knap farve"
-                                                    value={featuredProductConfig.ctaColor || '#0EA5E9'}
-                                                    onChange={(value) => updateFeaturedProductConfig({ ctaColor: value })}
-                                                    savedSwatches={editor.draft.savedSwatches}
-                                                    onSaveSwatch={(color) => {
-                                                        const swatches = editor.draft.savedSwatches || [];
-                                                        if (!swatches.includes(color) && swatches.length < 20) {
-                                                            editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                        }
-                                                    }}
-                                                    onRemoveSwatch={(color) => {
-                                                        editor.updateDraft({
-                                                            savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                        });
-                                                    }}
-                                                />
-                                                <ColorPickerWithSwatches
-                                                    label="Tekst farve"
-                                                    value={featuredProductConfig.ctaTextColor || '#FFFFFF'}
-                                                    onChange={(value) => updateFeaturedProductConfig({ ctaTextColor: value })}
-                                                    savedSwatches={editor.draft.savedSwatches}
-                                                    onSaveSwatch={(color) => {
-                                                        const swatches = editor.draft.savedSwatches || [];
-                                                        if (!swatches.includes(color) && swatches.length < 20) {
-                                                            editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                        }
-                                                    }}
-                                                    onRemoveSwatch={(color) => {
-                                                        editor.updateDraft({
-                                                            savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                        });
-                                                    }}
-                                                />
-                                            </div>
-
-                                            {/* Button Border Radius */}
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Runding på knap</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.ctaBorderRadiusPx ?? 8}px
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.ctaBorderRadiusPx ?? 8]}
-                                                    onValueChange={([value]) => updateFeaturedProductConfig({ ctaBorderRadiusPx: value })}
-                                                    min={0}
-                                                    max={32}
-                                                    step={2}
-                                                    className="py-1"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {/* Image Panel - Focused */}
-                                        <div id="site-design-focus-products-featured-image" className="space-y-4 rounded-lg border border-dashed border-purple-200 bg-purple-50/30 p-4">
-                                            <div className="flex items-center gap-2">
-                                                <div className="h-4 w-4 rounded-full bg-purple-500" />
-                                                <Label className="text-sm font-semibold">Produktbillede</Label>
-                                                <span className="text-xs text-muted-foreground">- Klik på billedet i preview</span>
-                                            </div>
-
-                                            {/* Image Mode */}
-                                            <div className="space-y-2">
-                                                <Label>Billedvisning</Label>
-                                                <div className="flex flex-wrap gap-2">
-                                                    <Button
-                                                        type="button"
-                                                        variant={featuredProductConfig.imageMode === 'contain' ? 'default' : 'outline'}
-                                                        size="sm"
-                                                        className="h-8 px-3 text-xs"
-                                                        onClick={() => updateFeaturedProductConfig({ imageMode: 'contain' })}
-                                                        disabled={!productsSection.enabled}
-                                                    >
-                                                        Standard (i boks)
-                                                    </Button>
-                                                    <Button
-                                                        type="button"
-                                                        variant={featuredProductConfig.imageMode === 'full' ? 'default' : 'outline'}
-                                                        size="sm"
-                                                        className="h-8 px-3 text-xs"
-                                                        onClick={() => updateFeaturedProductConfig({ imageMode: 'full' })}
-                                                        disabled={!productsSection.enabled}
-                                                    >
-                                                        Fuld flade
-                                                    </Button>
-                                                </div>
-                                            </div>
-
-                                            {/* Image Scale */}
-                                            {featuredProductConfig.imageMode !== 'full' && (
-                                                <div className="space-y-2">
-                                                    <div className="flex items-center justify-between">
-                                                        <Label>Billede størrelse</Label>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {featuredProductConfig.imageScalePct ?? 100}%
-                                                        </span>
-                                                    </div>
-                                                    <Slider
-                                                        value={[featuredProductConfig.imageScalePct ?? 100]}
-                                                        onValueChange={([value]) => updateFeaturedProductConfig({ imageScalePct: value })}
-                                                        min={60}
-                                                        max={140}
-                                                        step={5}
-                                                        className="py-1"
-                                                    />
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Skalerer kun billedet i venstre felt, uden at påvirke tekst/pris til højre
-                                                    </p>
-                                                </div>
-                                            )}
-
-                                            <div className="space-y-3 rounded-lg border border-dashed border-purple-200/80 bg-white/70 p-3">
-                                                <div>
-                                                    <Label>Tilpasset produktbillede</Label>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Erstat produktets standard billede med dit eget. Bruges når galleri er slået fra.
-                                                    </p>
-                                                </div>
-                                                {featuredProductConfig.customImageUrl && (
-                                                    <div className="flex items-start gap-3">
-                                                        <div className="relative w-32 overflow-hidden rounded-md border bg-muted">
-                                                            <img
-                                                                src={featuredProductConfig.customImageUrl}
-                                                                alt="Tilpasset billede"
-                                                                className="h-24 w-full object-contain"
-                                                            />
-                                                        </div>
-                                                        <Button
-                                                            type="button"
-                                                            variant="destructive"
-                                                            size="sm"
-                                                            className="shrink-0"
-                                                            onClick={() => updateFeaturedProductConfig({ customImageUrl: null })}
-                                                            disabled={!productsSection.enabled || uploadingFeaturedMainImage}
-                                                        >
-                                                            Fjern billede
-                                                        </Button>
-                                                    </div>
-                                                )}
-                                                <Input
-                                                    type="file"
-                                                    accept="image/*"
-                                                    disabled={!productsSection.enabled || uploadingFeaturedMainImage}
-                                                    onChange={async (event) => {
-                                                        const input = event.currentTarget;
-                                                        const file = input.files?.[0];
-                                                        if (!file) return;
-                                                        const publicUrl = await uploadFeaturedMainImage(file);
-                                                        if (publicUrl) {
-                                                            updateFeaturedProductConfig({ customImageUrl: publicUrl });
-                                                        }
-                                                        input.value = "";
-                                                    }}
-                                                />
-                                                {uploadingFeaturedMainImage && (
-                                                    <p className="text-xs text-muted-foreground">Uploader...</p>
-                                                )}
-                                            </div>
-
-                                            {/* Gallery Toggle */}
-                                            <div className="flex items-center justify-between pt-2 border-t border-purple-200">
-                                                <div>
-                                                    <Label className="text-sm">Brug galleri</Label>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Vis flere billeder som slideshow
-                                                    </p>
-                                                </div>
-                                                <Switch
-                                                    checked={featuredProductConfig.galleryEnabled ?? false}
-                                                    onCheckedChange={(checked) => updateFeaturedProductConfig({ galleryEnabled: checked })}
-                                                    disabled={!productsSection.enabled}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {/* Gallery Panel */}
-                                        <div id="site-design-focus-products-featured-gallery" className="space-y-3 rounded-lg border border-dashed p-3">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <Label>Brug galleri i stedet for produktfoto</Label>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Upload flere billeder og roter dem i den fremhævede boks.
-                                                    </p>
-                                                </div>
-                                                <Switch
-                                                    checked={featuredProductConfig.galleryEnabled ?? false}
-                                                    onCheckedChange={(checked) => updateFeaturedProductConfig({ galleryEnabled: checked })}
-                                                    disabled={!productsSection.enabled}
-                                                />
-                                            </div>
-                                            {(featuredProductConfig.galleryEnabled ?? false) && (
-                                                <div className="space-y-3">
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <Label>Galleri billeder</Label>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {featuredGalleryImages.length}/8
-                                                            </span>
-                                                        </div>
-                                                        <Input
-                                                            type="file"
-                                                            accept="image/*"
-                                                            disabled={!productsSection.enabled || uploadingFeaturedGalleryImage || featuredGalleryImages.length >= 8}
-                                                            onChange={async (event) => {
-                                                                const input = event.currentTarget;
-                                                                const file = input.files?.[0];
-                                                                if (!file) return;
-                                                                const publicUrl = await uploadFeaturedGalleryImage(file);
-                                                                if (publicUrl) {
-                                                                    appendFeaturedGalleryImage(publicUrl);
-                                                                }
-                                                                input.value = "";
-                                                            }}
-                                                        />
-                                                        <p className="text-xs text-muted-foreground">
-                                                            Der må være op til 8 billeder i galleriet.
-                                                        </p>
-                                                    </div>
-                                                    {featuredGalleryImages.length > 0 && (
-                                                        <div className="grid gap-2 sm:grid-cols-2">
-                                                            {featuredGalleryImages.map((imageUrl, index) => (
-                                                                <div key={`${imageUrl}-${index}`} className="rounded-md border bg-background p-2">
-                                                                    <div className="aspect-[4/3] overflow-hidden rounded-md bg-muted">
-                                                                        <img
-                                                                            src={imageUrl}
-                                                                            alt={`Galleri billede ${index + 1}`}
-                                                                            className="h-full w-full object-cover"
-                                                                        />
-                                                                    </div>
-                                                                    <div className="mt-2 flex items-center justify-between gap-2">
-                                                                        <span className="text-xs text-muted-foreground">
-                                                                            Billede {index + 1}
-                                                                        </span>
-                                                                        <Button
-                                                                            type="button"
-                                                                            variant="ghost"
-                                                                            size="sm"
-                                                                            className="h-7 px-2 text-destructive"
-                                                                            onClick={() => removeFeaturedGalleryImage(imageUrl)}
-                                                                        >
-                                                                            <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                                                            Fjern
-                                                                        </Button>
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <Label>Skifteinterval</Label>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {Math.round((featuredProductConfig.galleryIntervalMs ?? 6000) / 1000)} sek
-                                                            </span>
-                                                        </div>
-                                                        <Slider
-                                                            value={[(featuredProductConfig.galleryIntervalMs ?? 6000) / 1000]}
-                                                            onValueChange={([value]) => updateFeaturedProductConfig({ galleryIntervalMs: value * 1000 })}
-                                                            min={3}
-                                                            max={12}
-                                                            step={1}
-                                                            className="py-1"
-                                                            disabled={!productsSection.enabled}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="grid gap-3 md:grid-cols-3">
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Runding på produktboks</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.borderRadiusPx ?? 24}px
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.borderRadiusPx ?? 24]}
-                                                    onValueChange={([value]) => updateFeaturedProductConfig({ borderRadiusPx: value })}
-                                                    min={0}
-                                                    max={48}
-                                                    step={2}
-                                                    className="py-1"
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Runding på sidepanel</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.sidePanel?.borderRadiusPx ?? 24}px
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.sidePanel?.borderRadiusPx ?? 24]}
-                                                    onValueChange={([value]) => updateFeaturedSidePanel({ borderRadiusPx: value })}
-                                                    min={0}
-                                                    max={48}
-                                                    step={2}
-                                                    className="py-1"
-                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Størrelse på sidepanel</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.sidePanel?.boxScalePct ?? 80}%
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.sidePanel?.boxScalePct ?? 80]}
-                                                    onValueChange={([value]) => updateFeaturedSidePanel({ boxScalePct: value })}
-                                                    min={60}
-                                                    max={140}
-                                                    step={5}
-                                                    className="py-1"
-                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Størrelse på sidepanel-billede</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.sidePanel?.imageScalePct ?? 100}%
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.sidePanel?.imageScalePct ?? 100]}
-                                                    onValueChange={([value]) => updateFeaturedSidePanel({ imageScalePct: value })}
-                                                    min={60}
-                                                    max={140}
-                                                    step={5}
-                                                    className="py-1"
-                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>Mængdeknapper</Label>
-                                            {isFeaturedStorformat ? (
-                                                <div className="rounded-md border px-3 py-3 text-xs text-muted-foreground">
-                                                    Storformat bruger faste mængdeknapper sammen med bredde/højde i den fremhævede boks.
-                                                </div>
-                                            ) : (
-                                                <div className="space-y-2">
-                                                    <div className="grid gap-2 md:grid-cols-4">
-                                                        {quantityPresetSlots.map((quantity, index) => (
-                                                            <Select
-                                                                key={`featured-qty-slot-${index}`}
-                                                                value={quantity ? String(quantity) : "none"}
-                                                                onValueChange={(value) => updateQuantityPresetSlot(index, value)}
-                                                                disabled={!productsSection.enabled || loadingFeaturedQuantities}
-                                                            >
-                                                                <SelectTrigger>
-                                                                    <SelectValue placeholder={`Plads ${index + 1}`} />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    <SelectItem value="none">Tom</SelectItem>
-                                                                    {featuredQuantityOptions.map((optionQuantity) => (
-                                                                        <SelectItem
-                                                                            key={`featured-qty-${index}-${optionQuantity}`}
-                                                                            value={String(optionQuantity)}
-                                                                        >
-                                                                            {optionQuantity.toLocaleString("da-DK")}
-                                                                        </SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
-                                                        ))}
-                                                    </div>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Op til 2 rækker med 4 mængdeknapper. Tomme pladser vises ikke på forsiden.
-                                                    </p>
-                                                </div>
-                                            )}
-                                        </div>
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Margin til banner</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.overlapPx || 0}px
-                                                    </span>
-                                                </div>
-                                            <Slider
-                                                value={[featuredProductConfig.overlapPx || 0]}
-                                                onValueChange={([value]) => updateFeaturedProductConfig({ overlapPx: value })}
-                                                min={0}
-                                                max={140}
-                                                step={5}
-                                                className="py-1"
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Størrelse på fremhævet boks</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.boxScalePct ?? 80}%
-                                                    </span>
-                                                </div>
-                                            <Slider
-                                                value={[featuredProductConfig.boxScalePct ?? 80]}
-                                                onValueChange={([value]) => updateFeaturedProductConfig({ boxScalePct: value })}
-                                                min={60}
-                                                max={140}
-                                                step={5}
-                                                className="py-1"
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Venstre billede (højde)</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.imageScalePct ?? 100}%
-                                                    </span>
-                                                </div>
-                                            <Slider
-                                                value={[featuredProductConfig.imageScalePct ?? 100]}
-                                                onValueChange={([value]) => updateFeaturedProductConfig({ imageScalePct: value })}
-                                                min={60}
-                                                max={140}
-                                                step={5}
-                                                className="py-1"
-                                                disabled={(featuredProductConfig.imageMode || 'contain') === 'full'}
-                                            />
-                                            {(featuredProductConfig.imageMode || 'contain') === 'full' && (
-                                                <p className="text-xs text-muted-foreground">
-                                                    Virker kun når billedet vises som venstrestillet billede og ikke som fuld flade.
-                                                </p>
-                                            )}
-                                            {(featuredProductConfig.imageMode || 'contain') !== 'full' && (
-                                                <p className="text-xs text-muted-foreground">
-                                                    Billedet skaleres kun i venstre felt, forankret i bunden, og påvirker ikke tekst/prisfeltet til højre.
-                                                </p>
-                                            )}
-                                        </div>
-                                        <div className="grid gap-3 md:grid-cols-3">
-                                            <ColorPickerWithSwatches
-                                                label="Baggrund på produktboks"
-                                                value={featuredProductConfig.backgroundColor || '#FFFFFF'}
-                                                onChange={(value) => updateFeaturedProductConfig({ backgroundColor: value })}
-                                                savedSwatches={editor.draft.savedSwatches}
-                                                onSaveSwatch={(color) => {
-                                                    const swatches = editor.draft.savedSwatches || [];
-                                                    if (!swatches.includes(color) && swatches.length < 20) {
-                                                        editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                    }
-                                                }}
-                                                onRemoveSwatch={(color) => {
-                                                    editor.updateDraft({
-                                                        savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                    });
-                                                }}
-                                            />
-                                            <ColorPickerWithSwatches
-                                                label="CTA farve"
-                                                value={featuredProductConfig.ctaColor || '#0EA5E9'}
-                                                onChange={(value) => updateFeaturedProductConfig({ ctaColor: value })}
-                                                savedSwatches={editor.draft.savedSwatches}
-                                                onSaveSwatch={(color) => {
-                                                    const swatches = editor.draft.savedSwatches || [];
-                                                    if (!swatches.includes(color) && swatches.length < 20) {
-                                                        editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                    }
-                                                }}
-                                                onRemoveSwatch={(color) => {
-                                                    editor.updateDraft({
-                                                        savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                    });
-                                                }}
-                                            />
-                                            <ColorPickerWithSwatches
-                                                label="CTA tekstfarve"
-                                                value={featuredProductConfig.ctaTextColor || '#FFFFFF'}
-                                                onChange={(value) => updateFeaturedProductConfig({ ctaTextColor: value })}
-                                                savedSwatches={editor.draft.savedSwatches}
-                                                onSaveSwatch={(color) => {
-                                                    const swatches = editor.draft.savedSwatches || [];
-                                                    if (!swatches.includes(color) && swatches.length < 20) {
-                                                        editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                    }
-                                                }}
-                                                onRemoveSwatch={(color) => {
-                                                    editor.updateDraft({
-                                                        savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                    });
-                                                }}
-                                            />
-                                        </div>
-                                        <div id="site-design-focus-products-featured-side-panel" className="space-y-4 rounded-lg border border-dashed border-emerald-200 bg-emerald-50/20 p-4">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <Label className="text-sm font-semibold">Sidepanel</Label>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Vælg mellem kampagnebanner eller ekstra produkt ved siden af.
-                                                    </p>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Klik direkte på sidepanelet i preview for at hoppe hertil.
-                                                    </p>
-                                                </div>
-                                                <Switch
-                                                    checked={featuredProductConfig.sidePanel?.enabled ?? false}
-                                                    onCheckedChange={(checked) => updateFeaturedSidePanel({ enabled: checked })}
-                                                    disabled={!productsSection.enabled}
-                                                />
-                                            </div>
-                                            <div className="grid gap-3">
-                                                <div className="space-y-2">
-                                                    <Label>Sidepanel type</Label>
-                                                    <Select
-                                                        value={featuredSidePanelMode}
-                                                        onValueChange={(value) => updateFeaturedSidePanel({ mode: value as "banner" | "product" })}
-                                                        disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                    >
-                                                        <SelectTrigger>
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="banner">Banner</SelectItem>
-                                                            <SelectItem value="product">Produktkort</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                                {isSimpleSideProductMode && (
-                                                    <div className="space-y-2">
-                                                        <Label>Sideprodukt</Label>
-                                                        <Select
-                                                            value={featuredProductConfig.sidePanel?.productId || "none"}
-                                                            onValueChange={(value) => updateFeaturedSidePanel({
-                                                                productId: value === "none" ? undefined : value,
-                                                            })}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        >
-                                                            <SelectTrigger>
-                                                                <SelectValue placeholder="Vælg produkt" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="none">Ingen valgt</SelectItem>
-                                                                {featuredProducts.map((product) => (
-                                                                    <SelectItem key={product.id} value={product.id}>
-                                                                        {product.name}
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
-                                                        <p className="text-xs text-muted-foreground">
-                                                            Vælg et ekstra produkt til sidepanelet. Bannerfelter skjules i denne tilstand.
-                                                        </p>
-                                                    </div>
-                                                )}
-                                                {showSidePanelTransitionControls && (
-                                                <div className="space-y-2">
-                                                    <div className="flex items-center justify-between">
-                                                        <Label>Skifteinterval</Label>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {Math.round((featuredProductConfig.sidePanel?.slideshowIntervalMs ?? 6000) / 1000)} sek
-                                                        </span>
-                                                    </div>
-                                                    <Slider
-                                                        value={[(featuredProductConfig.sidePanel?.slideshowIntervalMs ?? 6000) / 1000]}
-                                                        onValueChange={([value]) => updateFeaturedSidePanel({ slideshowIntervalMs: value * 1000 })}
-                                                        min={2}
-                                                        max={15}
-                                                        step={1}
-                                                        className="py-1"
-                                                        disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                    />
-                                                </div>
-                                                )}
-                                                {showSidePanelTransitionControls && (
-                                                <div className="grid gap-3 md:grid-cols-2">
-                                                    <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                                                        <div>
-                                                            <Label>Fade overgang</Label>
-                                                            <p className="text-xs text-muted-foreground">
-                                                                Blød overgang mellem bannere
-                                                            </p>
-                                                        </div>
-                                                        <Switch
-                                                            checked={featuredProductConfig.sidePanel?.fadeTransition ?? true}
-                                                            onCheckedChange={(checked) => updateFeaturedSidePanel({ fadeTransition: checked })}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        />
-                                                    </div>
-                                                    <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                                                        <div>
-                                                            <Label>Vis pile i banner</Label>
-                                                            <p className="text-xs text-muted-foreground">
-                                                                Manuel forrige/næste i banneret
-                                                            </p>
-                                                        </div>
-                                                        <Switch
-                                                            checked={featuredProductConfig.sidePanel?.showNavigationArrows ?? false}
-                                                            onCheckedChange={(checked) => updateFeaturedSidePanel({ showNavigationArrows: checked })}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                )}
-                                                {showSidePanelTransitionControls && (featuredProductConfig.sidePanel?.fadeTransition ?? true) && (
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <Label>Fade varighed</Label>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {featuredProductConfig.sidePanel?.transitionDurationMs ?? 700} ms
-                                                            </span>
-                                                        </div>
-                                                        <Slider
-                                                            value={[featuredProductConfig.sidePanel?.transitionDurationMs ?? 700]}
-                                                            onValueChange={([value]) => updateFeaturedSidePanel({ transitionDurationMs: value })}
-                                                            min={150}
-                                                            max={1800}
-                                                            step={50}
-                                                            className="py-1"
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        />
-                                                    </div>
-                                                )}
-                                                <div className="space-y-3 rounded-lg border border-dashed p-3">
-                                                    <div className="flex items-center justify-between gap-3">
-                                                        <div>
-                                                            <Label>Roterende elementer</Label>
-                                                            <p className="text-xs text-muted-foreground">
-                                                                Tilføj op til 5 sidepanel-elementer. Hvis der er elementer her, bruges de i stedet for det enkle sidepanel ovenfor.
-                                                            </p>
-                                                        </div>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {featuredSidePanelItems.length}/5
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        <Button
-                                                            type="button"
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => addFeaturedSidePanelItem("product")}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false) || featuredSidePanelItems.length >= 5}
-                                                        >
-                                                            Tilføj produkt
-                                                        </Button>
-                                                        <Button
-                                                            type="button"
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => addFeaturedSidePanelItem("banner")}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false) || featuredSidePanelItems.length >= 5}
-                                                        >
-                                                            Tilføj banner
-                                                        </Button>
-                                                    </div>
-                                                    {featuredSidePanelItems.length > 0 && (
-                                                        <div className="space-y-3">
-                                                            {featuredSidePanelItems.map((item, index) => (
-                                                                <div key={item.id} className="rounded-lg border bg-background p-3 space-y-3">
-                                                                    <div className="flex items-center justify-between gap-3">
-                                                                        <Badge variant="secondary">
-                                                                            {item.mode === "product" ? `Produkt ${index + 1}` : `Banner ${index + 1}`}
-                                                                        </Badge>
-                                                                        <Button
-                                                                            type="button"
-                                                                            variant="ghost"
-                                                                            size="sm"
-                                                                            className="h-8 px-2 text-destructive"
-                                                                            onClick={() => removeFeaturedSidePanelItem(item.id)}
-                                                                        >
-                                                                            <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                                                            Fjern
-                                                                        </Button>
-                                                                    </div>
-                                                                    <div className="space-y-2">
-                                                                        <Label>Type</Label>
-                                                                        <Select
-                                                                            value={item.mode}
-                                                                            onValueChange={(value) => updateFeaturedSidePanelItem(item.id, { mode: value as "banner" | "product" })}
-                                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                                        >
-                                                                            <SelectTrigger>
-                                                                                <SelectValue />
-                                                                            </SelectTrigger>
-                                                                            <SelectContent>
-                                                                                <SelectItem value="product">Produktkort</SelectItem>
-                                                                                <SelectItem value="banner">Banner</SelectItem>
-                                                                            </SelectContent>
-                                                                        </Select>
-                                                                    </div>
-                                                                    {item.mode === "product" ? (
-                                                                        <div className="space-y-2">
-                                                                            <Label>Produkt</Label>
-                                                                            <Select
-                                                                                value={item.productId || "none"}
-                                                                                onValueChange={(value) => updateFeaturedSidePanelItem(item.id, {
-                                                                                    productId: value === "none" ? undefined : value,
-                                                                                })}
-                                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                                            >
-                                                                                <SelectTrigger>
-                                                                                    <SelectValue placeholder="Vælg produkt" />
-                                                                                </SelectTrigger>
-                                                                                <SelectContent>
-                                                                                    <SelectItem value="none">Ingen valgt</SelectItem>
-                                                                                    {featuredProducts.map((product) => (
-                                                                                        <SelectItem key={product.id} value={product.id}>
-                                                                                            {product.name}
-                                                                                        </SelectItem>
-                                                                                    ))}
-                                                                                </SelectContent>
-                                                                            </Select>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="space-y-3">
-                                                                            <div className="space-y-2">
-                                                                                <Label>Banner billede</Label>
-                                                                                <Input
-                                                                                    type="file"
-                                                                                    accept="image/*"
-                                                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false) || uploadingFeaturedSideImage}
-                                                                                    onChange={async (event) => {
-                                                                                        const input = event.currentTarget;
-                                                                                        const file = input.files?.[0];
-                                                                                        if (!file) return;
-                                                                                        const publicUrl = await uploadFeaturedSidePanelImage(file);
-                                                                                        if (publicUrl) {
-                                                                                            updateFeaturedSidePanelItem(item.id, { imageUrl: publicUrl });
-                                                                                        }
-                                                                                        input.value = "";
-                                                                                    }}
-                                                                                />
-                                                                                {item.imageUrl && (
-                                                                                    <div className="rounded-md border bg-muted p-2 space-y-2">
-                                                                                        <div className="aspect-[4/3] overflow-hidden rounded-md bg-background">
-                                                                                            <img
-                                                                                                src={item.imageUrl}
-                                                                                                alt={`Banner ${index + 1}`}
-                                                                                                className="h-full w-full object-cover"
-                                                                                            />
-                                                                                        </div>
-                                                                                        <Button
-                                                                                            type="button"
-                                                                                            variant="ghost"
-                                                                                            size="sm"
-                                                                                            className="h-8 px-2 text-destructive"
-                                                                                            onClick={() => updateFeaturedSidePanelItem(item.id, { imageUrl: null })}
-                                                                                        >
-                                                                                            <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                                                                            Fjern billede
-                                                                                        </Button>
-                                                                                    </div>
-                                                                                )}
-                                                                            </div>
-                                                                            <div className="space-y-2">
-                                                                                <Label>Overskrift</Label>
-                                                                                <Input
-                                                                                    value={item.title || ""}
-                                                                                    onChange={(event) => updateFeaturedSidePanelItem(item.id, { title: event.target.value })}
-                                                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                                                />
-                                                                            </div>
-                                                                            <div className="space-y-2">
-                                                                                <Label>Underrubrik</Label>
-                                                                                <Input
-                                                                                    value={item.subtitle || ""}
-                                                                                    onChange={(event) => updateFeaturedSidePanelItem(item.id, { subtitle: event.target.value })}
-                                                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                                                />
-                                                                            </div>
-                                                                            <div className="grid gap-3 md:grid-cols-2">
-                                                                                <div className="space-y-2">
-                                                                                    <Label>CTA tekst</Label>
-                                                                                    <Input
-                                                                                        value={item.ctaLabel || ""}
-                                                                                        onChange={(event) => updateFeaturedSidePanelItem(item.id, { ctaLabel: event.target.value })}
-                                                                                        disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                                                    />
-                                                                                </div>
-                                                                                <div className="space-y-2">
-                                                                                    <Label>CTA link</Label>
-                                                                                    <Input
-                                                                                        value={item.ctaHref || ""}
-                                                                                        onChange={(event) => updateFeaturedSidePanelItem(item.id, { ctaHref: event.target.value })}
-                                                                                        placeholder="/shop eller https://..."
-                                                                                        disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                                                    />
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            {isSimpleSideBannerMode && (
-                                                <>
-                                                    <div className="space-y-3 rounded-lg border border-dashed p-3">
-                                                        <div className="space-y-2">
-                                                            <div className="flex items-center justify-between">
-                                                                <Label>Banner billeder</Label>
-                                                                <span className="text-xs text-muted-foreground">
-                                                                    {featuredSideImages.length}/5
-                                                                </span>
-                                                            </div>
-                                                            <Input
-                                                                type="file"
-                                                                accept="image/*"
-                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false) || uploadingFeaturedSideImage || featuredSideImages.length >= 5}
-                                                                onChange={async (event) => {
-                                                                    const input = event.currentTarget;
-                                                                    const file = input.files?.[0];
-                                                                    if (!file) return;
-                                                                    const publicUrl = await uploadFeaturedSidePanelImage(file);
-                                                                    if (publicUrl) {
-                                                                        appendFeaturedSidePanelImage(publicUrl);
-                                                                    }
-                                                                    input.value = "";
-                                                                }}
-                                                            />
-                                                            <p className="text-xs text-muted-foreground">
-                                                                Upload op til 5 billeder. Hvis der er flere end ét, roterer sidepanelet automatisk.
-                                                            </p>
-                                                        </div>
-                                                        {featuredSideImages.length > 0 && (
-                                                            <div className="grid gap-2 sm:grid-cols-2">
-                                                                {featuredSideImages.map((imageUrl, index) => (
-                                                                    <div key={`${imageUrl}-${index}`} className="rounded-md border bg-background p-2">
-                                                                        <div className="aspect-[4/3] overflow-hidden rounded-md bg-muted">
-                                                                            <img
-                                                                                src={imageUrl}
-                                                                                alt={`Sidepanel banner ${index + 1}`}
-                                                                                className="h-full w-full object-cover"
-                                                                            />
-                                                                        </div>
-                                                                        <div className="mt-2 flex items-center justify-between gap-2">
-                                                                            <span className="text-xs text-muted-foreground">
-                                                                                Banner {index + 1}
-                                                                            </span>
-                                                                            <Button
-                                                                                type="button"
-                                                                                variant="ghost"
-                                                                                size="sm"
-                                                                                className="h-7 px-2 text-destructive"
-                                                                                onClick={() => removeFeaturedSidePanelImage(imageUrl)}
-                                                                            >
-                                                                                <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                                                                Fjern
-                                                                            </Button>
-                                                                        </div>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="grid gap-3 md:grid-cols-2">
-                                                        <div className="space-y-2">
-                                                            <Label>Overskrift</Label>
-                                                            <Input
-                                                                value={featuredProductConfig.sidePanel?.title || ""}
-                                                                onChange={(event) => updateFeaturedSidePanel({ title: event.target.value })}
-                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-2">
-                                                            <Label>Teksteffekt</Label>
-                                                            <Select
-                                                                value={featuredProductConfig.sidePanel?.textAnimation || "slide-up"}
-                                                                onValueChange={(value) => updateFeaturedSidePanel({ textAnimation: value as any })}
-                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                            >
-                                                                <SelectTrigger>
-                                                                    <SelectValue />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    <SelectItem value="none">Ingen</SelectItem>
-                                                                    <SelectItem value="fade">Fade</SelectItem>
-                                                                    <SelectItem value="slide-up">Slide op</SelectItem>
-                                                                    <SelectItem value="slide-down">Slide ned</SelectItem>
-                                                                    <SelectItem value="scale">Scale</SelectItem>
-                                                                    <SelectItem value="blur">Blur</SelectItem>
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label>Underrubrik</Label>
-                                                        <Input
-                                                            value={featuredProductConfig.sidePanel?.subtitle || ""}
-                                                            onChange={(event) => updateFeaturedSidePanel({ subtitle: event.target.value })}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        />
-                                                    </div>
-                                                    <div className="grid gap-3 md:grid-cols-2">
-                                                        <div className="space-y-2">
-                                                            <Label>CTA tekst</Label>
-                                                            <Input
-                                                                value={featuredProductConfig.sidePanel?.ctaLabel || ""}
-                                                                onChange={(event) => updateFeaturedSidePanel({ ctaLabel: event.target.value })}
-                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-2">
-                                                            <Label>CTA link</Label>
-                                                            <Input
-                                                                value={featuredProductConfig.sidePanel?.ctaHref || ""}
-                                                                onChange={(event) => updateFeaturedSidePanel({ ctaHref: event.target.value })}
-                                                                placeholder="/shop eller https://..."
-                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <Label>Overlay opacitet</Label>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {Math.round((featuredProductConfig.sidePanel?.overlayOpacity ?? 0.35) * 100)}%
-                                                            </span>
-                                                        </div>
-                                                        <Slider
-                                                            value={[(featuredProductConfig.sidePanel?.overlayOpacity ?? 0.35) * 100]}
-                                                            onValueChange={([value]) => updateFeaturedSidePanel({ overlayOpacity: value / 100 })}
-                                                            min={0}
-                                                            max={100}
-                                                            step={5}
-                                                            className="py-1"
-                                                        />
-                                                    </div>
-                                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                                        <ColorPickerWithSwatches
-                                                            label="Overlay farve"
-                                                            value={featuredProductConfig.sidePanel?.overlayColor || '#000000'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ overlayColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="Overskrift farve"
-                                                            value={featuredProductConfig.sidePanel?.titleColor || '#FFFFFF'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ titleColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="Underrubrik farve"
-                                                            value={featuredProductConfig.sidePanel?.subtitleColor || 'rgba(255, 255, 255, 0.9)'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ subtitleColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="CTA farve"
-                                                            value={featuredProductConfig.sidePanel?.ctaColor || '#0EA5E9'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ ctaColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="CTA tekstfarve"
-                                                            value={featuredProductConfig.sidePanel?.ctaTextColor || '#FFFFFF'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ ctaTextColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </>
-                                            )}
-                                            {featuredSidePanelItems.length > 0 && featuredProductConfig.sidePanel?.mode === 'banner' && (
-                                                <div className="space-y-3 rounded-lg border border-dashed p-3">
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Udseende for banner-elementer (gælder alle bannere i rotationen).
-                                                    </p>
-                                                    <div className="space-y-2">
-                                                        <Label>Teksteffekt</Label>
-                                                        <Select
-                                                            value={featuredProductConfig.sidePanel?.textAnimation || "slide-up"}
-                                                            onValueChange={(value) => updateFeaturedSidePanel({ textAnimation: value as any })}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        >
-                                                            <SelectTrigger>
-                                                                <SelectValue />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="none">Ingen</SelectItem>
-                                                                <SelectItem value="fade">Fade</SelectItem>
-                                                                <SelectItem value="slide-up">Slide op</SelectItem>
-                                                                <SelectItem value="slide-down">Slide ned</SelectItem>
-                                                                <SelectItem value="scale">Scale</SelectItem>
-                                                                <SelectItem value="blur">Blur</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <Label>Overlay opacitet</Label>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {Math.round((featuredProductConfig.sidePanel?.overlayOpacity ?? 0.35) * 100)}%
-                                                            </span>
-                                                        </div>
-                                                        <Slider
-                                                            value={[(featuredProductConfig.sidePanel?.overlayOpacity ?? 0.35) * 100]}
-                                                            onValueChange={([value]) => updateFeaturedSidePanel({ overlayOpacity: value / 100 })}
-                                                            min={0}
-                                                            max={100}
-                                                            step={5}
-                                                            className="py-1"
-                                                        />
-                                                    </div>
-                                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                                        <ColorPickerWithSwatches
-                                                            label="Overlay farve"
-                                                            value={featuredProductConfig.sidePanel?.overlayColor || '#000000'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ overlayColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="Overskrift farve"
-                                                            value={featuredProductConfig.sidePanel?.titleColor || '#FFFFFF'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ titleColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="Underrubrik farve"
-                                                            value={featuredProductConfig.sidePanel?.subtitleColor || 'rgba(255, 255, 255, 0.9)'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ subtitleColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="CTA farve"
-                                                            value={featuredProductConfig.sidePanel?.ctaColor || '#0EA5E9'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ ctaColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="CTA tekstfarve"
-                                                            value={featuredProductConfig.sidePanel?.ctaTextColor || '#FFFFFF'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ ctaTextColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
+                                    <Button variant="outline" onClick={() => setActiveSection('featured-products')}>Redigér fremhævede produkter</Button>
                                 </div>
                             </CardContent>
                         </Card>
+                        </>}
                     </div>
                 );
             }
@@ -6973,7 +5362,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 return (
                     <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-medium">USP Strip (Fordele)</h3>
+                            <h3 className="text-sm font-medium">Fordelsbjælke</h3>
                             <div className="flex items-center gap-2">
                                 {isUSPFocusMode && (
                                     <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFocusedSelection}>Vis alt</Button>
@@ -6981,15 +5370,16 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
-                        
+
                         {/* Enable/Disable */}
                         <div id="site-design-focus-usp-strip" className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                            <Label className="text-sm">Vis USP strip</Label>
-                            <Switch 
-                                checked={uspStrip.enabled !== false} 
-                                onCheckedChange={(checked) => editor.updateDraft({ 
-                                    uspStrip: { ...uspStrip, enabled: checked } 
-                                })} 
+                            <Label className="text-sm" htmlFor="usp-strip-visible">Vis fordelsbjælke</Label>
+                            <Switch
+                                id="usp-strip-visible"
+                                checked={uspStrip.enabled !== false}
+                                onCheckedChange={(checked) => editor.updateDraft({
+                                    uspStrip: { ...uspStrip, enabled: checked }
+                                })}
                             />
                         </div>
 
@@ -7055,6 +5445,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     )}
                                 </div>
 
+                                <details className="sd-banner-details">
+                                    <summary>Baggrund, farver og skrifttyper</summary>
                                 {/* Background Type */}
                                 <div className="space-y-3 border-t pt-4">
                                     <h4 className="text-xs font-medium text-muted-foreground uppercase">Baggrund</h4>
@@ -7076,14 +5468,13 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             Gradient
                                         </Button>
                                     </div>
-                                    
+
                                     {!uspStrip.useGradient && (
                                         <ColorPickerWithSwatches
                                             label="Baggrundsfarve"
                                             value={uspStrip.backgroundColor || ''}
-                                            fallback="Standard blå"
-                                            onChange={(color) => editor.updateDraft({ 
-                                                uspStrip: { ...uspStrip, backgroundColor: color } 
+                                            onChange={(color) => editor.updateDraft({
+                                                uspStrip: { ...uspStrip, backgroundColor: color }
                                             })}
                                             savedSwatches={editor.draft.savedSwatches}
                                             onSaveSwatch={(color) => {
@@ -7099,14 +5490,14 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             }}
                                         />
                                     )}
-                                    
+
                                     {uspStrip.useGradient && (
                                         <div className="space-y-3">
                                             <ColorPickerWithSwatches
                                                 label="Gradient start"
                                                 value={uspStrip.gradientFrom || '#0EA5E9'}
-                                                onChange={(color) => editor.updateDraft({ 
-                                                    uspStrip: { ...uspStrip, gradientFrom: color } 
+                                                onChange={(color) => editor.updateDraft({
+                                                    uspStrip: { ...uspStrip, gradientFrom: color }
                                                 })}
                                                 savedSwatches={editor.draft.savedSwatches}
                                                 onSaveSwatch={(color) => {
@@ -7124,8 +5515,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             <ColorPickerWithSwatches
                                                 label="Gradient slut"
                                                 value={uspStrip.gradientTo || '#6366F1'}
-                                                onChange={(color) => editor.updateDraft({ 
-                                                    uspStrip: { ...uspStrip, gradientTo: color } 
+                                                onChange={(color) => editor.updateDraft({
+                                                    uspStrip: { ...uspStrip, gradientTo: color }
                                                 })}
                                                 savedSwatches={editor.draft.savedSwatches}
                                                 onSaveSwatch={(color) => {
@@ -7171,8 +5562,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <ColorPickerWithSwatches
                                         label="Ikonfarve"
                                         value={uspStrip.iconColor || uspStrip.textColor || '#FFFFFF'}
-                                        onChange={(color) => editor.updateDraft({ 
-                                            uspStrip: { ...uspStrip, iconColor: color } 
+                                        onChange={(color) => editor.updateDraft({
+                                            uspStrip: { ...uspStrip, iconColor: color }
                                         })}
                                         savedSwatches={editor.draft.savedSwatches}
                                         onSaveSwatch={saveUSPStripSwatch}
@@ -7181,8 +5572,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <ColorPickerWithSwatches
                                         label="Overskriftsfarve"
                                         value={uspStrip.titleColor || uspStrip.textColor || '#FFFFFF'}
-                                        onChange={(color) => editor.updateDraft({ 
-                                            uspStrip: { ...uspStrip, titleColor: color } 
+                                        onChange={(color) => editor.updateDraft({
+                                            uspStrip: { ...uspStrip, titleColor: color }
                                         })}
                                         savedSwatches={editor.draft.savedSwatches}
                                         onSaveSwatch={saveUSPStripSwatch}
@@ -7191,8 +5582,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <ColorPickerWithSwatches
                                         label="Beskrivelsesfarve"
                                         value={uspStrip.descriptionColor || uspStrip.textColor || '#FFFFFF'}
-                                        onChange={(color) => editor.updateDraft({ 
-                                            uspStrip: { ...uspStrip, descriptionColor: color } 
+                                        onChange={(color) => editor.updateDraft({
+                                            uspStrip: { ...uspStrip, descriptionColor: color }
                                         })}
                                         savedSwatches={editor.draft.savedSwatches}
                                         onSaveSwatch={saveUSPStripSwatch}
@@ -7201,8 +5592,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <ColorPickerWithSwatches
                                         label="Fælles fallback-farve"
                                         value={uspStrip.textColor || '#FFFFFF'}
-                                        onChange={(color) => editor.updateDraft({ 
-                                            uspStrip: { ...uspStrip, textColor: color } 
+                                        onChange={(color) => editor.updateDraft({
+                                            uspStrip: { ...uspStrip, textColor: color }
                                         })}
                                         savedSwatches={editor.draft.savedSwatches}
                                         onSaveSwatch={saveUSPStripSwatch}
@@ -7216,24 +5607,26 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <FontSelector
                                         label="Overskrifter"
                                         value={uspStrip.titleFont || 'Poppins'}
-                                        onChange={(v) => editor.updateDraft({ 
-                                            uspStrip: { ...uspStrip, titleFont: v } 
+                                        onChange={(v) => editor.updateDraft({
+                                            uspStrip: { ...uspStrip, titleFont: v }
                                         })}
                                     />
                                     <FontSelector
                                         label="Beskrivelser"
                                         value={uspStrip.descriptionFont || 'Inter'}
-                                        onChange={(v) => editor.updateDraft({ 
-                                            uspStrip: { ...uspStrip, descriptionFont: v } 
+                                        onChange={(v) => editor.updateDraft({
+                                            uspStrip: { ...uspStrip, descriptionFont: v }
                                         })}
                                     />
                                 </div>
+
+                                </details>
 
                                 {/* USP Items */}
                                 <div className="space-y-3 border-t pt-4">
                                     <div className="flex items-center justify-between gap-3">
                                         <div>
-                                            <h4 className="text-xs font-medium text-muted-foreground uppercase">USP Punkter</h4>
+                                            <h4 className="text-xs font-medium text-muted-foreground uppercase">Fordele</h4>
                                             <p className="text-[11px] text-muted-foreground">{uspItems.length}/{maxUSPItems}</p>
                                         </div>
                                         {uspItems.length < maxUSPItems && (
@@ -7244,16 +5637,16 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         )}
                                     </div>
                                     {uspItems.map((item: any, index: number) => (
-                                        <div 
-                                            key={item.id} 
+                                        <div
+                                            key={item.id}
                                             id={`site-design-focus-usp-item-${item.id}`}
                                             className="p-3 bg-muted/30 rounded-lg space-y-3"
                                         >
                                             <div className="flex items-center justify-between">
                                                 <span className="text-sm font-medium">{index + 1}. {item.title || 'USP punkt'}</span>
                                                 <div className="flex items-center gap-1">
-                                                    <Switch 
-                                                        checked={item.enabled !== false} 
+                                                    <Switch
+                                                        checked={item.enabled !== false}
                                                         onCheckedChange={(checked) => {
                                                             const newItems = [...uspItems];
                                                             newItems[index] = { ...item, enabled: checked };
@@ -7273,7 +5666,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             {item.enabled !== false && (
                                                 <>
                                                     {/* Icon Selection */}
-                                                    <div 
+                                                    <div
                                                         id={`site-design-focus-usp-item-${item.id}-icon`}
                                                         className="space-y-2"
                                                     >
@@ -7334,15 +5727,15 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                                 </>
                                                             );
                                                         })()}
-                                                        
+
                                                         {/* Custom Icon Upload */}
                                                         {item.icon === 'custom' && (
                                                             <div className="space-y-2 pt-2">
                                                                 {item.customIconUrl && (
                                                                     <div className="flex items-center gap-2">
-                                                                        <img 
-                                                                            src={item.customIconUrl} 
-                                                                            alt="Custom icon" 
+                                                                        <img
+                                                                            src={item.customIconUrl}
+                                                                            alt="Custom icon"
                                                                             className="h-8 w-8 object-contain border rounded p-1"
                                                                         />
                                                                         <Button
@@ -7365,7 +5758,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                                     onChange={async (e) => {
                                                                         const file = e.target.files?.[0];
                                                                         if (!file) return;
-                                                                        
+
                                                                         // Upload using the branding adapter
                                                                         try {
                                                                             const url = await editor.uploadAsset(file, 'usp-icon');
@@ -7383,9 +5776,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                             </div>
                                                         )}
                                                     </div>
-                                                    
+
                                                     {/* Title Textarea */}
-                                                    <div 
+                                                    <div
                                                         id={`site-design-focus-usp-item-${item.id}-title`}
                                                         className="space-y-1"
                                                     >
@@ -7401,9 +5794,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                             className="text-sm min-h-[60px] resize-none"
                                                         />
                                                     </div>
-                                                    
+
                                                     {/* Description Textarea */}
-                                                    <div 
+                                                    <div
                                                         id={`site-design-focus-usp-item-${item.id}-description`}
                                                         className="space-y-1"
                                                     >
@@ -7451,15 +5844,15 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
-                        
+
                         {/* Enable/Disable */}
                         <div id="site-design-focus-seo-content" className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
                             <Label className="text-sm">Vis SEO sektion</Label>
-                            <Switch 
-                                checked={seoContent.enabled !== false} 
-                                onCheckedChange={(checked) => editor.updateDraft({ 
-                                    seoContent: { ...seoContent, enabled: checked } 
-                                })} 
+                            <Switch
+                                checked={seoContent.enabled !== false}
+                                onCheckedChange={(checked) => editor.updateDraft({
+                                    seoContent: { ...seoContent, enabled: checked }
+                                })}
                             />
                         </div>
 
@@ -7471,9 +5864,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <ColorPickerWithSwatches
                                         label="Baggrundsfarve"
                                         value={seoContent.backgroundColor || ''}
-                                        fallback="Bruger sekundær farve"
-                                        onChange={(color) => editor.updateDraft({ 
-                                            seoContent: { ...seoContent, backgroundColor: color } 
+                                        onChange={(color) => editor.updateDraft({
+                                            seoContent: { ...seoContent, backgroundColor: color }
                                         })}
                                         savedSwatches={editor.draft.savedSwatches}
                                         onSaveSwatch={(color) => {
@@ -7494,15 +5886,15 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <div className="space-y-3 border-t pt-4">
                                     <h4 className="text-xs font-medium text-muted-foreground uppercase">Tekstblokke</h4>
                                     {seoContent.items?.map((item: any, index: number) => (
-                                        <div 
-                                            key={item.id} 
+                                        <div
+                                            key={item.id}
                                             id={`site-design-focus-seo-item-${item.id}`}
                                             className="p-3 bg-muted/30 rounded-lg space-y-3"
                                         >
                                             <div className="flex items-center justify-between">
                                                 <span className="text-sm font-medium">{index + 1}. {item.heading}</span>
-                                                <Switch 
-                                                    checked={item.enabled !== false} 
+                                                <Switch
+                                                    checked={item.enabled !== false}
                                                     onCheckedChange={(checked) => {
                                                         const newItems = [...(seoContent.items || [])];
                                                         newItems[index] = { ...item, enabled: checked };
@@ -7513,7 +5905,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             {item.enabled !== false && (
                                                 <>
                                                     {/* Heading */}
-                                                    <div 
+                                                    <div
                                                         id={`site-design-focus-seo-item-${item.id}-heading`}
                                                         className="space-y-1"
                                                     >
@@ -7529,9 +5921,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                             className="text-sm min-h-[50px] resize-none"
                                                         />
                                                     </div>
-                                                    
+
                                                     {/* Text */}
-                                                    <div 
+                                                    <div
                                                         id={`site-design-focus-seo-item-${item.id}-text`}
                                                         className="space-y-1"
                                                     >
@@ -7890,6 +6282,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                             <ColorPickerWithSwatches
                                                                 value={value}
                                                                 onChange={(color) => editor.updateDraft({
+                                                                    ...(field.key === 'primary' ? applyMainButtonSettings(editor.draft, { ...getMainButtonSettings(editor.draft), bgColor: color }) : {}),
                                                                     colors: { ...editor.draft.colors, [field.key]: color }
                                                                 })}
                                                                 compact={true}
@@ -8214,7 +6607,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     },
                 };
                 const resolveOrderButton = (
-                    button: typeof orderButtons.primary,
+                    button: typeof orderButtons.secondary,
                     fallback: typeof orderButtonFallbacks.primary,
                 ) => ({
                     bgColor: button?.bgColor || fallback.bgColor,
@@ -8248,7 +6641,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     },
                 });
                 };
-                const updateProductHeading = (updates: Partial<typeof DEFAULT_BRANDING.productPage.heading>) => {
+                const updateProductHeading = (updates: Omit<Partial<typeof DEFAULT_BRANDING.productPage.heading>, 'subtext'> & {
+                    subtext?: Partial<typeof DEFAULT_BRANDING.productPage.heading.subtext>;
+                }) => {
                     const currentProductPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
                     const currentHeading = {
                         ...DEFAULT_BRANDING.productPage.heading,
@@ -9515,6 +7910,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 ) {
                     return (
                         <ProductOptionSectionBoxEditor
+                            key={`${editor.entityId}:${focusedProductOption.productId}:${focusedProductOption.sectionId}`}
+                            tenantId={editor.entityId}
+                            pricingPreview={productPricingPreview}
+                            persistedStyling={persistedProductPricing}
                             productId={focusedProductOption.productId}
                             sectionId={focusedProductOption.sectionId}
                             sectionName={contextualEditor.sectionName}
@@ -9530,6 +7929,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
                                 });
                             }}
+                            onPricingStructureChange={handleProductOptionPricingStructureChange}
                             onBack={() => {
                                 setContextualEditor(null);
                                 setFocusedProductOption({
@@ -9546,6 +7946,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 if (focusedProductOption?.productId && focusedProductOption.sectionId && focusedProductOption.valueId) {
                     return (
                         <ProductOptionButtonEditor
+                            key={`${editor.entityId}:${focusedProductOption.productId}:${focusedProductOption.sectionId}:${focusedProductOption.valueId}`}
+                            pricingPreview={productPricingPreview}
+                            persistedStyling={persistedProductPricing}
+                            tenantId={editor.entityId}
                             productId={focusedProductOption.productId}
                             sectionId={focusedProductOption.sectionId}
                             valueId={focusedProductOption.valueId}
@@ -9562,6 +7966,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
                                 });
                             }}
+                            onPricingStructureChange={handleProductOptionPricingStructureChange}
                             onBack={() => {
                                 setFocusedProductOption({
                                     productId: focusedProductOption.productId,
@@ -9582,7 +7987,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         onPreviewProductChange={({ path }) => {
                             navigatePreviewTo(path);
                         }}
-                        onPreviewPricingStructureChange={setProductPricingPreview}
+                        onPreviewPricingStructureChange={handleProductOptionPricingStructureChange}
+                        pricingPreview={productPricingPreview}
                         persistedPricingStructure={persistedProductPricing}
                         focusedProductId={focusedProductOption?.productId || null}
                         focusedSectionId={focusedProductOption?.sectionId || null}
@@ -9706,7 +8112,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 value={item.icon || "truck"}
                                 onValueChange={(value) => {
                                     const nextItems = [...uspItems];
-                                    nextItems[itemIndex] = { ...item, icon: value };
+                                    if (!USP_ICON_OPTIONS.some(option => option.value === value)) return;
+                                    nextItems[itemIndex] = { ...item, icon: value as USPIconType };
                                     editor.updateDraft({
                                         uspStrip: {
                                             ...uspStrip,
@@ -9800,6 +8207,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
             return (
                 <Card className="absolute right-6 top-6 z-30 w-[360px] border-border/70 bg-background/95 shadow-2xl backdrop-blur animate-in fade-in-0 zoom-in-95 slide-in-from-right-4 duration-200 max-h-[80vh] overflow-y-auto">
                     <ProductOptionButtonEditor
+                        key={`${editor.entityId}:${contextualEditor.productId}:${contextualEditor.sectionId}:${contextualEditor.valueId}`}
+                        pricingPreview={productPricingPreview}
+                        persistedStyling={persistedProductPricing}
+                        tenantId={editor.entityId}
                         productId={contextualEditor.productId}
                         sectionId={contextualEditor.sectionId}
                         valueId={contextualEditor.valueId}
@@ -9816,6 +8227,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
                             });
                         }}
+                        onPricingStructureChange={handleProductOptionPricingStructureChange}
                         onBack={() => {
                             setContextualEditor(null);
                             setClearSelectionSignal((prev) => prev + 1);
@@ -9829,150 +8241,20 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     };
 
     return (
-        <div className="flex flex-col h-[calc(100vh-4rem)] -m-6">
-            {/* Main Content Area */}
-            <div className="flex-1 flex overflow-hidden relative min-h-0">
-                {/* Left Sidebar - Collapsible */}
-                <div
-                    className={`
-                        absolute inset-y-0 left-0 z-30 w-96 flex-shrink-0 bg-background border-r transform transition-transform duration-300 ease-in-out
-                        ${sidebarOpen ? 'translate-x-0 lg:relative' : '-translate-x-full pointer-events-none'}
-                        overflow-hidden
-                        branding-sidebar
-                    `}
-                >
-                    <div className="h-full flex flex-col">
-                        <div className="px-3 py-2.5 border-b flex items-center justify-between bg-muted/20">
-                            <h2 className="font-extrabold text-2xl text-foreground px-1">
-                                {activeSection ? 'Redigerer' : 'Værktøjer'}
-                            </h2>
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setSidebarOpen(false)}>
-                                <X className="h-3.5 w-3.5" />
-                            </Button>
-                        </div>
-                        <div className="border-b bg-white/90 px-2.5 py-2 space-y-2">
-                            <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        Preview side
-                                    </div>
-                                    <div className="text-xs font-semibold text-foreground truncate">
-                                        {currentPreviewPageLabel}
-                                    </div>
-                                </div>
-                                <div className="flex flex-col items-end gap-1 shrink-0">
-                                    <Badge variant="secondary" className="rounded-sm px-1.5 py-0 text-[10px]">
-                                        {currentPreviewPageTypeLabel}
-                                    </Badge>
-                                    {activeSection && (
-                                        <Badge variant="outline" className="rounded-sm px-1.5 py-0 text-[10px] max-w-[160px] truncate">
-                                            {SECTION_LABELS[activeSection] || activeSection}
-                                        </Badge>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="flex flex-wrap gap-1.5">
-                                {PREVIEW_PAGE_LINKS.map((page) => {
-                                    const isActive = page.path === currentPreviewPage
-                                        || (page.path === "/produkter" && currentPreviewPage === "/shop");
-                                    return (
-                                        <Button
-                                            key={`${page.label}-${page.path}`}
-                                            variant="outline"
-                                            size="sm"
-                                            className={
-                                                isActive
-                                                    ? "h-6 px-2 text-[11px] rounded-sm border-slate-300 bg-slate-900 text-white hover:bg-slate-800 hover:text-white"
-                                                    : "h-6 px-2 text-[11px] rounded-sm border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
-                                            }
-                                            onClick={() => navigatePreviewTo(page.path)}
-                                        >
-                                            {page.label}
-                                        </Button>
-                                    );
-                                })}
-                            </div>
-                            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
-                                <Label
-                                    htmlFor="site-design-product-preview"
-                                    className="text-[11px] font-medium text-muted-foreground"
-                                >
-                                    Produktside
-                                </Label>
-                                <Select
-                                    value={currentPreviewProduct?.slug || ""}
-                                    onValueChange={navigatePreviewToProduct}
-                                    disabled={loadingFeaturedProducts || featuredProducts.length === 0}
-                                >
-                                    <SelectTrigger
-                                        id="site-design-product-preview"
-                                        className="h-7 min-w-0 text-xs"
-                                    >
-                                        <SelectValue
-                                            placeholder={
-                                                loadingFeaturedProducts
-                                                    ? "Henter produkter..."
-                                                    : featuredProducts.length === 0
-                                                        ? "Ingen produkter"
-                                                        : "Vælg produkt"
-                                            }
-                                        />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {featuredProducts
-                                            .filter((product) => Boolean(product.slug))
-                                            .map((product) => (
-                                                <SelectItem key={product.id} value={product.slug}>
-                                                    {product.name}
-                                                </SelectItem>
-                                            ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-1">
-                                <div className="text-[11px] font-medium text-muted-foreground">
-                                    Værktøjer på denne side
-                                </div>
-                                <div className="flex flex-wrap gap-1">
-                                    {allowedSectionLabels.map((label) => (
-                                        <Badge key={label} variant="outline" className="rounded-sm px-1.5 py-0 text-[10px] font-normal">
-                                            {label}
-                                        </Badge>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                        <ScrollArea className="flex-1">
-                            <div className="py-2">
-                                {renderSidebarContent()}
-                            </div>
-                        </ScrollArea>
-                    </div>
-                </div>
-
-                {/* Main Preview Area */}
-                <div className="min-w-0 flex-1 bg-muted/10 relative flex flex-col">
-                    <div className="min-w-0 flex-1 p-8 overflow-hidden flex flex-col">
-                        {/* ACTION BAR - aligned with preview frame */}
-                        <div className="flex flex-wrap items-center gap-2 p-3 bg-card border rounded-t-lg mb-0">
-                            {!sidebarOpen && (
-                                <TooltipProvider delayDuration={180}>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                className="h-9 w-9 shrink-0"
-                                                onClick={() => setSidebarOpen(true)}
-                                                aria-label="Åbn redigering"
-                                            >
-                                                <Pencil className="h-4 w-4" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Åbn redigering</TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                            )}
+        <div ref={workspaceRef} className="workspace-site-design-v2 flex flex-col">
+            <SiteDesignWorkspace
+                title={editor.mode === 'master' ? 'Designskabeloner til shops' : 'Site Design'}
+                description={editor.mode === 'master' ? 'Genbrugelige udgangspunkter til shops. Den enkelte shop redigeres i Site Design.' : `Design for ${editor.entityName}. Tilpas siden, og se ændringerne med det samme.`}
+                status={editor.hasUnsavedChanges ? "Du har ændringer, der ikke er gemt" : isDraftLive ? "Live version er opdateret" : "Du redigerer en kladde"}
+                actions={<>
+                    <Button variant="ghost" size="sm" onClick={editor.undo} disabled={!editor.canUndo || editor.isSaving} title="Fortryd seneste designændring"><Undo2 className="mr-1 h-4 w-4" />Fortryd</Button>
+                    <Button variant="ghost" size="sm" onClick={editor.redo} disabled={!editor.canRedo || editor.isSaving} title="Gentag designændring"><Redo2 className="mr-1 h-4 w-4" />Gentag</Button>
+                    <Button variant="outline" size="sm" onClick={saveDraftWithProductSettings} disabled={editor.isSaving}>Gem kladde</Button>
+                    <Button size="sm" onClick={() => setShowPublishDialog(true)} disabled={editor.isSaving}><Send className="mr-2 h-4 w-4" />Publicér</Button>
+                </>}
+                moreActions={<>
+                    <Button variant="ghost" size="sm" onClick={() => editor.replaceDraft(editor.published)} disabled={editor.isSaving || isDraftLive}>Tilbage til publiceret design</Button>
+                    <Button variant="ghost" size="sm" onClick={() => setShowResetDialog(true)}>Gendan standarddesign</Button>
 
                             {/* 1. Gem design */}
                             <Button
@@ -10027,8 +8309,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             setLoadingSavedDesigns(true);
                                             // Fetch saved designs and tenants
                                             Promise.all([
-                                                supabase.from('premade_designs' as any).select('*').order('created_at', { ascending: false }),
-                                                supabase.from('tenants' as any).select('id, name').neq('id', '00000000-0000-0000-0000-000000000000')
+                                                supabase.from('premade_designs').select('*').order('created_at', { ascending: false }),
+                                                supabase.from('tenants').select('id, name').neq('id', '00000000-0000-0000-0000-000000000000')
                                             ]).then(([designsRes, tenantsRes]) => {
                                                 if (!designsRes.error) setSavedPremadeDesigns(designsRes.data || []);
                                                 if (!tenantsRes.error) setTenantList(tenantsRes.data || []);
@@ -10047,30 +8329,13 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     size="sm"
                                     onClick={() => {
                                         setShowPremadeDesignsDialog(true);
-                                        // Fetch designs when button is clicked
-                                        setLoadingPremadeDesigns(true);
-                                        supabase
-                                            .from('premade_designs' as any)
-                                            .select('*')
-                                            .eq('is_visible', true)
-                                            .order('created_at', { ascending: false })
-                                            .then(({ data, error }) => {
-                                                console.log('Premade designs fetch result:', { data, error });
-                                                if (error) {
-                                                    console.error('Error fetching premade designs:', error);
-                                                    toast.error('Kunne ikke hente designs');
-                                                }
-                                                if (data) {
-                                                    setAvailablePremadeDesigns(data);
-                                                }
-                                                setLoadingPremadeDesigns(false);
-                                            });
+                                        void loadPremadeDesigns();
                                     }}
                                     disabled={editor.isSaving}
                                     className="gap-2"
                                 >
                                     <LayoutTemplate className="h-4 w-4" />
-                                    Premade Designs
+                                    Designskabeloner
                                 </Button>
                             )}
 
@@ -10083,62 +8348,106 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 />
                             )}
 
-                            <div className="hidden lg:flex items-center rounded-md border bg-muted/40 px-2.5 py-1">
-                                <span className="text-xs text-muted-foreground">
-                                    {isDraftLive
-                                        ? 'Live version er opdateret'
-                                        : 'Du redigerer kladde (ikke live endnu)'}
-                                </span>
-                            </div>
 
-                            <div className="flex-1" />
+                </>}
+                navigation={<SiteDesignNavigation
+                    currentPage={currentPreviewPage}
+                    activeSection={activeSection}
+                    sections={Array.from(allowedSections).map(id => ({ id, label: id === "order-flow" ? "Bestillingsflow" : SECTION_LABELS[id] || id }))}
+                    onNavigate={path => {
+                        if (path === "/produkt") {
+                            const product = currentPreviewProduct || featuredProducts.find(item => item.slug);
+                            if (product) navigatePreviewToProduct(product.slug);
+                            else setPreviewNavigationRequest({ id: Date.now(), type: "first-product" });
+                        } else {
+                            navigatePreviewTo(path);
+                            if (getSiteDesignPreviewPathname(path) === '/produkter') {
+                                closeSection();
+                                setActiveSection('products');
+                                setSidebarOpen(true);
+                            }
+                        }
+                    }}
+                    onSectionChange={section => {
+                        closeSection();
+                        setActiveSection(section);
+                        setSidebarOpen(true);
+                        const targets: Record<string, string> = { banner: 'forside.hero.media', showcase: 'forside.banner2', 'usp-strip': 'usp-strip', header: 'header', footer: 'footer', products: 'forside.products', 'featured-products': 'forside.products.featured' };
+                        if (targets[section]) setSectionFocusRequest({ id: Date.now(), target: targets[section] });
+                        if (section === 'order-flow' && !getOrderFlowPreviewPage(currentPreviewPage)) navigatePreviewToOrderStep('calculator');
+                        if (section === 'products' && !isHomePreviewPage) navigatePreviewTo('/produkter');
+                        if (section === 'featured-products' && !['/', '/shop'].includes(previewPathname)) navigatePreviewTo('/');
+                    }}
+                    productSelect={<>
+                        <Label htmlFor="site-design-product-preview">Vælg produkt</Label>
+                                <Select
+                                    value={currentPreviewProduct?.slug || ""}
+                                    onValueChange={navigatePreviewToProduct}
+                                    disabled={loadingFeaturedProducts || featuredProducts.length === 0}
+                                >
+                                    <SelectTrigger
+                                        id="site-design-product-preview"
+                                        className="h-7 min-w-0 text-xs"
+                                    >
+                                        <SelectValue
+                                            placeholder={
+                                                loadingFeaturedProducts
+                                                    ? "Henter produkter..."
+                                                    : featuredProducts.length === 0
+                                                        ? "Ingen produkter"
+                                                        : "Vælg produkt"
+                                            }
+                                        />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {featuredProducts
+                                            .filter((product) => Boolean(product.slug))
+                                            .map((product) => (
+                                                <SelectItem key={product.id} value={product.slug}>
+                                                    {product.name}
+                                                </SelectItem>
+                                            ))}
+                                    </SelectContent>
+                                </Select>
 
-                            {/* 3. Fortryd */}
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => editor.discardDraft()}
-                                disabled={!editor.hasUnsavedChanges || editor.isSaving}
-                                className="gap-2 text-muted-foreground hover:text-foreground"
-                            >
-                                <RotateCcw className="h-4 w-4" />
-                                Fortryd
-                            </Button>
-
-                            {/* 4. Publicér */}
-                            <Button
-                                size="sm"
-                                onClick={() => setShowPublishDialog(true)}
-                                disabled={editor.isSaving}
-                                className="gap-2"
-                            >
-                                <Send className="h-4 w-4" />
-                                Publicér
-                            </Button>
-                        </div>
-
-                        {/* Preview Frame */}
-                        <div className="relative flex-1 w-full">
-                            <div className="h-full w-full bg-white rounded-b-lg border border-t-0 overflow-hidden">
-                                <SiteDesignPreviewFrame
+                    </>}
+                />}
+                inspectorTitle={activeSection === "main-buttons" ? "Fælles knapper" : activeSection === "theme" ? "Shopdesign" : activeSection === "order-flow" ? "Bestillingsflow" : SECTION_LABELS[activeSection || ""] || "Vælg en indstilling"}
+                inspectorOpen={sidebarOpen}
+                onInspectorClose={() => setSidebarOpen(false)}
+                onInspectorOpen={() => setSidebarOpen(true)}
+                inspector={activeSection ? <>
+                    {(['header', 'banner', 'products', 'featured-products', 'product-page-matrix', 'order-flow'].includes(activeSection)) && <SharedButtonLocalControls
+                        draft={editor.draft} updateDraft={editor.updateDraft} role="cta"
+                        buttonKey={activeSection === 'header' ? 'header' : activeSection === 'banner' ? 'hero' : activeSection === 'products' ? 'catalogue' : activeSection === 'featured-products' ? 'featured' : 'order'}
+                        title={activeSection === 'header' ? 'headerknapper' : activeSection === 'banner' ? 'bannerknapper' : activeSection === 'products' ? 'produktknapper' : activeSection === 'featured-products' ? 'fremhævede knapper' : 'bestillingsknapper'}
+                    />}
+                    {activeSection === 'product-page-matrix' && <SharedButtonLocalControls draft={editor.draft} updateDraft={editor.updateDraft} role="selection" buttonKey="matrix" title="prismatricens valgknapper" />}
+                    {renderSidebarContent()}</> : <p className="sd-inspector-empty">Vælg en indstilling i venstre side, eller aktivér Redigér og klik på et element i previewet.</p>}
+            >
+                                <SiteDesignPreviewFrame presentation="workspace" featuredSlideId={selectedFeaturedSlideId}
                                     branding={editor.draft}
                                     previewUrl={`/preview-shop?draft=1&preview_mode=1&tenantId=${editor.entityId}&editor=site-design-v2`}
                                     tenantName={editor.entityName}
                                     onSaveDraft={saveDraftWithProductSettings}
                                     onResetDesign={() => setShowResetDialog(true)}
                                     navigationRequest={previewNavigationRequest}
+                                    sectionFocusRequest={sectionFocusRequest}
                                     productPricingPreview={productPricingPreview}
-                                    onPreviewPathChange={setCurrentPreviewPage}
+                                    onPreviewPathChange={path => {
+                                        setCurrentPreviewPage(path);
+                                        if (getSiteDesignPreviewPathname(path) === '/produkter' && previewPathname !== '/produkter') {
+                                            closeSection();
+                                            setActiveSection('products');
+                                            setSidebarOpen(true);
+                                        }
+                                    }}
                                     editMode={previewEditMode}
                                     onEditModeChange={setPreviewEditMode}
                                     clearSelectionSignal={clearSelectionSignal}
                                     previewProducts={featuredProducts}
                                 />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            </SiteDesignWorkspace>
 
             {/* --- DIALOGS (Copied from V1) --- */}
             {/* 1. Save Design Modal */}
@@ -10264,21 +8573,17 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     <AlertDialogHeader>
                         <AlertDialogTitle>Nulstil til standard?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Dette vil fjerne alle dine branding-tilpasninger og gendanne standardindstillingerne.
+                            Standarddesignet Refined Familiar indlæses i din kladde. Shopnavn, logo, tekster, produktvalg og priser bevares.
                             <br /><br />
-                            Vi gemmer en automatisk sikkerhedskopi før vi nulstiller.
+                            Du kan fortryde ændringen. Kunderne ser først ændringerne, når du vælger Publicér.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Annuller</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={async () => {
-                                await editor.resetToDefault();
-                                // Also clear any pending paid items since we're resetting to default
-                                if (editor.mode === 'tenant' && paidItems.hasPendingItems) {
-                                    await paidItems.clearPendingItems();
-                                    toast.success('Design nulstillet og indkøbskurv ryddet');
-                                }
+                                editor.replaceDraft(standardSiteDesign(editor.draft));
+                                toast.success('Standarddesign indlæst i kladden — kan fortrydes');
                                 setShowResetDialog(false);
                             }}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -10295,12 +8600,24 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     <AlertDialogHeader>
                         <AlertDialogTitle className="flex items-center gap-2">
                             <Send className="h-5 w-5 text-primary" />
-                            Publicér branding?
+                            {editor.mode === "master" ? "Publicér skabelon?" : "Publicér shopdesign?"}
                         </AlertDialogTitle>
-                        <AlertDialogDescription className="space-y-4">
+                        <AlertDialogDescription asChild>
+                          <div className="space-y-4">
                             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
-                                <strong>Bemærk:</strong> Publicering vil ændre din live hjemmeside øjeblikkeligt.
+                                {editor.mode === "master" ? "Skabelonens publicerede version opdateres. Eksisterende shops ændres ikke automatisk. Gem som skabelon gør designet tilgængeligt i biblioteket." : "Publicering vil ændre din live hjemmeside øjeblikkeligt."}
                             </div>
+                            <section aria-label="Layouts der publiceres" className="rounded-md border p-3">
+                                <h3 className="mb-2 font-medium text-foreground">Forside og produktoversigt</h3>
+                                <p className="mb-4 text-xs">{PRODUCT_PRESENTATIONS.find(item => item.id === editor.draft.forside?.productsSection?.presentation)?.name || 'Temaets oprindelige produktvisning'}</p>
+                                <h3 className="mb-2 font-medium text-foreground">Bestillingsflow</h3>
+                                <dl className="space-y-1.5 text-xs">
+                                    {ORDER_FLOW_DESIGNS.map(item => {
+                                        const design = resolveOrderFlowDesign(item.page, editor.draft);
+                                        return <div key={item.page} className="flex justify-between gap-3"><dt>{item.label}</dt><dd>{design} · {design === item.default ? 'Standard' : 'Alternativ'}</dd></div>;
+                                    })}
+                                </dl>
+                            </section>
 
                             {/* Recent Publishes Section */}
                             {editor.history.length > 0 && (
@@ -10350,6 +8667,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     Tip: Klik på en seneste udgave ovenfor for at genbruge navnet.
                                 </p>
                             </div>
+                          </div>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -10370,7 +8688,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             Gem til ressourcer
                         </DialogTitle>
                         <DialogDescription>
-                            Gem dette design som en premade design skabelon, der kan tildeles til lejere.
+                            Gem en gratis skabelon. Synlige skabeloner kan bruges af alle shops; skjulte skabeloner tildeles af Webprinter.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
@@ -10394,14 +8712,16 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label htmlFor="resource-design-price">Pris (kr)</Label>
+                                <Label htmlFor="resource-design-price">Gratis skabelon</Label>
                                 <Input
                                     id="resource-design-price"
                                     type="number"
                                     min="0"
                                     placeholder="0 = Gratis"
-                                    value={resourceDesignPrice}
-                                    onChange={(e) => setResourceDesignPrice(Number(e.target.value) || 0)}
+                                    value={0}
+                                    readOnly
+                                    disabled
+
                                 />
                             </div>
                             <div className="space-y-2">
@@ -10444,7 +8764,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             thumbnail_url: thumbnailUrl,
                                             branding_data: editor.draft,
                                             is_visible: resourceDesignVisible,
-                                            price: resourceDesignPrice,
+                                            price: 0,
                                             created_by: user?.id,
                                         });
 
@@ -10453,7 +8773,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     toast.success(`Design "${resourceDesignName}" gemt til ressourcer! ${resourceDesignVisible ? 'Synlig for lejere.' : 'Skjult indtil publiceret.'}`, { id: 'save-design' });
                                     setResourceDesignName("");
                                     setResourceDesignDescription("");
-                                    setResourceDesignPrice(0);
+
                                     setResourceDesignVisible(true);
                                     setShowSaveToResourcesDialog(false);
                                 } catch (error: any) {
@@ -10480,24 +8800,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 onOpenChange={(open) => {
                     setShowPremadeDesignsDialog(open);
                     if (open) {
-                        // Fetch designs when dialog opens
-                        setLoadingPremadeDesigns(true);
-                        supabase
-                            .from('premade_designs' as any)
-                            .select('*')
-                            .eq('is_visible', true)
-                            .order('created_at', { ascending: false })
-                            .then(({ data, error }) => {
-                                console.log('Premade designs fetch result:', { data, error });
-                                if (error) {
-                                    console.error('Error fetching premade designs:', error);
-                                    toast.error('Kunne ikke hente designs');
-                                }
-                                if (data) {
-                                    setAvailablePremadeDesigns(data);
-                                }
-                                setLoadingPremadeDesigns(false);
-                            });
+                        void loadPremadeDesigns();
                     }
                 }}
             >
@@ -10505,10 +8808,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <LayoutTemplate className="h-5 w-5 text-primary" />
-                            Premade Designs
+                            Designskabeloner
                         </DialogTitle>
                         <DialogDescription>
-                            Vælg et forudlavet design at anvende på din hjemmeside. Dit nuværende design erstattes.
+                            Gratis skabeloner og skabeloner tildelt af Webprinter kan anvendes på kladden. Du kan fortryde ændringen før publicering.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="py-4">
@@ -10519,7 +8822,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         ) : availablePremadeDesigns.length === 0 ? (
                             <div className="border-2 border-dashed rounded-lg p-8 text-center text-muted-foreground">
                                 <LayoutTemplate className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                                <p className="text-sm">Ingen premade designs tilgængelige</p>
+                                <p className="text-sm">Ingen designskabeloner tilgængelige</p>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -10532,7 +8835,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                 <LayoutTemplate className="w-16 h-16 text-primary/30" />
                                             )}
                                             {design.price > 0 && (
-                                                <Badge className="absolute top-2 right-2">{design.price} kr</Badge>
+                                                <Badge className="absolute top-2 right-2">{design.assignedToShop ? "Tildelt din shop" : "Kræver tildeling"}</Badge>
                                             )}
                                             {design.price === 0 && (
                                                 <Badge variant="secondary" className="absolute top-2 right-2">Gratis</Badge>
@@ -10545,29 +8848,17 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             )}
                                             <Button
                                                 className="w-full"
+                                                disabled={design.price > 0 && !design.assignedToShop && !paidItems.isItemPurchased('premade_design', design.id)}
                                                 onClick={async () => {
+                                                    if (design.price > 0 && !design.assignedToShop && !paidItems.isItemPurchased('premade_design', design.id)) {
+                                                        toast.error('Kontakt Webprinter for at få denne skabelon tildelt din shop.');
+                                                        return;
+                                                    }
                                                     if (design.branding_data) {
                                                         // Apply the design to current draft
                                                         editor.updateDraft(design.branding_data);
 
-                                                        // If design has a price, add to pending purchases
-                                                        if (design.price > 0 && !paidItems.isItemPurchased('premade_design', design.id)) {
-                                                            await paidItems.addPendingItem({
-                                                                type: 'premade_design',
-                                                                itemId: design.id,
-                                                                name: design.name,
-                                                                price: design.price,
-                                                                thumbnailUrl: design.thumbnail_url,
-                                                            });
-                                                            toast.success(
-                                                                `Design "${design.name}" anvendt! Husk: ${design.price} kr skal betales ved publicering.`,
-                                                                { duration: 5000 }
-                                                            );
-                                                        } else if (paidItems.isItemPurchased('premade_design', design.id)) {
-                                                            toast.success(`Design "${design.name}" anvendt! (Allerede købt)`);
-                                                        } else {
-                                                            toast.success(`Design "${design.name}" anvendt!`);
-                                                        }
+                                                        toast.success(`Design "${design.name}" anvendt på kladden.`);
 
                                                         setShowPremadeDesignsDialog(false);
                                                     } else {
@@ -10575,8 +8866,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                     }
                                                 }}
                                             >
-                                                {design.price > 0 && !paidItems.isItemPurchased('premade_design', design.id) ? (
-                                                    <>Anvend design ({design.price} kr)</>
+                                                {design.price > 0 && !design.assignedToShop && !paidItems.isItemPurchased('premade_design', design.id) ? (
+                                                    <>Kontakt Webprinter for tildeling</>
                                                 ) : paidItems.isItemPurchased('premade_design', design.id) ? (
                                                     <>Anvend design ✓</>
                                                 ) : (
@@ -10605,7 +8896,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     if (open) {
                         setLoadingSavedDesigns(true);
                         supabase
-                            .from('premade_designs' as any)
+                            .from('premade_designs')
                             .select('*')
                             .order('created_at', { ascending: false })
                             .then(({ data, error }) => {
@@ -10623,7 +8914,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             Mine Gemte Skabeloner
                         </DialogTitle>
                         <DialogDescription>
-                            Administrer dine gemte premade designs. Rediger, slet, eller tildel til lejere.
+                            Administrer gemte designskabeloner og deres tilgængelighed for shops.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="py-4">
@@ -10711,19 +9002,19 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                                     className="h-8 px-2 text-sm border rounded-md bg-background"
                                                                     defaultValue=""
                                                                     onChange={async (e) => {
-                                                                        const tenantId = e.target.value;
-                                                                        if (tenantId) {
-                                                                            const { data: { user } } = await supabase.auth.getUser();
-                                                                            await supabase
-                                                                                .from('tenant_premade_designs' as any)
-                                                                                .upsert({
-                                                                                    tenant_id: tenantId,
-                                                                                    design_id: design.id,
-                                                                                    granted_by: user?.id
-                                                                                });
+                                                                        const select = e.currentTarget;
+                                                                        const tenantId = select.value;
+                                                                        if (!tenantId) return;
+                                                                        select.disabled = true;
+                                                                        try {
+                                                                            await assignDesignToShop(tenantId, design.id);
                                                                             const tenant = tenantList.find(t => t.id === tenantId);
                                                                             toast.success(`Tildelt til ${tenant?.name || 'lejer'}`);
-                                                                            e.target.value = '';
+                                                                        } catch (error) {
+                                                                            toast.error('Designet blev ikke tildelt. Kontrollér masteradgang og prøv igen.');
+                                                                        } finally {
+                                                                            select.value = '';
+                                                                            select.disabled = false;
                                                                         }
                                                                     }}
                                                                 >
@@ -10771,13 +9062,14 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                                 />
                                                             </div>
                                                             <div>
-                                                                <Label htmlFor="edit-price" className="text-xs">Pris (kr)</Label>
+                                                                <Label htmlFor="edit-price" className="text-xs">Tidligere pris (bevares)</Label>
                                                                 <Input
                                                                     id="edit-price"
                                                                     type="number"
                                                                     min="0"
                                                                     value={editingDesign.price}
-                                                                    onChange={(e) => setEditingDesign(prev => prev ? { ...prev, price: Number(e.target.value) || 0 } : null)}
+                                                                    readOnly
+                                                                    disabled
                                                                     className="h-9"
                                                                 />
                                                             </div>

@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 // POD Tenant Approve and Charge
 // Charges tenant off-session for POD fulfillment job
 
@@ -22,7 +23,7 @@ serve(async (req) => {
 
         const supabaseClient = createClient(
             Deno.env.get("SUPABASE_URL") ?? "",
-            Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+            readSupabaseKey((name) => Deno.env.get(name), "publishable") ?? "",
             { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
         );
 
@@ -44,7 +45,7 @@ serve(async (req) => {
 
         const serviceClient = createClient(
             Deno.env.get("SUPABASE_URL") ?? "",
-            Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+            readSupabaseKey((name) => Deno.env.get(name), "secret") ?? ""
         );
 
         // Get job details
